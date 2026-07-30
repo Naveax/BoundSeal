@@ -1,0 +1,79 @@
+name: NXB-7 patch stream grant
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/nxb7-patch-stream-grant.yml"
+      - "crates/nxb-http1/**"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.ref == 'nxb-7-http1-framing-fixture'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Add read-only stream authority getters
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('crates/nxb-stream/src/model.rs')
+          text = path.read_text()
+          old = '''    pub fn binding_hash(&self) -> &str {
+                  &self.binding_hash
+              }
+          }
+          '''
+          new = '''    pub fn binding_hash(&self) -> &str {
+                  &self.binding_hash
+              }
+
+              pub fn http_host(&self) -> &str {
+                  &self.http_host
+              }
+
+              pub fn scheme(&self) -> &str {
+                  &self.scheme
+              }
+
+              pub fn port(&self) -> u16 {
+                  self.port
+              }
+
+              pub fn sni(&self) -> Option<&str> {
+                  self.sni.as_deref()
+              }
+
+              pub fn redirect_depth(&self) -> u8 {
+                  self.redirect_depth
+              }
+          }
+          '''
+          if old not in text:
+              if 'pub fn http_host(&self)' in text:
+                  raise SystemExit(0)
+              raise SystemExit('StreamGrant getter insertion point not found')
+          path.write_text(text.replace(old, new, 1))
+
+      - name: Format and push
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt
+          cargo +stable fmt --all
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/nxb-stream/src/model.rs crates/nxb-http1 crates/nxb-http1-fixture Cargo.toml
+          git commit -m "NXB-7: expose immutable stream authority metadata"
+          git push origin HEAD:nxb-7-http1-framing-fixture
