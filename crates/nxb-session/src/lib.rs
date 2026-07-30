@@ -35,6 +35,13 @@ pub struct SessionUseContext {
     pub role_id: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionExchangeOptions {
+    pub lease_seconds: i64,
+    pub now_epoch_seconds: i64,
+    pub control: StreamControl,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionStatus {
@@ -264,9 +271,7 @@ impl SessionBroker {
         vault: &mut InMemorySecretVault,
         codec: &mut Http1Codec<B>,
         request: &Http1Request,
-        lease_seconds: i64,
-        now_epoch_seconds: i64,
-        control: StreamControl,
+        options: SessionExchangeOptions,
     ) -> Result<Http1Exchange, SessionError> {
         let state = self
             .sessions
@@ -281,9 +286,9 @@ impl SessionBroker {
                 context,
                 &authority,
                 &scheme,
-                now_epoch_seconds,
+                options.now_epoch_seconds,
             )?;
-            if lease_seconds <= 0 || lease_seconds > MAX_SECRET_LEASE_SECONDS {
+            if options.lease_seconds <= 0 || options.lease_seconds > MAX_SECRET_LEASE_SECONDS {
                 return Err(SessionError::InvalidLeaseDuration);
             }
             let access = VaultAccessContext {
@@ -298,21 +303,21 @@ impl SessionBroker {
             let mut secret_lease = vault.lease(
                 &state.metadata.profile.secret_handles,
                 access,
-                lease_seconds,
-                now_epoch_seconds,
+                options.lease_seconds,
+                options.now_epoch_seconds,
             )?;
             let mut header_lease: SecretHeaderLease = vault.materialize_http_headers(
                 &mut secret_lease,
                 session_id,
                 &request.target,
-                now_epoch_seconds,
+                options.now_epoch_seconds,
             )?;
             codec
                 .exchange_with_secret_headers(
                     request,
                     &mut header_lease,
-                    now_epoch_seconds,
-                    control,
+                    options.now_epoch_seconds,
+                    options.control,
                 )
                 .map_err(SessionError::Http)
         })();
