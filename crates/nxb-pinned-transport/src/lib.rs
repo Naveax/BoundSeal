@@ -48,7 +48,7 @@ pub struct TransportAuditRecord {
     pub record_hash: String,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct TransportAuditChain {
     records: Vec<TransportAuditRecord>,
     tail_hash: String,
@@ -93,6 +93,12 @@ pub struct PinnedTransportCoordinator {
     tickets: TicketAuthority,
     audit: TransportAuditChain,
     ticket_ttl_milliseconds: u64,
+}
+
+impl Default for TransportAuditChain {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TransportAuditChain {
@@ -175,12 +181,6 @@ impl TransportAuditChain {
     }
 }
 
-impl Default for PinnedTransportCoordinator {
-    fn default() -> Self {
-        panic!("PinnedTransportCoordinator requires an explicitly compiled ScopeGateway")
-    }
-}
-
 impl PinnedTransportCoordinator {
     pub fn new(gateway: ScopeGateway) -> Self {
         Self {
@@ -210,7 +210,11 @@ impl PinnedTransportCoordinator {
                 decision_id: None,
                 binding_hash: None,
                 dns_context_id: sanitize_identifier(&intent.dns_context_id),
-                host: intent.url.host_str().unwrap_or("[missing]").to_ascii_lowercase(),
+                host: intent
+                    .url
+                    .host_str()
+                    .unwrap_or("[missing]")
+                    .to_ascii_lowercase(),
                 scheme: intent.url.scheme().to_ascii_lowercase(),
                 selected_ip: selected_ip.to_string(),
                 port: intent.url.port_or_known_default().unwrap_or(0),
@@ -393,7 +397,11 @@ impl PinnedTransportCoordinator {
             scheme: result.attempt.scheme.code().into(),
             selected_ip: result.attempt.remote_ip.to_string(),
             port: result.attempt.port,
-            sni: result.attempt.sni.clone().map(|value| sanitize_host(&value)),
+            sni: result
+                .attempt
+                .sni
+                .clone()
+                .map(|value| sanitize_host(&value)),
             http_host: sanitize_authority(&result.attempt.http_host),
             redirect_depth: result.attempt.redirect_depth,
             elapsed_milliseconds: duration_milliseconds_saturated(elapsed),
@@ -428,9 +436,9 @@ fn sanitize_identifier(value: &str) -> String {
     let value = value.trim();
     if value.is_empty()
         || value.len() > 128
-        || !value.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':')
-        })
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
     {
         return "[invalid]".into();
     }
@@ -566,7 +574,10 @@ mod tests {
             ticket.audit_anchor,
             coordinator.gateway().audit_chain().tail_hash()
         );
-        assert_eq!(coordinator.transport_audit().records()[0].event.status, "issued");
+        assert_eq!(
+            coordinator.transport_audit().records()[0].event.status,
+            "issued"
+        );
         coordinator.transport_audit().verify().unwrap();
     }
 
@@ -608,7 +619,10 @@ mod tests {
             Err(PinnedTransportError::SelectedIpNotResolved)
         ));
         assert_eq!(coordinator.gateway().remaining_requests(), before);
-        assert_eq!(coordinator.transport_audit().records()[0].event.status, "rejected");
+        assert_eq!(
+            coordinator.transport_audit().records()[0].event.status,
+            "rejected"
+        );
     }
 
     #[test]
