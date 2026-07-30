@@ -1,0 +1,9 @@
+[package]
+name = "nxb-budget"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+thiserror.workspace = true
