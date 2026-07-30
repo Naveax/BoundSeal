@@ -9,6 +9,7 @@ publish = false
 nxb-audit = { path = "../nxb-audit" }
 nxb-budget = { path = "../nxb-budget" }
 nxb-destination = { path = "../nxb-destination" }
+nxb-dns = { path = "../nxb-dns" }
 nxb-policy = { path = "../nxb-policy" }
 serde.workspace = true
 thiserror.workspace = true

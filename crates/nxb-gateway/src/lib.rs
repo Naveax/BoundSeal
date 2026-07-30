@@ -1,8 +1,13 @@
-use std::{collections::BTreeMap, net::IpAddr, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    net::IpAddr,
+    time::Duration,
+};
 
-use nxb_audit::{AuditChain, AuditDestination, AuditError, AuditEvent};
+use nxb_audit::{AuditChain, AuditDestination, AuditDns, AuditError, AuditEvent};
 use nxb_budget::{BudgetError, RequestBudget};
 use nxb_destination::{assess_destination, DestinationAssessment, DestinationClass};
+use nxb_dns::{DnsObservation, DnsPinError, DnsPinSet, DnsPinStatus};
 use nxb_policy::CompiledPolicy;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -14,6 +19,9 @@ pub struct RequestIntent {
     pub method: String,
     pub resolved_ips: Vec<IpAddr>,
     pub redirect_depth: u8,
+    pub dns_context_id: String,
+    pub dns_resolver_id: String,
+    pub dns_ttl_seconds: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -33,16 +41,58 @@ impl DecisionOutcome {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DnsObservationErrorKind {
+    InvalidContextId,
+    InvalidResolverId,
+    InvalidHost,
+    EmptyAddressSet,
+    ClockRegression,
+}
+
+impl DnsObservationErrorKind {
+    fn code(&self) -> &'static str {
+        match self {
+            Self::InvalidContextId => "invalid_context_id",
+            Self::InvalidResolverId => "invalid_resolver_id",
+            Self::InvalidHost => "invalid_host",
+            Self::EmptyAddressSet => "empty_address_set",
+            Self::ClockRegression => "clock_regression",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "code", rename_all = "snake_case")]
 pub enum DecisionReason {
     Authorized,
     UrlOrMethodOutOfScope,
     MissingDnsResolution,
-    NonPublicDestination { ip: IpAddr, class: DestinationClass },
-    RedirectLimitExceeded { maximum: u8, observed: u8 },
+    NonPublicDestination {
+        ip: IpAddr,
+        class: DestinationClass,
+    },
+    RedirectLimitExceeded {
+        maximum: u8,
+        observed: u8,
+    },
+    InvalidDnsObservation {
+        kind: DnsObservationErrorKind,
+    },
+    DnsResolverChanged {
+        expected: String,
+        observed: String,
+    },
+    DnsRebindingDetected {
+        host: String,
+        pinned: BTreeSet<IpAddr>,
+        observed: BTreeSet<IpAddr>,
+    },
     TotalBudgetExhausted,
     ConcurrencyExceeded,
-    RateLimited { retry_after_milliseconds: u64 },
+    RateLimited {
+        retry_after_milliseconds: u64,
+    },
 }
 
 impl DecisionReason {
@@ -53,6 +103,9 @@ impl DecisionReason {
             Self::MissingDnsResolution => "missing_dns_resolution",
             Self::NonPublicDestination { .. } => "non_public_destination",
             Self::RedirectLimitExceeded { .. } => "redirect_limit_exceeded",
+            Self::InvalidDnsObservation { .. } => "invalid_dns_observation",
+            Self::DnsResolverChanged { .. } => "dns_resolver_changed",
+            Self::DnsRebindingDetected { .. } => "dns_rebinding_detected",
             Self::TotalBudgetExhausted => "total_budget_exhausted",
             Self::ConcurrencyExceeded => "concurrency_exceeded",
             Self::RateLimited { .. } => "rate_limited",
@@ -69,6 +122,22 @@ impl DecisionReason {
             Self::RedirectLimitExceeded { maximum, observed } => {
                 details.insert("maximum".into(), maximum.to_string());
                 details.insert("observed".into(), observed.to_string());
+            }
+            Self::InvalidDnsObservation { kind } => {
+                details.insert("kind".into(), kind.code().into());
+            }
+            Self::DnsResolverChanged { expected, observed } => {
+                details.insert("expected".into(), expected.clone());
+                details.insert("observed".into(), observed.clone());
+            }
+            Self::DnsRebindingDetected {
+                host,
+                pinned,
+                observed,
+            } => {
+                details.insert("host".into(), host.clone());
+                details.insert("pinned".into(), join_ips(pinned));
+                details.insert("observed".into(), join_ips(observed));
             }
             Self::RateLimited {
                 retry_after_milliseconds,
@@ -99,6 +168,7 @@ pub struct GatewayDecision {
 pub struct ScopeGateway {
     policy: CompiledPolicy,
     budget: RequestBudget,
+    dns_pins: DnsPinSet,
     audit: AuditChain,
     maximum_redirects: u8,
     next_decision_id: u64,
@@ -114,19 +184,41 @@ pub enum GatewayError {
     InvalidRedirectLimit,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum AuditPinStatus {
+    NotEvaluated,
+    Pinned,
+    Matched,
+    Rejected,
+}
+
+impl AuditPinStatus {
+    fn code(self) -> &'static str {
+        match self {
+            Self::NotEvaluated => "not_evaluated",
+            Self::Pinned => "pinned",
+            Self::Matched => "matched",
+            Self::Rejected => "rejected",
+        }
+    }
+}
+
 impl ScopeGateway {
     pub fn new(policy: CompiledPolicy, maximum_redirects: u8) -> Result<Self, GatewayError> {
         if maximum_redirects == 0 {
             return Err(GatewayError::InvalidRedirectLimit);
         }
 
-        // The gateway remains intentionally narrower than the policy's global maximums.
-        // A later policy API will expose rate/concurrency getters without allowing broadening.
-        let budget = RequestBudget::new(policy.maximum_total_requests(), 1, 1.0)?;
+        let budget = RequestBudget::new(
+            policy.maximum_total_requests(),
+            policy.maximum_concurrency(),
+            policy.maximum_requests_per_second(),
+        )?;
 
         Ok(Self {
             policy,
             budget,
+            dns_pins: DnsPinSet::new(),
             audit: AuditChain::new(),
             maximum_redirects,
             next_decision_id: 1,
@@ -144,8 +236,8 @@ impl ScopeGateway {
             .copied()
             .map(assess_destination)
             .collect();
-        let decision = self.evaluate(intent, elapsed, &assessments);
-        let event = audit_event(intent, elapsed, &assessments, &decision);
+        let (decision, pin_status) = self.evaluate(intent, elapsed, &assessments);
+        let event = audit_event(intent, elapsed, &assessments, &decision, pin_status);
 
         // A decision is not returned to a caller unless its audit record was committed.
         self.audit.append(event)?;
@@ -156,8 +248,20 @@ impl ScopeGateway {
         self.budget.finish();
     }
 
+    pub fn release_dns_context(&mut self, context_id: &str) -> usize {
+        self.dns_pins.release_context(context_id)
+    }
+
     pub fn remaining_requests(&self) -> u64 {
         self.budget.remaining()
+    }
+
+    pub fn in_flight_requests(&self) -> u16 {
+        self.budget.in_flight()
+    }
+
+    pub fn dns_pin_count(&self) -> usize {
+        self.dns_pins.len()
     }
 
     pub fn audit_chain(&self) -> &AuditChain {
@@ -173,38 +277,75 @@ impl ScopeGateway {
         intent: &RequestIntent,
         elapsed: Duration,
         assessments: &[DestinationAssessment],
-    ) -> GatewayDecision {
+    ) -> (GatewayDecision, AuditPinStatus) {
         let decision_id = self.allocate_decision_id();
 
         if intent.redirect_depth > self.maximum_redirects {
-            return deny(
-                decision_id,
-                DecisionReason::RedirectLimitExceeded {
-                    maximum: self.maximum_redirects,
-                    observed: intent.redirect_depth,
-                },
+            return (
+                deny(
+                    decision_id,
+                    DecisionReason::RedirectLimitExceeded {
+                        maximum: self.maximum_redirects,
+                        observed: intent.redirect_depth,
+                    },
+                ),
+                AuditPinStatus::NotEvaluated,
             );
         }
 
         if !self.policy.allows_request(&intent.url, &intent.method) {
-            return deny(decision_id, DecisionReason::UrlOrMethodOutOfScope);
-        }
-
-        if assessments.is_empty() {
-            return deny(decision_id, DecisionReason::MissingDnsResolution);
-        }
-
-        if let Some(assessment) = assessments.iter().find(|value| !value.is_allowed()) {
-            return deny(
-                decision_id,
-                DecisionReason::NonPublicDestination {
-                    ip: assessment.ip,
-                    class: assessment.class,
-                },
+            return (
+                deny(decision_id, DecisionReason::UrlOrMethodOutOfScope),
+                AuditPinStatus::NotEvaluated,
             );
         }
 
-        match self.budget.try_start(elapsed) {
+        if assessments.is_empty() {
+            return (
+                deny(decision_id, DecisionReason::MissingDnsResolution),
+                AuditPinStatus::NotEvaluated,
+            );
+        }
+
+        if let Some(assessment) = assessments.iter().find(|value| !value.is_allowed()) {
+            return (
+                deny(
+                    decision_id,
+                    DecisionReason::NonPublicDestination {
+                        ip: assessment.ip,
+                        class: assessment.class,
+                    },
+                ),
+                AuditPinStatus::NotEvaluated,
+            );
+        }
+
+        let host = intent
+            .url
+            .host_str()
+            .expect("an allowed request always has a host")
+            .to_string();
+        let observation = DnsObservation {
+            context_id: intent.dns_context_id.clone(),
+            host,
+            addresses: intent.resolved_ips.iter().copied().collect(),
+            resolver_id: intent.dns_resolver_id.clone(),
+            ttl_seconds: intent.dns_ttl_seconds,
+            observed_at_milliseconds: duration_milliseconds_saturated(elapsed),
+        };
+
+        let pin_status = match self.dns_pins.pin_or_validate(observation) {
+            Ok(DnsPinStatus::Pinned) => AuditPinStatus::Pinned,
+            Ok(DnsPinStatus::Matched) => AuditPinStatus::Matched,
+            Err(error) => {
+                return (
+                    deny(decision_id, map_dns_error(error)),
+                    AuditPinStatus::Rejected,
+                )
+            }
+        };
+
+        let decision = match self.budget.try_start(elapsed) {
             Ok(()) => GatewayDecision {
                 decision_id,
                 outcome: DecisionOutcome::Allow,
@@ -223,13 +364,47 @@ impl ScopeGateway {
             Err(BudgetError::InvalidConfiguration(_)) => {
                 unreachable!("gateway validates its budget during construction")
             }
-        }
+        };
+
+        (decision, pin_status)
     }
 
     fn allocate_decision_id(&mut self) -> String {
         let value = self.next_decision_id;
         self.next_decision_id = self.next_decision_id.saturating_add(1);
         format!("decision-{value:020}")
+    }
+}
+
+fn map_dns_error(error: DnsPinError) -> DecisionReason {
+    match error {
+        DnsPinError::InvalidContextId => DecisionReason::InvalidDnsObservation {
+            kind: DnsObservationErrorKind::InvalidContextId,
+        },
+        DnsPinError::InvalidResolverId => DecisionReason::InvalidDnsObservation {
+            kind: DnsObservationErrorKind::InvalidResolverId,
+        },
+        DnsPinError::InvalidHost => DecisionReason::InvalidDnsObservation {
+            kind: DnsObservationErrorKind::InvalidHost,
+        },
+        DnsPinError::EmptyAddressSet => DecisionReason::InvalidDnsObservation {
+            kind: DnsObservationErrorKind::EmptyAddressSet,
+        },
+        DnsPinError::ClockRegression => DecisionReason::InvalidDnsObservation {
+            kind: DnsObservationErrorKind::ClockRegression,
+        },
+        DnsPinError::ResolverChanged { expected, observed } => {
+            DecisionReason::DnsResolverChanged { expected, observed }
+        }
+        DnsPinError::RebindingDetected {
+            host,
+            pinned,
+            observed,
+        } => DecisionReason::DnsRebindingDetected {
+            host,
+            pinned,
+            observed,
+        },
     }
 }
 
@@ -246,6 +421,7 @@ fn audit_event(
     elapsed: Duration,
     assessments: &[DestinationAssessment],
     decision: &GatewayDecision,
+    pin_status: AuditPinStatus,
 ) -> AuditEvent {
     AuditEvent {
         decision_id: decision.decision_id.clone(),
@@ -262,6 +438,12 @@ fn audit_event(
                 allowed: assessment.is_allowed(),
             })
             .collect(),
+        dns: AuditDns {
+            context_id: sanitized_dns_identifier(&intent.dns_context_id),
+            resolver_id: sanitized_dns_identifier(&intent.dns_resolver_id),
+            ttl_seconds: intent.dns_ttl_seconds,
+            pin_status: pin_status.code().into(),
+        },
         redirect_depth: intent.redirect_depth,
         elapsed_milliseconds: duration_milliseconds_saturated(elapsed),
     }
@@ -274,6 +456,27 @@ fn sanitized_audit_url(url: &Url) -> String {
     sanitized.to_string()
 }
 
+fn sanitized_dns_identifier(value: &str) -> String {
+    let value = value.trim();
+    if value.is_empty()
+        || value.len() > 128
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+    {
+        return "[invalid]".into();
+    }
+    value.to_ascii_lowercase()
+}
+
+fn join_ips(values: &BTreeSet<IpAddr>) -> String {
+    values
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 fn duration_milliseconds_saturated(duration: Duration) -> u64 {
     duration.as_millis().min(u128::from(u64::MAX)) as u64
 }
@@ -284,13 +487,14 @@ mod tests {
 
     use chrono::{Duration as ChronoDuration, Utc};
     use nxb_policy::{
-        AuthorizationPolicy, AutomationPolicy, ProgramPolicy, ScopePolicy, TargetPolicy,
+        AuthorizationPolicy, AutomationPolicy, ChildPolicy, ProgramPolicy, ScopePolicy,
+        TargetPolicy,
     };
 
     use super::*;
 
-    fn gateway() -> ScopeGateway {
-        let policy = TargetPolicy {
+    fn target_policy() -> TargetPolicy {
+        TargetPolicy {
             schema_version: 1,
             program: ProgramPolicy {
                 name: "Example".into(),
@@ -320,9 +524,10 @@ mod tests {
                 expires_at: Utc::now() + ChronoDuration::days(1),
             },
         }
-        .compile(Utc::now())
-        .unwrap();
+    }
 
+    fn gateway() -> ScopeGateway {
+        let policy = target_policy().compile(Utc::now()).unwrap();
         ScopeGateway::new(policy, 5).unwrap()
     }
 
@@ -332,6 +537,9 @@ mod tests {
             method: "GET".into(),
             resolved_ips: vec![ip.parse().unwrap()],
             redirect_depth: 0,
+            dns_context_id: "navigation-1".into(),
+            dns_resolver_id: "system-resolver".into(),
+            dns_ttl_seconds: 60,
         }
     }
 
@@ -342,8 +550,30 @@ mod tests {
             .authorize(&intent("8.8.8.8"), Duration::ZERO)
             .unwrap();
         assert_eq!(decision.outcome, DecisionOutcome::Allow);
+        assert_eq!(
+            gateway.audit_chain().records()[0].event.dns.pin_status,
+            "pinned"
+        );
         gateway.complete_request();
         gateway.verify_audit_chain().unwrap();
+    }
+
+    #[test]
+    fn matching_dns_set_is_reused_inside_context() {
+        let mut gateway = gateway();
+        gateway
+            .authorize(&intent("8.8.8.8"), Duration::ZERO)
+            .unwrap();
+        gateway.complete_request();
+        gateway
+            .authorize(&intent("8.8.8.8"), Duration::from_millis(10))
+            .unwrap();
+
+        assert_eq!(
+            gateway.audit_chain().records()[1].event.dns.pin_status,
+            "matched"
+        );
+        assert_eq!(gateway.dns_pin_count(), 1);
     }
 
     #[test]
@@ -360,6 +590,7 @@ mod tests {
             }
         );
         assert_eq!(gateway.remaining_requests(), 3);
+        assert_eq!(gateway.dns_pin_count(), 0);
     }
 
     #[test]
@@ -378,12 +609,91 @@ mod tests {
     }
 
     #[test]
-    fn denies_scope_escape() {
+    fn denies_public_to_public_dns_rebinding_without_spending_budget() {
+        let mut gateway = gateway();
+        gateway
+            .authorize(&intent("8.8.8.8"), Duration::ZERO)
+            .unwrap();
+        gateway.complete_request();
+        assert_eq!(gateway.remaining_requests(), 2);
+
+        let decision = gateway
+            .authorize(&intent("1.1.1.1"), Duration::from_millis(10))
+            .unwrap();
+        assert!(matches!(
+            decision.reason,
+            DecisionReason::DnsRebindingDetected { .. }
+        ));
+        assert_eq!(gateway.remaining_requests(), 2);
+        assert_eq!(
+            gateway.audit_chain().records()[1].event.dns.pin_status,
+            "rejected"
+        );
+    }
+
+    #[test]
+    fn separate_dns_context_can_pin_a_different_public_set() {
+        let mut gateway = gateway();
+        gateway
+            .authorize(&intent("8.8.8.8"), Duration::ZERO)
+            .unwrap();
+        gateway.complete_request();
+
+        let mut second = intent("1.1.1.1");
+        second.dns_context_id = "navigation-2".into();
+        let decision = gateway
+            .authorize(&second, Duration::from_millis(10))
+            .unwrap();
+        assert_eq!(decision.outcome, DecisionOutcome::Allow);
+        assert_eq!(gateway.dns_pin_count(), 2);
+    }
+
+    #[test]
+    fn rejects_resolver_change_inside_context() {
+        let mut gateway = gateway();
+        gateway
+            .authorize(&intent("8.8.8.8"), Duration::ZERO)
+            .unwrap();
+        gateway.complete_request();
+
+        let mut changed = intent("8.8.8.8");
+        changed.dns_resolver_id = "alternate-resolver".into();
+        let decision = gateway
+            .authorize(&changed, Duration::from_millis(10))
+            .unwrap();
+        assert!(matches!(
+            decision.reason,
+            DecisionReason::DnsResolverChanged { .. }
+        ));
+    }
+
+    #[test]
+    fn releasing_context_allows_a_fresh_pin() {
+        let mut gateway = gateway();
+        gateway
+            .authorize(&intent("8.8.8.8"), Duration::ZERO)
+            .unwrap();
+        gateway.complete_request();
+        assert_eq!(gateway.release_dns_context("navigation-1"), 1);
+
+        let decision = gateway
+            .authorize(&intent("1.1.1.1"), Duration::from_secs(1))
+            .unwrap();
+        assert_eq!(decision.outcome, DecisionOutcome::Allow);
+        assert_eq!(
+            gateway.audit_chain().records()[1].event.dns.pin_status,
+            "pinned"
+        );
+    }
+
+    #[test]
+    fn denies_scope_escape_before_dns_pinning() {
         let mut gateway = gateway();
         let mut request = intent("8.8.8.8");
         request.url = Url::parse("https://outside.example.net/").unwrap();
         let decision = gateway.authorize(&request, Duration::ZERO).unwrap();
         assert_eq!(decision.reason, DecisionReason::UrlOrMethodOutOfScope);
+        assert_eq!(gateway.dns_pin_count(), 0);
     }
 
     #[test]
@@ -407,19 +717,7 @@ mod tests {
     }
 
     #[test]
-    fn enforces_redirect_limit() {
-        let mut gateway = gateway();
-        let mut request = intent("8.8.8.8");
-        request.redirect_depth = 6;
-        let decision = gateway.authorize(&request, Duration::ZERO).unwrap();
-        assert!(matches!(
-            decision.reason,
-            DecisionReason::RedirectLimitExceeded { .. }
-        ));
-    }
-
-    #[test]
-    fn enforces_concurrency_before_rate() {
+    fn uses_policy_concurrency_limit() {
         let mut gateway = gateway();
         assert_eq!(
             gateway
@@ -428,10 +726,79 @@ mod tests {
                 .outcome,
             DecisionOutcome::Allow
         );
-        let second = gateway
-            .authorize(&intent("1.1.1.1"), Duration::from_millis(10))
+
+        let mut second = intent("8.8.8.8");
+        second.dns_context_id = "navigation-2".into();
+        assert_eq!(
+            gateway.authorize(&second, Duration::ZERO).unwrap().outcome,
+            DecisionOutcome::Allow
+        );
+
+        let mut third = intent("8.8.8.8");
+        third.dns_context_id = "navigation-3".into();
+        let decision = gateway.authorize(&third, Duration::ZERO).unwrap();
+        assert_eq!(decision.reason, DecisionReason::ConcurrencyExceeded);
+    }
+
+    #[test]
+    fn uses_policy_rate_limit() {
+        let mut gateway = gateway();
+        gateway
+            .authorize(&intent("8.8.8.8"), Duration::ZERO)
             .unwrap();
-        assert_eq!(second.reason, DecisionReason::ConcurrencyExceeded);
+        gateway.complete_request();
+
+        let mut second = intent("8.8.8.8");
+        second.dns_context_id = "navigation-2".into();
+        gateway.authorize(&second, Duration::ZERO).unwrap();
+        gateway.complete_request();
+
+        let mut third = intent("8.8.8.8");
+        third.dns_context_id = "navigation-3".into();
+        let decision = gateway.authorize(&third, Duration::ZERO).unwrap();
+        assert!(matches!(
+            decision.reason,
+            DecisionReason::RateLimited { .. }
+        ));
+    }
+
+    #[test]
+    fn narrowed_child_budget_is_enforced_by_gateway() {
+        let now = Utc::now();
+        let parent = target_policy().compile(now).unwrap();
+        let narrowed = parent
+            .narrow(
+                ChildPolicy {
+                    max_requests_per_second: Some(0.5),
+                    max_concurrency: Some(1),
+                    max_total_requests: Some(2),
+                    ..ChildPolicy::default()
+                },
+                now,
+            )
+            .unwrap();
+        let mut gateway = ScopeGateway::new(narrowed, 5).unwrap();
+
+        gateway
+            .authorize(&intent("8.8.8.8"), Duration::ZERO)
+            .unwrap();
+        let concurrent = gateway
+            .authorize(&intent("8.8.8.8"), Duration::from_millis(10))
+            .unwrap();
+        assert_eq!(concurrent.reason, DecisionReason::ConcurrencyExceeded);
+        gateway.complete_request();
+
+        let rate_limited = gateway
+            .authorize(&intent("8.8.8.8"), Duration::from_secs(1))
+            .unwrap();
+        assert!(matches!(
+            rate_limited.reason,
+            DecisionReason::RateLimited { .. }
+        ));
+        let allowed = gateway
+            .authorize(&intent("8.8.8.8"), Duration::from_secs(2))
+            .unwrap();
+        assert_eq!(allowed.outcome, DecisionOutcome::Allow);
     }
 
     #[test]
@@ -447,6 +814,8 @@ mod tests {
         assert_eq!(record.event.url, "https://app.example.com/api/me");
         assert!(!record.event.url.contains("secret"));
         assert_eq!(record.event.reason_code, "non_public_destination");
+        assert_eq!(record.event.dns.context_id, "navigation-1");
+        assert_eq!(record.event.dns.resolver_id, "system-resolver");
         gateway.verify_audit_chain().unwrap();
     }
 }

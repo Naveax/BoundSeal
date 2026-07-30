@@ -14,6 +14,14 @@ pub struct AuditDestination {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuditDns {
+    pub context_id: String,
+    pub resolver_id: String,
+    pub ttl_seconds: u32,
+    pub pin_status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AuditEvent {
     pub decision_id: String,
     pub outcome: String,
@@ -22,6 +30,7 @@ pub struct AuditEvent {
     pub method: String,
     pub url: String,
     pub resolved_destinations: Vec<AuditDestination>,
+    pub dns: AuditDns,
     pub redirect_depth: u8,
     pub elapsed_milliseconds: u64,
 }
@@ -187,6 +196,12 @@ mod tests {
                 class: "loopback".into(),
                 allowed: false,
             }],
+            dns: AuditDns {
+                context_id: "fixture-context".into(),
+                resolver_id: "fixture-resolver".into(),
+                ttl_seconds: 60,
+                pin_status: "not_evaluated".into(),
+            },
             redirect_depth: 0,
             elapsed_milliseconds: 0,
         }
@@ -219,6 +234,20 @@ mod tests {
             .append(event("decision-1", "https://example.test/a"))
             .unwrap();
         chain.records[0].event.method = "POST".into();
+
+        assert_eq!(
+            chain.verify(),
+            Err(AuditError::RecordHashMismatch { record_index: 0 })
+        );
+    }
+
+    #[test]
+    fn detects_modified_dns_provenance() {
+        let mut chain = AuditChain::new();
+        chain
+            .append(event("decision-1", "https://example.test/a"))
+            .unwrap();
+        chain.records[0].event.dns.resolver_id = "altered-resolver".into();
 
         assert_eq!(
             chain.verify(),

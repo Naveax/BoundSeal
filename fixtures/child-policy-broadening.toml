@@ -1,0 +1,8 @@
+# This fixture must be rejected when the parent allows only app.example.com.
+include_hosts = ["outside.example.net"]
+allowed_methods = ["GET", "DELETE"]
+active_testing = true
+max_requests_per_second = 5.0
+max_concurrency = 8
+max_total_requests = 100000
+expires_at = 2030-01-01T00:00:00Z
