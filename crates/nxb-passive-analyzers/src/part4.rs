@@ -141,9 +141,12 @@ impl PassiveAnalyzer for CorsAnalyzer {
             )?;
         }
         if allow_origin.is_some()
-            && response
-                .first_text("vary")
-                .map_or(true, |value| !value.to_ascii_lowercase().split(',').any(|part| part.trim() == "origin"))
+            && response.first_text("vary").is_none_or(|value| {
+                !value
+                    .to_ascii_lowercase()
+                    .split(',')
+                    .any(|part| part.trim() == "origin")
+            })
             && allow_origin.as_deref() != Some("*")
         {
             push_finding(
@@ -179,4 +182,3 @@ impl PassiveAnalyzer for CorsAnalyzer {
 
 #[derive(Debug, Default)]
 pub struct CachePolicyAnalyzer;
-
