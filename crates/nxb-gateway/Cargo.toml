@@ -6,7 +6,9 @@ authors.workspace = true
 publish = false
 
 [dependencies]
+nxb-audit = { path = "../nxb-audit" }
 nxb-budget = { path = "../nxb-budget" }
+nxb-destination = { path = "../nxb-destination" }
 nxb-policy = { path = "../nxb-policy" }
 serde.workspace = true
 thiserror.workspace = true
