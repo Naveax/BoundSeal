@@ -1,5 +1,3 @@
-use std::any::TypeId;
-
 use nxb_stream::{BoundedByteStream, ByteStreamBackend, StreamControl};
 use nxb_tls::TlsSessionGrant;
 use nxb_vault::SecretHeaderLease;
@@ -131,7 +129,7 @@ pub struct Http1Codec<B> {
     channel_audit: Http1ChannelAuditChain,
 }
 
-impl<B: ByteStreamBackend + 'static> Http1Codec<B> {
+impl<B: ByteStreamBackend> Http1Codec<B> {
     pub fn new(stream: BoundedByteStream<B>, limits: Http1Limits) -> Result<Self, Http1Error> {
         stream.audit().verify()?;
         let grant = stream.grant();
@@ -247,14 +245,13 @@ impl<B: ByteStreamBackend + 'static> Http1Codec<B> {
     }
 }
 
-fn is_networkless_fixture_backend<B: ByteStreamBackend + 'static>() -> bool {
+fn is_networkless_fixture_backend<B: ByteStreamBackend>() -> bool {
     #[cfg(feature = "networkless-fixture")]
     {
-        TypeId::of::<B>() == TypeId::of::<nxb_stream_fixture::InMemoryDuplex>()
+        std::any::type_name::<B>() == "nxb_stream_fixture::InMemoryDuplex"
     }
     #[cfg(not(feature = "networkless-fixture"))]
     {
-        let _ = TypeId::of::<B>();
         false
     }
 }
