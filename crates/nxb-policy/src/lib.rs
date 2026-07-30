@@ -92,7 +92,10 @@ impl TargetPolicy {
         let allowed_schemes = normalize_schemes(&self.scope.allowed_schemes)?;
         let allowed_methods = normalize_methods(&self.scope.allowed_methods)?;
 
-        if include_hosts.iter().any(|host| exclude_hosts.contains(host)) {
+        if include_hosts
+            .iter()
+            .any(|host| exclude_hosts.contains(host))
+        {
             return Err(PolicyError::Invalid(
                 "a host cannot be present in both include_hosts and exclude_hosts".into(),
             ));
@@ -215,8 +218,7 @@ fn validate_top_level(policy: &TargetPolicy, now: DateTime<Utc>) -> Result<(), P
         )));
     }
 
-    if policy.automation.max_concurrency == 0
-        || policy.automation.max_concurrency > MAX_CONCURRENCY
+    if policy.automation.max_concurrency == 0 || policy.automation.max_concurrency > MAX_CONCURRENCY
     {
         return Err(PolicyError::Invalid(format!(
             "max_concurrency must be between 1 and {MAX_CONCURRENCY}"
@@ -358,7 +360,10 @@ pub fn is_public_destination(ip: IpAddr) -> bool {
                 && !ip.is_multicast()
                 && !unique_local
                 && !link_local
-                && ip.to_ipv4_mapped().map(is_public_destination_v4).unwrap_or(true)
+                && ip
+                    .to_ipv4_mapped()
+                    .map(is_public_destination_v4)
+                    .unwrap_or(true)
         }
     }
 }
@@ -420,10 +425,9 @@ mod tests {
             &Url::parse("https://status.app.example.com/").unwrap(),
             "GET"
         ));
-        assert!(!compiled.allows_request(
-            &Url::parse("https://app.example.com/").unwrap(),
-            "DELETE"
-        ));
+        assert!(
+            !compiled.allows_request(&Url::parse("https://app.example.com/").unwrap(), "DELETE")
+        );
     }
 
     #[test]
@@ -443,10 +447,20 @@ mod tests {
 
     #[test]
     fn destination_guard_rejects_non_public_ranges() {
-        for value in ["127.0.0.1", "10.1.2.3", "192.168.1.10", "169.254.1.1", "::1", "fc00::1", "fe80::1"] {
+        for value in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "192.168.1.10",
+            "169.254.1.1",
+            "::1",
+            "fc00::1",
+            "fe80::1",
+        ] {
             assert!(!is_public_destination(value.parse::<IpAddr>().unwrap()));
         }
         assert!(is_public_destination("8.8.8.8".parse().unwrap()));
-        assert!(is_public_destination("2606:4700:4700::1111".parse().unwrap()));
+        assert!(is_public_destination(
+            "2606:4700:4700::1111".parse().unwrap()
+        ));
     }
 }
