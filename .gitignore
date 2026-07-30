@@ -1,0 +1,15 @@
+/target/
+/.idea/
+/.vscode/
+*.swp
+*.tmp
+*.log
+.env
+.env.*
+!.env.example
+sessions/
+evidence/
+runs/
+secrets/
+*.har
+*.trace.zip

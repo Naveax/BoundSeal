@@ -1,0 +1,19 @@
+{
+  "schema": "nxb.event.v1",
+  "event_id": "evt-example-001",
+  "run_id": "run-example-001",
+  "source": "fixture",
+  "kind": "endpoint_observed",
+  "captured_at": "2026-07-30T13:45:00Z",
+  "asset": "https://app.example.com",
+  "data": {
+    "method": "GET",
+    "path_template": "/api/me"
+  },
+  "provenance": {
+    "tool_name": "nxb-fixture",
+    "tool_version": "0.1.0",
+    "tool_commit": "abcdef0",
+    "policy_decision_id": "decision-example-001"
+  }
+}
