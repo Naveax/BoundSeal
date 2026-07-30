@@ -38,19 +38,11 @@ pub enum DecisionReason {
     Authorized,
     UrlOrMethodOutOfScope,
     MissingDnsResolution,
-    NonPublicDestination {
-        ip: IpAddr,
-        class: DestinationClass,
-    },
-    RedirectLimitExceeded {
-        maximum: u8,
-        observed: u8,
-    },
+    NonPublicDestination { ip: IpAddr, class: DestinationClass },
+    RedirectLimitExceeded { maximum: u8, observed: u8 },
     TotalBudgetExhausted,
     ConcurrencyExceeded,
-    RateLimited {
-        retry_after_milliseconds: u64,
-    },
+    RateLimited { retry_after_milliseconds: u64 },
 }
 
 impl DecisionReason {
@@ -446,10 +438,9 @@ mod tests {
     fn audits_denials_and_redacts_url_secrets() {
         let mut gateway = gateway();
         let mut request = intent("127.0.0.1");
-        request.url = Url::parse(
-            "https://app.example.com/api/me?access_token=secret#private-fragment",
-        )
-        .unwrap();
+        request.url =
+            Url::parse("https://app.example.com/api/me?access_token=secret#private-fragment")
+                .unwrap();
 
         gateway.authorize(&request, Duration::ZERO).unwrap();
         let record = &gateway.audit_chain().records()[0];
