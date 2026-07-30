@@ -1,0 +1,18 @@
+[package]
+name = "nxb-local-executor"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+nxb-executor = { path = "../nxb-executor" }
+nxb-pinned-transport = { path = "../nxb-pinned-transport" }
+nxb-transport = { path = "../nxb-transport" }
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+chrono.workspace = true
+nxb-gateway = { path = "../nxb-gateway" }
+nxb-policy = { path = "../nxb-policy" }
+url.workspace = true
