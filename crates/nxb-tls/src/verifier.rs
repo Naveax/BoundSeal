@@ -7,9 +7,9 @@ use crate::{
     audit::{hex_sha256, TlsAuditChain, TlsAuditError, TlsAuditEvent},
     identity::{expected_http_authority, match_dns_san, normalize_dns_name},
     model::{
-        is_lower_hex_sha256, SyntheticCertificate, TlsHandshakeObservation,
-        TlsPeerVerifierConfig, TlsProtocolVersion, TlsRejectionReason, TlsSessionGrant,
-        TlsTrustStore, TlsVerificationDecision, TlsVerificationOutcome,
+        is_lower_hex_sha256, SyntheticCertificate, TlsHandshakeObservation, TlsPeerVerifierConfig,
+        TlsProtocolVersion, TlsRejectionReason, TlsSessionGrant, TlsTrustStore,
+        TlsVerificationDecision, TlsVerificationOutcome,
     },
 };
 
@@ -79,10 +79,7 @@ impl TlsPeerVerifier {
     ) -> Result<TlsVerificationDecision, TlsVerifierError> {
         let verification_id = self.allocate_verification_id();
         let evaluation = self.evaluate(stream, observation, now_epoch_seconds);
-        let tls_session_id = evaluation
-            .as_ref()
-            .ok()
-            .map(|_| self.allocate_session_id());
+        let tls_session_id = evaluation.as_ref().ok().map(|_| self.allocate_session_id());
         let (outcome, material, reason, details) = match evaluation {
             Ok(material) => (
                 TlsVerificationOutcome::Verified,
@@ -94,9 +91,7 @@ impl TlsPeerVerifier {
                 let details = rejection.details();
                 let reason = rejection.code().to_string();
                 (
-                    TlsVerificationOutcome::Rejected {
-                        reason: rejection,
-                    },
+                    TlsVerificationOutcome::Rejected { reason: rejection },
                     None,
                     reason,
                     details,
@@ -401,9 +396,7 @@ fn validate_certificate_metadata(
         || certificate.encoded_bytes == 0
         || certificate.not_before_epoch_seconds > certificate.not_after_epoch_seconds
     {
-        return Err(TlsRejectionReason::InvalidCertificateMetadata {
-            certificate_index,
-        });
+        return Err(TlsRejectionReason::InvalidCertificateMetadata { certificate_index });
     }
     Ok(())
 }

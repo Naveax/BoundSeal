@@ -8,9 +8,7 @@ use nxb_executor::{
 use nxb_gateway::{RequestIntent, ScopeGateway};
 use nxb_local_executor::LocalExecutionPipeline;
 use nxb_pinned_transport::PinnedTransportCoordinator;
-use nxb_policy::{
-    AuthorizationPolicy, AutomationPolicy, ProgramPolicy, ScopePolicy, TargetPolicy,
-};
+use nxb_policy::{AuthorizationPolicy, AutomationPolicy, ProgramPolicy, ScopePolicy, TargetPolicy};
 use nxb_stream::{BoundedByteStream, StreamLimits};
 use nxb_stream_fixture::InMemoryDuplex;
 use nxb_tls::*;
@@ -226,7 +224,10 @@ fn wrong_host_is_rejected_even_when_common_name_matches() {
     observed.chain[0].dns_sans = vec!["other.example.com".into()];
     observed.chain[0].common_name = Some("app.example.com".into());
     let decision = verifier.verify(&stream, &observed, NOW).unwrap();
-    assert_eq!(rejected_reason(decision), TlsRejectionReason::HostnameMismatch);
+    assert_eq!(
+        rejected_reason(decision),
+        TlsRejectionReason::HostnameMismatch
+    );
 }
 
 #[test]
@@ -249,7 +250,10 @@ fn conservative_wildcard_matches_one_label_only() {
     let mut verifier = verifier();
     let mut observed = observation();
     observed.chain[0].dns_sans = vec!["*.example.com".into()];
-    assert!(verifier.verify(&stream, &observed, NOW).unwrap().is_verified());
+    assert!(verifier
+        .verify(&stream, &observed, NOW)
+        .unwrap()
+        .is_verified());
 
     let stream = stream_for("https");
     let mut verifier = verifier();

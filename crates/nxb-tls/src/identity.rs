@@ -98,8 +98,8 @@ fn valid_label(label: &str) -> bool {
 
 fn wildcard_base_is_too_broad(base: &str) -> bool {
     const PUBLIC_SUFFIX_LIKE: &[&str] = &[
-        "com", "net", "org", "edu", "gov", "mil", "int", "io", "dev", "app",
-        "co.uk", "org.uk", "ac.uk", "co.jp", "com.tr", "com.au", "co.nz",
+        "com", "net", "org", "edu", "gov", "mil", "int", "io", "dev", "app", "co.uk", "org.uk",
+        "ac.uk", "co.jp", "com.tr", "com.au", "co.nz",
     ];
     PUBLIC_SUFFIX_LIKE.contains(&base)
 }

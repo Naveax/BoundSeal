@@ -55,9 +55,7 @@ impl TlsLimits {
     }
 
     pub(crate) fn validate(&self) -> Result<(), String> {
-        if self.maximum_chain_depth == 0
-            || self.maximum_chain_depth > MAX_CERTIFICATE_CHAIN_DEPTH
-        {
+        if self.maximum_chain_depth == 0 || self.maximum_chain_depth > MAX_CERTIFICATE_CHAIN_DEPTH {
             return Err("certificate chain depth is outside the supported range".into());
         }
         if self.maximum_certificate_bytes == 0
@@ -107,9 +105,7 @@ pub struct TlsTrustStore {
 }
 
 impl TlsTrustStore {
-    pub fn new(
-        fingerprints: impl IntoIterator<Item = String>,
-    ) -> Result<Self, &'static str> {
+    pub fn new(fingerprints: impl IntoIterator<Item = String>) -> Result<Self, &'static str> {
         let trusted_root_fingerprints = fingerprints.into_iter().collect::<BTreeSet<_>>();
         if trusted_root_fingerprints.is_empty() {
             return Err("TLS trust store must contain at least one root fingerprint");
