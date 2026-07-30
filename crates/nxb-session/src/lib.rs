@@ -703,9 +703,11 @@ mod tests {
                 &mut vault,
                 &mut codec,
                 &request,
-                30,
-                101,
-                StreamControl::default(),
+                SessionExchangeOptions {
+                    lease_seconds: 30,
+                    now_epoch_seconds: 101,
+                    control: StreamControl::default(),
+                },
             )
             .unwrap();
         assert_eq!(exchange.response.status_code, 200);
@@ -765,9 +767,11 @@ mod tests {
                 &mut vault,
                 &mut codec,
                 &Http1Request::new("GET", "/"),
-                30,
-                101,
-                StreamControl::default(),
+                SessionExchangeOptions {
+                    lease_seconds: 30,
+                    now_epoch_seconds: 101,
+                    control: StreamControl::default(),
+                },
             ),
             Err(SessionError::SessionRevoked)
         ));
