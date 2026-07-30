@@ -4,6 +4,7 @@ members = [
     "crates/nxb-budget",
     "crates/nxb-core",
     "crates/nxb-destination",
+    "crates/nxb-dns",
     "crates/nxb-events",
     "crates/nxb-gateway",
     "crates/nxb-policy",
