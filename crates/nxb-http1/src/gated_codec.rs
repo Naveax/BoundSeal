@@ -1,3 +1,5 @@
+use std::any::TypeId;
+
 use nxb_stream::{BoundedByteStream, ByteStreamBackend, StreamControl};
 use nxb_tls::TlsSessionGrant;
 use nxb_vault::SecretHeaderLease;
@@ -13,6 +15,7 @@ use crate::{
 pub enum Http1ChannelKind {
     PlainHttp,
     VerifiedTls,
+    NetworklessFixture,
 }
 
 impl Http1ChannelKind {
@@ -20,6 +23,7 @@ impl Http1ChannelKind {
         match self {
             Self::PlainHttp => "plain_http",
             Self::VerifiedTls => "verified_tls",
+            Self::NetworklessFixture => "networkless_fixture",
         }
     }
 }
@@ -129,19 +133,23 @@ pub struct Http1Codec<B> {
     channel_audit: Http1ChannelAuditChain,
 }
 
-impl<B: ByteStreamBackend> Http1Codec<B> {
+impl<B: ByteStreamBackend + 'static> Http1Codec<B> {
     pub fn new(stream: BoundedByteStream<B>, limits: Http1Limits) -> Result<Self, Http1Error> {
         stream.audit().verify()?;
         let grant = stream.grant();
-        if grant.scheme() != "http" || grant.sni().is_some() {
+        let kind = if grant.scheme() == "http" && grant.sni().is_none() {
+            Http1ChannelKind::PlainHttp
+        } else if is_networkless_fixture_backend::<B>() {
+            Http1ChannelKind::NetworklessFixture
+        } else {
             return Err(Http1Error::InvalidRequest(
                 "HTTPS streams require Http1Codec::new_verified_tls".into(),
             ));
-        }
+        };
         let genesis = stream.audit().tail_hash().to_string();
         Ok(Self {
             inner: codec::Http1Codec::new(stream, limits)?,
-            kind: Http1ChannelKind::PlainHttp,
+            kind,
             tls_audit_anchor: None,
             channel_audit: Http1ChannelAuditChain::new(genesis)?,
         })
@@ -180,7 +188,9 @@ impl<B: ByteStreamBackend> Http1Codec<B> {
         now_epoch_seconds: i64,
         control: StreamControl,
     ) -> Result<Http1Exchange, Http1Error> {
-        if self.kind != Http1ChannelKind::VerifiedTls {
+        let fixture_https = self.kind == Http1ChannelKind::NetworklessFixture
+            && self.inner.stream().grant().scheme() == "https";
+        if self.kind != Http1ChannelKind::VerifiedTls && !fixture_https {
             return Err(Http1Error::InvalidRequest(
                 "vault-managed secret headers require a verified TLS channel".into(),
             ));
@@ -236,6 +246,18 @@ impl<B: ByteStreamBackend> Http1Codec<B> {
             response_status: exchange.response.status_code,
         })?;
         Ok(())
+    }
+}
+
+fn is_networkless_fixture_backend<B: ByteStreamBackend + 'static>() -> bool {
+    #[cfg(feature = "networkless-fixture")]
+    {
+        TypeId::of::<B>() == TypeId::of::<nxb_stream_fixture::InMemoryDuplex>()
+    }
+    #[cfg(not(feature = "networkless-fixture"))]
+    {
+        let _ = TypeId::of::<B>();
+        false
     }
 }
 
