@@ -1,6 +1,7 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use nxb_stream::{BoundedByteStream, ByteStreamBackend, StreamControl, StreamOperationOutcome};
+use nxb_vault::SecretHeaderLease;
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -37,6 +38,31 @@ impl<B: ByteStreamBackend> Http1Codec<B> {
         request: &Http1Request,
         control: StreamControl,
     ) -> Result<Http1Exchange, Http1Error> {
+        self.exchange_internal(request, None, 0, control)
+    }
+
+    pub fn exchange_with_secret_headers(
+        &mut self,
+        request: &Http1Request,
+        secret_headers: &mut SecretHeaderLease,
+        now_epoch_seconds: i64,
+        control: StreamControl,
+    ) -> Result<Http1Exchange, Http1Error> {
+        self.exchange_internal(
+            request,
+            Some(secret_headers),
+            now_epoch_seconds,
+            control,
+        )
+    }
+
+    fn exchange_internal(
+        &mut self,
+        request: &Http1Request,
+        secret_headers: Option<&mut SecretHeaderLease>,
+        now_epoch_seconds: i64,
+        control: StreamControl,
+    ) -> Result<Http1Exchange, Http1Error> {
         if self.completed {
             return Err(Http1Error::ExchangeAlreadyCompleted);
         }
@@ -47,9 +73,16 @@ impl<B: ByteStreamBackend> Http1Codec<B> {
         }
 
         let authority = self.stream.grant().http_host().to_string();
-        let request_wire = serialize_request(request, &authority, &self.limits)?;
+        let scheme = self.stream.grant().scheme().to_string();
+        let serialized = serialize_request(
+            request,
+            &authority,
+            &scheme,
+            &self.limits,
+            secret_headers.map(|lease| (lease, now_epoch_seconds)),
+        )?;
         let stream_audit_before = self.stream.audit().tail_hash().to_string();
-        self.write_all(&request_wire, control)?;
+        self.write_all(&serialized.wire, control)?;
         let (response, response_wire) = self.read_response(&request.method, control)?;
 
         if !self.stream.state().is_terminal() {
@@ -64,8 +97,23 @@ impl<B: ByteStreamBackend> Http1Codec<B> {
         let request_body_sha256 = payload_hash(&request.body);
         let response_body_sha256 = payload_hash(&response.body);
         let request_target_sha256 = payload_hash(request.target.as_bytes());
-        let request_wire_sha256 = payload_hash(&request_wire);
+        let request_wire_sha256 = payload_hash(&serialized.redacted_audit_wire);
         let response_wire_sha256 = payload_hash(&response_wire);
+        let mut metadata = BTreeMap::from([
+            ("connection_policy".into(), "close_after_exchange".into()),
+            ("authority_source".into(), "stream_grant".into()),
+            (
+                "secret_header_count".into(),
+                serialized.secret_header_count.to_string(),
+            ),
+            (
+                "secret_wire_audit_policy".into(),
+                "length_only_redaction".into(),
+            ),
+        ]);
+        if let Some(fingerprint) = &serialized.secret_lease_fingerprint {
+            metadata.insert("secret_lease_fingerprint".into(), fingerprint.clone());
+        }
 
         let event = Http1AuditEvent {
             exchange_id: exchange_id.clone(),
@@ -75,7 +123,7 @@ impl<B: ByteStreamBackend> Http1Codec<B> {
             request_target_sha256: request_target_sha256.clone(),
             request_wire_sha256: request_wire_sha256.clone(),
             request_body_sha256: request_body_sha256.clone(),
-            request_header_count: request.headers.len() as u64 + 3,
+            request_header_count: serialized.header_count,
             request_body_bytes: request.body.len() as u64,
             response_wire_sha256: response_wire_sha256.clone(),
             response_body_sha256: response_body_sha256.clone(),
@@ -88,10 +136,7 @@ impl<B: ByteStreamBackend> Http1Codec<B> {
             interim_responses: response.interim_responses,
             stream_audit_before: stream_audit_before.clone(),
             stream_audit_after: stream_audit_after.clone(),
-            metadata: BTreeMap::from([
-                ("connection_policy".into(), "close_after_exchange".into()),
-                ("authority_source".into(), "stream_grant".into()),
-            ]),
+            metadata,
         };
         let http_audit_tail = self.audit.append(event)?.record_hash.clone();
         let receipt = Http1ExchangeReceipt {
@@ -102,7 +147,7 @@ impl<B: ByteStreamBackend> Http1Codec<B> {
             request_target_sha256,
             request_wire_sha256,
             request_body_sha256,
-            request_header_count: request.headers.len() as u64 + 3,
+            request_header_count: serialized.header_count,
             request_body_bytes: request.body.len() as u64,
             response_wire_sha256,
             response_body_sha256,
@@ -229,11 +274,21 @@ impl<B: ByteStreamBackend> Http1Codec<B> {
     }
 }
 
+struct SerializedRequest {
+    wire: Vec<u8>,
+    redacted_audit_wire: Vec<u8>,
+    header_count: u64,
+    secret_header_count: u64,
+    secret_lease_fingerprint: Option<String>,
+}
+
 fn serialize_request(
     request: &Http1Request,
     authority: &str,
+    scheme: &str,
     limits: &Http1Limits,
-) -> Result<Vec<u8>, Http1Error> {
+    secret_headers: Option<(&mut SecretHeaderLease, i64)>,
+) -> Result<SerializedRequest, Http1Error> {
     validate_method(&request.method)?;
     validate_target(&request.method, &request.target)?;
     if authority.is_empty()
@@ -250,20 +305,13 @@ fn serialize_request(
             "request body exceeds configured limit".into(),
         ));
     }
-    if request.headers.len() as u64 + 3 > limits.maximum_header_count {
-        return Err(Http1Error::InvalidRequest(
-            "request header count exceeds configured limit".into(),
-        ));
-    }
 
     let mut output = Vec::new();
-    output.extend_from_slice(request.method.as_bytes());
-    output.push(b' ');
-    output.extend_from_slice(request.target.as_bytes());
-    output.extend_from_slice(b" HTTP/1.1\r\nHost: ");
-    output.extend_from_slice(authority.as_bytes());
-    output.extend_from_slice(b"\r\n");
+    let mut audit_output = Vec::new();
+    append_request_prefix(&mut output, request, authority);
+    append_request_prefix(&mut audit_output, request, authority);
 
+    let mut public_names = BTreeSet::new();
     for header in &request.headers {
         let normalized_name = validate_request_header(header, limits)?;
         if is_managed_request_header(&normalized_name) {
@@ -271,22 +319,82 @@ fn serialize_request(
                 "caller cannot supply managed header: {normalized_name}"
             )));
         }
-        output.extend_from_slice(normalized_name.as_bytes());
-        output.extend_from_slice(b": ");
-        output.extend_from_slice(&header.value);
-        output.extend_from_slice(b"\r\n");
+        if is_sensitive_request_header(&normalized_name) {
+            return Err(Http1Error::InvalidRequest(format!(
+                "caller cannot supply vault-managed header: {normalized_name}"
+            )));
+        }
+        public_names.insert(normalized_name.clone());
+        append_header(&mut output, &normalized_name, &header.value);
+        append_header(&mut audit_output, &normalized_name, &header.value);
     }
 
-    output.extend_from_slice(b"Content-Length: ");
-    output.extend_from_slice(request.body.len().to_string().as_bytes());
-    output.extend_from_slice(b"\r\nConnection: close\r\n\r\n");
+    let mut secret_header_count = 0u64;
+    let mut secret_lease_fingerprint = None;
+    if let Some((lease, now_epoch_seconds)) = secret_headers {
+        let mut batch = lease.take_for(authority, scheme, now_epoch_seconds)?;
+        for name in &public_names {
+            if batch.contains_name(name) {
+                return Err(Http1Error::InvalidRequest(format!(
+                    "public and secret headers collide: {name}"
+                )));
+            }
+        }
+        secret_header_count = batch.header_count();
+        secret_lease_fingerprint = Some(batch.lease_fingerprint().to_string());
+        if request.headers.len() as u64 + secret_header_count + 3 > limits.maximum_header_count {
+            return Err(Http1Error::InvalidRequest(
+                "request header count exceeds configured limit".into(),
+            ));
+        }
+        batch.append_http1(&mut output, &mut audit_output)?;
+    } else if request.headers.len() as u64 + 3 > limits.maximum_header_count {
+        return Err(Http1Error::InvalidRequest(
+            "request header count exceeds configured limit".into(),
+        ));
+    }
+
+    let content_length = request.body.len().to_string();
+    append_header(&mut output, "Content-Length", content_length.as_bytes());
+    append_header(
+        &mut audit_output,
+        "Content-Length",
+        content_length.as_bytes(),
+    );
+    append_header(&mut output, "Connection", b"close");
+    append_header(&mut audit_output, "Connection", b"close");
+    output.extend_from_slice(b"\r\n");
+    audit_output.extend_from_slice(b"\r\n");
     if output.len() as u64 > limits.maximum_request_header_bytes {
         return Err(Http1Error::InvalidRequest(
             "request header block exceeds configured limit".into(),
         ));
     }
     output.extend_from_slice(&request.body);
-    Ok(output)
+    audit_output.extend_from_slice(&request.body);
+    Ok(SerializedRequest {
+        wire: output,
+        redacted_audit_wire: audit_output,
+        header_count: request.headers.len() as u64 + secret_header_count + 3,
+        secret_header_count,
+        secret_lease_fingerprint,
+    })
+}
+
+fn append_request_prefix(output: &mut Vec<u8>, request: &Http1Request, authority: &str) {
+    output.extend_from_slice(request.method.as_bytes());
+    output.push(b' ');
+    output.extend_from_slice(request.target.as_bytes());
+    output.extend_from_slice(b" HTTP/1.1\r\nHost: ");
+    output.extend_from_slice(authority.as_bytes());
+    output.extend_from_slice(b"\r\n");
+}
+
+fn append_header(output: &mut Vec<u8>, name: &str, value: &[u8]) {
+    output.extend_from_slice(name.as_bytes());
+    output.extend_from_slice(b": ");
+    output.extend_from_slice(value);
+    output.extend_from_slice(b"\r\n");
 }
 
 fn validate_method(method: &str) -> Result<(), Http1Error> {
@@ -369,6 +477,17 @@ fn is_managed_request_header(name: &str) -> bool {
             | "upgrade"
             | "trailer"
             | "te"
+    )
+}
+
+fn is_sensitive_request_header(name: &str) -> bool {
+    matches!(
+        name,
+        "authorization"
+            | "proxy-authorization"
+            | "cookie"
+            | "x-api-key"
+            | "x-csrf-token"
     )
 }
 
