@@ -1,0 +1,12 @@
+[package]
+name = "nxb-stream-fixture"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+nxb-stream = { path = "../nxb-stream" }
+
+[dev-dependencies]
+nxb-executor = { path = "../nxb-executor" }
+nxb-transport = { path = "../nxb-transport" }
