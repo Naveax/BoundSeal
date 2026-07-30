@@ -22,6 +22,22 @@ pub struct AuditDns {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuditTransport {
+    pub ticket_id: String,
+    pub status: String,
+    pub binding_hash: String,
+    pub audit_anchor: String,
+    pub selected_ip: String,
+    pub scheme: String,
+    pub port: u16,
+    pub sni: Option<String>,
+    pub http_host: String,
+    pub expires_at_milliseconds: u64,
+    pub dns_context_id: String,
+    pub redirect_depth: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AuditEvent {
     pub decision_id: String,
     pub outcome: String,
@@ -31,6 +47,7 @@ pub struct AuditEvent {
     pub url: String,
     pub resolved_destinations: Vec<AuditDestination>,
     pub dns: AuditDns,
+    pub transport: Option<AuditTransport>,
     pub redirect_depth: u8,
     pub elapsed_milliseconds: u64,
 }
@@ -202,6 +219,7 @@ mod tests {
                 ttl_seconds: 60,
                 pin_status: "not_evaluated".into(),
             },
+            transport: None,
             redirect_depth: 0,
             elapsed_milliseconds: 0,
         }
@@ -248,6 +266,38 @@ mod tests {
             .append(event("decision-1", "https://example.test/a"))
             .unwrap();
         chain.records[0].event.dns.resolver_id = "altered-resolver".into();
+
+        assert_eq!(
+            chain.verify(),
+            Err(AuditError::RecordHashMismatch { record_index: 0 })
+        );
+    }
+
+    #[test]
+    fn detects_modified_transport_binding() {
+        let mut chain = AuditChain::new();
+        let mut value = event("decision-1", "https://example.test/a");
+        value.transport = Some(AuditTransport {
+            ticket_id: "ticket-1".into(),
+            status: "issued".into(),
+            binding_hash: "b".repeat(64),
+            audit_anchor: "a".repeat(64),
+            selected_ip: "8.8.8.8".into(),
+            scheme: "https".into(),
+            port: 443,
+            sni: Some("example.test".into()),
+            http_host: "example.test".into(),
+            expires_at_milliseconds: 5_000,
+            dns_context_id: "fixture-context".into(),
+            redirect_depth: 0,
+        });
+        chain.append(value).unwrap();
+        chain.records[0]
+            .event
+            .transport
+            .as_mut()
+            .unwrap()
+            .selected_ip = "1.1.1.1".into();
 
         assert_eq!(
             chain.verify(),
