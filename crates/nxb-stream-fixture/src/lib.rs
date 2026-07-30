@@ -1,8 +1,7 @@
 use std::collections::VecDeque;
 
 use nxb_stream::{
-    BackendReadReport, BackendReadStatus, BackendWriteReport, BackendWriteStatus,
-    ByteStreamBackend,
+    BackendReadReport, BackendReadStatus, BackendWriteReport, BackendWriteStatus, ByteStreamBackend,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

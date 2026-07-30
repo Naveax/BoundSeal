@@ -1,6 +1,4 @@
-use nxb_executor::{
-    ExecutionOutcome, ExecutionReceipt, ExecutionState, ExecutorAuditRecord,
-};
+use nxb_executor::{ExecutionOutcome, ExecutionReceipt, ExecutionState, ExecutorAuditRecord};
 use nxb_transport::TransportPermit;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -44,8 +42,14 @@ pub(super) fn validate_execution_binding(
                 && record.event.endpoint_fingerprint == expected_fingerprint,
             "endpoint_fingerprint",
         ),
-        (record.event.execution_id == receipt.execution_id, "execution_id"),
-        (record.event.executor_id == receipt.executor_id, "executor_id"),
+        (
+            record.event.execution_id == receipt.execution_id,
+            "execution_id",
+        ),
+        (
+            record.event.executor_id == receipt.executor_id,
+            "executor_id",
+        ),
         (
             record.event.transport_audit_anchor == receipt.transport_audit_anchor,
             "transport_audit_anchor",

@@ -154,8 +154,7 @@ impl<B: ByteStreamBackend> BoundedByteStream<B> {
         }
         self.elapsed_milliseconds = total_after;
 
-        let (bytes, outcome, next_state) =
-            classify_read(report.status, maximum_bytes, self.state);
+        let (bytes, outcome, next_state) = classify_read(report.status, maximum_bytes, self.state);
         let transferred = bytes.len() as u64;
         if self.read_bytes.saturating_add(transferred) > self.limits.maximum_read_bytes {
             self.state = StreamState::BudgetExceeded;
@@ -252,8 +251,7 @@ impl<B: ByteStreamBackend> BoundedByteStream<B> {
         }
         self.elapsed_milliseconds = total_after;
 
-        let (accepted, outcome, next_state) =
-            classify_write(report.status, requested, self.state);
+        let (accepted, outcome, next_state) = classify_write(report.status, requested, self.state);
         if self.written_bytes.saturating_add(accepted) > self.limits.maximum_write_bytes {
             self.state = StreamState::BudgetExceeded;
             let receipt = self.record(

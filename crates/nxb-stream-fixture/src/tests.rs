@@ -24,10 +24,7 @@ fn permit() -> TransportPermit {
     }
 }
 
-fn stream(
-    backend: InMemoryDuplex,
-    limits: StreamLimits,
-) -> BoundedByteStream<InMemoryDuplex> {
+fn stream(backend: InMemoryDuplex, limits: StreamLimits) -> BoundedByteStream<InMemoryDuplex> {
     let permit = permit();
     let mut executor = PermitExecutor::new(
         ExecutorConfig {
@@ -89,15 +86,9 @@ fn models_partial_write_and_backpressure() {
     let first = stream.write(b"abcd", StreamControl::default()).unwrap();
     let second = stream.write(b"ef", StreamControl::default()).unwrap();
 
-    assert_eq!(
-        first.receipt.outcome,
-        StreamOperationOutcome::PartialWrite
-    );
+    assert_eq!(first.receipt.outcome, StreamOperationOutcome::PartialWrite);
     assert_eq!(first.receipt.transferred_bytes, 2);
-    assert_eq!(
-        second.receipt.outcome,
-        StreamOperationOutcome::Backpressure
-    );
+    assert_eq!(second.receipt.outcome, StreamOperationOutcome::Backpressure);
     assert_eq!(stream.backend().captured_writes(), &[b"ab".to_vec()]);
 }
 
@@ -197,10 +188,7 @@ fn truncated_read_is_terminal_but_hashes_returned_prefix() {
     let result = stream.read(7, StreamControl::default()).unwrap();
 
     assert_eq!(result.bytes, b"partial");
-    assert_eq!(
-        result.receipt.outcome,
-        StreamOperationOutcome::Truncated
-    );
+    assert_eq!(result.receipt.outcome, StreamOperationOutcome::Truncated);
     assert!(result.receipt.payload_sha256.is_some());
     assert_eq!(stream.state(), StreamState::Truncated);
 }

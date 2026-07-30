@@ -36,24 +36,19 @@ impl StreamLimits {
     }
 
     pub fn validate(self) -> Result<Self, StreamOpenError> {
-        if self.maximum_read_bytes == 0
-            || self.maximum_read_bytes > MAX_STREAM_DIRECTION_BYTES
-        {
+        if self.maximum_read_bytes == 0 || self.maximum_read_bytes > MAX_STREAM_DIRECTION_BYTES {
             return Err(StreamOpenError::InvalidLimits(
                 "read budget is outside the supported range".into(),
             ));
         }
-        if self.maximum_write_bytes == 0
-            || self.maximum_write_bytes > MAX_STREAM_DIRECTION_BYTES
-        {
+        if self.maximum_write_bytes == 0 || self.maximum_write_bytes > MAX_STREAM_DIRECTION_BYTES {
             return Err(StreamOpenError::InvalidLimits(
                 "write budget is outside the supported range".into(),
             ));
         }
         if self.maximum_operation_bytes == 0
             || self.maximum_operation_bytes > MAX_STREAM_OPERATION_BYTES
-            || self.maximum_operation_bytes
-                > self.maximum_read_bytes.max(self.maximum_write_bytes)
+            || self.maximum_operation_bytes > self.maximum_read_bytes.max(self.maximum_write_bytes)
         {
             return Err(StreamOpenError::InvalidLimits(
                 "operation byte budget is outside the supported range".into(),

@@ -103,10 +103,7 @@ fn rejects_mismatched_binding_hash() {
         EmptyBackend,
     );
 
-    assert!(matches!(
-        result,
-        Err(StreamOpenError::BindingMismatch(_))
-    ));
+    assert!(matches!(result, Err(StreamOpenError::BindingMismatch(_))));
 }
 
 #[test]

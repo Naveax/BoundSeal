@@ -35,9 +35,7 @@ pub(super) fn classify_read(
             StreamOperationOutcome::Truncated,
             StreamState::Truncated,
         ),
-        BackendReadStatus::Truncated(_) => {
-            backend_read_overflow("backend_truncated_read_overflow")
-        }
+        BackendReadStatus::Truncated(_) => backend_read_overflow("backend_truncated_read_overflow"),
         BackendReadStatus::Failure(code) => (
             Vec::new(),
             StreamOperationOutcome::BackendFailure {
@@ -75,14 +73,8 @@ pub(super) fn classify_write(
             StreamOperationOutcome::WriteTimeout,
             StreamState::TimedOut,
         ),
-        BackendWriteStatus::Reset => {
-            (0, StreamOperationOutcome::Reset, StreamState::Reset)
-        }
-        BackendWriteStatus::Closed => (
-            0,
-            StreamOperationOutcome::Closed,
-            close_write_side(state),
-        ),
+        BackendWriteStatus::Reset => (0, StreamOperationOutcome::Reset, StreamState::Reset),
+        BackendWriteStatus::Closed => (0, StreamOperationOutcome::Closed, close_write_side(state)),
         BackendWriteStatus::Failure(code) => (
             0,
             StreamOperationOutcome::BackendFailure {
