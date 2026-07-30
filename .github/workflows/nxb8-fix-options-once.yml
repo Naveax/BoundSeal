@@ -1,0 +1,111 @@
+name: NXB-8 fix options once
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/nxb8-fix-options-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.ref == 'nxb-8-secret-vault-and-session-boundary'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Refactor exchange options
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('crates/nxb-session/src/lib.rs')
+          text = path.read_text()
+          marker = '''pub struct SessionUseContext {
+              pub run_id: String,
+              pub worker_id: String,
+              pub account_id: String,
+              pub tenant_id: String,
+              pub role_id: String,
+          }
+          '''
+          addition = marker + '''
+          #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+          pub struct SessionExchangeOptions {
+              pub lease_seconds: i64,
+              pub now_epoch_seconds: i64,
+              pub control: StreamControl,
+          }
+          '''
+          if 'pub struct SessionExchangeOptions' not in text:
+              if marker not in text:
+                  raise SystemExit('SessionUseContext insertion point not found')
+              text = text.replace(marker, addition, 1)
+
+          old_signature = '''    pub fn exchange<B: ByteStreamBackend>(
+                  &mut self,
+                  session_id: &str,
+                  context: &SessionUseContext,
+                  vault: &mut InMemorySecretVault,
+                  codec: &mut Http1Codec<B>,
+                  request: &Http1Request,
+                  lease_seconds: i64,
+                  now_epoch_seconds: i64,
+                  control: StreamControl,
+              ) -> Result<Http1Exchange, SessionError> {
+          '''
+          new_signature = '''    pub fn exchange<B: ByteStreamBackend>(
+                  &mut self,
+                  session_id: &str,
+                  context: &SessionUseContext,
+                  vault: &mut InMemorySecretVault,
+                  codec: &mut Http1Codec<B>,
+                  request: &Http1Request,
+                  options: SessionExchangeOptions,
+              ) -> Result<Http1Exchange, SessionError> {
+          '''
+          if old_signature not in text:
+              raise SystemExit('exchange signature not found')
+          text = text.replace(old_signature, new_signature, 1)
+          text = text.replace('                now_epoch_seconds,\n            )?;', '                options.now_epoch_seconds,\n            )?;', 1)
+          text = text.replace('            if lease_seconds <= 0 || lease_seconds > MAX_SECRET_LEASE_SECONDS {', '            if options.lease_seconds <= 0\n                || options.lease_seconds > MAX_SECRET_LEASE_SECONDS\n            {', 1)
+          text = text.replace('                lease_seconds,\n                now_epoch_seconds,', '                options.lease_seconds,\n                options.now_epoch_seconds,', 1)
+          text = text.replace('                now_epoch_seconds,\n            )?;', '                options.now_epoch_seconds,\n            )?;', 1)
+          text = text.replace('                    now_epoch_seconds,\n                    control,', '                    options.now_epoch_seconds,\n                    options.control,', 1)
+
+          text = text.replace('''                &request,
+                      30,
+                      101,
+                      StreamControl::default(),
+          ''', '''                &request,
+                      SessionExchangeOptions {
+                          lease_seconds: 30,
+                          now_epoch_seconds: 101,
+                          control: StreamControl::default(),
+                      },
+          ''')
+          text = text.replace('''                &Http1Request::new("GET", "/"),
+                      30,
+                      101,
+                      StreamControl::default(),
+          ''', '''                &Http1Request::new("GET", "/"),
+                      SessionExchangeOptions {
+                          lease_seconds: 30,
+                          now_epoch_seconds: 101,
+                          control: StreamControl::default(),
+                      },
+          ''')
+          path.write_text(text)
+          PY
+          rustup toolchain install stable --profile minimal --component rustfmt
+          cargo +stable fmt --all
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/nxb-session/src/lib.rs
+          git commit -m "NXB-8: group authenticated exchange options"
+          git push origin HEAD:nxb-8-secret-vault-and-session-boundary
