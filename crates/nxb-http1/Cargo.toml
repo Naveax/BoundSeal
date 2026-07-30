@@ -4,8 +4,13 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 
+[features]
+default = []
+networkless-fixture = ["dep:nxb-stream-fixture"]
+
 [dependencies]
 nxb-stream = { path = "../nxb-stream" }
+nxb-stream-fixture = { path = "../nxb-stream-fixture", optional = true }
 nxb-tls = { path = "../nxb-tls" }
 nxb-vault = { path = "../nxb-vault" }
 serde.workspace = true
