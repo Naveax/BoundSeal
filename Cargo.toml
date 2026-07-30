@@ -2,6 +2,8 @@
 members = [
     "crates/nxb-audit",
     "crates/nxb-budget",
+    "crates/nxb-channel-contracts",
+    "crates/nxb-content-analysis",
     "crates/nxb-cookie-jar",
     "crates/nxb-core",
     "crates/nxb-destination",
@@ -12,7 +14,9 @@ members = [
     "crates/nxb-http1",
     "crates/nxb-http1-fixture",
     "crates/nxb-local-executor",
+    "crates/nxb-passive-analyzers",
     "crates/nxb-pinned-transport",
+    "crates/nxb-planner",
     "crates/nxb-policy",
     "crates/nxb-redirect",
     "crates/nxb-session",
