@@ -24,17 +24,18 @@ jobs:
       - name: Add test-only audit access
         shell: python
         run: |
+          import re
           from pathlib import Path
 
           engine = Path("crates/nxb-stream/src/stream/engine.rs")
           text = engine.read_text(encoding="utf-8")
-          old = '''    pub fn audit(&self) -> &StreamAuditChain {
-              &self.audit
-          }
-
-          pub fn backend(&self) -> &B {
-          '''
-          new = '''    pub fn audit(&self) -> &StreamAuditChain {
+          pattern = re.compile(
+              r"    pub fn audit\(&self\) -> &StreamAuditChain \{\n"
+              r"        &self\.audit\n"
+              r"    \}\n\n"
+              r"    pub fn backend\(&self\) -> &B \{"
+          )
+          replacement = '''    pub fn audit(&self) -> &StreamAuditChain {
               &self.audit
           }
 
@@ -43,11 +44,11 @@ jobs:
               &mut self.audit
           }
 
-          pub fn backend(&self) -> &B {
-          '''
-          if old not in text:
-              raise SystemExit("audit getter block not found")
-          engine.write_text(text.replace(old, new, 1), encoding="utf-8")
+          pub fn backend(&self) -> &B {'''
+          updated, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f"expected exactly one audit getter block, found {count}")
+          engine.write_text(updated, encoding="utf-8")
 
           tests = Path("crates/nxb-stream/src/tests.rs")
           test_text = tests.read_text(encoding="utf-8")
