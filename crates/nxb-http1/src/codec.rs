@@ -48,12 +48,7 @@ impl<B: ByteStreamBackend> Http1Codec<B> {
         now_epoch_seconds: i64,
         control: StreamControl,
     ) -> Result<Http1Exchange, Http1Error> {
-        self.exchange_internal(
-            request,
-            Some(secret_headers),
-            now_epoch_seconds,
-            control,
-        )
+        self.exchange_internal(request, Some(secret_headers), now_epoch_seconds, control)
     }
 
     fn exchange_internal(
@@ -483,11 +478,7 @@ fn is_managed_request_header(name: &str) -> bool {
 fn is_sensitive_request_header(name: &str) -> bool {
     matches!(
         name,
-        "authorization"
-            | "proxy-authorization"
-            | "cookie"
-            | "x-api-key"
-            | "x-csrf-token"
+        "authorization" | "proxy-authorization" | "cookie" | "x-api-key" | "x-csrf-token"
     )
 }
 

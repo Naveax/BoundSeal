@@ -23,7 +23,10 @@ impl SecretHandle {
 
 impl fmt::Debug for SecretHandle {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_tuple("SecretHandle").field(&self.0).finish()
+        formatter
+            .debug_tuple("SecretHandle")
+            .field(&self.0)
+            .finish()
     }
 }
 
@@ -311,7 +314,8 @@ impl SecretHeaderLease {
         if now_epoch_seconds >= self.expires_at_epoch_seconds {
             return Err(VaultError::LeaseExpired);
         }
-        if normalize_host(authority)? != self.authority || normalize_scheme(scheme)? != self.scheme {
+        if normalize_host(authority)? != self.authority || normalize_scheme(scheme)? != self.scheme
+        {
             return Err(VaultError::HeaderLeaseBindingMismatch);
         }
         Ok(SecretHeaderBatch {
@@ -462,16 +466,23 @@ impl VaultAuditChain {
         let mut previous = self.genesis_hash.clone();
         for (index, record) in self.records.iter().enumerate() {
             if record.sequence != index as u64 + 1 {
-                return Err(VaultError::AuditSequenceMismatch { record_index: index });
+                return Err(VaultError::AuditSequenceMismatch {
+                    record_index: index,
+                });
             }
             if record.previous_hash != previous {
-                return Err(VaultError::AuditPreviousHashMismatch { record_index: index });
+                return Err(VaultError::AuditPreviousHashMismatch {
+                    record_index: index,
+                });
             }
-            let material = serde_json::to_vec(&(record.sequence, &record.previous_hash, &record.event))
-                .map_err(|error| VaultError::AuditSerialization(error.to_string()))?;
+            let material =
+                serde_json::to_vec(&(record.sequence, &record.previous_hash, &record.event))
+                    .map_err(|error| VaultError::AuditSerialization(error.to_string()))?;
             let expected = lower_hex(&Sha256::digest(material));
             if record.record_hash != expected {
-                return Err(VaultError::AuditRecordHashMismatch { record_index: index });
+                return Err(VaultError::AuditRecordHashMismatch {
+                    record_index: index,
+                });
             }
             previous = expected;
         }
@@ -524,7 +535,8 @@ impl InMemorySecretVault {
     ) -> Result<SecretHandle, VaultError> {
         validate_secret_input(&input, now_epoch_seconds)?;
         let handle = SecretHandle(format!(
-            "{}-secret-{:020}", self.vault_id, self.next_secret_id
+            "{}-secret-{:020}",
+            self.vault_id, self.next_secret_id
         ));
         self.next_secret_id = self.next_secret_id.saturating_add(1);
         let delivery_metadata = match &input.delivery {
@@ -756,7 +768,10 @@ impl InMemorySecretVault {
     }
 
     pub fn revoke_lease(&mut self, lease_id: &str) -> Result<(), VaultError> {
-        let lease = self.leases.get_mut(lease_id).ok_or(VaultError::UnknownLease)?;
+        let lease = self
+            .leases
+            .get_mut(lease_id)
+            .ok_or(VaultError::UnknownLease)?;
         lease.revoked = true;
         self.audit.append(VaultAuditEvent {
             action: "secret_lease_revoked".into(),
@@ -1002,9 +1017,9 @@ fn domain_matches(host: &str, domain: &str) -> bool {
 fn cookie_path_matches(target: &str, cookie_path: &str) -> bool {
     let request_path = target.split('?').next().unwrap_or(target);
     request_path == cookie_path
-        || request_path.strip_prefix(cookie_path).is_some_and(|suffix| {
-            cookie_path.ends_with('/') || suffix.starts_with('/')
-        })
+        || request_path
+            .strip_prefix(cookie_path)
+            .is_some_and(|suffix| cookie_path.ends_with('/') || suffix.starts_with('/'))
 }
 
 fn validate_request_target(target: &str) -> Result<(), VaultError> {
@@ -1041,9 +1056,9 @@ fn normalize_host(host: &str) -> Result<String, VaultError> {
         || normalized.len() > 253
         || normalized.starts_with('.')
         || normalized.ends_with('.')
-        || normalized.bytes().any(|byte| {
-            !(byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'))
-        })
+        || normalized
+            .bytes()
+            .any(|byte| !(byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-')))
     {
         return Err(VaultError::InvalidBinding("host is invalid".into()));
     }
@@ -1215,9 +1230,7 @@ mod tests {
     fn header_lease_and_batch_are_single_use_and_redacted() {
         let mut vault = InMemorySecretVault::new("fixture-vault").unwrap();
         let handle = vault.insert(bearer(b"token-value"), 100).unwrap();
-        let mut lease = vault
-            .lease(&[handle], context(), 30, 101)
-            .unwrap();
+        let mut lease = vault.lease(&[handle], context(), 30, 101).unwrap();
         let mut headers = vault
             .materialize_http_headers(&mut lease, "session-1", "/api/me", 102)
             .unwrap();
@@ -1261,9 +1274,7 @@ mod tests {
                 100,
             )
             .unwrap();
-        let mut lease = vault
-            .lease(&[handle], context(), 30, 101)
-            .unwrap();
+        let mut lease = vault.lease(&[handle], context(), 30, 101).unwrap();
         let headers = vault
             .materialize_http_headers(&mut lease, "session-1", "/public", 102)
             .unwrap();
@@ -1274,9 +1285,7 @@ mod tests {
     fn emergency_purge_drops_all_secret_and_lease_state() {
         let mut vault = InMemorySecretVault::new("fixture-vault").unwrap();
         let handle = vault.insert(bearer(b"token"), 100).unwrap();
-        let _lease = vault
-            .lease(&[handle], context(), 30, 101)
-            .unwrap();
+        let _lease = vault.lease(&[handle], context(), 30, 101).unwrap();
         vault.emergency_purge().unwrap();
         assert_eq!(vault.secret_count(), 0);
         vault.audit().verify().unwrap();

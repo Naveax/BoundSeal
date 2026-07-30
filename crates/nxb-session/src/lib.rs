@@ -81,7 +81,9 @@ pub struct SessionAuditChain {
 
 impl SessionAuditChain {
     fn new(broker_id: &str) -> Self {
-        let genesis_hash = lower_hex(&Sha256::digest(format!("nxb-session:{broker_id}").as_bytes()));
+        let genesis_hash = lower_hex(&Sha256::digest(
+            format!("nxb-session:{broker_id}").as_bytes(),
+        ));
         Self {
             tail_hash: genesis_hash.clone(),
             genesis_hash,
@@ -117,16 +119,23 @@ impl SessionAuditChain {
         let mut previous = self.genesis_hash.clone();
         for (index, record) in self.records.iter().enumerate() {
             if record.sequence != index as u64 + 1 {
-                return Err(SessionError::AuditSequenceMismatch { record_index: index });
+                return Err(SessionError::AuditSequenceMismatch {
+                    record_index: index,
+                });
             }
             if record.previous_hash != previous {
-                return Err(SessionError::AuditPreviousHashMismatch { record_index: index });
+                return Err(SessionError::AuditPreviousHashMismatch {
+                    record_index: index,
+                });
             }
-            let bytes = serde_json::to_vec(&(record.sequence, &record.previous_hash, &record.event))
-                .map_err(|error| SessionError::AuditSerialization(error.to_string()))?;
+            let bytes =
+                serde_json::to_vec(&(record.sequence, &record.previous_hash, &record.event))
+                    .map_err(|error| SessionError::AuditSerialization(error.to_string()))?;
             let expected = lower_hex(&Sha256::digest(bytes));
             if record.record_hash != expected {
-                return Err(SessionError::AuditRecordHashMismatch { record_index: index });
+                return Err(SessionError::AuditRecordHashMismatch {
+                    record_index: index,
+                });
             }
             previous = expected;
         }
@@ -181,10 +190,7 @@ impl SessionBroker {
                 "secret handle count is outside the supported range".into(),
             ));
         }
-        let unique_handles = profile
-            .secret_handles
-            .iter()
-            .collect::<BTreeSet<_>>();
+        let unique_handles = profile.secret_handles.iter().collect::<BTreeSet<_>>();
         if unique_handles.len() != profile.secret_handles.len() {
             return Err(SessionError::InvalidProfile(
                 "secret handles must be unique".into(),
@@ -211,9 +217,7 @@ impl SessionBroker {
             }
         }
 
-        let session_id = format!(
-            "{}-session-{:020}", self.broker_id, self.next_session_id
-        );
+        let session_id = format!("{}-session-{:020}", self.broker_id, self.next_session_id);
         self.next_session_id = self.next_session_id.saturating_add(1);
         let metadata = SessionMetadata {
             session_id: session_id.clone(),
@@ -304,7 +308,12 @@ impl SessionBroker {
                 now_epoch_seconds,
             )?;
             codec
-                .exchange_with_secret_headers(request, &mut header_lease, now_epoch_seconds, control)
+                .exchange_with_secret_headers(
+                    request,
+                    &mut header_lease,
+                    now_epoch_seconds,
+                    control,
+                )
                 .map_err(SessionError::Http)
         })();
 
@@ -329,7 +338,10 @@ impl SessionBroker {
                 ("authority".into(), authority),
                 ("scheme".into(), scheme),
                 ("request_method".into(), request.method.clone()),
-                ("request_target_sha256".into(), hash(request.target.as_bytes())),
+                (
+                    "request_target_sha256".into(),
+                    hash(request.target.as_bytes()),
+                ),
                 ("result_code".into(), result_code),
                 ("response_status".into(), response_status),
             ]),
@@ -353,10 +365,7 @@ impl SessionBroker {
         Ok(())
     }
 
-    pub fn emergency_purge(
-        &mut self,
-        vault: &mut InMemorySecretVault,
-    ) -> Result<(), SessionError> {
+    pub fn emergency_purge(&mut self, vault: &mut InMemorySecretVault) -> Result<(), SessionError> {
         let session_count = self.sessions.len();
         for session in self.sessions.values_mut() {
             session.metadata.status = SessionStatus::Revoked;
@@ -516,9 +525,9 @@ fn normalize_host(host: &str) -> Result<String, SessionError> {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
     if host.is_empty()
         || host.len() > 253
-        || host.bytes().any(|byte| {
-            !(byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'))
-        })
+        || host
+            .bytes()
+            .any(|byte| !(byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-')))
     {
         return Err(SessionError::InvalidProfile("host is invalid".into()));
     }
@@ -716,10 +725,9 @@ mod tests {
     fn public_http_headers_cannot_bypass_vault_managed_authorization() {
         let mut codec = codec();
         let mut request = Http1Request::new("GET", "/api/me");
-        request.headers.push(Http1Header::new(
-            "Authorization",
-            b"Bearer bypass".to_vec(),
-        ));
+        request
+            .headers
+            .push(Http1Header::new("Authorization", b"Bearer bypass".to_vec()));
         assert!(matches!(
             codec.exchange(&request, StreamControl::default()),
             Err(Http1Error::InvalidRequest(_))

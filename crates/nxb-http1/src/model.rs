@@ -302,6 +302,8 @@ pub enum Http1Error {
     BackpressureBudgetExceeded,
     #[error("HTTP/1 codec can perform only one connection-close exchange")]
     ExchangeAlreadyCompleted,
+    #[error("HTTP/1 secret-header lease failed: {0}")]
+    SecretHeaders(#[from] nxb_vault::VaultError),
     #[error("HTTP/1 audit chain is invalid: {0}")]
     Audit(#[from] Http1AuditError),
     #[error("HTTP/1 stream audit chain is invalid: {0}")]
