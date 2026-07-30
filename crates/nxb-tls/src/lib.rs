@@ -12,3 +12,6 @@ pub use model::{
     MAX_HANDSHAKE_TIMEOUT_MILLISECONDS,
 };
 pub use verifier::{TlsPeerVerifier, TlsVerifierError};
+
+#[cfg(test)]
+mod audit_tests;
