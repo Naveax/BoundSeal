@@ -47,12 +47,13 @@ impl RequestBudget {
             ));
         }
 
+        let token_capacity = requests_per_second.max(1.0);
         Ok(Self {
             remaining: maximum_total_requests,
             max_concurrency: maximum_concurrency,
             in_flight: 0,
-            tokens: requests_per_second,
-            token_capacity: requests_per_second,
+            tokens: token_capacity,
+            token_capacity,
             refill_per_second: requests_per_second,
             last_refill: Duration::ZERO,
         })
@@ -140,5 +141,17 @@ mod tests {
             Err(BudgetError::RateLimited { .. })
         ));
         budget.try_start(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn fractional_rates_allow_one_initial_request() {
+        let mut budget = RequestBudget::new(10, 1, 0.5).unwrap();
+        budget.try_start(Duration::ZERO).unwrap();
+        budget.finish();
+        assert!(matches!(
+            budget.try_start(Duration::from_secs(1)),
+            Err(BudgetError::RateLimited { .. })
+        ));
+        budget.try_start(Duration::from_secs(2)).unwrap();
     }
 }
