@@ -1,0 +1,13 @@
+[package]
+name = "nxb-gateway"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+nxb-budget = { path = "../nxb-budget" }
+nxb-policy = { path = "../nxb-policy" }
+serde.workspace = true
+thiserror.workspace = true
+url.workspace = true
