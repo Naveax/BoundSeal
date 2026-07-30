@@ -45,6 +45,14 @@ pub struct SessionExchangeOptions {
     pub control: StreamControl,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct CookieResponseContext<'a> {
+    authority: &'a str,
+    scheme: &'a str,
+    request_target: &'a str,
+    now_epoch_seconds: i64,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionStatus {
@@ -358,10 +366,12 @@ impl SessionBroker {
                 session_id,
                 vault,
                 exchange,
-                &authority,
-                &scheme,
-                &request.target,
-                options.now_epoch_seconds,
+                CookieResponseContext {
+                    authority: &authority,
+                    scheme: &scheme,
+                    request_target: &request.target,
+                    now_epoch_seconds: options.now_epoch_seconds,
+                },
             ),
             Err(_) => Ok(None),
         };
@@ -425,10 +435,7 @@ impl SessionBroker {
         session_id: &str,
         vault: &mut InMemorySecretVault,
         exchange: &Http1Exchange,
-        authority: &str,
-        scheme: &str,
-        request_target: &str,
-        now_epoch_seconds: i64,
+        context: CookieResponseContext<'_>,
     ) -> Result<Option<CookieCommit>, SessionError> {
         let set_cookie_values = exchange
             .response
@@ -445,7 +452,7 @@ impl SessionBroker {
             .get_mut(session_id)
             .ok_or(SessionError::UnknownSession)?;
         let binding = secret_binding_from_profile(&state.metadata.profile);
-        let origin = CookieOrigin::new(authority, scheme)?;
+        let origin = CookieOrigin::new(context.authority, context.scheme)?;
         let previous_cookie_handles = state
             .cookie_jar
             .active_handles()
@@ -455,9 +462,9 @@ impl SessionBroker {
             vault,
             &binding,
             &origin,
-            request_target,
+            context.request_target,
             &set_cookie_values,
-            now_epoch_seconds,
+            context.now_epoch_seconds,
         )?;
         state
             .metadata
