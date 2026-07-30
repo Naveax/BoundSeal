@@ -22,13 +22,15 @@ fn accepts_identical_duplicate_content_length_values() {
 
 #[test]
 fn rejects_bare_lf_response_framing() {
-    let error = parse_response(
+    let error = match parse_response(
         b"HTTP/1.1 200 OK\nContent-Length: 0\n\n",
         true,
         "GET",
         &Http1Limits::default(),
-    )
-    .unwrap_err();
+    ) {
+        Err(error) => error,
+        Ok(_) => panic!("bare-LF response must be rejected"),
+    };
     assert!(matches!(
         error,
         Http1Error::TruncatedResponse(_) | Http1Error::InvalidResponse(_)
@@ -37,13 +39,15 @@ fn rejects_bare_lf_response_framing() {
 
 #[test]
 fn rejects_chunk_extensions_to_keep_framing_deterministic() {
-    let error = parse_response(
+    let error = match parse_response(
         b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4;foo=bar\r\ntest\r\n0\r\n\r\n",
         true,
         "GET",
         &Http1Limits::default(),
-    )
-    .unwrap_err();
+    ) {
+        Err(error) => error,
+        Ok(_) => panic!("chunk extensions must be rejected"),
+    };
     assert!(matches!(error, Http1Error::InvalidResponse(_)));
 }
 
