@@ -67,7 +67,11 @@ impl EventEnvelope {
         validate_text("source", &self.source, 128)?;
         validate_text("asset", &self.asset, 2_048)?;
         validate_text("provenance.tool_name", &self.provenance.tool_name, 128)?;
-        validate_text("provenance.tool_version", &self.provenance.tool_version, 128)?;
+        validate_text(
+            "provenance.tool_version",
+            &self.provenance.tool_version,
+            128,
+        )?;
         validate_identifier(
             "provenance.policy_decision_id",
             &self.provenance.policy_decision_id,
@@ -79,8 +83,7 @@ impl EventEnvelope {
                 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit())
             {
                 return Err(EventError::Invalid(
-                    "provenance.tool_commit must be a 7-64 character hexadecimal revision"
-                        .into(),
+                    "provenance.tool_commit must be a 7-64 character hexadecimal revision".into(),
                 ));
             }
         }
@@ -95,9 +98,10 @@ impl EventEnvelope {
 
 fn validate_identifier(field: &str, value: &str) -> Result<(), EventError> {
     validate_text(field, value, 128)?;
-    if !value.bytes().all(|byte| {
-        byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':')
-    }) {
+    if !value
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+    {
         return Err(EventError::Invalid(format!(
             "{field} contains unsupported characters"
         )));
