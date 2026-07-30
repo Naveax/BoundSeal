@@ -114,7 +114,7 @@ impl RunMachine {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum SecretAccessLevel {
     None,
@@ -163,4 +163,3 @@ pub struct CapabilityUseReceipt {
     pub remaining_mutations: u64,
     pub endpoint_sha256: String,
 }
-
