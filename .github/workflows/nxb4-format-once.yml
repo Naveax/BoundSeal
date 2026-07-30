@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   rustfmt:
-    if: github.actor == 'Naveax' || github.actor == 'github-actions[bot]'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout feature branch
