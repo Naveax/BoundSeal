@@ -179,7 +179,9 @@ pub enum TicketIssueError {
     UnexpectedTlsSni,
     #[error("HTTP Host authority does not match the normalized ticket authority")]
     InvalidHttpHost,
-    #[error("transport ticket TTL must be between 1 and {MAX_TICKET_TTL_MILLISECONDS} milliseconds")]
+    #[error(
+        "transport ticket TTL must be between 1 and {MAX_TICKET_TTL_MILLISECONDS} milliseconds"
+    )]
     InvalidTtl,
     #[error("transport ticket expiry overflowed")]
     ExpiryOverflow,
@@ -200,10 +202,16 @@ struct StoredTicket {
     state: StoredTicketState,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct TicketAuthority {
     tickets: BTreeMap<String, StoredTicket>,
     next_ticket_id: u64,
+}
+
+impl Default for TicketAuthority {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TicketAuthority {
@@ -219,9 +227,7 @@ impl TicketAuthority {
         request: TicketIssueRequest,
     ) -> Result<ConnectionTicket, TicketIssueError> {
         let binding = normalize_and_validate_binding(request.binding)?;
-        if request.ttl_milliseconds == 0
-            || request.ttl_milliseconds > MAX_TICKET_TTL_MILLISECONDS
-        {
+        if request.ttl_milliseconds == 0 || request.ttl_milliseconds > MAX_TICKET_TTL_MILLISECONDS {
             return Err(TicketIssueError::InvalidTtl);
         }
         if !is_lower_hex_sha256(&request.audit_anchor) {
@@ -320,7 +326,10 @@ impl TicketAuthority {
                 BindingField::DnsContextId,
             ),
             (attempt.scheme == ticket.scheme, BindingField::Scheme),
-            (attempt.remote_ip == ticket.selected_ip, BindingField::RemoteIp),
+            (
+                attempt.remote_ip == ticket.selected_ip,
+                BindingField::RemoteIp,
+            ),
             (attempt.port == ticket.port, BindingField::Port),
             (
                 attempt.sni.as_deref().map(normalize_host) == ticket.sni,
@@ -336,11 +345,7 @@ impl TicketAuthority {
             ),
         ] {
             if !matches {
-                return failed_use(
-                    TicketUseOutcome::BindingMismatch { field },
-                    ticket,
-                    attempt,
-                );
+                return failed_use(TicketUseOutcome::BindingMismatch { field }, ticket, attempt);
             }
         }
 
@@ -506,9 +511,9 @@ fn is_valid_identifier(value: &str) -> bool {
     let value = value.trim();
     !value.is_empty()
         && value.len() <= 128
-        && value.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':')
-        })
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
 }
 
 fn normalize_host(value: &str) -> String {
@@ -688,7 +693,10 @@ mod tests {
             audit_anchor: "a".repeat(64),
         };
         request.binding.sni = Some("other.example.com".into());
-        assert_eq!(authority.issue(request), Err(TicketIssueError::InvalidTlsSni));
+        assert_eq!(
+            authority.issue(request),
+            Err(TicketIssueError::InvalidTlsSni)
+        );
     }
 
     #[test]
