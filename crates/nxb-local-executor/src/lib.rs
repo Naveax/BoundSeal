@@ -311,7 +311,10 @@ mod tests {
             .unwrap();
 
         let receipt = result.execution_receipt.unwrap();
-        assert_eq!(receipt.transport_audit_anchor, result.transport_audit_anchor);
+        assert_eq!(
+            receipt.transport_audit_anchor,
+            result.transport_audit_anchor
+        );
         assert_eq!(
             pipeline.executor().audit().records()[0]
                 .event
