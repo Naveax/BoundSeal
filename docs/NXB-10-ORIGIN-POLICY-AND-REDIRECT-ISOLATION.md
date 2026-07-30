@@ -48,7 +48,7 @@ Raw `Location` values, paths, queries and fragments are excluded. They are repre
 
 ## Validation boundary
 
-Formatting, Clippy and tests run across the complete workspace. Redirect fixtures use synthetic HTTP responses and public IP literals only; they do not resolve hostnames or open sockets.
+Formatting, Clippy and tests run across the complete workspace. Redirect fixtures use synthetic HTTP responses and public IP literals only; they do not resolve hostnames or open sockets. The fixture response type is imported directly from the strict HTTP/1 model so redirect tests exercise the production framing surface.
 
 ## Exclusions
 
