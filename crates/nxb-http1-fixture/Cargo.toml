@@ -1,0 +1,13 @@
+[package]
+name = "nxb-http1-fixture"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+nxb-executor = { path = "../nxb-executor" }
+nxb-http1 = { path = "../nxb-http1" }
+nxb-stream = { path = "../nxb-stream" }
+nxb-stream-fixture = { path = "../nxb-stream-fixture" }
+nxb-transport = { path = "../nxb-transport" }
+serde_json.workspace = true
