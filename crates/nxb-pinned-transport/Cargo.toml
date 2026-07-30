@@ -1,0 +1,19 @@
+[package]
+name = "nxb-pinned-transport"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+nxb-gateway = { path = "../nxb-gateway" }
+nxb-transport = { path = "../nxb-transport" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+chrono.workspace = true
+nxb-policy = { path = "../nxb-policy" }
