@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 
-use nxb_stream::{
-    BoundedByteStream, ByteStreamBackend, StreamControl, StreamOperationOutcome, StreamState,
-};
+use nxb_stream::{BoundedByteStream, ByteStreamBackend, StreamControl, StreamOperationOutcome};
 use sha2::{Digest, Sha256};
 
 use crate::{
