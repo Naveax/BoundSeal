@@ -8,6 +8,8 @@ members = [
     "crates/nxb-events",
     "crates/nxb-executor",
     "crates/nxb-gateway",
+    "crates/nxb-http1",
+    "crates/nxb-http1-fixture",
     "crates/nxb-local-executor",
     "crates/nxb-pinned-transport",
     "crates/nxb-policy",
