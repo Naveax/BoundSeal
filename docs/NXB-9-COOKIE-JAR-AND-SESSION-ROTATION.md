@@ -44,6 +44,8 @@ Cookie leases validate account, tenant, role, run, worker and expiry first. Auth
 
 Each session owns a cookie jar and generation counter. Successful authenticated responses are inspected for `Set-Cookie` fields. A committed rotation updates the session's active opaque handles, generation and cookie-audit anchor. Old cookie handles are revoked before the new state becomes active.
 
+The response-cookie helper receives authority, scheme, request target and monotonic time as one immutable context object, preventing those related binding values from diverging across the transaction.
+
 Logout uses an explicit jar purge that revokes active cookie handles and marks the session revoked.
 
 ## Validation boundary
