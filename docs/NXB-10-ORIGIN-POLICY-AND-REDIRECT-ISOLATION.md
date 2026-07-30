@@ -46,6 +46,10 @@ Redirect records contain origin metadata, method/body disposition, secret dispos
 
 Raw `Location` values, paths, queries and fragments are excluded. They are represented only by SHA-256 digests.
 
+## Validation boundary
+
+Formatting, Clippy and tests run across the complete workspace. Redirect fixtures use synthetic HTTP responses and public IP literals only; they do not resolve hostnames or open sockets.
+
 ## Exclusions
 
 NXB-10 does not add a resolver, socket backend, TLS client, browser, proxy, login automation, scanner adapter or public-network execution. Tests use only synthetic HTTP responses and public-address fixtures.
