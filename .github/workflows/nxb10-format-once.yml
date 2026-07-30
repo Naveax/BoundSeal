@@ -1,0 +1,37 @@
+name: NXB-10 format once
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/nxb10-format-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.event.pull_request.head.ref == 'nxb-10-origin-policy-and-redirect-isolation'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Format redirect crate
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt
+          rustfmt --edition 2021 \
+            crates/nxb-redirect/src/part1.rs \
+            crates/nxb-redirect/src/part2.rs \
+            crates/nxb-redirect/src/part3.rs \
+            crates/nxb-redirect/tests/redirect.rs
+          cargo +stable fmt --all
+          git rm .github/workflows/nxb10-format-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml crates/nxb-redirect docs/NXB-10-ORIGIN-POLICY-AND-REDIRECT-ISOLATION.md
+          git commit -m "NXB-10: format redirect architecture"
+          git push origin HEAD:nxb-10-origin-policy-and-redirect-isolation
