@@ -1,0 +1,122 @@
+name: NXB-9 fix cookie context v2 once
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/nxb9-fix-cookie-context-v2-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.ref == 'nxb-9-cookie-jar-and-session-rotation'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Refactor response-cookie context
+        shell: python
+        run: |
+          import re
+          from pathlib import Path
+
+          path = Path('crates/nxb-session/src/lib.rs')
+          text = path.read_text()
+
+          marker = '''#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+          pub struct SessionExchangeOptions {
+              pub lease_seconds: i64,
+              pub now_epoch_seconds: i64,
+              pub control: StreamControl,
+          }
+          '''
+          addition = marker + '''
+          #[derive(Debug, Clone, Copy)]
+          struct CookieResponseContext<'a> {
+              authority: &'a str,
+              scheme: &'a str,
+              request_target: &'a str,
+              now_epoch_seconds: i64,
+          }
+          '''
+          if marker not in text:
+              raise SystemExit('SessionExchangeOptions block not found')
+          text = text.replace(marker, addition, 1)
+
+          call_pattern = re.compile(
+              r'''Ok\(exchange\) => self\.apply_response_cookies\(\n\s*session_id,\n\s*vault,\n\s*exchange,\n\s*&authority,\n\s*&scheme,\n\s*&request\.target,\n\s*options\.now_epoch_seconds,\n\s*\),'''
+          )
+          text, count = call_pattern.subn(
+              '''Ok(exchange) => self.apply_response_cookies(
+                          session_id,
+                          vault,
+                          exchange,
+                          CookieResponseContext {
+                              authority: &authority,
+                              scheme: &scheme,
+                              request_target: &request.target,
+                              now_epoch_seconds: options.now_epoch_seconds,
+                          },
+                      ),''',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit(f'cookie helper call replacements: {count}')
+
+          signature_pattern = re.compile(
+              r'''    fn apply_response_cookies\(\n\s*&mut self,\n\s*session_id: &str,\n\s*vault: &mut InMemorySecretVault,\n\s*exchange: &Http1Exchange,\n\s*authority: &str,\n\s*scheme: &str,\n\s*request_target: &str,\n\s*now_epoch_seconds: i64,\n\s*\) -> Result<Option<CookieCommit>, SessionError> \{'''
+          )
+          text, count = signature_pattern.subn(
+              '''    fn apply_response_cookies(
+                  &mut self,
+                  session_id: &str,
+                  vault: &mut InMemorySecretVault,
+                  exchange: &Http1Exchange,
+                  context: CookieResponseContext<'_>,
+              ) -> Result<Option<CookieCommit>, SessionError> {''',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit(f'cookie helper signature replacements: {count}')
+
+          old_origin = '        let origin = CookieOrigin::new(authority, scheme)?;\n'
+          if old_origin not in text:
+              raise SystemExit('cookie origin expression not found')
+          text = text.replace(
+              old_origin,
+              '        let origin = CookieOrigin::new(context.authority, context.scheme)?;\n',
+              1,
+          )
+
+          old_apply = '''            request_target,
+                      &set_cookie_values,
+                      now_epoch_seconds,
+          '''
+          new_apply = '''            context.request_target,
+                      &set_cookie_values,
+                      context.now_epoch_seconds,
+          '''
+          if old_apply not in text:
+              raise SystemExit('cookie jar apply arguments not found')
+          text = text.replace(old_apply, new_apply, 1)
+          path.write_text(text)
+
+      - name: Format, clean temporary workflows and push
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt
+          cargo +stable fmt --all
+          rm -f .github/workflows/nxb9-fix-cookie-context-once.yml
+          rm -f .github/workflows/nxb9-fix-cookie-context-v2-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A crates/nxb-session/src/lib.rs .github/workflows
+          git commit -m "NXB-9: group response-cookie context"
+          git push origin HEAD:nxb-9-cookie-jar-and-session-rotation
