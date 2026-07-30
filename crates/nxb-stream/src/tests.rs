@@ -122,7 +122,10 @@ fn rejects_non_completed_execution_receipt() {
         EmptyBackend,
     );
 
-    assert_eq!(result, Err(StreamOpenError::ExecutionNotCompleted));
+    assert!(matches!(
+        result,
+        Err(StreamOpenError::ExecutionNotCompleted)
+    ));
 }
 
 #[test]
