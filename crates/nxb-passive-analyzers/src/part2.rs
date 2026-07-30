@@ -98,7 +98,7 @@ impl PassiveAnalyzer for HeaderSecurityAnalyzer {
                     &endpoint,
                     duplicate.as_bytes(),
                     "A security policy header appears more than once and may be interpreted inconsistently.",
-                    BTreeMap::from([("header".into(), duplicate)]),
+                    BTreeMap::from([("header".into(), duplicate.clone())]),
                 )?;
             }
         }
@@ -204,4 +204,3 @@ impl PassiveAnalyzer for CookieSecurityAnalyzer {
 
 #[derive(Debug, Default)]
 pub struct TlsMetadataAnalyzer;
-
