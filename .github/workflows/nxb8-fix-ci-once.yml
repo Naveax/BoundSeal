@@ -1,0 +1,41 @@
+name: NXB-8 fix CI once
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/nxb8-fix-ci-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.ref == 'nxb-8-secret-vault-and-session-boundary'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Fix vault domain borrow
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('crates/nxb-vault/src/lib.rs')
+          text = path.read_text()
+          old = '    normalize_host(cookie.domain)?;\n'
+          new = '    normalize_host(&cookie.domain)?;\n'
+          if old not in text:
+              raise SystemExit('cookie domain borrow pattern not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          rustup toolchain install stable --profile minimal --component rustfmt
+          cargo +stable fmt --all
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/nxb-vault/src/lib.rs
+          git commit -m "NXB-8: fix cookie domain validation borrow"
+          git push origin HEAD:nxb-8-secret-vault-and-session-boundary
