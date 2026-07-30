@@ -1,7 +1,9 @@
 [workspace]
 members = [
+    "crates/nxb-budget",
     "crates/nxb-core",
     "crates/nxb-events",
+    "crates/nxb-gateway",
     "crates/nxb-policy",
 ]
 resolver = "2"
