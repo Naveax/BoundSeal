@@ -1,0 +1,65 @@
+name: NXB-8 fix test calls once
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/nxb8-fix-test-calls-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.ref == 'nxb-8-secret-vault-and-session-boundary'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Update session test calls
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('crates/nxb-session/src/lib.rs')
+          text = path.read_text()
+          old_a = '''                &request,
+                          30,
+                          101,
+                          StreamControl::default(),
+          '''
+          new_a = '''                &request,
+                          SessionExchangeOptions {
+                              lease_seconds: 30,
+                              now_epoch_seconds: 101,
+                              control: StreamControl::default(),
+                          },
+          '''
+          old_b = '''                &Http1Request::new("GET", "/"),
+                          30,
+                          101,
+                          StreamControl::default(),
+          '''
+          new_b = '''                &Http1Request::new("GET", "/"),
+                          SessionExchangeOptions {
+                              lease_seconds: 30,
+                              now_epoch_seconds: 101,
+                              control: StreamControl::default(),
+                          },
+          '''
+          if old_a not in text or old_b not in text:
+              raise SystemExit('expected legacy test calls not found')
+          path.write_text(text.replace(old_a, new_a, 1).replace(old_b, new_b, 1))
+
+      - name: Format and push
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt
+          cargo +stable fmt --all
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/nxb-session/src/lib.rs
+          git commit -m "NXB-8: update session exchange test options"
+          git push origin HEAD:nxb-8-secret-vault-and-session-boundary
