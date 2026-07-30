@@ -99,8 +99,8 @@ impl RequestBudget {
         }
 
         let delta = elapsed - self.last_refill;
-        self.tokens = (self.tokens + delta.as_secs_f64() * self.refill_per_second)
-            .min(self.token_capacity);
+        self.tokens =
+            (self.tokens + delta.as_secs_f64() * self.refill_per_second).min(self.token_capacity);
         self.last_refill = elapsed;
     }
 }
@@ -114,7 +114,10 @@ mod tests {
         let mut budget = RequestBudget::new(1, 1, 10.0).unwrap();
         budget.try_start(Duration::ZERO).unwrap();
         budget.finish();
-        assert_eq!(budget.try_start(Duration::from_secs(1)), Err(BudgetError::Exhausted));
+        assert_eq!(
+            budget.try_start(Duration::from_secs(1)),
+            Err(BudgetError::Exhausted)
+        );
     }
 
     #[test]
