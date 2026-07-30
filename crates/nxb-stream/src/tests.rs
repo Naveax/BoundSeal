@@ -137,7 +137,7 @@ fn audit_detects_modified_operation_metadata() {
     )
     .unwrap();
 
-    stream.audit.records_mut()[0].event.requested_bytes = 99;
+    stream.audit_mut().records_mut()[0].event.requested_bytes = 99;
 
     assert_eq!(
         stream.audit().verify(),

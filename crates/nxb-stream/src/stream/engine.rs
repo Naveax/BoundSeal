@@ -83,6 +83,11 @@ impl<B: ByteStreamBackend> BoundedByteStream<B> {
         &self.audit
     }
 
+    #[cfg(test)]
+    pub(crate) fn audit_mut(&mut self) -> &mut StreamAuditChain {
+        &mut self.audit
+    }
+
     pub fn backend(&self) -> &B {
         &self.backend
     }
