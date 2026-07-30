@@ -4,8 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-pub const GENESIS_HASH: &str =
-    "0000000000000000000000000000000000000000000000000000000000000000";
+pub const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AuditDestination {
@@ -127,11 +126,8 @@ impl AuditChain {
                 });
             }
 
-            let expected_hash = hash_material(
-                record.sequence,
-                &record.previous_hash,
-                &record.event,
-            )?;
+            let expected_hash =
+                hash_material(record.sequence, &record.previous_hash, &record.event)?;
             if record.record_hash != expected_hash {
                 return Err(AuditError::RecordHashMismatch {
                     record_index: index,
@@ -199,8 +195,12 @@ mod tests {
     #[test]
     fn builds_and_verifies_hash_chain() {
         let mut chain = AuditChain::new();
-        chain.append(event("decision-1", "https://example.test/a")).unwrap();
-        chain.append(event("decision-2", "https://example.test/b")).unwrap();
+        chain
+            .append(event("decision-1", "https://example.test/a"))
+            .unwrap();
+        chain
+            .append(event("decision-2", "https://example.test/b"))
+            .unwrap();
 
         assert_eq!(chain.len(), 2);
         assert_eq!(chain.records()[0].previous_hash, GENESIS_HASH);
@@ -215,7 +215,9 @@ mod tests {
     #[test]
     fn detects_modified_event_data() {
         let mut chain = AuditChain::new();
-        chain.append(event("decision-1", "https://example.test/a")).unwrap();
+        chain
+            .append(event("decision-1", "https://example.test/a"))
+            .unwrap();
         chain.records[0].event.method = "POST".into();
 
         assert_eq!(
@@ -227,8 +229,12 @@ mod tests {
     #[test]
     fn detects_modified_link() {
         let mut chain = AuditChain::new();
-        chain.append(event("decision-1", "https://example.test/a")).unwrap();
-        chain.append(event("decision-2", "https://example.test/b")).unwrap();
+        chain
+            .append(event("decision-1", "https://example.test/a"))
+            .unwrap();
+        chain
+            .append(event("decision-2", "https://example.test/b"))
+            .unwrap();
         chain.records[1].previous_hash = GENESIS_HASH.into();
 
         assert_eq!(
