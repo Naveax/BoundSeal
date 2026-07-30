@@ -911,7 +911,7 @@ fn validate_cookie(cookie: &CookieMetadata) -> Result<(), VaultError> {
             "cookie name or path is invalid".into(),
         ));
     }
-    normalize_host(cookie.domain)?;
+    normalize_host(&cookie.domain)?;
     Ok(())
 }
 
