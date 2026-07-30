@@ -902,7 +902,7 @@ fn allowed_hosts_for_cookie(
     origin: &CookieOrigin,
     cookie: &ParsedSetCookie,
 ) -> Result<BTreeSet<String>, CookieJarError> {
-    let allowed_hosts = if cookie.host_only {
+    let allowed_hosts: BTreeSet<String> = if cookie.host_only {
         [origin.host.clone()].into_iter().collect()
     } else {
         binding
