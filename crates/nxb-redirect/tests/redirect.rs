@@ -4,9 +4,7 @@ use chrono::{TimeZone, Utc};
 use nxb_gateway::ScopeGateway;
 use nxb_http1::{Http1Framing, Http1Header, Http1Version};
 use nxb_pinned_transport::PinnedTransportCoordinator;
-use nxb_policy::{
-    AuthorizationPolicy, AutomationPolicy, ProgramPolicy, ScopePolicy, TargetPolicy,
-};
+use nxb_policy::{AuthorizationPolicy, AutomationPolicy, ProgramPolicy, ScopePolicy, TargetPolicy};
 use nxb_redirect::*;
 use sha2::{Digest, Sha256};
 use url::Url;
@@ -260,10 +258,7 @@ fn cross_origin_307_does_not_replay_body() {
             Duration::from_millis(10),
         )
         .unwrap_err();
-    assert!(matches!(
-        error,
-        RedirectError::CrossOriginBodyReplayDenied
-    ));
+    assert!(matches!(error, RedirectError::CrossOriginBodyReplayDenied));
 }
 
 #[test]
@@ -285,10 +280,7 @@ fn declared_session_rotation_requires_exact_next_generation() {
             Duration::from_millis(10),
         )
         .unwrap_err();
-    assert!(matches!(
-        error,
-        RedirectError::SessionGenerationMismatch
-    ));
+    assert!(matches!(error, RedirectError::SessionGenerationMismatch));
 }
 
 #[test]

@@ -9,10 +9,7 @@ impl RedirectCoordinator {
         validate_identifier(&chain_id, "chain_id").map_err(|_| RedirectError::InvalidChainId)?;
         let limits = limits.validate()?;
         let first_request_hash = request_identity_hash(&current.url, &current.method);
-        let audit = RedirectAuditChain::new(
-            &chain_id,
-            transport.transport_audit().tail_hash(),
-        );
+        let audit = RedirectAuditChain::new(&chain_id, transport.transport_audit().tail_hash());
         Ok(Self {
             chain_id,
             limits,
@@ -60,10 +57,8 @@ impl RedirectCoordinator {
             return Err(RedirectError::HttpsDowngrade);
         }
 
-        let (method, body_disposition) = redirect_method_plan(
-            response.status_code,
-            &self.current.method,
-        )?;
+        let (method, body_disposition) =
+            redirect_method_plan(response.status_code, &self.current.method)?;
         let origin_transition = if from_origin == to_origin {
             OriginTransition::SameOrigin
         } else {
@@ -111,11 +106,9 @@ impl RedirectCoordinator {
             dns_resolver_id: dns.resolver_id.clone(),
             dns_ttl_seconds: dns.ttl_seconds,
         };
-        let authorization = self.transport.authorize_connection(
-            &intent,
-            dns.selected_ip,
-            elapsed,
-        )?;
+        let authorization =
+            self.transport
+                .authorize_connection(&intent, dns.selected_ip, elapsed)?;
         if authorization.decision.outcome == DecisionOutcome::Allow
             && authorization.ticket.is_none()
         {
@@ -175,10 +168,7 @@ impl RedirectCoordinator {
         Ok(step)
     }
 
-    fn append_audit_event(
-        &mut self,
-        input: RedirectAuditInput<'_>,
-    ) -> Result<(), RedirectError> {
+    fn append_audit_event(&mut self, input: RedirectAuditInput<'_>) -> Result<(), RedirectError> {
         let gateway_decision_bytes = serde_json::to_vec(input.decision)
             .map_err(|error| RedirectAuditError::Serialization(error.to_string()))?;
         let gateway_outcome = match &input.decision.outcome {
@@ -298,13 +288,9 @@ fn redirect_method_plan(
     current_method: &str,
 ) -> Result<(String, RedirectBodyDisposition), RedirectError> {
     match status {
-        301 | 302 if current_method == "POST" => {
-            Ok(("GET".into(), RedirectBodyDisposition::Drop))
-        }
+        301 | 302 if current_method == "POST" => Ok(("GET".into(), RedirectBodyDisposition::Drop)),
         301 | 302 => Ok((current_method.into(), RedirectBodyDisposition::Preserve)),
-        303 if current_method == "HEAD" => {
-            Ok(("HEAD".into(), RedirectBodyDisposition::Drop))
-        }
+        303 if current_method == "HEAD" => Ok(("HEAD".into(), RedirectBodyDisposition::Drop)),
         303 => Ok(("GET".into(), RedirectBodyDisposition::Drop)),
         307 | 308 => Ok((current_method.into(), RedirectBodyDisposition::Preserve)),
         _ => Err(RedirectError::NotRedirect),
@@ -424,4 +410,3 @@ fn lower_hex(bytes: &[u8]) -> String {
     }
     output
 }
-

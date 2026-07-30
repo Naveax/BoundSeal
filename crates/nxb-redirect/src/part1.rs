@@ -1,9 +1,4 @@
-use std::{
-    collections::BTreeSet,
-    fmt,
-    net::IpAddr,
-    time::Duration,
-};
+use std::{collections::BTreeSet, fmt, net::IpAddr, time::Duration};
 
 use nxb_gateway::{DecisionOutcome, GatewayDecision, RequestIntent};
 use nxb_http1::Http1Response;
@@ -269,4 +264,3 @@ impl RedirectStep {
             && self.authorization.ticket.is_some()
     }
 }
-

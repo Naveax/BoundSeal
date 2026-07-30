@@ -44,9 +44,7 @@ pub struct RedirectAuditChain {
 
 impl RedirectAuditChain {
     pub fn new(chain_id: &str, transport_anchor: &str) -> Self {
-        let genesis_hash = hash(
-            format!("nxb-redirect:{chain_id}:{transport_anchor}").as_bytes(),
-        );
+        let genesis_hash = hash(format!("nxb-redirect:{chain_id}:{transport_anchor}").as_bytes());
         Self {
             tail_hash: genesis_hash.clone(),
             genesis_hash,
@@ -91,12 +89,9 @@ impl RedirectAuditChain {
                     record_index: index,
                 });
             }
-            let bytes = serde_json::to_vec(&(
-                record.sequence,
-                &record.previous_hash,
-                &record.event,
-            ))
-            .map_err(|error| RedirectAuditError::Serialization(error.to_string()))?;
+            let bytes =
+                serde_json::to_vec(&(record.sequence, &record.previous_hash, &record.event))
+                    .map_err(|error| RedirectAuditError::Serialization(error.to_string()))?;
             let expected = hash(&bytes);
             if record.record_hash != expected {
                 return Err(RedirectAuditError::RecordHashMismatch {
@@ -209,4 +204,3 @@ pub struct RedirectCoordinator {
     terminal: bool,
     audit: RedirectAuditChain,
 }
-
