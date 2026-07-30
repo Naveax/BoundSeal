@@ -10,3 +10,4 @@ nxb-http1 = { path = "../nxb-http1" }
 nxb-stream = { path = "../nxb-stream" }
 nxb-stream-fixture = { path = "../nxb-stream-fixture" }
 nxb-transport = { path = "../nxb-transport" }
+serde_json.workspace = true
