@@ -13,9 +13,11 @@ members = [
     "crates/nxb-local-executor",
     "crates/nxb-pinned-transport",
     "crates/nxb-policy",
+    "crates/nxb-session",
     "crates/nxb-stream",
     "crates/nxb-stream-fixture",
     "crates/nxb-transport",
+    "crates/nxb-vault",
 ]
 resolver = "2"
 
@@ -34,3 +36,4 @@ sha2 = "0.10"
 thiserror = "2.0"
 toml = "0.8"
 url = { version = "2.5", features = ["serde"] }
+zeroize = "1.8"
