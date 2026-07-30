@@ -1,0 +1,14 @@
+# This file can only narrow a compiled parent policy.
+# Any attempted host, feature, time, or budget expansion is rejected.
+
+include_hosts = ["api.app.example.com"]
+exclude_hosts = ["admin.api.app.example.com"]
+allowed_schemes = ["https"]
+allowed_methods = ["GET", "HEAD"]
+allow_subdomains = false
+active_testing = false
+oob_callbacks = false
+max_requests_per_second = 0.5
+max_concurrency = 1
+max_total_requests = 500
+expires_at = 2026-08-01T00:00:00Z
