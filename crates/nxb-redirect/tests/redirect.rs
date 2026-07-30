@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, time::Duration};
 
 use chrono::{TimeZone, Utc};
 use nxb_gateway::ScopeGateway;
-use nxb_http1::{Http1Framing, Http1Header, Http1Version};
+use nxb_http1::{Http1Framing, Http1Header, Http1Response, Http1Version};
 use nxb_pinned_transport::PinnedTransportCoordinator;
 use nxb_policy::{AuthorizationPolicy, AutomationPolicy, ProgramPolicy, ScopePolicy, TargetPolicy};
 use nxb_redirect::*;
