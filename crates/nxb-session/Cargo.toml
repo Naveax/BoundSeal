@@ -5,6 +5,7 @@ edition.workspace = true
 authors.workspace = true
 
 [dependencies]
+nxb-cookie-jar = { path = "../nxb-cookie-jar" }
 nxb-http1 = { path = "../nxb-http1" }
 nxb-stream = { path = "../nxb-stream" }
 nxb-vault = { path = "../nxb-vault" }

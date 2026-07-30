@@ -600,7 +600,14 @@ impl InMemorySecretVault {
         let context = normalized_context(&context)?;
         for handle in handles {
             let entry = self.entries.get(handle).ok_or(VaultError::UnknownSecret)?;
-            validate_entry_access(entry, &context, now_epoch_seconds)?;
+            match &entry.delivery {
+                SecretDelivery::Cookie(_) => {
+                    validate_entry_identity(entry, &context, now_epoch_seconds)?;
+                }
+                SecretDelivery::Header { .. } => {
+                    validate_entry_access(entry, &context, now_epoch_seconds)?;
+                }
+            }
         }
         let lease_id = format!("{}-lease-{:020}", self.vault_id, self.next_lease_id);
         self.next_lease_id = self.next_lease_id.saturating_add(1);
@@ -672,14 +679,24 @@ impl InMemorySecretVault {
         let mut cookie_pairs: Vec<(String, SecretValue)> = Vec::new();
         for handle in &state.handles {
             let entry = self.entries.get(handle).ok_or(VaultError::UnknownSecret)?;
-            validate_entry_access(entry, &state.context, now_epoch_seconds)?;
             match &entry.delivery {
                 SecretDelivery::Cookie(cookie) => {
-                    if cookie_applies(cookie, &state.context, request_target, now_epoch_seconds)? {
+                    validate_entry_identity(entry, &state.context, now_epoch_seconds)?;
+                    let binding = &entry.metadata.binding;
+                    if binding.allowed_hosts.contains(&state.context.authority)
+                        && binding.allowed_schemes.contains(&state.context.scheme)
+                        && cookie_applies(
+                            cookie,
+                            &state.context,
+                            request_target,
+                            now_epoch_seconds,
+                        )?
+                    {
                         cookie_pairs.push((cookie.name.clone(), entry.value.duplicate()));
                     }
                 }
                 SecretDelivery::Header { name, prefix } => {
+                    validate_entry_access(entry, &state.context, now_epoch_seconds)?;
                     let mut value = Vec::with_capacity(prefix.len() + entry.value.bytes().len());
                     value.extend_from_slice(prefix);
                     value.extend_from_slice(entry.value.bytes());
@@ -962,7 +979,7 @@ fn normalized_context(context: &VaultAccessContext) -> Result<VaultAccessContext
     })
 }
 
-fn validate_entry_access(
+fn validate_entry_identity(
     entry: &SecretEntry,
     context: &VaultAccessContext,
     now_epoch_seconds: i64,
@@ -980,7 +997,20 @@ fn validate_entry_access(
         || binding.account_id != context.account_id
         || binding.tenant_id != context.tenant_id
         || binding.role_id != context.role_id
-        || !binding.allowed_hosts.contains(&context.authority)
+    {
+        return Err(VaultError::AccessDenied);
+    }
+    Ok(())
+}
+
+fn validate_entry_access(
+    entry: &SecretEntry,
+    context: &VaultAccessContext,
+    now_epoch_seconds: i64,
+) -> Result<(), VaultError> {
+    validate_entry_identity(entry, context, now_epoch_seconds)?;
+    let binding = &entry.metadata.binding;
+    if !binding.allowed_hosts.contains(&context.authority)
         || !binding.allowed_schemes.contains(&context.scheme)
     {
         return Err(VaultError::AccessDenied);
