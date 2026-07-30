@@ -45,6 +45,14 @@ pub struct DnsPin {
 }
 
 impl DnsPin {
+    pub fn context_id(&self) -> &str {
+        &self.context_id
+    }
+
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
     pub fn addresses(&self) -> &BTreeSet<IpAddr> {
         &self.addresses
     }
@@ -271,6 +279,9 @@ mod tests {
             .unwrap(),
             DnsPinStatus::Matched
         );
+        let pin = pins.get("navigation-1", "app.example.com").unwrap();
+        assert_eq!(pin.context_id(), "navigation-1");
+        assert_eq!(pin.host(), "app.example.com");
     }
 
     #[test]
