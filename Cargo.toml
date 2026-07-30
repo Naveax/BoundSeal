@@ -8,6 +8,7 @@ members = [
     "crates/nxb-events",
     "crates/nxb-gateway",
     "crates/nxb-policy",
+    "crates/nxb-transport",
 ]
 resolver = "2"
 
