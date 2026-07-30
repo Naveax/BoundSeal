@@ -57,13 +57,17 @@ impl<B: ByteStreamBackend> BoundedByteStream<B> {
             operation_count: 0,
             audit,
         };
-        stream.record(
-            None,
-            StreamOperationOutcome::Opened,
-            OperationMetrics::default(),
-            StreamState::Open,
-            StreamState::Open,
-        )?;
+        stream
+            .record(
+                None,
+                StreamOperationOutcome::Opened,
+                OperationMetrics::default(),
+                StreamState::Open,
+                StreamState::Open,
+            )
+            .map_err(|error| {
+                StreamOpenError::BindingMismatch(format!("initial_stream_audit:{error}"))
+            })?;
         Ok(stream)
     }
 
