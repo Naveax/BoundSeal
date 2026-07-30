@@ -1,0 +1,77 @@
+name: NXB-8 bootstrap once
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/nxb8-bootstrap-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.ref == 'nxb-8-secret-vault-and-session-boundary'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply bootstrap fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          model = Path('crates/nxb-http1/src/model.rs')
+          text = model.read_text()
+          marker = '''    #[error("HTTP/1 audit chain is invalid: {0}")]
+              Audit(#[from] Http1AuditError),
+          '''
+          replacement = '''    #[error("HTTP/1 secret-header lease failed: {0}")]
+              SecretHeaders(#[from] nxb_vault::VaultError),
+              #[error("HTTP/1 audit chain is invalid: {0}")]
+              Audit(#[from] Http1AuditError),
+          '''
+          if 'SecretHeaders(#[from] nxb_vault::VaultError)' not in text:
+              if marker not in text:
+                  raise SystemExit('HTTP1 error insertion point not found')
+              model.write_text(text.replace(marker, replacement, 1))
+
+          vault = Path('crates/nxb-vault/src/lib.rs')
+          text = vault.read_text()
+          text = text.replace('''        assert_eq!(
+              vault.lease(&[handle], wrong, 30, 101),
+              Err(VaultError::AccessDenied)
+          );
+          ''', '''        assert!(matches!(
+              vault.lease(&[handle], wrong, 30, 101),
+              Err(VaultError::AccessDenied)
+          ));
+          ''')
+          text = text.replace('''        assert_eq!(
+              headers.take_for("app.example.com", "https", 103),
+              Err(VaultError::HeaderLeaseConsumed)
+          );
+          ''', '''        assert!(matches!(
+              headers.take_for("app.example.com", "https", 103),
+              Err(VaultError::HeaderLeaseConsumed)
+          ));
+          ''')
+          vault.write_text(text)
+
+      - name: Format and push
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt
+          cargo +stable fmt --all
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml crates/nxb-vault crates/nxb-session crates/nxb-http1 docs/NXB-8-SECRET-VAULT-AND-SESSION.md
+          git commit -m "NXB-8: format vault and session boundary"
+          git push origin HEAD:nxb-8-secret-vault-and-session-boundary
