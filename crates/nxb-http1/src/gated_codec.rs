@@ -6,9 +6,7 @@ use nxb_vault::SecretHeaderLease;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::{
-    codec, Http1AuditChain, Http1Error, Http1Exchange, Http1Limits, Http1Request,
-};
+use crate::{codec, Http1AuditChain, Http1Error, Http1Exchange, Http1Limits, Http1Request};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
