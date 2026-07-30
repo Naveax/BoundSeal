@@ -11,6 +11,8 @@ members = [
     "crates/nxb-local-executor",
     "crates/nxb-pinned-transport",
     "crates/nxb-policy",
+    "crates/nxb-stream",
+    "crates/nxb-stream-fixture",
     "crates/nxb-transport",
 ]
 resolver = "2"
