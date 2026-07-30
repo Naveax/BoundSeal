@@ -1,0 +1,39 @@
+name: NXB-7 fix parser debug once
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/nxb7-fix-debug-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.ref == 'nxb-7-http1-framing-fixture'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Add parser debug derives
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('crates/nxb-http1/src/parser.rs')
+          text = path.read_text()
+          text = text.replace('pub(crate) enum ParseProgress {', '#[derive(Debug)]\npub(crate) enum ParseProgress {', 1)
+          text = text.replace('pub(crate) struct ParsedResponse {', '#[derive(Debug)]\npub(crate) struct ParsedResponse {', 1)
+          path.write_text(text)
+          PY
+          rustup toolchain install stable --profile minimal --component rustfmt
+          cargo +stable fmt --all
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/nxb-http1/src/parser.rs
+          git commit -m "NXB-7: derive debug for parser progress"
+          git push origin HEAD:nxb-7-http1-framing-fixture
