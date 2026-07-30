@@ -96,10 +96,7 @@ pub enum DnsPinError {
     #[error("DNS observation clock moved backwards")]
     ClockRegression,
     #[error("DNS resolver changed within a pinned context")]
-    ResolverChanged {
-        expected: String,
-        observed: String,
-    },
+    ResolverChanged { expected: String, observed: String },
     #[error("DNS rebinding detected for {host}")]
     RebindingDetected {
         host: String,
@@ -212,9 +209,9 @@ fn is_valid_identifier(value: &str) -> bool {
     let value = value.trim();
     !value.is_empty()
         && value.len() <= 128
-        && value.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':')
-        })
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
 }
 
 fn normalize_host(value: &str) -> String {
@@ -356,12 +353,7 @@ mod tests {
             0,
         ))
         .unwrap();
-        let mut changed = observation(
-            "navigation-1",
-            "app.example.com",
-            &["8.8.8.8"],
-            10,
-        );
+        let mut changed = observation("navigation-1", "app.example.com", &["8.8.8.8"], 10);
         changed.resolver_id = "alternate-resolver".into();
         assert!(matches!(
             pins.pin_or_validate(changed),
