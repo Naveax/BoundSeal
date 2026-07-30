@@ -1,4 +1,5 @@
 mod audit;
+mod grant_access;
 mod identity;
 mod model;
 mod verifier;
