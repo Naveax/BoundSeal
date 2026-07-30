@@ -2,6 +2,7 @@
 members = [
     "crates/nxb-audit",
     "crates/nxb-budget",
+    "crates/nxb-cookie-jar",
     "crates/nxb-core",
     "crates/nxb-destination",
     "crates/nxb-dns",
@@ -30,6 +31,7 @@ authors = ["Naveax"]
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.5", features = ["derive"] }
+httpdate = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
