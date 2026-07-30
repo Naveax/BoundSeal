@@ -1220,10 +1220,10 @@ mod tests {
         let handle = vault.insert(bearer(b"token"), 100).unwrap();
         let mut wrong = context();
         wrong.tenant_id = "tenant-b".into();
-        assert_eq!(
+        assert!(matches!(
             vault.lease(&[handle], wrong, 30, 101),
             Err(VaultError::AccessDenied)
-        );
+        ));
     }
 
     #[test]
@@ -1236,10 +1236,10 @@ mod tests {
             .unwrap();
         assert!(!format!("{headers:?}").contains("token-value"));
         let mut batch = headers.take_for("app.example.com", "https", 103).unwrap();
-        assert_eq!(
+        assert!(matches!(
             headers.take_for("app.example.com", "https", 103),
             Err(VaultError::HeaderLeaseConsumed)
-        );
+        ));
         let mut wire = Vec::new();
         let mut redacted = Vec::new();
         batch.append_http1(&mut wire, &mut redacted).unwrap();
