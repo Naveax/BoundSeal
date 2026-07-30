@@ -54,7 +54,10 @@ fn validate_policy(path: PathBuf, now: Option<String>) -> Result<()> {
     println!("policy: valid");
     println!("program: {}", compiled.program_name());
     println!("included_hosts: {}", compiled.included_host_count());
-    println!("maximum_total_requests: {}", compiled.maximum_total_requests());
+    println!(
+        "maximum_total_requests: {}",
+        compiled.maximum_total_requests()
+    );
     Ok(())
 }
 
