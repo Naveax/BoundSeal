@@ -1,0 +1,107 @@
+name: NXB-9 fix cookie context once
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/nxb9-fix-cookie-context-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.ref == 'nxb-9-cookie-jar-and-session-rotation'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Group response-cookie context
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('crates/nxb-session/src/lib.rs')
+          text = path.read_text()
+          marker = '''pub struct SessionExchangeOptions {
+              pub lease_seconds: i64,
+              pub now_epoch_seconds: i64,
+              pub control: StreamControl,
+          }
+          '''
+          addition = marker + '''
+          #[derive(Debug, Clone, Copy)]
+          struct CookieResponseContext<'a> {
+              authority: &'a str,
+              scheme: &'a str,
+              request_target: &'a str,
+              now_epoch_seconds: i64,
+          }
+          '''
+          if marker not in text:
+              raise SystemExit('exchange options marker not found')
+          text = text.replace(marker, addition, 1)
+
+          old_call = '''            Ok(exchange) => self.apply_response_cookies(
+                      session_id,
+                      vault,
+                      exchange,
+                      &authority,
+                      &scheme,
+                      &request.target,
+                      options.now_epoch_seconds,
+                  ),
+          '''
+          new_call = '''            Ok(exchange) => self.apply_response_cookies(
+                      session_id,
+                      vault,
+                      exchange,
+                      CookieResponseContext {
+                          authority: &authority,
+                          scheme: &scheme,
+                          request_target: &request.target,
+                          now_epoch_seconds: options.now_epoch_seconds,
+                      },
+                  ),
+          '''
+          if old_call not in text:
+              raise SystemExit('cookie helper call not found')
+          text = text.replace(old_call, new_call, 1)
+
+          old_signature = '''    fn apply_response_cookies(
+                  &mut self,
+                  session_id: &str,
+                  vault: &mut InMemorySecretVault,
+                  exchange: &Http1Exchange,
+                  authority: &str,
+                  scheme: &str,
+                  request_target: &str,
+                  now_epoch_seconds: i64,
+              ) -> Result<Option<CookieCommit>, SessionError> {
+          '''
+          new_signature = '''    fn apply_response_cookies(
+                  &mut self,
+                  session_id: &str,
+                  vault: &mut InMemorySecretVault,
+                  exchange: &Http1Exchange,
+                  context: CookieResponseContext<'_>,
+              ) -> Result<Option<CookieCommit>, SessionError> {
+          '''
+          if old_signature not in text:
+              raise SystemExit('cookie helper signature not found')
+          text = text.replace(old_signature, new_signature, 1)
+          text = text.replace('        let origin = CookieOrigin::new(authority, scheme)?;\n', '        let origin = CookieOrigin::new(context.authority, context.scheme)?;\n', 1)
+          text = text.replace('            request_target,\n            &set_cookie_values,\n            now_epoch_seconds,', '            context.request_target,\n            &set_cookie_values,\n            context.now_epoch_seconds,', 1)
+          path.write_text(text)
+      - name: Format and push
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt
+          cargo +stable fmt --all
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/nxb-session/src/lib.rs
+          git commit -m "NXB-9: group response-cookie context"
+          git push origin HEAD:nxb-9-cookie-jar-and-session-rotation
