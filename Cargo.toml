@@ -18,6 +18,7 @@ members = [
     "crates/nxb-session",
     "crates/nxb-stream",
     "crates/nxb-stream-fixture",
+    "crates/nxb-tls",
     "crates/nxb-transport",
     "crates/nxb-vault",
 ]

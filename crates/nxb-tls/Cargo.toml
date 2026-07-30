@@ -1,0 +1,23 @@
+[package]
+name = "nxb-tls"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+nxb-stream = { path = "../nxb-stream" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+chrono.workspace = true
+nxb-executor = { path = "../nxb-executor" }
+nxb-gateway = { path = "../nxb-gateway" }
+nxb-local-executor = { path = "../nxb-local-executor" }
+nxb-pinned-transport = { path = "../nxb-pinned-transport" }
+nxb-policy = { path = "../nxb-policy" }
+nxb-stream-fixture = { path = "../nxb-stream-fixture" }
+nxb-transport = { path = "../nxb-transport" }
+url.workspace = true
