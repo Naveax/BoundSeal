@@ -1,0 +1,70 @@
+name: NXB-6 fix test audit access once
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/nxb6-fix-test-audit-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.ref == 'nxb-6-bounded-byte-stream-fixture'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Add test-only audit access
+        shell: python
+        run: |
+          from pathlib import Path
+
+          engine = Path("crates/nxb-stream/src/stream/engine.rs")
+          text = engine.read_text(encoding="utf-8")
+          old = '''    pub fn audit(&self) -> &StreamAuditChain {
+              &self.audit
+          }
+
+          pub fn backend(&self) -> &B {
+          '''
+          new = '''    pub fn audit(&self) -> &StreamAuditChain {
+              &self.audit
+          }
+
+          #[cfg(test)]
+          pub(crate) fn audit_mut(&mut self) -> &mut StreamAuditChain {
+              &mut self.audit
+          }
+
+          pub fn backend(&self) -> &B {
+          '''
+          if old not in text:
+              raise SystemExit("audit getter block not found")
+          engine.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          tests = Path("crates/nxb-stream/src/tests.rs")
+          test_text = tests.read_text(encoding="utf-8")
+          old_test = "    stream.audit.records_mut()[0].event.requested_bytes = 99;"
+          new_test = "    stream.audit_mut().records_mut()[0].event.requested_bytes = 99;"
+          if old_test not in test_text:
+              raise SystemExit("direct audit test access not found")
+          tests.write_text(test_text.replace(old_test, new_test, 1), encoding="utf-8")
+
+      - name: Format workspace
+        run: cargo fmt --all
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/nxb-stream/src/stream/engine.rs crates/nxb-stream/src/tests.rs
+          git commit -m "Fix NXB-6 test audit access"
+          git push origin HEAD:nxb-6-bounded-byte-stream-fixture
