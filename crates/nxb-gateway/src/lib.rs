@@ -111,9 +111,7 @@ impl ScopeGateway {
                 outcome: DecisionOutcome::Allow,
                 reason: DecisionReason::Authorized,
             },
-            Err(BudgetError::Exhausted) => {
-                deny(decision_id, DecisionReason::TotalBudgetExhausted)
-            }
+            Err(BudgetError::Exhausted) => deny(decision_id, DecisionReason::TotalBudgetExhausted),
             Err(BudgetError::ConcurrencyExceeded) => {
                 deny(decision_id, DecisionReason::ConcurrencyExceeded)
             }
@@ -259,7 +257,9 @@ mod tests {
     fn enforces_concurrency_before_rate() {
         let mut gateway = gateway();
         assert_eq!(
-            gateway.authorize(&intent("8.8.8.8"), Duration::ZERO).outcome,
+            gateway
+                .authorize(&intent("8.8.8.8"), Duration::ZERO)
+                .outcome,
             DecisionOutcome::Allow
         );
         let second = gateway.authorize(&intent("1.1.1.1"), Duration::from_millis(10));
