@@ -11,3 +11,6 @@ nxb-policy = { path = "../nxb-policy" }
 serde.workspace = true
 thiserror.workspace = true
 url.workspace = true
+
+[dev-dependencies]
+chrono.workspace = true
