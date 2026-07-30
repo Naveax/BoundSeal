@@ -67,11 +67,7 @@ impl Http1Limits {
             MAX_HTTP_HEADER_BYTES,
             "response_header_bytes",
         )?;
-        validate_nonzero_cap(
-            self.maximum_header_count,
-            MAX_HTTP_HEADERS,
-            "header_count",
-        )?;
+        validate_nonzero_cap(self.maximum_header_count, MAX_HTTP_HEADERS, "header_count")?;
         validate_nonzero_cap(self.maximum_header_name_bytes, 1024, "header_name_bytes")?;
         validate_nonzero_cap(
             self.maximum_header_value_bytes,

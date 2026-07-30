@@ -7,8 +7,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     parser::{is_token_byte, parse_response, ParseProgress},
-    Http1AuditChain, Http1AuditEvent, Http1Error, Http1Exchange, Http1ExchangeReceipt,
-    Http1Header, Http1Limits, Http1Request,
+    Http1AuditChain, Http1AuditEvent, Http1Error, Http1Exchange, Http1ExchangeReceipt, Http1Header,
+    Http1Limits, Http1Request,
 };
 
 #[derive(Debug)]
@@ -21,10 +21,7 @@ pub struct Http1Codec<B> {
 }
 
 impl<B: ByteStreamBackend> Http1Codec<B> {
-    pub fn new(
-        stream: BoundedByteStream<B>,
-        limits: Http1Limits,
-    ) -> Result<Self, Http1Error> {
+    pub fn new(stream: BoundedByteStream<B>, limits: Http1Limits) -> Result<Self, Http1Error> {
         let limits = limits.validate()?;
         stream.audit().verify()?;
         let audit = Http1AuditChain::new(stream.audit().tail_hash())?;
@@ -147,7 +144,9 @@ impl<B: ByteStreamBackend> Http1Codec<B> {
         while offset < bytes.len() {
             let remaining = bytes.len() - offset;
             let chunk_len = remaining.min(self.limits.io_operation_bytes as usize);
-            let result = self.stream.write(&bytes[offset..offset + chunk_len], control)?;
+            let result = self
+                .stream
+                .write(&bytes[offset..offset + chunk_len], control)?;
             match result.receipt.outcome {
                 StreamOperationOutcome::Written | StreamOperationOutcome::PartialWrite => {
                     let transferred = result.receipt.transferred_bytes as usize;
@@ -198,9 +197,7 @@ impl<B: ByteStreamBackend> Http1Codec<B> {
                 ParseProgress::Incomplete => {}
             }
 
-            let result = self
-                .stream
-                .read(self.limits.io_operation_bytes, control)?;
+            let result = self.stream.read(self.limits.io_operation_bytes, control)?;
             match result.receipt.outcome {
                 StreamOperationOutcome::Data => {
                     if result.bytes.is_empty() {
@@ -311,7 +308,9 @@ fn validate_method(method: &str) -> Result<(), Http1Error> {
 fn validate_target(method: &str, target: &str) -> Result<(), Http1Error> {
     if target.is_empty()
         || target.len() > 8 * 1024
-        || target.bytes().any(|byte| byte.is_ascii_control() || byte == b' ')
+        || target
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || byte == b' ')
         || target.contains('#')
         || target.starts_with("http://")
         || target.starts_with("https://")

@@ -299,6 +299,26 @@ impl StreamGrant {
     pub fn binding_hash(&self) -> &str {
         &self.binding_hash
     }
+
+    pub fn http_host(&self) -> &str {
+        &self.http_host
+    }
+
+    pub fn scheme(&self) -> &str {
+        &self.scheme
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    pub fn sni(&self) -> Option<&str> {
+        self.sni.as_deref()
+    }
+
+    pub fn redirect_depth(&self) -> u8 {
+        self.redirect_depth
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

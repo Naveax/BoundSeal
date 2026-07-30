@@ -2,8 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     parser::{parse_response, ParseProgress},
-    Http1AuditChain, Http1AuditError, Http1AuditEvent, Http1Error, Http1Framing,
-    Http1Limits,
+    Http1AuditChain, Http1AuditError, Http1AuditEvent, Http1Error, Http1Framing, Http1Limits,
 };
 
 fn parse_complete(bytes: &[u8]) -> crate::Http1Response {
@@ -15,9 +14,8 @@ fn parse_complete(bytes: &[u8]) -> crate::Http1Response {
 
 #[test]
 fn accepts_identical_duplicate_content_length_values() {
-    let response = parse_complete(
-        b"HTTP/1.1 200 OK\r\nContent-Length: 4, 4\r\nContent-Length: 4\r\n\r\ntest",
-    );
+    let response =
+        parse_complete(b"HTTP/1.1 200 OK\r\nContent-Length: 4, 4\r\nContent-Length: 4\r\n\r\ntest");
     assert_eq!(response.body, b"test");
     assert_eq!(response.framing, Http1Framing::ContentLength(4));
 }

@@ -32,10 +32,7 @@ impl Http1AuditChain {
         })
     }
 
-    pub fn append(
-        &mut self,
-        event: Http1AuditEvent,
-    ) -> Result<&Http1AuditRecord, Http1AuditError> {
+    pub fn append(&mut self, event: Http1AuditEvent) -> Result<&Http1AuditRecord, Http1AuditError> {
         let sequence = self.records.len() as u64 + 1;
         let previous_hash = self.tail_hash.clone();
         let record_hash = record_hash(sequence, &previous_hash, &event)?;

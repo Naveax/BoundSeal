@@ -4,9 +4,7 @@ use nxb_executor::{
     ExecutionControl, ExecutionLimits, ExecutorConfig, PermitExecutor, SyntheticBackend,
     SyntheticScenario,
 };
-use nxb_http1::{
-    Http1Codec, Http1Error, Http1Framing, Http1Header, Http1Limits, Http1Request,
-};
+use nxb_http1::{Http1Codec, Http1Error, Http1Framing, Http1Header, Http1Limits, Http1Request};
 use nxb_stream::{BoundedByteStream, StreamLimits};
 use nxb_stream_fixture::{FixtureReadEvent, FixtureWriteEvent, InMemoryDuplex};
 use nxb_transport::{TransportPermit, TransportScheme};
@@ -69,10 +67,9 @@ fn get_request() -> Http1Request {
 
 #[test]
 fn parses_fragmented_content_length_response() {
-    let mut codec = codec(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nX-Test: yes\r\n\r\nhello".to_vec());
-    let exchange = codec
-        .exchange(&get_request(), Default::default())
-        .unwrap();
+    let mut codec =
+        codec(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nX-Test: yes\r\n\r\nhello".to_vec());
+    let exchange = codec.exchange(&get_request(), Default::default()).unwrap();
 
     assert_eq!(exchange.response.status_code, 200);
     assert_eq!(exchange.response.body, b"hello");
@@ -101,9 +98,7 @@ fn parses_chunked_response_and_bounded_trailer() {
         b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\n5\r\npedia\r\n0\r\nX-Trace: complete\r\n\r\n"
             .to_vec(),
     );
-    let exchange = codec
-        .exchange(&get_request(), Default::default())
-        .unwrap();
+    let exchange = codec.exchange(&get_request(), Default::default()).unwrap();
 
     assert_eq!(exchange.response.body, b"Wikipedia");
     assert_eq!(exchange.response.framing, Http1Framing::Chunked);
@@ -117,9 +112,7 @@ fn accepts_bounded_interim_response_before_final_response() {
         b"HTTP/1.1 103 Early Hints\r\nLink: </a.css>; rel=preload\r\n\r\nHTTP/1.1 204 No Content\r\nDate: now\r\n\r\n"
             .to_vec(),
     );
-    let exchange = codec
-        .exchange(&get_request(), Default::default())
-        .unwrap();
+    let exchange = codec.exchange(&get_request(), Default::default()).unwrap();
 
     assert_eq!(exchange.response.status_code, 204);
     assert_eq!(exchange.response.interim_responses, 1);
@@ -128,10 +121,8 @@ fn accepts_bounded_interim_response_before_final_response() {
 
 #[test]
 fn rejects_conflicting_content_length_values() {
-    let mut codec = codec(
-        b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nContent-Length: 5\r\n\r\nhello"
-            .to_vec(),
-    );
+    let mut codec =
+        codec(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nContent-Length: 5\r\n\r\nhello".to_vec());
     let error = codec
         .exchange(&get_request(), Default::default())
         .unwrap_err();
@@ -152,9 +143,8 @@ fn rejects_transfer_encoding_and_content_length_ambiguity() {
 
 #[test]
 fn rejects_obsolete_folded_header_lines() {
-    let mut codec = codec(
-        b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n X-Smuggled: yes\r\n\r\n".to_vec(),
-    );
+    let mut codec =
+        codec(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n X-Smuggled: yes\r\n\r\n".to_vec());
     let error = codec
         .exchange(&get_request(), Default::default())
         .unwrap_err();
@@ -214,9 +204,10 @@ fn serialized_http_audit_does_not_contain_request_or_response_body() {
     let mut codec = codec(response);
     let mut request = Http1Request::new("POST", "/submit");
     request.body = secret_request.clone();
-    request
-        .headers
-        .push(Http1Header::new("Content-Type", b"application/octet-stream".to_vec()));
+    request.headers.push(Http1Header::new(
+        "Content-Type",
+        b"application/octet-stream".to_vec(),
+    ));
 
     let exchange = codec.exchange(&request, Default::default()).unwrap();
     assert_eq!(exchange.response.body, secret_response);

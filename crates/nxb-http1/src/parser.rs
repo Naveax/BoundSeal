@@ -1,6 +1,4 @@
-use crate::{
-    Http1Error, Http1Framing, Http1Header, Http1Limits, Http1Response, Http1Version,
-};
+use crate::{Http1Error, Http1Framing, Http1Header, Http1Limits, Http1Response, Http1Version};
 
 pub(crate) enum ParseProgress {
     Incomplete,
@@ -225,11 +223,13 @@ fn parse_header_lines(
     limits: &Http1Limits,
     trailers: bool,
 ) -> Result<Vec<Http1Header>, Http1Error> {
-    if lines.len() as u64 > if trailers {
-        limits.maximum_trailer_count
-    } else {
-        limits.maximum_header_count
-    } {
+    if lines.len() as u64
+        > if trailers {
+            limits.maximum_trailer_count
+        } else {
+            limits.maximum_header_count
+        }
+    {
         return Err(Http1Error::InvalidResponse(if trailers {
             "trailer count exceeds configured limit".into()
         } else {
@@ -254,9 +254,7 @@ fn parse_header_lines(
             .position(|byte| *byte == b':')
             .ok_or_else(|| Http1Error::InvalidResponse("header is missing colon".into()))?;
         if colon == 0 {
-            return Err(Http1Error::InvalidResponse(
-                "header name is empty".into(),
-            ));
+            return Err(Http1Error::InvalidResponse("header name is empty".into()));
         }
         let name = &line[..colon];
         if name.len() as u64 > limits.maximum_header_name_bytes {
@@ -363,9 +361,8 @@ fn parse_transfer_encoding(headers: &[Http1Header]) -> Result<bool, Http1Error> 
         .iter()
         .filter(|header| header.name == "transfer-encoding")
     {
-        let text = std::str::from_utf8(&header.value).map_err(|_| {
-            Http1Error::InvalidResponse("Transfer-Encoding must be ASCII".into())
-        })?;
+        let text = std::str::from_utf8(&header.value)
+            .map_err(|_| Http1Error::InvalidResponse("Transfer-Encoding must be ASCII".into()))?;
         for component in text.split(',') {
             let token = component.trim_matches([' ', '\t']).to_ascii_lowercase();
             if token.is_empty() || !token.bytes().all(is_token_byte) {
@@ -424,9 +421,8 @@ fn parse_chunked(
                 "chunk size must be 1-16 hexadecimal digits".into(),
             ));
         }
-        let line_text = std::str::from_utf8(line).map_err(|_| {
-            Http1Error::InvalidResponse("chunk size must be ASCII".into())
-        })?;
+        let line_text = std::str::from_utf8(line)
+            .map_err(|_| Http1Error::InvalidResponse("chunk size must be ASCII".into()))?;
         let chunk_size = u64::from_str_radix(line_text, 16)
             .map_err(|_| Http1Error::InvalidResponse("chunk size overflow".into()))?;
         cursor = line_end + 2;
@@ -451,9 +447,7 @@ fn parse_chunked(
             let trailer_end = match find_double_crlf(&bytes[cursor..]) {
                 Some(value) => cursor + value,
                 None => {
-                    if bytes.len().saturating_sub(cursor)
-                        > limits.maximum_trailer_bytes as usize
-                    {
+                    if bytes.len().saturating_sub(cursor) > limits.maximum_trailer_bytes as usize {
                         return Err(Http1Error::InvalidResponse(
                             "trailer block exceeds configured limit".into(),
                         ));
@@ -494,9 +488,7 @@ fn parse_chunked(
                 "chunk size exceeds configured limit".into(),
             ));
         }
-        if (decoded.len() as u64).saturating_add(chunk_size)
-            > limits.maximum_response_body_bytes
-        {
+        if (decoded.len() as u64).saturating_add(chunk_size) > limits.maximum_response_body_bytes {
             return Err(Http1Error::InvalidResponse(
                 "decoded chunked body exceeds configured limit".into(),
             ));
@@ -542,14 +534,10 @@ fn validate_crlf_block(bytes: &[u8]) -> Result<(), Http1Error> {
     for (index, byte) in bytes.iter().enumerate() {
         match *byte {
             b'\n' if index == 0 || bytes[index - 1] != b'\r' => {
-                return Err(Http1Error::InvalidResponse(
-                    "bare LF is prohibited".into(),
-                ));
+                return Err(Http1Error::InvalidResponse("bare LF is prohibited".into()));
             }
             b'\r' if index + 1 >= bytes.len() || bytes[index + 1] != b'\n' => {
-                return Err(Http1Error::InvalidResponse(
-                    "bare CR is prohibited".into(),
-                ));
+                return Err(Http1Error::InvalidResponse("bare CR is prohibited".into()));
             }
             _ => {}
         }
