@@ -46,6 +46,10 @@ Each session owns a cookie jar and generation counter. Successful authenticated 
 
 Logout uses an explicit jar purge that revokes active cookie handles and marks the session revoked.
 
+## Validation boundary
+
+All parser, replacement, deletion, rotation, logout and redaction behavior is exercised only through deterministic in-memory HTTP and vault fixtures. No validation test opens a socket or resolves a hostname.
+
 ## Audit and exclusions
 
 Cookie audit records contain counts, origin metadata, key hashes, generation transitions and vault audit anchors. Cookie values and complete `Set-Cookie` fields are excluded.
