@@ -145,9 +145,7 @@ impl ExecutionOutcome {
             Self::Cancelled => ExecutionState::Cancelled,
             Self::EmergencyStopped => ExecutionState::EmergencyStopped,
             Self::ConnectTimeout | Self::TotalTimeout => ExecutionState::TimedOut,
-            Self::ReadBudgetExceeded | Self::WriteBudgetExceeded => {
-                ExecutionState::BudgetRejected
-            }
+            Self::ReadBudgetExceeded | Self::WriteBudgetExceeded => ExecutionState::BudgetRejected,
             Self::BackendFailure { .. } => ExecutionState::BackendFailed,
             Self::PermitIntegrityRejected { .. } => ExecutionState::PermitRejected,
         }
@@ -295,12 +293,6 @@ impl SyntheticScenario {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct SyntheticBackend {
-    scenarios: VecDeque<SyntheticScenario>,
-    observed_endpoints: Vec<SyntheticEndpointObservation>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SyntheticEndpointObservation {
     pub ticket_id: String,
@@ -313,6 +305,12 @@ pub struct SyntheticEndpointObservation {
     pub http_host: String,
     pub redirect_depth: u8,
     pub binding_hash: String,
+}
+
+#[derive(Debug, Default)]
+pub struct SyntheticBackend {
+    scenarios: VecDeque<SyntheticScenario>,
+    observed_endpoints: Vec<SyntheticEndpointObservation>,
 }
 
 impl SyntheticBackend {
@@ -348,9 +346,10 @@ impl PermitBackend for SyntheticBackend {
             binding_hash: endpoint.binding_hash().into(),
         });
 
-        let scenario = self.scenarios.pop_front().unwrap_or_else(|| {
-            SyntheticScenario::failure("synthetic_scenario_exhausted", 0)
-        });
+        let scenario = self
+            .scenarios
+            .pop_front()
+            .unwrap_or_else(|| SyntheticScenario::failure("synthetic_scenario_exhausted", 0));
         BackendReport {
             connected_after_milliseconds: scenario.connected_after_milliseconds,
             elapsed_milliseconds: scenario.elapsed_milliseconds,
@@ -525,42 +524,23 @@ impl<B: PermitBackend> PermitExecutor<B> {
         let execution_id = self.allocate_execution_id();
         let endpoint_fingerprint = endpoint_fingerprint(permit, transport_audit_anchor);
         let mut states = vec![ExecutionState::Prepared];
-
-        let permit_error = validate_permit(permit).err();
         let report;
         let outcome;
 
-        if let Some(reason) = permit_error {
+        if let Err(reason) = validate_permit(permit) {
             outcome = ExecutionOutcome::PermitIntegrityRejected { reason };
-            report = BackendReport {
-                connected_after_milliseconds: None,
-                elapsed_milliseconds: 0,
-                read_bytes: 0,
-                written_bytes: 0,
-                failure_code: None,
-            };
+            report = empty_report();
         } else if control.emergency_stop_requested {
             outcome = ExecutionOutcome::EmergencyStopped;
-            report = BackendReport {
-                connected_after_milliseconds: None,
-                elapsed_milliseconds: 0,
-                read_bytes: 0,
-                written_bytes: 0,
-                failure_code: None,
-            };
+            report = empty_report();
         } else if control.cancel_requested {
             outcome = ExecutionOutcome::Cancelled;
-            report = BackendReport {
-                connected_after_milliseconds: None,
-                elapsed_milliseconds: 0,
-                read_bytes: 0,
-                written_bytes: 0,
-                failure_code: None,
-            };
+            report = empty_report();
         } else {
             states.push(ExecutionState::Connecting);
-            let endpoint = endpoint_from_permit(permit);
-            report = self.backend.execute(endpoint, &limits, &control);
+            report = self
+                .backend
+                .execute(endpoint_from_permit(permit), &limits, &control);
             if report.connected_after_milliseconds.is_some() {
                 states.push(ExecutionState::Connected);
             }
@@ -668,6 +648,16 @@ pub enum ExecutorAuditError {
     TailHashMismatch,
 }
 
+fn empty_report() -> BackendReport {
+    BackendReport {
+        connected_after_milliseconds: None,
+        elapsed_milliseconds: 0,
+        read_bytes: 0,
+        written_bytes: 0,
+        failure_code: None,
+    }
+}
+
 fn endpoint_from_permit(permit: &TransportPermit) -> PermitEndpoint<'_> {
     PermitEndpoint {
         ticket_id: &permit.ticket_id,
@@ -707,13 +697,17 @@ fn validate_permit(permit: &TransportPermit) -> Result<(), String> {
         return Err("invalid_http_host".into());
     }
     match permit.scheme {
-        TransportScheme::Http if permit.sni.is_some() => Err("unexpected_http_sni".into()),
-        TransportScheme::Https
-            if permit.sni.as_deref().is_none_or(|value| value.trim().is_empty()) =>
-        {
-            Err("missing_https_sni".into())
+        TransportScheme::Http => {
+            if permit.sni.is_some() {
+                Err("unexpected_http_sni".into())
+            } else {
+                Ok(())
+            }
         }
-        _ => Ok(()),
+        TransportScheme::Https => match permit.sni.as_deref() {
+            Some(value) if !value.trim().is_empty() => Ok(()),
+            _ => Err("missing_https_sni".into()),
+        },
     }
 }
 
@@ -772,7 +766,8 @@ fn endpoint_fingerprint(permit: &TransportPermit, transport_audit_anchor: &str) 
         binding_hash: &permit.binding_hash,
         transport_audit_anchor,
     };
-    let bytes = serde_json::to_vec(&material).expect("endpoint fingerprint material is serializable");
+    let bytes =
+        serde_json::to_vec(&material).expect("endpoint fingerprint material is serializable");
     to_lower_hex(&Sha256::digest(bytes))
 }
 
@@ -834,8 +829,6 @@ fn to_lower_hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
     use super::*;
 
     fn permit() -> TransportPermit {
@@ -876,7 +869,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(receipt.outcome, ExecutionOutcome::Completed);
-        assert_eq!(receipt.state_history.last(), Some(&ExecutionState::Completed));
+        assert_eq!(
+            receipt.state_history.last(),
+            Some(&ExecutionState::Completed)
+        );
         assert_eq!(executor.backend().observed_endpoints().len(), 1);
         executor.audit().verify().unwrap();
     }
@@ -917,7 +913,7 @@ mod tests {
                     &permit(),
                     &"b".repeat(64),
                     limits,
-                    ExecutionControl::default()
+                    ExecutionControl::default(),
                 )
                 .unwrap()
                 .outcome,
@@ -931,7 +927,7 @@ mod tests {
                     &permit(),
                     &"b".repeat(64),
                     limits,
-                    ExecutionControl::default()
+                    ExecutionControl::default(),
                 )
                 .unwrap()
                 .outcome,
@@ -1022,7 +1018,7 @@ mod tests {
     }
 
     #[test]
-    fn endpoint_does_not_accept_url_or_resolver_input() {
+    fn backend_observes_only_permit_derived_endpoint_fields() {
         let mut executor = executor(SyntheticScenario::success(1, 1, 0, 0));
         executor
             .execute(
@@ -1036,10 +1032,5 @@ mod tests {
         assert_eq!(observed.remote_ip, "1.1.1.1".parse().unwrap());
         assert_eq!(observed.port, 443);
         assert_eq!(observed.sni.as_deref(), Some("app.example.com"));
-    }
-
-    #[test]
-    fn permit_fixture_has_no_unused_pinned_address_dependency() {
-        let _: BTreeSet<IpAddr> = BTreeSet::new();
     }
 }
