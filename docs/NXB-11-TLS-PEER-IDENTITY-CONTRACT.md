@@ -60,7 +60,7 @@ Certificate bytes, Subject names, Common Name, SAN lists, handshake messages, se
 
 ## Validation boundary
 
-Formatting, Clippy and all workspace tests run on the complete permit-to-stream fixture path. TLS fixtures use synthetic certificate metadata and public IP literals only. They do not resolve hostnames, import a system trust store, open sockets or negotiate a TLS connection.
+Formatting, Clippy and all workspace tests run on the complete permit-to-stream fixture path. TLS fixtures use synthetic certificate metadata and public IP literals only. Fixture constructors are kept distinct from verifier instances so tests cannot accidentally reuse mutable verifier state. They do not resolve hostnames, import a system trust store, open sockets or negotiate a TLS connection.
 
 ## Exclusions
 
