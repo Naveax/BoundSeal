@@ -37,9 +37,7 @@ impl<B: PermitBackend> LocalExecutionPipeline<B> {
         limits: ExecutionLimits,
         control: ExecutionControl,
     ) -> Result<LocalExecutionResult, LocalExecutionError> {
-        let ticket_use = self
-            .transport
-            .consume_connection_ticket(attempt, elapsed)?;
+        let ticket_use = self.transport.consume_connection_ticket(attempt, elapsed)?;
         let transport_audit_anchor = self.transport.transport_audit().tail_hash().to_string();
 
         if ticket_use.outcome != TicketUseOutcome::Consumed {
@@ -55,12 +53,9 @@ impl<B: PermitBackend> LocalExecutionPipeline<B> {
             return Err(LocalExecutionError::ConsumedTicketMissingPermit);
         };
 
-        let execution = self.executor.execute(
-            permit,
-            &transport_audit_anchor,
-            limits,
-            control,
-        );
+        let execution = self
+            .executor
+            .execute(permit, &transport_audit_anchor, limits, control);
 
         // A successful ticket consumption owns exactly one in-flight gateway budget slot.
         // Every terminal executor result, including an executor error, releases it once.
@@ -110,14 +105,12 @@ mod tests {
     use std::collections::BTreeSet;
 
     use chrono::{Duration as ChronoDuration, Utc};
-    use nxb_executor::{
-        ExecutionOutcome, ExecutorConfig, SyntheticBackend, SyntheticScenario,
-    };
+    use nxb_executor::{ExecutionOutcome, ExecutorConfig, SyntheticBackend, SyntheticScenario};
     use nxb_gateway::{RequestIntent, ScopeGateway};
     use nxb_policy::{
         AuthorizationPolicy, AutomationPolicy, ProgramPolicy, ScopePolicy, TargetPolicy,
     };
-    use nxb_transport::{ConnectionTicket, TransportScheme};
+    use nxb_transport::{ConnectionAttempt, ConnectionTicket, TicketUseOutcome};
 
     use super::*;
 
@@ -198,11 +191,7 @@ mod tests {
     ) -> ConnectionTicket {
         pipeline
             .transport_mut()
-            .authorize_connection(
-                &intent(),
-                "1.1.1.1".parse().unwrap(),
-                Duration::ZERO,
-            )
+            .authorize_connection(&intent(), "1.1.1.1".parse().unwrap(), Duration::ZERO)
             .unwrap()
             .ticket
             .unwrap()
@@ -272,7 +261,11 @@ mod tests {
             ExecutionOutcome::Cancelled
         );
         assert_eq!(pipeline.transport().gateway().in_flight_requests(), 0);
-        assert!(pipeline.executor().backend().observed_endpoints().is_empty());
+        assert!(pipeline
+            .executor()
+            .backend()
+            .observed_endpoints()
+            .is_empty());
     }
 
     #[test]
@@ -297,7 +290,11 @@ mod tests {
         ));
         assert!(result.execution_receipt.is_none());
         assert_eq!(pipeline.transport().gateway().in_flight_requests(), 0);
-        assert!(pipeline.executor().backend().observed_endpoints().is_empty());
+        assert!(pipeline
+            .executor()
+            .backend()
+            .observed_endpoints()
+            .is_empty());
     }
 
     #[test]
@@ -321,11 +318,5 @@ mod tests {
                 .transport_audit_anchor,
             pipeline.transport().transport_audit().tail_hash()
         );
-    }
-
-    #[test]
-    fn local_pipeline_never_accepts_url_or_hostname_arguments() {
-        let scheme = TransportScheme::Https;
-        assert_eq!(scheme.default_port(), 443);
     }
 }
