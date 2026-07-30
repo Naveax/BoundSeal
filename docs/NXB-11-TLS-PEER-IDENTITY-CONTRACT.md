@@ -58,6 +58,10 @@ Every verified or rejected observation is appended to a SHA-256 audit chain befo
 
 Certificate bytes, Subject names, Common Name, SAN lists, handshake messages, secrets and HTTP payloads are not recorded.
 
+## Validation boundary
+
+Formatting, Clippy and all workspace tests run on the complete permit-to-stream fixture path. TLS fixtures use synthetic certificate metadata and public IP literals only. They do not resolve hostnames, import a system trust store, open sockets or negotiate a TLS connection.
+
 ## Exclusions
 
 NXB-11 adds no socket backend, TLS library binding, X.509 parser, operating-system trust import, revocation network lookup, OCSP, CRL, certificate transparency lookup, public-network traffic, browser integration, proxying or scanner behavior.
