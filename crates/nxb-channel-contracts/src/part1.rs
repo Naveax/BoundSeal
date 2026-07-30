@@ -135,7 +135,7 @@ impl StreamBindingSnapshot {
             "http" if self.sni.is_some() => Err(ChannelError::InvalidStreamBinding(
                 "HTTP stream must not carry SNI".into(),
             )),
-            "https" if self.sni.as_deref().map_or(true, str::is_empty) => {
+            "https" if self.sni.as_deref().is_none_or(str::is_empty) => {
                 Err(ChannelError::InvalidStreamBinding(
                     "HTTPS stream requires SNI".into(),
                 ))
@@ -212,4 +212,3 @@ pub struct HttpChannelGrant {
     consumed: bool,
     grant_fingerprint_sha256: String,
 }
-
