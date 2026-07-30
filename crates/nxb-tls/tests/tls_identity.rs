@@ -184,7 +184,7 @@ fn observation() -> TlsHandshakeObservation {
     }
 }
 
-fn verifier() -> TlsPeerVerifier {
+fn new_verifier() -> TlsPeerVerifier {
     TlsPeerVerifier::new(
         TlsPeerVerifierConfig {
             verifier_id: "tls-fixture-verifier".into(),
@@ -205,7 +205,7 @@ fn rejected_reason(decision: TlsVerificationDecision) -> TlsRejectionReason {
 #[test]
 fn valid_chain_produces_audit_bound_tls_grant() {
     let stream = stream_for("https");
-    let mut verifier = verifier();
+    let mut verifier = new_verifier();
     let decision = verifier.verify(&stream, &observation(), NOW).unwrap();
     assert!(decision.is_verified());
     let grant = decision.grant.unwrap();
@@ -219,7 +219,7 @@ fn valid_chain_produces_audit_bound_tls_grant() {
 #[test]
 fn wrong_host_is_rejected_even_when_common_name_matches() {
     let stream = stream_for("https");
-    let mut verifier = verifier();
+    let mut verifier = new_verifier();
     let mut observed = observation();
     observed.chain[0].dns_sans = vec!["other.example.com".into()];
     observed.chain[0].common_name = Some("app.example.com".into());
@@ -233,7 +233,7 @@ fn wrong_host_is_rejected_even_when_common_name_matches() {
 #[test]
 fn common_name_is_never_a_san_fallback() {
     let stream = stream_for("https");
-    let mut verifier = verifier();
+    let mut verifier = new_verifier();
     let mut observed = observation();
     observed.chain[0].dns_sans.clear();
     observed.chain[0].common_name = Some("app.example.com".into());
@@ -247,7 +247,7 @@ fn common_name_is_never_a_san_fallback() {
 #[test]
 fn conservative_wildcard_matches_one_label_only() {
     let stream = stream_for("https");
-    let mut verifier = verifier();
+    let mut verifier = new_verifier();
     let mut observed = observation();
     observed.chain[0].dns_sans = vec!["*.example.com".into()];
     assert!(verifier
@@ -256,7 +256,7 @@ fn conservative_wildcard_matches_one_label_only() {
         .is_verified());
 
     let stream = stream_for("https");
-    let mut verifier = verifier();
+    let mut verifier = new_verifier();
     let mut observed = observation();
     observed.chain[0].dns_sans = vec!["*.app.example.com".into()];
     assert_eq!(
@@ -268,7 +268,7 @@ fn conservative_wildcard_matches_one_label_only() {
 #[test]
 fn expired_leaf_is_rejected() {
     let stream = stream_for("https");
-    let mut verifier = verifier();
+    let mut verifier = new_verifier();
     let mut observed = observation();
     observed.chain[0].not_after_epoch_seconds = NOW - 1;
     assert_eq!(
@@ -296,7 +296,7 @@ fn untrusted_root_and_broken_issuer_link_are_rejected() {
     );
 
     let stream = stream_for("https");
-    let mut verifier = verifier();
+    let mut verifier = new_verifier();
     let mut observed = observation();
     observed.chain[0].issuer_spki_sha256 = hex('d');
     assert_eq!(
@@ -310,7 +310,7 @@ fn untrusted_root_and_broken_issuer_link_are_rejected() {
 #[test]
 fn unsupported_protocol_alpn_and_replay_features_are_rejected() {
     let stream = stream_for("https");
-    let mut verifier = verifier();
+    let mut verifier = new_verifier();
     let mut observed = observation();
     observed.protocol_version = TlsProtocolVersion::Tls11;
     assert_eq!(
@@ -319,7 +319,7 @@ fn unsupported_protocol_alpn_and_replay_features_are_rejected() {
     );
 
     let stream = stream_for("https");
-    let mut verifier = verifier();
+    let mut verifier = new_verifier();
     let mut observed = observation();
     observed.alpn = Some("h2".into());
     assert_eq!(
@@ -328,7 +328,7 @@ fn unsupported_protocol_alpn_and_replay_features_are_rejected() {
     );
 
     let stream = stream_for("https");
-    let mut verifier = verifier();
+    let mut verifier = new_verifier();
     let mut observed = observation();
     observed.early_data_accepted = true;
     assert_eq!(
@@ -337,7 +337,7 @@ fn unsupported_protocol_alpn_and_replay_features_are_rejected() {
     );
 
     let stream = stream_for("https");
-    let mut verifier = verifier();
+    let mut verifier = new_verifier();
     let mut observed = observation();
     observed.session_resumed = true;
     assert_eq!(
@@ -349,7 +349,7 @@ fn unsupported_protocol_alpn_and_replay_features_are_rejected() {
 #[test]
 fn handshake_budgets_and_http_streams_are_rejected() {
     let stream = stream_for("https");
-    let mut verifier = verifier();
+    let mut verifier = new_verifier();
     let mut observed = observation();
     observed.elapsed_milliseconds = TlsLimits::default().handshake_timeout_milliseconds + 1;
     assert_eq!(
@@ -358,7 +358,7 @@ fn handshake_budgets_and_http_streams_are_rejected() {
     );
 
     let stream = stream_for("http");
-    let mut verifier = verifier();
+    let mut verifier = new_verifier();
     assert_eq!(
         rejected_reason(verifier.verify(&stream, &observation(), NOW).unwrap()),
         TlsRejectionReason::HttpTransport
@@ -368,7 +368,7 @@ fn handshake_budgets_and_http_streams_are_rejected() {
 #[test]
 fn audit_excludes_certificate_names_and_common_name_content() {
     let stream = stream_for("https");
-    let mut verifier = verifier();
+    let mut verifier = new_verifier();
     let mut observed = observation();
     observed.chain[0]
         .dns_sans
