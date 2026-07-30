@@ -175,77 +175,18 @@ pub struct BackendReport {
     pub failure_code: Option<String>,
 }
 
-impl BackendReport {
-    pub fn success(
-        connected_after_milliseconds: u64,
-        elapsed_milliseconds: u64,
-        read_bytes: u64,
-        written_bytes: u64,
-    ) -> Self {
-        Self {
-            connected_after_milliseconds: Some(connected_after_milliseconds),
-            elapsed_milliseconds,
-            read_bytes,
-            written_bytes,
-            failure_code: None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct PermitEndpoint<'a> {
-    ticket_id: &'a str,
-    decision_id: &'a str,
-    dns_context_id: &'a str,
-    scheme: TransportScheme,
-    remote_ip: IpAddr,
-    port: u16,
-    sni: Option<&'a str>,
-    http_host: &'a str,
-    redirect_depth: u8,
-    binding_hash: &'a str,
-}
-
-impl<'a> PermitEndpoint<'a> {
-    pub fn ticket_id(self) -> &'a str {
-        self.ticket_id
-    }
-
-    pub fn decision_id(self) -> &'a str {
-        self.decision_id
-    }
-
-    pub fn dns_context_id(self) -> &'a str {
-        self.dns_context_id
-    }
-
-    pub fn scheme(self) -> TransportScheme {
-        self.scheme
-    }
-
-    pub fn remote_ip(self) -> IpAddr {
-        self.remote_ip
-    }
-
-    pub fn port(self) -> u16 {
-        self.port
-    }
-
-    pub fn sni(self) -> Option<&'a str> {
-        self.sni
-    }
-
-    pub fn http_host(self) -> &'a str {
-        self.http_host
-    }
-
-    pub fn redirect_depth(self) -> u8 {
-        self.redirect_depth
-    }
-
-    pub fn binding_hash(self) -> &'a str {
-        self.binding_hash
-    }
+    pub ticket_id: &'a str,
+    pub decision_id: &'a str,
+    pub dns_context_id: &'a str,
+    pub scheme: TransportScheme,
+    pub remote_ip: IpAddr,
+    pub port: u16,
+    pub sni: Option<&'a str>,
+    pub http_host: &'a str,
+    pub redirect_depth: u8,
+    pub binding_hash: &'a str,
 }
 
 pub trait PermitBackend {
@@ -299,7 +240,7 @@ pub struct SyntheticEndpointObservation {
     pub decision_id: String,
     pub dns_context_id: String,
     pub scheme: String,
-    pub remote_ip: IpAddr,
+    pub remote_ip: String,
     pub port: u16,
     pub sni: Option<String>,
     pub http_host: String,
@@ -334,16 +275,16 @@ impl PermitBackend for SyntheticBackend {
         _control: &ExecutionControl,
     ) -> BackendReport {
         self.observed_endpoints.push(SyntheticEndpointObservation {
-            ticket_id: endpoint.ticket_id().into(),
-            decision_id: endpoint.decision_id().into(),
-            dns_context_id: endpoint.dns_context_id().into(),
-            scheme: endpoint.scheme().code().into(),
-            remote_ip: endpoint.remote_ip(),
-            port: endpoint.port(),
-            sni: endpoint.sni().map(str::to_string),
-            http_host: endpoint.http_host().into(),
-            redirect_depth: endpoint.redirect_depth(),
-            binding_hash: endpoint.binding_hash().into(),
+            ticket_id: endpoint.ticket_id.into(),
+            decision_id: endpoint.decision_id.into(),
+            dns_context_id: endpoint.dns_context_id.into(),
+            scheme: endpoint.scheme.code().into(),
+            remote_ip: endpoint.remote_ip.to_string(),
+            port: endpoint.port,
+            sni: endpoint.sni.map(str::to_string),
+            http_host: endpoint.http_host.into(),
+            redirect_depth: endpoint.redirect_depth,
+            binding_hash: endpoint.binding_hash.into(),
         });
 
         let scenario = self
@@ -1029,7 +970,7 @@ mod tests {
             )
             .unwrap();
         let observed = &executor.backend().observed_endpoints()[0];
-        assert_eq!(observed.remote_ip, "1.1.1.1".parse().unwrap());
+        assert_eq!(observed.remote_ip, "1.1.1.1");
         assert_eq!(observed.port, 443);
         assert_eq!(observed.sni.as_deref(), Some("app.example.com"));
     }
