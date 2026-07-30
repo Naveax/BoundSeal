@@ -351,9 +351,7 @@ impl ScopeGateway {
                 outcome: DecisionOutcome::Allow,
                 reason: DecisionReason::Authorized,
             },
-            Err(BudgetError::Exhausted) => {
-                deny(decision_id, DecisionReason::TotalBudgetExhausted)
-            }
+            Err(BudgetError::Exhausted) => deny(decision_id, DecisionReason::TotalBudgetExhausted),
             Err(BudgetError::ConcurrencyExceeded) => {
                 deny(decision_id, DecisionReason::ConcurrencyExceeded)
             }
@@ -462,9 +460,9 @@ fn sanitized_dns_identifier(value: &str) -> String {
     let value = value.trim();
     if value.is_empty()
         || value.len() > 128
-        || !value.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':')
-        })
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
     {
         return "[invalid]".into();
     }
@@ -552,7 +550,10 @@ mod tests {
             .authorize(&intent("8.8.8.8"), Duration::ZERO)
             .unwrap();
         assert_eq!(decision.outcome, DecisionOutcome::Allow);
-        assert_eq!(gateway.audit_chain().records()[0].event.dns.pin_status, "pinned");
+        assert_eq!(
+            gateway.audit_chain().records()[0].event.dns.pin_status,
+            "pinned"
+        );
         gateway.complete_request();
         gateway.verify_audit_chain().unwrap();
     }
@@ -568,7 +569,10 @@ mod tests {
             .authorize(&intent("8.8.8.8"), Duration::from_millis(10))
             .unwrap();
 
-        assert_eq!(gateway.audit_chain().records()[1].event.dns.pin_status, "matched");
+        assert_eq!(
+            gateway.audit_chain().records()[1].event.dns.pin_status,
+            "matched"
+        );
         assert_eq!(gateway.dns_pin_count(), 1);
     }
 
@@ -621,7 +625,10 @@ mod tests {
             DecisionReason::DnsRebindingDetected { .. }
         ));
         assert_eq!(gateway.remaining_requests(), 2);
-        assert_eq!(gateway.audit_chain().records()[1].event.dns.pin_status, "rejected");
+        assert_eq!(
+            gateway.audit_chain().records()[1].event.dns.pin_status,
+            "rejected"
+        );
     }
 
     #[test]
@@ -673,7 +680,10 @@ mod tests {
             .authorize(&intent("1.1.1.1"), Duration::from_secs(1))
             .unwrap();
         assert_eq!(decision.outcome, DecisionOutcome::Allow);
-        assert_eq!(gateway.audit_chain().records()[1].event.dns.pin_status, "pinned");
+        assert_eq!(
+            gateway.audit_chain().records()[1].event.dns.pin_status,
+            "pinned"
+        );
     }
 
     #[test]
@@ -720,10 +730,7 @@ mod tests {
         let mut second = intent("8.8.8.8");
         second.dns_context_id = "navigation-2".into();
         assert_eq!(
-            gateway
-                .authorize(&second, Duration::ZERO)
-                .unwrap()
-                .outcome,
+            gateway.authorize(&second, Duration::ZERO).unwrap().outcome,
             DecisionOutcome::Allow
         );
 
@@ -749,7 +756,10 @@ mod tests {
         let mut third = intent("8.8.8.8");
         third.dns_context_id = "navigation-3".into();
         let decision = gateway.authorize(&third, Duration::ZERO).unwrap();
-        assert!(matches!(decision.reason, DecisionReason::RateLimited { .. }));
+        assert!(matches!(
+            decision.reason,
+            DecisionReason::RateLimited { .. }
+        ));
     }
 
     #[test]
