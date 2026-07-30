@@ -1,0 +1,11 @@
+[package]
+name = "nxb-transport"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
