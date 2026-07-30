@@ -1,0 +1,28 @@
+schema_version = 1
+
+[program]
+name = "Example Authorized Program"
+platform = "hackerone"
+policy_url = "https://hackerone.com/example"
+
+[scope]
+include_hosts = ["app.example.com", "api.example.com"]
+exclude_hosts = ["status.app.example.com"]
+allowed_schemes = ["https"]
+allowed_methods = ["GET", "HEAD", "OPTIONS"]
+allow_subdomains = false
+
+[automation]
+active_testing = false
+credential_bruteforce = false
+destructive_testing = false
+oob_callbacks = false
+max_requests_per_second = 1.0
+max_concurrency = 2
+max_total_requests = 1000
+
+[authorization]
+confirmed = true
+researcher = "naveax"
+policy_snapshot_sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+expires_at = 2030-01-01T00:00:00Z

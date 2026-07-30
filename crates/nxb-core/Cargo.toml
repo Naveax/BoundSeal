@@ -1,0 +1,17 @@
+[package]
+name = "nxb-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "nxb"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+nxb-events = { path = "../nxb-events" }
+nxb-policy = { path = "../nxb-policy" }
