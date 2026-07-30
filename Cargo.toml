@@ -7,7 +7,9 @@ members = [
     "crates/nxb-dns",
     "crates/nxb-events",
     "crates/nxb-gateway",
+    "crates/nxb-pinned-transport",
     "crates/nxb-policy",
+    "crates/nxb-transport",
 ]
 resolver = "2"
 
