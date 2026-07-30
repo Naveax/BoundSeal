@@ -164,7 +164,9 @@ pub struct CookieJarAuditChain {
 
 impl CookieJarAuditChain {
     fn new(jar_id: &str) -> Self {
-        let genesis_hash = lower_hex(&Sha256::digest(format!("nxb-cookie-jar:{jar_id}").as_bytes()));
+        let genesis_hash = lower_hex(&Sha256::digest(
+            format!("nxb-cookie-jar:{jar_id}").as_bytes(),
+        ));
         Self {
             tail_hash: genesis_hash.clone(),
             genesis_hash,
@@ -209,12 +211,9 @@ impl CookieJarAuditChain {
                     record_index: index,
                 });
             }
-            let material = serde_json::to_vec(&(
-                record.sequence,
-                &record.previous_hash,
-                &record.event,
-            ))
-            .map_err(|error| CookieJarError::AuditSerialization(error.to_string()))?;
+            let material =
+                serde_json::to_vec(&(record.sequence, &record.previous_hash, &record.event))
+                    .map_err(|error| CookieJarError::AuditSerialization(error.to_string()))?;
             let expected = lower_hex(&Sha256::digest(material));
             if record.record_hash != expected {
                 return Err(CookieJarError::AuditRecordHashMismatch {
@@ -252,10 +251,7 @@ impl fmt::Debug for CookieJar {
 }
 
 impl CookieJar {
-    pub fn new(
-        jar_id: impl Into<String>,
-        config: CookieJarConfig,
-    ) -> Result<Self, CookieJarError> {
+    pub fn new(jar_id: impl Into<String>, config: CookieJarConfig) -> Result<Self, CookieJarError> {
         let jar_id = jar_id.into();
         validate_identifier(&jar_id, "jar_id")?;
         let config = config.validate()?;
@@ -353,14 +349,12 @@ impl CookieJar {
         let mut mutations = BTreeMap::<CookieKey, CookieMutation>::new();
         let mut superseded_headers = 0u64;
         for header in set_cookie_values {
-            let parsed = parse_set_cookie(
-                header,
-                &origin,
-                request_target,
-                now_epoch_seconds,
-            )?;
+            let parsed = parse_set_cookie(header, &origin, request_target, now_epoch_seconds)?;
             let key = parsed.key();
-            if mutations.insert(key, CookieMutation::from(parsed)).is_some() {
+            if mutations
+                .insert(key, CookieMutation::from_parsed(parsed))
+                .is_some()
+            {
                 superseded_headers = superseded_headers.saturating_add(1);
             }
         }
@@ -371,9 +365,7 @@ impl CookieJar {
             .saturating_add(
                 mutations
                     .iter()
-                    .filter(|(key, mutation)| {
-                        mutation.is_set() && !self.records.contains_key(*key)
-                    })
+                    .filter(|(key, mutation)| mutation.is_set() && !self.records.contains_key(*key))
                     .count(),
             )
             .saturating_sub(
@@ -493,12 +485,12 @@ impl CookieJar {
                     }
                 }
                 CookieMutation::Set(parsed) => {
-                    let mut record = staged
-                        .remove(&key)
-                        .ok_or_else(|| CookieJarError::CommitInvariant("staged cookie missing".into()))?;
+                    let mut record = staged.remove(&key).ok_or_else(|| {
+                        CookieJarError::CommitInvariant("staged cookie missing".into())
+                    })?;
                     if let Some(previous) = previous {
                         replaced = replaced.saturating_add(1);
-                        if previous.value_sha256.as_deref() != Some(&parsed.value_sha256) {
+                        if previous.value_sha256.as_deref() != Some(parsed.value_sha256.as_str()) {
                             rotation_detected = true;
                         }
                     } else {
@@ -671,7 +663,7 @@ enum CookieMutation {
 }
 
 impl CookieMutation {
-    fn from(parsed: ParsedSetCookie) -> Self {
+    fn from_parsed(parsed: ParsedSetCookie) -> Self {
         if parsed.delete {
             Self::Delete
         } else {
@@ -877,9 +869,8 @@ fn required_attribute_value<'a>(
     value: Option<&'a [u8]>,
     name: &str,
 ) -> Result<&'a [u8], CookieJarError> {
-    let value = value.ok_or_else(|| {
-        CookieJarError::InvalidSetCookie(format!("{name} requires a value"))
-    })?;
+    let value = value
+        .ok_or_else(|| CookieJarError::InvalidSetCookie(format!("{name} requires a value")))?;
     if value.is_empty() {
         return Err(CookieJarError::InvalidSetCookie(format!(
             "{name} value is empty"
@@ -964,10 +955,7 @@ fn validate_identifier(value: &str, name: &str) -> Result<(), CookieJarError> {
 }
 
 fn validate_cookie_name(name: &str) -> Result<(), CookieJarError> {
-    if name.is_empty()
-        || name.len() > MAX_COOKIE_NAME_BYTES
-        || !name.bytes().all(is_token_byte)
-    {
+    if name.is_empty() || name.len() > MAX_COOKIE_NAME_BYTES || !name.bytes().all(is_token_byte) {
         return Err(CookieJarError::InvalidSetCookie(
             "cookie name is not a bounded token".into(),
         ));
@@ -1136,18 +1124,24 @@ fn domain_matches(host: &str, domain: &str) -> bool {
 
 fn is_public_suffix_like(domain: &str) -> bool {
     const DENIED: &[&str] = &[
-        "com", "net", "org", "edu", "gov", "mil", "int", "io", "dev", "app", "co.uk",
-        "org.uk", "ac.uk", "gov.uk", "com.tr", "org.tr", "net.tr", "gen.tr", "biz.tr",
-        "info.tr", "web.tr", "com.au", "net.au", "org.au", "co.jp", "ne.jp", "co.nz",
+        "com", "net", "org", "edu", "gov", "mil", "int", "io", "dev", "app", "co.uk", "org.uk",
+        "ac.uk", "gov.uk", "com.tr", "org.tr", "net.tr", "gen.tr", "biz.tr", "info.tr", "web.tr",
+        "com.au", "net.au", "org.au", "co.jp", "ne.jp", "co.nz",
     ];
     !domain.contains('.') || DENIED.contains(&domain)
 }
 
 fn trim_ascii(mut value: &[u8]) -> &[u8] {
-    while value.first().is_some_and(|byte| matches!(byte, b' ' | b'\t')) {
+    while value
+        .first()
+        .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+    {
         value = &value[1..];
     }
-    while value.last().is_some_and(|byte| matches!(byte, b' ' | b'\t')) {
+    while value
+        .last()
+        .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+    {
         value = &value[..value.len() - 1];
     }
     value
@@ -1366,7 +1360,10 @@ mod tests {
         let metadata = vault.metadata(&commit.active_handles[0]).unwrap();
         assert_eq!(
             metadata.binding.allowed_hosts,
-            ["app.example.com"].into_iter().map(str::to_string).collect()
+            ["app.example.com"]
+                .into_iter()
+                .map(str::to_string)
+                .collect()
         );
     }
 

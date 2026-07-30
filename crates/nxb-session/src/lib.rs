@@ -3,11 +3,14 @@ use std::{
     fmt,
 };
 
+use nxb_cookie_jar::{
+    CookieCommit, CookieJar, CookieJarAuditChain, CookieJarConfig, CookieJarError, CookieOrigin,
+};
 use nxb_http1::{Http1Codec, Http1Error, Http1Exchange, Http1Request};
 use nxb_stream::{ByteStreamBackend, StreamControl};
 use nxb_vault::{
-    InMemorySecretVault, SecretHandle, SecretHeaderLease, VaultAccessContext, VaultError,
-    MAX_SECRET_HANDLES_PER_LEASE, MAX_SECRET_LEASE_SECONDS,
+    InMemorySecretVault, SecretBinding, SecretHandle, SecretHeaderLease, SecretKind,
+    VaultAccessContext, VaultError, MAX_SECRET_HANDLES_PER_LEASE, MAX_SECRET_LEASE_SECONDS,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -55,11 +58,13 @@ pub struct SessionMetadata {
     pub profile: SessionProfile,
     pub status: SessionStatus,
     pub created_at_epoch_seconds: i64,
+    pub generation: u64,
+    pub cookie_jar_audit_tail: String,
 }
 
-#[derive(Clone)]
 struct SessionState {
     metadata: SessionMetadata,
+    cookie_jar: CookieJar,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -226,16 +231,42 @@ impl SessionBroker {
 
         let session_id = format!("{}-session-{:020}", self.broker_id, self.next_session_id);
         self.next_session_id = self.next_session_id.saturating_add(1);
+        let non_cookie_handle_count = profile
+            .secret_handles
+            .iter()
+            .map(|handle| vault.metadata(handle))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter(|metadata| metadata.kind != SecretKind::Cookie)
+            .count();
+        let maximum_cookie_records = MAX_SECRET_HANDLES_PER_LEASE
+            .checked_sub(non_cookie_handle_count)
+            .ok_or_else(|| {
+                SessionError::InvalidProfile(
+                    "non-cookie secret handles exceed the session limit".into(),
+                )
+            })?;
+        let mut cookie_jar = CookieJar::new(
+            format!("{session_id}-cookie-jar"),
+            CookieJarConfig {
+                maximum_cookie_records,
+                ..CookieJarConfig::default()
+            },
+        )?;
+        cookie_jar.seed_from_vault(&profile.secret_handles, vault)?;
         let metadata = SessionMetadata {
             session_id: session_id.clone(),
             profile,
             status: SessionStatus::Active,
             created_at_epoch_seconds: now_epoch_seconds,
+            generation: cookie_jar.generation(),
+            cookie_jar_audit_tail: cookie_jar.audit().tail_hash().to_string(),
         };
         self.sessions.insert(
             session_id.clone(),
             SessionState {
                 metadata: metadata.clone(),
+                cookie_jar,
             },
         );
         self.audit.append(SessionAuditEvent {
@@ -273,16 +304,16 @@ impl SessionBroker {
         request: &Http1Request,
         options: SessionExchangeOptions,
     ) -> Result<Http1Exchange, SessionError> {
-        let state = self
+        let metadata = self
             .sessions
             .get(session_id)
-            .cloned()
+            .map(|state| state.metadata.clone())
             .ok_or(SessionError::UnknownSession)?;
         let authority = codec.stream().grant().http_host().to_ascii_lowercase();
         let scheme = codec.stream().grant().scheme().to_ascii_lowercase();
-        let result = (|| {
+        let mut result = (|| {
             validate_session_use(
-                &state.metadata,
+                &metadata,
                 context,
                 &authority,
                 &scheme,
@@ -301,7 +332,7 @@ impl SessionBroker {
                 scheme: scheme.clone(),
             };
             let mut secret_lease = vault.lease(
-                &state.metadata.profile.secret_handles,
+                &metadata.profile.secret_handles,
                 access,
                 options.lease_seconds,
                 options.now_epoch_seconds,
@@ -321,6 +352,37 @@ impl SessionBroker {
                 )
                 .map_err(SessionError::Http)
         })();
+
+        let cookie_result = match result.as_ref() {
+            Ok(exchange) => self.apply_response_cookies(
+                session_id,
+                vault,
+                exchange,
+                &authority,
+                &scheme,
+                &request.target,
+                options.now_epoch_seconds,
+            ),
+            Err(_) => Ok(None),
+        };
+        let cookie_commit = match cookie_result {
+            Ok(commit) => commit,
+            Err(error) => {
+                result = Err(error);
+                None
+            }
+        };
+        let (cookie_inserted, cookie_replaced, cookie_deleted, generation) = cookie_commit
+            .as_ref()
+            .map(|commit| {
+                (
+                    commit.inserted,
+                    commit.replaced,
+                    commit.deleted,
+                    commit.generation_after,
+                )
+            })
+            .unwrap_or((0, 0, 0, metadata.generation));
 
         let (outcome, result_code, response_status) = match &result {
             Ok(exchange) => (
@@ -349,9 +411,119 @@ impl SessionBroker {
                 ),
                 ("result_code".into(), result_code),
                 ("response_status".into(), response_status),
+                ("cookie_inserted".into(), cookie_inserted.to_string()),
+                ("cookie_replaced".into(), cookie_replaced.to_string()),
+                ("cookie_deleted".into(), cookie_deleted.to_string()),
+                ("session_generation".into(), generation.to_string()),
             ]),
         })?;
         result
+    }
+
+    fn apply_response_cookies(
+        &mut self,
+        session_id: &str,
+        vault: &mut InMemorySecretVault,
+        exchange: &Http1Exchange,
+        authority: &str,
+        scheme: &str,
+        request_target: &str,
+        now_epoch_seconds: i64,
+    ) -> Result<Option<CookieCommit>, SessionError> {
+        let set_cookie_values = exchange
+            .response
+            .headers
+            .iter()
+            .filter(|header| header.name.eq_ignore_ascii_case("set-cookie"))
+            .map(|header| header.value.clone())
+            .collect::<Vec<_>>();
+        if set_cookie_values.is_empty() {
+            return Ok(None);
+        }
+        let state = self
+            .sessions
+            .get_mut(session_id)
+            .ok_or(SessionError::UnknownSession)?;
+        let binding = secret_binding_from_profile(&state.metadata.profile);
+        let origin = CookieOrigin::new(authority, scheme)?;
+        let previous_cookie_handles = state
+            .cookie_jar
+            .active_handles()
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        let commit = state.cookie_jar.apply_response(
+            vault,
+            &binding,
+            &origin,
+            request_target,
+            &set_cookie_values,
+            now_epoch_seconds,
+        )?;
+        state
+            .metadata
+            .profile
+            .secret_handles
+            .retain(|handle| !previous_cookie_handles.contains(handle));
+        state
+            .metadata
+            .profile
+            .secret_handles
+            .extend(commit.active_handles.iter().cloned());
+        state.metadata.profile.secret_handles = state
+            .metadata
+            .profile
+            .secret_handles
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        state.metadata.generation = commit.generation_after;
+        state.metadata.cookie_jar_audit_tail = commit.audit_tail.clone();
+        Ok(Some(commit))
+    }
+
+    pub fn logout_session(
+        &mut self,
+        session_id: &str,
+        vault: &mut InMemorySecretVault,
+    ) -> Result<(), SessionError> {
+        let state = self
+            .sessions
+            .get_mut(session_id)
+            .ok_or(SessionError::UnknownSession)?;
+        let cookie_handles = state
+            .cookie_jar
+            .active_handles()
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        let commit = state.cookie_jar.purge(vault, "logout")?;
+        state
+            .metadata
+            .profile
+            .secret_handles
+            .retain(|handle| !cookie_handles.contains(handle));
+        state.metadata.status = SessionStatus::Revoked;
+        state.metadata.generation = commit.generation_after;
+        state.metadata.cookie_jar_audit_tail = commit.audit_tail.clone();
+        self.audit.append(SessionAuditEvent {
+            action: "session_logout".into(),
+            outcome: "revoked".into(),
+            broker_id: self.broker_id.clone(),
+            session_id: Some(session_id.into()),
+            metadata: BTreeMap::from([
+                ("cookie_deleted".into(), commit.deleted.to_string()),
+                ("generation".into(), commit.generation_after.to_string()),
+            ]),
+        })?;
+        Ok(())
+    }
+
+    pub fn cookie_jar_audit(&self, session_id: &str) -> Result<&CookieJarAuditChain, SessionError> {
+        self.sessions
+            .get(session_id)
+            .map(|state| state.cookie_jar.audit())
+            .ok_or(SessionError::UnknownSession)
     }
 
     pub fn revoke_session(&mut self, session_id: &str) -> Result<(), SessionError> {
@@ -415,6 +587,8 @@ pub enum SessionError {
     InvalidLeaseDuration,
     #[error("vault operation failed: {0}")]
     Vault(#[from] VaultError),
+    #[error("cookie jar operation failed: {0}")]
+    CookieJar(#[from] CookieJarError),
     #[error("authenticated HTTP/1 exchange failed: {0}")]
     Http(#[from] Http1Error),
     #[error("session audit material could not be serialized: {0}")]
@@ -443,6 +617,7 @@ impl SessionError {
             Self::SecretExpiresBeforeSession => "secret_expires_before_session",
             Self::InvalidLeaseDuration => "invalid_lease_duration",
             Self::Vault(_) => "vault_rejected",
+            Self::CookieJar(_) => "cookie_jar_rejected",
             Self::Http(_) => "http1_rejected",
             Self::AuditSerialization(_) => "audit_serialization",
             Self::AuditSequenceMismatch { .. } => "audit_sequence_mismatch",
@@ -450,6 +625,18 @@ impl SessionError {
             Self::AuditRecordHashMismatch { .. } => "audit_record_hash_mismatch",
             Self::AuditTailMismatch => "audit_tail_mismatch",
         }
+    }
+}
+
+fn secret_binding_from_profile(profile: &SessionProfile) -> SecretBinding {
+    SecretBinding {
+        run_id: profile.run_id.clone(),
+        worker_id: profile.worker_id.clone(),
+        account_id: profile.account_id.clone(),
+        tenant_id: profile.tenant_id.clone(),
+        role_id: profile.role_id.clone(),
+        allowed_hosts: profile.allowed_hosts.clone(),
+        allowed_schemes: profile.allowed_schemes.clone(),
     }
 }
 
@@ -645,7 +832,7 @@ mod tests {
         let backend = InMemoryDuplex::new(
             [
                 FixtureReadEvent::Bytes {
-                    bytes: b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok".to_vec(),
+                    bytes: b"HTTP/1.1 200 OK\r\nSet-Cookie: session=rotated; Secure; HttpOnly; Path=/\r\nContent-Length: 2\r\n\r\nok".to_vec(),
                     elapsed_milliseconds: 1,
                 },
                 FixtureReadEvent::Eof {
@@ -726,6 +913,14 @@ mod tests {
         assert!(!http_audit.contains("session-secret-value"));
         assert!(!vault_audit.contains("session-secret-value"));
         assert!(!session_audit.contains("session-secret-value"));
+        let updated = broker.metadata(&session.session_id).unwrap();
+        assert_eq!(updated.generation, 2);
+        assert_eq!(updated.profile.secret_handles.len(), 2);
+        broker
+            .cookie_jar_audit(&session.session_id)
+            .unwrap()
+            .verify()
+            .unwrap();
     }
 
     #[test]
