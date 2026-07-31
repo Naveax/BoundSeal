@@ -22,12 +22,16 @@ fn validate_sealer<S: SegmentSealer>(sealer: &S) -> Result<(), FindingStoreError
 fn validate_payload<S: SegmentSealer>(
     payload: &SealedPayload,
     sealer: &S,
+    plaintext: &[u8],
 ) -> Result<(), FindingStoreError> {
     if payload.algorithm != sealer.algorithm_id()
         || payload.key_id_sha256 != sealer.key_id_sha256()
         || payload.nonce.len() < 12
         || payload.authentication_tag.len() < 16
         || payload.ciphertext.is_empty()
+        || payload.ciphertext == plaintext
+        || (payload.ciphertext.len() as u64)
+            > (plaintext.len() as u64).saturating_add(sealer.maximum_overhead_bytes())
     {
         return Err(FindingStoreError::InvalidSealer(
             "sealed payload does not satisfy the backend contract".into(),
