@@ -3,7 +3,9 @@ use std::{
     fmt,
 };
 
-use nxb_planner::{CapabilityUseReceipt, RequestIntentPlan, RiskClass};
+use nxb_planner::{
+    CapabilityUseReceipt, CapabilityUseRequest, ProbeCapability, RequestIntentPlan, RiskClass,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -25,6 +27,8 @@ pub enum ValidationError {
     InvalidMutation(String),
     #[error("mutation is not authorized by the active plan or capability")]
     MutationDenied,
+    #[error("live probe capability denied mutation authorization: {0}")]
+    CapabilityDenied(String),
     #[error("owned-object ledger is full")]
     OwnershipLedgerFull,
     #[error("owned object is unknown")]
