@@ -18,9 +18,18 @@ impl ApprovalQuorum {
                 ));
             }
         }
+        let organizations = by_operator
+            .values()
+            .map(|approval| approval.operator.organization_sha256.as_str())
+            .collect::<BTreeSet<_>>();
+        if organizations.len() != 1 {
+            return Err(AssuranceError::ApprovalDenied(
+                "operator quorum organization mismatch".into(),
+            ));
+        }
         let roles = by_operator
             .values()
-            .map(|a| a.operator.role)
+            .map(|approval| approval.operator.role)
             .collect::<BTreeSet<_>>();
         let count = by_operator.len();
         let accepted = match envelope.command {
@@ -28,9 +37,9 @@ impl ApprovalQuorum {
             | OperatorCommand::Cancel
             | OperatorCommand::AcknowledgeIncident => {
                 count >= 1
-                    && roles.iter().any(|r| {
+                    && roles.iter().any(|role| {
                         matches!(
-                            r,
+                            role,
                             OperatorRole::Operator
                                 | OperatorRole::Supervisor
                                 | OperatorRole::SafetyOfficer
@@ -39,8 +48,8 @@ impl ApprovalQuorum {
             }
             OperatorCommand::EmergencyStop => {
                 count >= 1
-                    && roles.iter().any(|r| {
-                        matches!(r, OperatorRole::Supervisor | OperatorRole::SafetyOfficer)
+                    && roles.iter().any(|role| {
+                        matches!(role, OperatorRole::Supervisor | OperatorRole::SafetyOfficer)
                     })
             }
             OperatorCommand::Resume | OperatorCommand::SealRun => {
@@ -58,9 +67,11 @@ impl ApprovalQuorum {
             approvals: by_operator,
         })
     }
+
     pub fn digest(&self) -> Result<String, AssuranceError> {
         hash_serializable(&self.approvals)
     }
+
     pub fn operator_ids(&self) -> BTreeSet<String> {
         self.approvals.keys().cloned().collect()
     }
