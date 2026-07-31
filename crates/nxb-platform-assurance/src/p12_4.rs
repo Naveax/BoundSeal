@@ -7,6 +7,7 @@ pub enum ExceptionClass {
     IdentityBinding,
     AuditIntegrity,
 }
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AssuranceExceptionRequest {
     pub request_id: String,
@@ -15,6 +16,7 @@ pub struct AssuranceExceptionRequest {
     pub reason_sha256: String,
     pub request_sha256: String,
 }
+
 impl AssuranceExceptionRequest {
     pub fn new(
         request_id: impl Into<String>,
@@ -38,6 +40,7 @@ impl AssuranceExceptionRequest {
             request_sha256,
         })
     }
+
     pub fn is_waivable(&self) -> bool {
         matches!(
             self.class,
@@ -45,14 +48,31 @@ impl AssuranceExceptionRequest {
         )
     }
 }
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ExceptionDecision {
     pub request_sha256: String,
     pub accepted: bool,
     pub decision_sha256: String,
 }
+
+impl ExceptionDecision {
+    pub fn verify(&self) -> Result<(), AssuranceError> {
+        validate_sha256(&self.request_sha256, "exception request digest")?;
+        validate_sha256(&self.decision_sha256, "exception decision digest")?;
+        let expected = hash_serializable(&(&self.request_sha256, self.accepted))?;
+        if expected != self.decision_sha256 {
+            return Err(AssuranceError::ClosureDenied(
+                "exception decision digest".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct AssuranceExceptionAuthority;
+
 impl AssuranceExceptionAuthority {
     pub fn decide(
         &self,
@@ -60,10 +80,12 @@ impl AssuranceExceptionAuthority {
     ) -> Result<ExceptionDecision, AssuranceError> {
         let accepted = request.is_waivable();
         let decision_sha256 = hash_serializable(&(&request.request_sha256, accepted))?;
-        Ok(ExceptionDecision {
+        let decision = ExceptionDecision {
             request_sha256: request.request_sha256.clone(),
             accepted,
             decision_sha256,
-        })
+        };
+        decision.verify()?;
+        Ok(decision)
     }
 }
