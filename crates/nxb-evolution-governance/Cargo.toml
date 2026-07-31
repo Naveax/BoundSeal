@@ -1,0 +1,13 @@
+[package]
+name = "nxb-evolution-governance"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+nxb-lifecycle-governance = { path = "../nxb-lifecycle-governance" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
