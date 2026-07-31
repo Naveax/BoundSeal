@@ -35,11 +35,18 @@ impl ContinuityAuthority {
             || retention.policy_snapshot_sha256 != self.policy_snapshot_sha256
             || archive.maintenance_release_certificate_sha256 != maintenance.certificate_sha256
             || redaction.archive_bundle_sha256 != archive.bundle_sha256
+            || redaction
+                .object_dispositions
+                .keys()
+                .cloned()
+                .collect::<BTreeSet<_>>()
+                != archive.object_ids
             || recovery.archive_bundle_sha256 != archive.bundle_sha256
             || recovery.retention_policy_sha256 != retention.policy_sha256
             || recovery.redaction_manifest_sha256 != redaction.manifest_sha256
             || quorum.recovery_plan_sha256 != recovery.plan_sha256
             || quorum.archive_bundle_sha256 != archive.bundle_sha256
+            || quorum.maximum_final_virtual_tick > recovery.maximum_virtual_ticks
         {
             return Err(LifecycleError::InvalidContinuity(
                 "continuity policy or certificate closure".into(),
@@ -59,14 +66,8 @@ impl ContinuityAuthority {
             subject_id: certificate_id.clone(),
             outcome: "certified".into(),
             metadata: BTreeMap::from([
-                (
-                    "archive_bundle_sha256".into(),
-                    archive.bundle_sha256.clone(),
-                ),
-                (
-                    "recovery_quorum_sha256".into(),
-                    quorum.quorum_sha256.clone(),
-                ),
+                ("archive_bundle_sha256".into(), archive.bundle_sha256.clone()),
+                ("recovery_quorum_sha256".into(), quorum.quorum_sha256.clone()),
             ]),
         })?;
         let authority_audit_tail_hash = self.audit.tail_hash().to_owned();
