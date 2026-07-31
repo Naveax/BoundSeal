@@ -1,0 +1,1 @@
+impl OperatorCommandReceipt{pub fn verify(&self)->Result<(),AssuranceError>{let expected=hash_serializable(&(self.sequence,self.command,self.prior_state,self.next_state,&self.quorum_sha256,&self.operator_ids,&self.audit_tail_hash))?;if expected!=self.receipt_sha256{return Err(AssuranceError::InvalidTransition("operator receipt digest".into()));}Ok(())}}

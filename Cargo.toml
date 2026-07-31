@@ -20,6 +20,7 @@ members = [
     "crates/nxb-passive-analyzers",
     "crates/nxb-pinned-transport",
     "crates/nxb-planner",
+    "crates/nxb-platform-assurance",
     "crates/nxb-policy",
     "crates/nxb-redirect",
     "crates/nxb-release-governance",
