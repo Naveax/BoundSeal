@@ -54,6 +54,11 @@ impl MaintenanceReleaseAuthority {
             || plan.proposal_sha256 != proposal.proposal_sha256
             || plan.assessment_sha256 != assessment.assessment_sha256
             || plan.window_sha256 != window.window_sha256
+            || assessment
+                .affected_components
+                .iter()
+                .any(|component| !proposal.component_roots.contains_key(component))
+            || (proposal.class == ChangeClass::SecurityPatch && !assessment.safety_critical)
             || open_incident_count != 0
         {
             return Err(LifecycleError::InvalidMaintenance(
