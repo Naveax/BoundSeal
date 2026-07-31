@@ -79,7 +79,7 @@ impl RecoveryRehearsalReceipt {
         ] {
             validate_sha256(value, name)?;
         }
-        if !self.exact {
+        if !self.exact || self.final_virtual_tick > MAX_RECOVERY_TICKS {
             return Err(LifecycleError::InvalidContinuity(
                 "recovery receipt is not exact".into(),
             ));
@@ -113,6 +113,7 @@ pub struct RecoveryQuorum {
     pub organization_roots: BTreeSet<String>,
     pub implementation_roots: BTreeSet<String>,
     pub receipt_sha256: BTreeSet<String>,
+    pub maximum_final_virtual_tick: u64,
     pub quorum: usize,
     pub quorum_sha256: String,
 }
