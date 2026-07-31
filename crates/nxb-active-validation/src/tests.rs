@@ -118,7 +118,7 @@ fn forbidden_or_passive_plan_cannot_generate_mutation() {
     let mut passive = plan();
     passive.risk_class = RiskClass::Passive;
     let mut engine = SafeMutationEngine::new("engine-1", hex('0')).unwrap();
-    assert_eq!(
+    assert!(matches!(
         engine.generate(
             &passive,
             &capability(&passive),
@@ -128,7 +128,7 @@ fn forbidden_or_passive_plan_cannot_generate_mutation() {
             0,
         ),
         Err(ValidationError::MutationDenied)
-    );
+    ));
 }
 
 #[test]
