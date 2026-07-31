@@ -74,3 +74,5 @@ jobs:
 
       - name: Tests
         run: cargo test --workspace --all-features
+
+# bootstrap trigger
