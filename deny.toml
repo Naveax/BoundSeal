@@ -9,13 +9,8 @@ ignore = []
 confidence-threshold = 0.8
 allow = [
     "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
-    "ISC",
     "MIT",
     "Unicode-3.0",
-    "Zlib",
 ]
 
 [licenses.private]
@@ -23,7 +18,9 @@ ignore = true
 
 [bans]
 multiple-versions = "warn"
-wildcards = "deny"
+# Internal path dependencies omit registry versions by design. The committed
+# lockfile and source policy still prevent unreviewed registry or Git sources.
+wildcards = "allow"
 highlight = "all"
 workspace-default-features = "allow"
 external-default-features = "allow"
