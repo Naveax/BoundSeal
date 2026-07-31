@@ -18,3 +18,10 @@ pub mod finding_store {
     include!("store_part4.rs");
     include!("store_tests.rs");
 }
+
+pub mod exact_dedup {
+    include!("dedup_part1.rs");
+    include!("dedup_part2.rs");
+    include!("dedup_part3.rs");
+    include!("dedup_tests.rs");
+}
