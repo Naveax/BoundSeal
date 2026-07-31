@@ -49,7 +49,9 @@ impl CapabilityNode {
         self.kind != CapabilityNodeKind::Finding
             || matches!(
                 self.finding_state,
-                Some(FindingState::Validated | FindingState::Reportable | FindingState::Closed)
+                Some(FindingState::Validated)
+                    | Some(FindingState::Reportable)
+                    | Some(FindingState::Closed)
             )
     }
 }
@@ -198,10 +200,18 @@ impl CapabilityGraph {
         goal_node_id: &str,
         maximum_depth: usize,
     ) -> Result<RiskChain, WorkflowError> {
+        let start = self
+            .nodes
+            .get(start_node_id)
+            .ok_or(WorkflowError::InvalidRiskChain)?;
+        let goal = self
+            .nodes
+            .get(goal_node_id)
+            .ok_or(WorkflowError::InvalidRiskChain)?;
         if maximum_depth == 0
             || maximum_depth > MAX_RISK_CHAIN_DEPTH
-            || !self.nodes.contains_key(start_node_id)
-            || !self.nodes.contains_key(goal_node_id)
+            || !start.is_chain_eligible()
+            || !goal.is_chain_eligible()
         {
             return Err(WorkflowError::InvalidRiskChain);
         }
