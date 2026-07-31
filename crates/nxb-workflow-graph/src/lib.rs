@@ -6,3 +6,5 @@ include!("part5.rs");
 
 #[cfg(test)]
 include!("tests.rs");
+#[cfg(test)]
+include!("tests_hardening.rs");
