@@ -102,6 +102,70 @@ impl RenewalAuthority {
         matrix.verify()?;
         ledger.verify()?;
         remediation.verify()?;
+
+        let assignment_evidence_ids = matrix
+            .assignments
+            .keys()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let assignments_match_sources = assignment_evidence_ids == sample_plan.sample_ids
+            && matrix.assignments.values().all(|assignment| {
+                assignment
+                    .reviewer_ids
+                    .iter()
+                    .all(|reviewer_id| panel.members.contains_key(reviewer_id))
+                    && assignment
+                        .reviewer_ids
+                        .iter()
+                        .map(|reviewer_id| {
+                            panel.members[reviewer_id]
+                                .organization_root_sha256
+                                .clone()
+                        })
+                        .collect::<BTreeSet<_>>()
+                        .len()
+                        >= 2
+            });
+        let findings_match_assignments = ledger
+            .findings
+            .values()
+            .all(|finding| matrix.assignments.contains_key(&finding.evidence_id));
+        let expected_terminal_finding_ids = ledger
+            .findings
+            .values()
+            .filter(|finding| {
+                matches!(
+                    finding.state,
+                    ReviewFindingState::Remediated | ReviewFindingState::Rejected
+                )
+            })
+            .map(|finding| finding.finding_id.clone())
+            .collect::<BTreeSet<_>>();
+        let expected_open_finding_count = ledger
+            .findings
+            .values()
+            .filter(|finding| {
+                matches!(
+                    finding.state,
+                    ReviewFindingState::Open | ReviewFindingState::Accepted
+                )
+            })
+            .count() as u64;
+        let expected_critical_unremediated_count = ledger
+            .findings
+            .values()
+            .filter(|finding| {
+                finding.severity == ReviewFindingSeverity::Critical
+                    && finding.state != ReviewFindingState::Remediated
+            })
+            .count() as u64;
+        let remediation_matches_ledger = remediation.terminal_finding_ids
+            == expected_terminal_finding_ids
+            && remediation.open_finding_count == expected_open_finding_count
+            && remediation.critical_unremediated_count
+                == expected_critical_unremediated_count
+            && remediation.terminal_finding_ids.len() == ledger.findings.len();
+
         if succession.policy_snapshot_sha256 != self.policy_snapshot_sha256
             || panel.succession_certificate_sha256 != succession.certificate_sha256
             || sample_plan.succession_certificate_sha256 != succession.certificate_sha256
@@ -109,6 +173,9 @@ impl RenewalAuthority {
             || matrix.sample_plan_sha256 != sample_plan.plan_sha256
             || ledger.assignment_matrix_sha256 != matrix.matrix_sha256
             || remediation.finding_ledger_sha256 != ledger.ledger_sha256
+            || !assignments_match_sources
+            || !findings_match_assignments
+            || !remediation_matches_ledger
         {
             return Err(PostClosureError::InvalidRenewal(
                 "renewal certificate closure".into(),

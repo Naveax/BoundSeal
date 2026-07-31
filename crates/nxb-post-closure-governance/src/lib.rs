@@ -9,4 +9,7 @@ pub use p17::*;
 pub use p18::*;
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    include!("tests.rs");
+    include!("hardening_tests.rs");
+}
