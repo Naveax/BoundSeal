@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/nxb-active-validation",
     "crates/nxb-audit",
     "crates/nxb-budget",
     "crates/nxb-channel-contracts",
@@ -13,6 +14,7 @@ members = [
     "crates/nxb-gateway",
     "crates/nxb-http1",
     "crates/nxb-http1-fixture",
+    "crates/nxb-knowledge-reporting",
     "crates/nxb-local-executor",
     "crates/nxb-passive-analyzers",
     "crates/nxb-pinned-transport",
@@ -25,6 +27,7 @@ members = [
     "crates/nxb-tls",
     "crates/nxb-transport",
     "crates/nxb-vault",
+    "crates/nxb-workflow-graph",
 ]
 resolver = "2"
 

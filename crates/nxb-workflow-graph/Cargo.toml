@@ -1,0 +1,15 @@
+[package]
+name = "nxb-workflow-graph"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+nxb-active-validation = { path = "../nxb-active-validation" }
+nxb-knowledge-reporting = { path = "../nxb-knowledge-reporting" }
+nxb-planner = { path = "../nxb-planner" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
