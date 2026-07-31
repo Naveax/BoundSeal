@@ -22,14 +22,35 @@ fn plan() -> RequestIntentPlan {
     .unwrap()
 }
 
-fn capability(plan: &RequestIntentPlan) -> CapabilityUseReceipt {
-    CapabilityUseReceipt {
-        capability_id: "capability-1".into(),
-        request_number: 1,
-        mutations_used: 1,
-        remaining_requests: 9,
-        remaining_mutations: 9,
+fn capability(plan: &RequestIntentPlan) -> ProbeCapability {
+    ProbeCapability::new(
+        "capability-1",
+        "module-1",
+        "run-1",
+        "worker-1",
+        BTreeSet::from([plan.method.clone()]),
+        BTreeSet::from([plan.canonical_url_sha256.clone()]),
+        10,
+        10,
+        nxb_planner::SecretAccessLevel::None,
+        false,
+        false,
+        1_000,
+    )
+    .unwrap()
+}
+
+fn capability_request(plan: &RequestIntentPlan) -> CapabilityUseRequest {
+    CapabilityUseRequest {
+        run_id: "run-1".into(),
+        worker_id: "worker-1".into(),
+        method: plan.method.clone(),
         endpoint_sha256: plan.canonical_url_sha256.clone(),
+        mutations: 1,
+        requires_secret_access: nxb_planner::SecretAccessLevel::None,
+        replays_body: false,
+        follows_redirect: false,
+        now_milliseconds: 10,
     }
 }
 
@@ -54,11 +75,13 @@ fn target() -> MutationTarget {
 
 fn mutation() -> MutationReceipt {
     let plan = plan();
+    let mut capability = capability(&plan);
     let mut engine = SafeMutationEngine::new("engine-1", hex('0')).unwrap();
     engine
-        .generate(
+        .authorize_and_generate(
             &plan,
-            &capability(&plan),
+            &mut capability,
+            capability_request(&plan),
             target(),
             &template(),
             MutationKind::TypePreservingMarker,
@@ -94,11 +117,13 @@ fn sample(
 #[test]
 fn safe_mutation_is_capability_bound_and_inert() {
     let plan = plan();
+    let mut capability = capability(&plan);
     let mut engine = SafeMutationEngine::new("engine-1", hex('0')).unwrap();
     let generated = engine
-        .generate(
+        .authorize_and_generate(
             &plan,
-            &capability(&plan),
+            &mut capability,
+            capability_request(&plan),
             target(),
             &template(),
             MutationKind::ReplaceWithMarker,
@@ -114,20 +139,45 @@ fn safe_mutation_is_capability_bound_and_inert() {
 }
 
 #[test]
-fn forbidden_or_passive_plan_cannot_generate_mutation() {
+fn passive_plan_is_denied_before_capability_budget_use() {
     let mut passive = plan();
     passive.risk_class = RiskClass::Passive;
+    let mut capability = capability(&passive);
     let mut engine = SafeMutationEngine::new("engine-1", hex('0')).unwrap();
     assert!(matches!(
-        engine.generate(
+        engine.authorize_and_generate(
             &passive,
-            &capability(&passive),
+            &mut capability,
+            capability_request(&passive),
             target(),
             &template(),
             MutationKind::ReplaceWithMarker,
             0,
         ),
         Err(ValidationError::MutationDenied)
+    ));
+    let receipt = capability.authorize(capability_request(&passive)).unwrap();
+    assert_eq!(receipt.request_number, 1);
+}
+
+#[test]
+fn capability_endpoint_and_worker_bindings_are_enforced() {
+    let plan = plan();
+    let mut capability = capability(&plan);
+    let mut request = capability_request(&plan);
+    request.worker_id = "other-worker".into();
+    let mut engine = SafeMutationEngine::new("engine-1", hex('0')).unwrap();
+    assert!(matches!(
+        engine.authorize_and_generate(
+            &plan,
+            &mut capability,
+            request,
+            target(),
+            &template(),
+            MutationKind::ReplaceWithMarker,
+            0,
+        ),
+        Err(ValidationError::CapabilityDenied(_))
     ));
 }
 
