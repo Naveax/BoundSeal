@@ -17,13 +17,15 @@ concurrency:
 jobs:
   materialize-post-closure:
     name: Materialize P16-P18 post-closure governance
-    if: github.event_name == 'push' && github.ref_name == 'nxb-102-successor-renewal-and-program-closure'
+    if: (github.event_name == 'push' && github.ref_name == 'nxb-102-successor-renewal-and-program-closure') || (github.event_name == 'pull_request' && github.head_ref == 'nxb-102-successor-renewal-and-program-closure')
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Checkout
+      - name: Checkout head branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Install stable Rust
         run: |
@@ -55,11 +57,11 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "NXB P16-P18: materialize post-closure governance"
-          git push origin HEAD:${GITHUB_REF_NAME}
+          git push origin HEAD:${{ github.head_ref || github.ref_name }}
 
   rust:
     name: Rust contract checks
-    if: github.ref_name != 'nxb-102-successor-renewal-and-program-closure'
+    if: github.head_ref != 'nxb-102-successor-renewal-and-program-closure' && github.ref_name != 'nxb-102-successor-renewal-and-program-closure'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
