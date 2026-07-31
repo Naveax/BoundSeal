@@ -3,7 +3,9 @@ impl IndependentVerificationQuorum {
         receipts: &[IndependentVerificationReceipt],
         required_quorum: usize,
     ) -> Result<Self, LifecycleError> {
-        if required_quorum < 3 || receipts.len() < required_quorum || receipts.len() > MAX_VERIFIERS
+        if required_quorum < 3
+            || receipts.len() < required_quorum
+            || receipts.len() > MAX_VERIFIERS
         {
             return Err(LifecycleError::InvalidClosure(
                 "independent verification quorum count".into(),
@@ -75,11 +77,20 @@ impl IndependentVerificationQuorum {
         ] {
             validate_sha256(value, name)?;
         }
+        let receipt_count = self.receipt_sha256.len();
         if self.quorum < 3
-            || self.verifier_manifest_sha256.len() < self.quorum
-            || self.organization_roots.len() < self.quorum
-            || self.implementation_roots.len() < self.quorum
-            || self.receipt_sha256.len() < self.quorum
+            || receipt_count < self.quorum
+            || receipt_count > MAX_VERIFIERS
+            || self.verifier_manifest_sha256.len() != receipt_count
+            || self.organization_roots.len() != receipt_count
+            || self.implementation_roots.len() != receipt_count
+            || self
+                .verifier_manifest_sha256
+                .iter()
+                .chain(self.organization_roots.iter())
+                .chain(self.implementation_roots.iter())
+                .chain(self.receipt_sha256.iter())
+                .any(|root| validate_sha256(root, "independent verifier quorum root").is_err())
         {
             return Err(LifecycleError::InvalidClosure(
                 "independent verification quorum diversity".into(),
