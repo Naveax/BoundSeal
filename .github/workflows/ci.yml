@@ -17,13 +17,15 @@ concurrency:
 jobs:
   materialize-lifecycle-governance:
     name: Materialize P13-P15 lifecycle governance
-    if: github.event_name == 'push' && github.ref_name == 'nxb-84-post-freeze-maintenance-contracts'
+    if: (github.event_name == 'push' && github.ref_name == 'nxb-84-post-freeze-maintenance-contracts') || (github.event_name == 'pull_request' && github.head_ref == 'nxb-84-post-freeze-maintenance-contracts')
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Checkout
+      - name: Checkout head branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Install stable Rust
         run: |
@@ -49,11 +51,11 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "NXB P13-P15: materialize lifecycle governance"
-          git push origin HEAD:${GITHUB_REF_NAME}
+          git push origin HEAD:${{ github.head_ref || github.ref_name }}
 
   rust:
     name: Rust contract checks
-    if: github.event_name == 'pull_request' || github.ref_name != 'nxb-84-post-freeze-maintenance-contracts'
+    if: github.head_ref != 'nxb-84-post-freeze-maintenance-contracts' && github.ref_name != 'nxb-84-post-freeze-maintenance-contracts'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -74,5 +76,3 @@ jobs:
 
       - name: Tests
         run: cargo test --workspace --all-features
-
-# bootstrap trigger
