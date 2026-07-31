@@ -15,6 +15,15 @@ This maintenance batch turns the NXB-0 through NXB-119 contract program into a r
 - release and security documentation;
 - first contract-complete release checklist.
 
+## Verification sequence
+
+1. Generate the Cargo lockfile with the pinned toolchain.
+2. Check the complete workspace with `--locked`.
+3. Restore the permanent read-only CI workflow.
+4. Run formatting, Clippy, tests and the synthetic demo.
+5. Run RustSec and cargo-deny dependency-policy gates.
+6. Merge only after the permanent branch head is green.
+
 ## Excluded
 
 - resolver, socket, TLS negotiation or public-network traffic;
