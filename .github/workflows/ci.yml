@@ -46,7 +46,7 @@ jobs:
       - name: Verify and materialize
         if: steps.payload.outputs.present == 'true'
         run: |
-          cat $(find .p16p18 -type f -name 'chunk-*' | sort) | base64 -d > /tmp/p16p18.tar.gz
+          cat $(find .p16p18 -type f -name 'chunk-*' | sort) | base64 --decode --ignore-garbage > /tmp/p16p18.tar.gz
           echo 'b04cf31e08a4e968bd6b47adc02b4728a21e3f9b94cba88ef6b5ef2d0efc1191  /tmp/p16p18.tar.gz' | sha256sum -c -
           tar -xzf /tmp/p16p18.tar.gz -C .
           cargo fmt --all
