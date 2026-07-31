@@ -34,7 +34,12 @@ jobs:
 
       - name: Verify and materialize payload
         run: |
-          echo "cf14d471b4546b08a97684d5861b6a1b0160e415979689ec446360cdc8cb6907  .lifecycle/p13-p15.tar.gz" | sha256sum -c -
+          test "$(git hash-object .lifecycle/p13-p15.tar.gz)" = "0387078a7c41c53e3eaaba635b68b583befe1d17"
+          gzip -t .lifecycle/p13-p15.tar.gz
+          if tar -tzf .lifecycle/p13-p15.tar.gz | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+            echo "unsafe archive path"
+            exit 1
+          fi
           tar -xzf .lifecycle/p13-p15.tar.gz -C .
           find crates/nxb-lifecycle-governance/src -name '*.rs' -print0 | xargs -0 rustfmt --edition 2021
           cargo fmt --all
