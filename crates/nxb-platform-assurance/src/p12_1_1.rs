@@ -1,0 +1,69 @@
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum InvariantClass {
+    HardSafety,
+    IdentityBinding,
+    Determinism,
+    AuditIntegrity,
+    OperatorControl,
+    ReleaseClosure,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssuranceRequirement {
+    pub requirement_id: String,
+    pub class: InvariantClass,
+    pub statement_sha256: String,
+    pub mandatory: bool,
+    pub requirement_sha256: String,
+}
+impl AssuranceRequirement {
+    pub fn new(
+        requirement_id: impl Into<String>,
+        class: InvariantClass,
+        statement_sha256: impl Into<String>,
+        mandatory: bool,
+    ) -> Result<Self, AssuranceError> {
+        let requirement_id = requirement_id.into();
+        let statement_sha256 = statement_sha256.into();
+        validate_identifier(&requirement_id, "assurance requirement")?;
+        validate_sha256(&statement_sha256, "assurance statement")?;
+        if class == InvariantClass::HardSafety && !mandatory {
+            return Err(AssuranceError::ClosureDenied(
+                "hard-safety requirement must be mandatory".into(),
+            ));
+        }
+        let requirement_sha256 =
+            hash_serializable(&(&requirement_id, class, &statement_sha256, mandatory))?;
+        Ok(Self {
+            requirement_id,
+            class,
+            statement_sha256,
+            mandatory,
+            requirement_sha256,
+        })
+    }
+    pub fn verify(&self) -> Result<(), AssuranceError> {
+        let expected = hash_serializable(&(
+            &self.requirement_id,
+            self.class,
+            &self.statement_sha256,
+            self.mandatory,
+        ))?;
+        if expected != self.requirement_sha256
+            || (self.class == InvariantClass::HardSafety && !self.mandatory)
+        {
+            return Err(AssuranceError::ClosureDenied(
+                "assurance requirement digest or mandatory flag".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CoverageEvidence {
+    pub evidence_id: String,
+    pub requirement_id: String,
+    pub source_certificate_sha256: String,
+    pub observation_sha256: String,
+    pub evidence_sha256: String,
+}

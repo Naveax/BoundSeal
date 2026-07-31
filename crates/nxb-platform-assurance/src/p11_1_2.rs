@@ -1,0 +1,79 @@
+impl OperatorCommandEnvelope {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        sequence: u64,
+        command: OperatorCommand,
+        integration_certificate_sha256: impl Into<String>,
+        target_id: impl Into<String>,
+        nonce_sha256: impl Into<String>,
+        reason_sha256: impl Into<String>,
+        issued_at_milliseconds: u64,
+        expires_at_milliseconds: u64,
+    ) -> Result<Self, AssuranceError> {
+        let integration_certificate_sha256 = integration_certificate_sha256.into();
+        let target_id = target_id.into();
+        let nonce_sha256 = nonce_sha256.into();
+        let reason_sha256 = reason_sha256.into();
+        validate_sha256(
+            &integration_certificate_sha256,
+            "operator integration certificate",
+        )?;
+        validate_identifier(&target_id, "operator target")?;
+        validate_sha256(&nonce_sha256, "operator nonce")?;
+        validate_sha256(&reason_sha256, "operator reason")?;
+        if sequence == 0
+            || expires_at_milliseconds <= issued_at_milliseconds
+            || expires_at_milliseconds - issued_at_milliseconds > 300_000
+        {
+            return Err(AssuranceError::InvalidTransition(
+                "command sequence or lifetime".into(),
+            ));
+        }
+        let envelope_sha256 = hash_serializable(&(
+            sequence,
+            command,
+            &integration_certificate_sha256,
+            &target_id,
+            &nonce_sha256,
+            &reason_sha256,
+            issued_at_milliseconds,
+            expires_at_milliseconds,
+        ))?;
+        Ok(Self {
+            sequence,
+            command,
+            integration_certificate_sha256,
+            target_id,
+            nonce_sha256,
+            reason_sha256,
+            issued_at_milliseconds,
+            expires_at_milliseconds,
+            envelope_sha256,
+        })
+    }
+    pub fn verify(&self, now_milliseconds: u64) -> Result<(), AssuranceError> {
+        if now_milliseconds < self.issued_at_milliseconds
+            || now_milliseconds >= self.expires_at_milliseconds
+        {
+            return Err(AssuranceError::ApprovalDenied(
+                "command envelope is outside its lifetime".into(),
+            ));
+        }
+        let expected = hash_serializable(&(
+            self.sequence,
+            self.command,
+            &self.integration_certificate_sha256,
+            &self.target_id,
+            &self.nonce_sha256,
+            &self.reason_sha256,
+            self.issued_at_milliseconds,
+            self.expires_at_milliseconds,
+        ))?;
+        if expected != self.envelope_sha256 {
+            return Err(AssuranceError::ApprovalDenied(
+                "command envelope digest".into(),
+            ));
+        }
+        Ok(())
+    }
+}
