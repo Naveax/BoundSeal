@@ -20,10 +20,11 @@ fn validated_finding() -> ValidatedFinding {
 fn validated_envelope() -> FindingEnvelope {
     FindingEnvelope::from_validated(
         &validated_finding(),
+        hex('d'),
         "Repeatable authorization boundary difference",
         Severity::High,
         Confidence::High,
-        BTreeMap::from([("policy_snapshot_sha256".into(), hex('d'))]),
+        BTreeMap::new(),
     )
     .unwrap()
 }
@@ -106,7 +107,7 @@ fn evidence_store_rejects_secret_like_material_and_deduplicates() {
 }
 
 #[test]
-fn deduplication_merges_same_rule_origin_and_endpoint() {
+fn deduplication_merges_same_policy_rule_origin_and_endpoint() {
     let passive = Finding {
         finding_id: "passive-1".into(),
         rule_id: "NXB-VALID-001".into(),
@@ -119,7 +120,7 @@ fn deduplication_merges_same_rule_origin_and_endpoint() {
         summary: "A passive candidate was observed.".into(),
         metadata: BTreeMap::new(),
     };
-    let passive = FindingEnvelope::from_passive(&passive).unwrap();
+    let passive = FindingEnvelope::from_passive(&passive, hex('d')).unwrap();
     let validated = validated_envelope();
     let mut dedup = FindingDeduplicator::default();
     dedup.insert(&passive).unwrap();
@@ -127,6 +128,30 @@ fn deduplication_merges_same_rule_origin_and_endpoint() {
     assert_eq!(cluster.member_finding_ids.len(), 2);
     assert!(cluster.validated);
     assert_eq!(cluster.severity, Severity::High);
+}
+
+#[test]
+fn evidence_with_different_policy_cannot_attach_to_finding() {
+    let mut wrong_store = EvidenceStore::new(hex('e'), hex('0')).unwrap();
+    let evidence = wrong_store
+        .insert(EvidenceInput {
+            class: EvidenceClass::Differential,
+            subject_id: "validated-1".into(),
+            summary: "Repeatable differential evidence.".into(),
+            metadata: BTreeMap::new(),
+            provenance_sha256: hex('1'),
+            policy_snapshot_sha256: hex('e'),
+            redaction_count: 1,
+            redaction_verified: true,
+        })
+        .unwrap()
+        .clone();
+    let mut registry = FindingRegistry::new(hex('0')).unwrap();
+    registry.register(validated_envelope()).unwrap();
+    assert!(matches!(
+        registry.attach_evidence("validated-1", &evidence),
+        Err(KnowledgeError::InvalidEvidence(_))
+    ));
 }
 
 #[test]
