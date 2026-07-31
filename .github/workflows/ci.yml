@@ -8,64 +8,13 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  materialize-p16-p18:
-    name: Materialize P16-P18 once
-    if: github.ref == 'refs/heads/nxb-102-post-lifecycle-evolution-contracts' || github.head_ref == 'nxb-102-post-lifecycle-evolution-contracts'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout branch head
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 0
-
-      - name: Detect payload
-        id: payload
-        run: |
-          if test -f .p16p18/payload.tar.xz; then
-            echo 'present=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'present=false' >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Install stable Rust
-        if: steps.payload.outputs.present == 'true'
-        run: |
-          rustup toolchain install stable --profile minimal --component rustfmt
-          rustup default stable
-
-      - name: Verify and materialize
-        if: steps.payload.outputs.present == 'true'
-        run: |
-          echo 'c601ccf56540a5c2e9c4d2118fc65e2362b733dc2fd1d0defe14a409aa15ea92  .p16p18/payload.tar.xz' | sha256sum -c -
-          tar -xJf .p16p18/payload.tar.xz -C .
-          cargo fmt --all
-          rm -rf .p16p18
-          rm -f docs/NXB-P16-P18-STATUS.md docs/NXB-P16-P18-TRIGGER.md docs/NXB-P16-P18-PR-NOTE.md
-          git fetch origin main --depth=1
-          git show origin/main:.github/workflows/ci.yml > .github/workflows/ci.yml
-
-      - name: Commit materialized architecture
-        if: steps.payload.outputs.present == 'true'
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          if git diff --cached --quiet; then
-            exit 0
-          fi
-          git commit -m 'P16-P18: materialize evolution governance architecture'
-          git push origin HEAD:nxb-102-post-lifecycle-evolution-contracts
-
   rust:
     name: Rust contract checks
     runs-on: ubuntu-latest
