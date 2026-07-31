@@ -77,8 +77,12 @@ impl<S: SegmentSealer> AppendOnlyEncryptedFindingSink<S> {
             return Err(FindingStoreError::FindingTooLarge);
         }
 
-        let would_overflow_count = self.buffered_findings >= self.config.segment_max_findings;
-        let would_overflow_bytes = self.buffer.len().saturating_add(encoded.len())
+        let would_overflow_count =
+            self.buffered_findings >= self.config.segment_max_findings;
+        let would_overflow_bytes = self
+            .buffer
+            .len()
+            .saturating_add(encoded.len())
             > self.config.segment_max_plaintext_bytes;
 
         if self.buffered_findings > 0 && (would_overflow_count || would_overflow_bytes) {
@@ -119,7 +123,7 @@ impl<S: SegmentSealer> AppendOnlyEncryptedFindingSink<S> {
             plaintext_bytes,
         };
         let payload = self.sealer.seal(&context, plaintext)?;
-        validate_payload(&payload, &self.sealer)?;
+        validate_payload(&payload, &self.sealer, self.buffer.as_slice())?;
 
         let ciphertext_sha256 = hash_bytes(&payload.ciphertext);
         let segment_file = SegmentFile {
