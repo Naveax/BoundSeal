@@ -3,6 +3,7 @@ name = "nxb-planner"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+publish = false
 
 [dependencies]
 serde.workspace = true

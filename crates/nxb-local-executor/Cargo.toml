@@ -3,6 +3,7 @@ name = "nxb-local-executor"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+publish = false
 
 [dependencies]
 nxb-executor = { path = "../nxb-executor" }

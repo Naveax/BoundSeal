@@ -3,6 +3,7 @@ name = "nxb-session"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+publish = false
 
 [dependencies]
 nxb-cookie-jar = { path = "../nxb-cookie-jar" }
