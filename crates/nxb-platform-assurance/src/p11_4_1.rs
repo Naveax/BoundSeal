@@ -1,2 +1,88 @@
-#[derive(Debug)]pub struct OperatorControlPlane{integration:PlatformIntegrationCertificate,state:OperatorControlState,next_sequence:u64,used_nonces:BTreeSet<String>,receipts:Vec<OperatorCommandReceipt>,incidents:BTreeMap<String,IncidentRecord>,audit:AssuranceAuditChain}
-impl OperatorControlPlane{pub fn new(integration:PlatformIntegrationCertificate,audit_genesis:impl Into<String>)->Result<Self,AssuranceError>{integration.verify()?;Ok(Self{integration,state:OperatorControlState::Running,next_sequence:1,used_nonces:BTreeSet::new(),receipts:Vec::new(),incidents:BTreeMap::new(),audit:AssuranceAuditChain::new(audit_genesis)?})}pub fn submit(&mut self,envelope:OperatorCommandEnvelope,approvals:Vec<OperatorApproval>,now_milliseconds:u64)->Result<OperatorCommandReceipt,AssuranceError>{envelope.verify(now_milliseconds)?;if envelope.sequence!=self.next_sequence||envelope.integration_certificate_sha256!=self.integration.certificate_sha256||envelope.target_id!=self.integration.certificate_id||!self.used_nonces.insert(envelope.nonce_sha256.clone()){return Err(AssuranceError::ApprovalDenied("command sequence, target, certificate or nonce".into()));}let quorum=ApprovalQuorum::new(&envelope,approvals)?;let prior_state=self.state;let next_state=self.transition(envelope.command,now_milliseconds,&envelope.reason_sha256)?;self.state=next_state;self.next_sequence=self.next_sequence.saturating_add(1);let quorum_sha256=quorum.digest()?;let operator_ids=quorum.operator_ids();self.audit.append(AssuranceAuditEvent{action:"operator_command_applied".into(),subject_id:self.integration.certificate_id.clone(),outcome:format!("{next_state:?}").to_ascii_lowercase(),metadata:BTreeMap::from([("sequence".into(),envelope.sequence.to_string()),("command".into(),format!("{:?}",envelope.command).to_ascii_lowercase()),("quorum_sha256".into(),quorum_sha256.clone())])})?;let audit_tail_hash=self.audit.tail_hash().to_string();let receipt_sha256=hash_serializable(&(envelope.sequence,envelope.command,prior_state,next_state,&quorum_sha256,&operator_ids,&audit_tail_hash))?;let receipt=OperatorCommandReceipt{sequence:envelope.sequence,command:envelope.command,prior_state,next_state,quorum_sha256,operator_ids,audit_tail_hash,receipt_sha256};receipt.verify()?;self.receipts.push(receipt.clone());Ok(receipt)}}
+#[derive(Debug)]
+pub struct OperatorControlPlane {
+    integration: PlatformIntegrationCertificate,
+    state: OperatorControlState,
+    next_sequence: u64,
+    used_nonces: BTreeSet<String>,
+    receipts: Vec<OperatorCommandReceipt>,
+    incidents: BTreeMap<String, IncidentRecord>,
+    audit: AssuranceAuditChain,
+}
+impl OperatorControlPlane {
+    pub fn new(
+        integration: PlatformIntegrationCertificate,
+        audit_genesis: impl Into<String>,
+    ) -> Result<Self, AssuranceError> {
+        integration.verify()?;
+        Ok(Self {
+            integration,
+            state: OperatorControlState::Running,
+            next_sequence: 1,
+            used_nonces: BTreeSet::new(),
+            receipts: Vec::new(),
+            incidents: BTreeMap::new(),
+            audit: AssuranceAuditChain::new(audit_genesis)?,
+        })
+    }
+    pub fn submit(
+        &mut self,
+        envelope: OperatorCommandEnvelope,
+        approvals: Vec<OperatorApproval>,
+        now_milliseconds: u64,
+    ) -> Result<OperatorCommandReceipt, AssuranceError> {
+        envelope.verify(now_milliseconds)?;
+        if envelope.sequence != self.next_sequence
+            || envelope.integration_certificate_sha256 != self.integration.certificate_sha256
+            || envelope.target_id != self.integration.certificate_id
+            || !self.used_nonces.insert(envelope.nonce_sha256.clone())
+        {
+            return Err(AssuranceError::ApprovalDenied(
+                "command sequence, target, certificate or nonce".into(),
+            ));
+        }
+        let quorum = ApprovalQuorum::new(&envelope, approvals)?;
+        let prior_state = self.state;
+        let next_state =
+            self.transition(envelope.command, now_milliseconds, &envelope.reason_sha256)?;
+        self.state = next_state;
+        self.next_sequence = self.next_sequence.saturating_add(1);
+        let quorum_sha256 = quorum.digest()?;
+        let operator_ids = quorum.operator_ids();
+        self.audit.append(AssuranceAuditEvent {
+            action: "operator_command_applied".into(),
+            subject_id: self.integration.certificate_id.clone(),
+            outcome: format!("{next_state:?}").to_ascii_lowercase(),
+            metadata: BTreeMap::from([
+                ("sequence".into(), envelope.sequence.to_string()),
+                (
+                    "command".into(),
+                    format!("{:?}", envelope.command).to_ascii_lowercase(),
+                ),
+                ("quorum_sha256".into(), quorum_sha256.clone()),
+            ]),
+        })?;
+        let audit_tail_hash = self.audit.tail_hash().to_string();
+        let receipt_sha256 = hash_serializable(&(
+            envelope.sequence,
+            envelope.command,
+            prior_state,
+            next_state,
+            &quorum_sha256,
+            &operator_ids,
+            &audit_tail_hash,
+        ))?;
+        let receipt = OperatorCommandReceipt {
+            sequence: envelope.sequence,
+            command: envelope.command,
+            prior_state,
+            next_state,
+            quorum_sha256,
+            operator_ids,
+            audit_tail_hash,
+            receipt_sha256,
+        };
+        receipt.verify()?;
+        self.receipts.push(receipt.clone());
+        Ok(receipt)
+    }
+}

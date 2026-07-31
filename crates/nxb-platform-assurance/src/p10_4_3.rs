@@ -1,1 +1,33 @@
-impl IntegrationHarness { fn closure_matrix(&self)->Result<CrossPhaseClosureMatrix,AssuranceError>{let complete=self.state==IntegrationRunState::Completed&&self.receipts.len()==IntegrationStep::canonical().len()&&self.receipts.iter().zip(IntegrationStep::canonical()).all(|(r,s)|r.step==s&&r.verify().is_ok());let result_closed=self.receipts.last().map(|r|r.evidence_sha256==self.scenario.expected_result_sha256).unwrap_or(false);let matrix_sha256=hash_serializable(&(complete,complete,complete,complete,complete,result_closed))?;Ok(CrossPhaseClosureMatrix{policy_closed:complete,certificates_closed:complete,fixture_closed:complete,audit_closed:complete&&self.audit.verify().is_ok(),determinism_closed:complete,result_closed,matrix_sha256})}}
+impl IntegrationHarness {
+    fn closure_matrix(&self) -> Result<CrossPhaseClosureMatrix, AssuranceError> {
+        let complete = self.state == IntegrationRunState::Completed
+            && self.receipts.len() == IntegrationStep::canonical().len()
+            && self
+                .receipts
+                .iter()
+                .zip(IntegrationStep::canonical())
+                .all(|(r, s)| r.step == s && r.verify().is_ok());
+        let result_closed = self
+            .receipts
+            .last()
+            .map(|r| r.evidence_sha256 == self.scenario.expected_result_sha256)
+            .unwrap_or(false);
+        let matrix_sha256 = hash_serializable(&(
+            complete,
+            complete,
+            complete,
+            complete,
+            complete,
+            result_closed,
+        ))?;
+        Ok(CrossPhaseClosureMatrix {
+            policy_closed: complete,
+            certificates_closed: complete,
+            fixture_closed: complete,
+            audit_closed: complete && self.audit.verify().is_ok(),
+            determinism_closed: complete,
+            result_closed,
+            matrix_sha256,
+        })
+    }
+}

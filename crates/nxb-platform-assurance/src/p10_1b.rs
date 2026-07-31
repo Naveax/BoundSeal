@@ -53,7 +53,10 @@ impl CrossCertificateBundle {
     pub fn verify(&self) -> Result<(), AssuranceError> {
         for (name, value) in [
             ("bundle policy", self.policy_snapshot_sha256.as_str()),
-            ("adapter certificate", self.adapter_certificate_sha256.as_str()),
+            (
+                "adapter certificate",
+                self.adapter_certificate_sha256.as_str(),
+            ),
             (
                 "reproducibility certificate",
                 self.reproducibility_certificate_sha256.as_str(),
@@ -80,4 +83,3 @@ impl CrossCertificateBundle {
         Ok(())
     }
 }
-

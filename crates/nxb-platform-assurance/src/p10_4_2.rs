@@ -1,1 +1,77 @@
-impl IntegrationHarness { pub fn execute(&mut self,step:IntegrationStep,evidence_sha256:impl Into<String>)->Result<IntegrationStepReceipt,AssuranceError>{if self.state!=IntegrationRunState::Running{return Err(AssuranceError::InvalidTransition("integration is not running".into()));} let sequence=self.receipts.len() as u64+1;let expected_step=IntegrationStep::canonical().get(sequence.saturating_sub(1) as usize).copied().ok_or_else(||AssuranceError::InvalidTransition("extra integration step".into()))?;if step!=expected_step{self.state=IntegrationRunState::Failed;return Err(AssuranceError::InvalidTransition("integration step sequence".into()));} let evidence_sha256=evidence_sha256.into();validate_sha256(&evidence_sha256,"integration evidence")?;let receipt_sha256=hash_serializable(&(sequence,step,&evidence_sha256))?;let receipt=IntegrationStepReceipt{sequence,step,evidence_sha256:evidence_sha256.clone(),receipt_sha256};receipt.verify()?;self.receipts.push(receipt.clone());self.audit.append(AssuranceAuditEvent{action:"integration_step_completed".into(),subject_id:self.identity.integration_id.clone(),outcome:format!("{step:?}").to_ascii_lowercase(),metadata:BTreeMap::from([("sequence".into(),sequence.to_string()),("evidence_sha256".into(),evidence_sha256)])})?;if step==IntegrationStep::Finalize{self.state=IntegrationRunState::Completed;} Ok(receipt)} pub fn emergency_stop(&mut self,reason_sha256:impl Into<String>)->Result<(),AssuranceError>{let reason_sha256=reason_sha256.into();validate_sha256(&reason_sha256,"integration stop reason")?;if matches!(self.state,IntegrationRunState::Completed|IntegrationRunState::Failed){return Err(AssuranceError::InvalidTransition("terminal integration stop".into()));}self.state=IntegrationRunState::EmergencyStopped;self.audit.append(AssuranceAuditEvent{action:"integration_emergency_stopped".into(),subject_id:self.identity.integration_id.clone(),outcome:"stopped".into(),metadata:BTreeMap::from([("reason_sha256".into(),reason_sha256)])})?;Ok(())} pub fn state(&self)->IntegrationRunState{self.state} pub fn audit(&self)->&AssuranceAuditChain{&self.audit}}
+impl IntegrationHarness {
+    pub fn execute(
+        &mut self,
+        step: IntegrationStep,
+        evidence_sha256: impl Into<String>,
+    ) -> Result<IntegrationStepReceipt, AssuranceError> {
+        if self.state != IntegrationRunState::Running {
+            return Err(AssuranceError::InvalidTransition(
+                "integration is not running".into(),
+            ));
+        }
+        let sequence = self.receipts.len() as u64 + 1;
+        let expected_step = IntegrationStep::canonical()
+            .get(sequence.saturating_sub(1) as usize)
+            .copied()
+            .ok_or_else(|| AssuranceError::InvalidTransition("extra integration step".into()))?;
+        if step != expected_step {
+            self.state = IntegrationRunState::Failed;
+            return Err(AssuranceError::InvalidTransition(
+                "integration step sequence".into(),
+            ));
+        }
+        let evidence_sha256 = evidence_sha256.into();
+        validate_sha256(&evidence_sha256, "integration evidence")?;
+        let receipt_sha256 = hash_serializable(&(sequence, step, &evidence_sha256))?;
+        let receipt = IntegrationStepReceipt {
+            sequence,
+            step,
+            evidence_sha256: evidence_sha256.clone(),
+            receipt_sha256,
+        };
+        receipt.verify()?;
+        self.receipts.push(receipt.clone());
+        self.audit.append(AssuranceAuditEvent {
+            action: "integration_step_completed".into(),
+            subject_id: self.identity.integration_id.clone(),
+            outcome: format!("{step:?}").to_ascii_lowercase(),
+            metadata: BTreeMap::from([
+                ("sequence".into(), sequence.to_string()),
+                ("evidence_sha256".into(), evidence_sha256),
+            ]),
+        })?;
+        if step == IntegrationStep::Finalize {
+            self.state = IntegrationRunState::Completed;
+        }
+        Ok(receipt)
+    }
+    pub fn emergency_stop(
+        &mut self,
+        reason_sha256: impl Into<String>,
+    ) -> Result<(), AssuranceError> {
+        let reason_sha256 = reason_sha256.into();
+        validate_sha256(&reason_sha256, "integration stop reason")?;
+        if matches!(
+            self.state,
+            IntegrationRunState::Completed | IntegrationRunState::Failed
+        ) {
+            return Err(AssuranceError::InvalidTransition(
+                "terminal integration stop".into(),
+            ));
+        }
+        self.state = IntegrationRunState::EmergencyStopped;
+        self.audit.append(AssuranceAuditEvent {
+            action: "integration_emergency_stopped".into(),
+            subject_id: self.identity.integration_id.clone(),
+            outcome: "stopped".into(),
+            metadata: BTreeMap::from([("reason_sha256".into(), reason_sha256)]),
+        })?;
+        Ok(())
+    }
+    pub fn state(&self) -> IntegrationRunState {
+        self.state
+    }
+    pub fn audit(&self) -> &AssuranceAuditChain {
+        &self.audit
+    }
+}

@@ -1,1 +1,86 @@
-impl SystemFreezeManifest{#[allow(clippy::too_many_arguments)]pub fn new(freeze_id:impl Into<String>,policy_snapshot_sha256:impl Into<String>,platform_release_certificate_sha256:impl Into<String>,integration_certificate_sha256:impl Into<String>,operator_control_certificate_sha256:impl Into<String>,component_roots:BTreeMap<String,String>,schema_roots:BTreeMap<String,String>)->Result<Self,AssuranceError>{let freeze_id=freeze_id.into();let policy_snapshot_sha256=policy_snapshot_sha256.into();let platform_release_certificate_sha256=platform_release_certificate_sha256.into();let integration_certificate_sha256=integration_certificate_sha256.into();let operator_control_certificate_sha256=operator_control_certificate_sha256.into();validate_identifier(&freeze_id,"freeze manifest")?;for(name,value)in[("freeze policy",policy_snapshot_sha256.as_str()),("freeze platform release",platform_release_certificate_sha256.as_str()),("freeze integration",integration_certificate_sha256.as_str()),("freeze operator control",operator_control_certificate_sha256.as_str())]{validate_sha256(value,name)?;}if component_roots.is_empty()||schema_roots.is_empty()||component_roots.len()>256||schema_roots.len()>256||component_roots.iter().chain(schema_roots.iter()).any(|(k,v)|validate_identifier(k,"freeze root key").is_err()||validate_sha256(v,"freeze root").is_err()){return Err(AssuranceError::ClosureDenied("freeze roots".into()));}let freeze_sha256=hash_serializable(&(&freeze_id,&policy_snapshot_sha256,&platform_release_certificate_sha256,&integration_certificate_sha256,&operator_control_certificate_sha256,&component_roots,&schema_roots))?;Ok(Self{freeze_id,policy_snapshot_sha256,platform_release_certificate_sha256,integration_certificate_sha256,operator_control_certificate_sha256,component_roots,schema_roots,freeze_sha256})}pub fn verify(&self)->Result<(),AssuranceError>{let expected=hash_serializable(&(&self.freeze_id,&self.policy_snapshot_sha256,&self.platform_release_certificate_sha256,&self.integration_certificate_sha256,&self.operator_control_certificate_sha256,&self.component_roots,&self.schema_roots))?;if expected!=self.freeze_sha256{return Err(AssuranceError::ClosureDenied("freeze manifest digest".into()));}Ok(())}}
+impl SystemFreezeManifest {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        freeze_id: impl Into<String>,
+        policy_snapshot_sha256: impl Into<String>,
+        platform_release_certificate_sha256: impl Into<String>,
+        integration_certificate_sha256: impl Into<String>,
+        operator_control_certificate_sha256: impl Into<String>,
+        component_roots: BTreeMap<String, String>,
+        schema_roots: BTreeMap<String, String>,
+    ) -> Result<Self, AssuranceError> {
+        let freeze_id = freeze_id.into();
+        let policy_snapshot_sha256 = policy_snapshot_sha256.into();
+        let platform_release_certificate_sha256 = platform_release_certificate_sha256.into();
+        let integration_certificate_sha256 = integration_certificate_sha256.into();
+        let operator_control_certificate_sha256 = operator_control_certificate_sha256.into();
+        validate_identifier(&freeze_id, "freeze manifest")?;
+        for (name, value) in [
+            ("freeze policy", policy_snapshot_sha256.as_str()),
+            (
+                "freeze platform release",
+                platform_release_certificate_sha256.as_str(),
+            ),
+            (
+                "freeze integration",
+                integration_certificate_sha256.as_str(),
+            ),
+            (
+                "freeze operator control",
+                operator_control_certificate_sha256.as_str(),
+            ),
+        ] {
+            validate_sha256(value, name)?;
+        }
+        if component_roots.is_empty()
+            || schema_roots.is_empty()
+            || component_roots.len() > 256
+            || schema_roots.len() > 256
+            || component_roots
+                .iter()
+                .chain(schema_roots.iter())
+                .any(|(k, v)| {
+                    validate_identifier(k, "freeze root key").is_err()
+                        || validate_sha256(v, "freeze root").is_err()
+                })
+        {
+            return Err(AssuranceError::ClosureDenied("freeze roots".into()));
+        }
+        let freeze_sha256 = hash_serializable(&(
+            &freeze_id,
+            &policy_snapshot_sha256,
+            &platform_release_certificate_sha256,
+            &integration_certificate_sha256,
+            &operator_control_certificate_sha256,
+            &component_roots,
+            &schema_roots,
+        ))?;
+        Ok(Self {
+            freeze_id,
+            policy_snapshot_sha256,
+            platform_release_certificate_sha256,
+            integration_certificate_sha256,
+            operator_control_certificate_sha256,
+            component_roots,
+            schema_roots,
+            freeze_sha256,
+        })
+    }
+    pub fn verify(&self) -> Result<(), AssuranceError> {
+        let expected = hash_serializable(&(
+            &self.freeze_id,
+            &self.policy_snapshot_sha256,
+            &self.platform_release_certificate_sha256,
+            &self.integration_certificate_sha256,
+            &self.operator_control_certificate_sha256,
+            &self.component_roots,
+            &self.schema_roots,
+        ))?;
+        if expected != self.freeze_sha256 {
+            return Err(AssuranceError::ClosureDenied(
+                "freeze manifest digest".into(),
+            ));
+        }
+        Ok(())
+    }
+}

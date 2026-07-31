@@ -1,2 +1,25 @@
-#[test]fn operator_control_seals_only_after_incident_acknowledgement(){let(_,integration)=integration_fixture();let certificate=sealed_control(&integration);certificate.verify().unwrap();}
-#[test]fn mandatory_coverage_and_hard_safety_exception_rules_are_enforced(){let requirement=AssuranceRequirement::new("hard-safety-1",InvariantClass::HardSafety,hex('1'),true).unwrap();assert!(matches!(AssuranceCoverageMatrix::new(hex('0'),vec![requirement.clone()],vec![]),Err(AssuranceError::ClosureDenied(_))));let request=AssuranceExceptionRequest::new("exception-1",ExceptionClass::HardSafety,&requirement.requirement_id,hex('2')).unwrap();let decision=AssuranceExceptionAuthority.decide(&request).unwrap();assert!(!decision.accepted);}
+#[test]
+fn operator_control_seals_only_after_incident_acknowledgement() {
+    let (_, integration) = integration_fixture();
+    let certificate = sealed_control(&integration);
+    certificate.verify().unwrap();
+}
+#[test]
+fn mandatory_coverage_and_hard_safety_exception_rules_are_enforced() {
+    let requirement =
+        AssuranceRequirement::new("hard-safety-1", InvariantClass::HardSafety, hex('1'), true)
+            .unwrap();
+    assert!(matches!(
+        AssuranceCoverageMatrix::new(hex('0'), vec![requirement.clone()], vec![]),
+        Err(AssuranceError::ClosureDenied(_))
+    ));
+    let request = AssuranceExceptionRequest::new(
+        "exception-1",
+        ExceptionClass::HardSafety,
+        &requirement.requirement_id,
+        hex('2'),
+    )
+    .unwrap();
+    let decision = AssuranceExceptionAuthority.decide(&request).unwrap();
+    assert!(!decision.accepted);
+}
