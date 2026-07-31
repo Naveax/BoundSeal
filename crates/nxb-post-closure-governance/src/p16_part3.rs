@@ -60,6 +60,11 @@ impl StateTransferManifest {
         for object in objects {
             validate_identifier(&object.object_id, "transfer object")?;
             validate_sha256(&object.metadata_sha256, "transfer object metadata")?;
+            if object.redacted_bytes == 0 || object.redacted_bytes > MAX_TRANSFER_TOTAL_BYTES {
+                return Err(PostClosureError::InvalidSuccession(
+                    "transfer object byte count".into(),
+                ));
+            }
             total_redacted_bytes = total_redacted_bytes
                 .checked_add(object.redacted_bytes)
                 .ok_or_else(|| {
@@ -109,6 +114,11 @@ impl StateTransferManifest {
         let total = self.objects.values().try_fold(0_u64, |acc, object| {
             validate_identifier(&object.object_id, "transfer object")?;
             validate_sha256(&object.metadata_sha256, "transfer object metadata")?;
+            if object.redacted_bytes == 0 || object.redacted_bytes > MAX_TRANSFER_TOTAL_BYTES {
+                return Err(PostClosureError::InvalidSuccession(
+                    "transfer object byte count".into(),
+                ));
+            }
             acc.checked_add(object.redacted_bytes)
                 .ok_or_else(|| PostClosureError::InvalidSuccession("transfer byte overflow".into()))
         })?;
