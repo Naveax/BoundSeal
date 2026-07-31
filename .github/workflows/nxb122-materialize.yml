@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           cat .nxb122/payload-*.b64 | base64 --decode > /tmp/nxb122.tar.gz
-          printf '%s  %s\n' 'b4da038d83c54e2723abe30c72d4c20e50cce947c65e5f51db994fdd97b722c2' /tmp/nxb122.tar.gz | sha256sum --check
+          printf '%s  %s\n' '73594625bbcab4f62f16bf24985d3deedf18b6df9ec9c4c3a831c3c62a018c80' /tmp/nxb122.tar.gz | sha256sum --check
           rm -rf /tmp/nxb122-src
           mkdir -p /tmp/nxb122-src crates/nxb-finding-sink/src
           tar -xzf /tmp/nxb122.tar.gz -C /tmp/nxb122-src
