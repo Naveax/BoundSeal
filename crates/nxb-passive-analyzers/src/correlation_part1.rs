@@ -4,8 +4,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use super::{Confidence, Finding, Severity};
-
 pub const MAX_CORRELATION_CLUSTERS: usize = 1_000_000;
 pub const MAX_MEMBERS_PER_CLUSTER: usize = 1_000_000;
 pub const MAX_ENDPOINTS_PER_CLUSTER: usize = 1_000_000;
