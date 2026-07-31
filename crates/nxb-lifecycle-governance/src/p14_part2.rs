@@ -92,7 +92,8 @@ impl ArchiveBundle {
             &self.object_ids,
             self.total_bytes,
         ))?;
-        if expected_ids != self.object_ids
+        if expected_ids.len() != self.objects.len()
+            || expected_ids != self.object_ids
             || expected_bytes != self.total_bytes
             || self.total_bytes > MAX_ARCHIVE_TOTAL_BYTES
             || expected != self.bundle_sha256
