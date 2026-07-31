@@ -124,14 +124,11 @@ impl CoverageTracker {
         self.ensure_running()?;
         let key = self.validate_pair(endpoint_sha256, rule_id)?;
         self.preflight_new_pair(&key)?;
-        self.pair_outcomes.insert(key, PairOutcome::Skipped { reason });
+        self.pair_outcomes
+            .insert(key, PairOutcome::Skipped { reason });
         self.considered_endpoints.insert(endpoint_sha256.into());
-        *self.skipped_by_reason.entry(reason).or_insert(0) = self
-            .skipped_by_reason
-            .get(&reason)
-            .copied()
-            .unwrap_or(0)
-            .saturating_add(1);
+        let count = self.skipped_by_reason.entry(reason).or_insert(0);
+        *count = count.saturating_add(1);
         Ok(())
     }
 
@@ -181,6 +178,7 @@ impl CoverageTracker {
         let skipped_pairs = recorded_pairs.saturating_sub(executed_pairs);
         let untested_endpoints = (self.admitted_endpoints.len() as u64)
             .saturating_sub(self.considered_endpoints.len() as u64);
+        let pair_outcomes_material = self.pair_outcomes.iter().collect::<Vec<_>>();
         let mut receipt = CoverageReceipt {
             admitted_endpoints: self.admitted_endpoints.len() as u64,
             considered_endpoints: self.considered_endpoints.len() as u64,
@@ -204,7 +202,7 @@ impl CoverageTracker {
             stop_reason: self.stop_reason,
             endpoint_set_sha256: coverage_hash_serializable(&self.admitted_endpoints)?,
             rule_set_sha256: coverage_hash_serializable(&self.enabled_rules)?,
-            pair_outcomes_sha256: coverage_hash_serializable(&self.pair_outcomes)?,
+            pair_outcomes_sha256: coverage_hash_serializable(&pair_outcomes_material)?,
             receipt_sha256: String::new(),
         };
         receipt.receipt_sha256 = coverage_hash_serializable(&receipt)?;
@@ -290,7 +288,9 @@ impl CoverageTracker {
         let completed_checks = self
             .saturation_windows
             .iter()
-            .fold(0_u64, |sum, window| sum.saturating_add(window.completed_checks));
+            .fold(0_u64, |sum, window| {
+                sum.saturating_add(window.completed_checks)
+            });
         let required = self
             .saturation_policy
             .required_consecutive_low_yield_windows;
