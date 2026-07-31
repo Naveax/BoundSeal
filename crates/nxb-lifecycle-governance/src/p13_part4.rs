@@ -60,6 +60,7 @@ impl MaintenanceWindow {
             || self.maximum_operations == 0
             || self.maximum_operations > MAX_MAINTENANCE_OPERATIONS
             || self.approver_organization_roots.len() < 2
+            || self.approver_organization_roots.len() > 16
         {
             return Err(LifecycleError::InvalidMaintenance(
                 "maintenance window bounds".into(),
