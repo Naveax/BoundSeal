@@ -29,10 +29,7 @@ impl SuccessionCertificate {
                 "succession compatibility",
                 self.compatibility_envelope_sha256.as_str(),
             ),
-            (
-                "succession transfer",
-                self.transfer_manifest_sha256.as_str(),
-            ),
+            ("succession transfer", self.transfer_manifest_sha256.as_str()),
             ("succession cutover plan", self.cutover_plan_sha256.as_str()),
             (
                 "succession cutover receipt",
@@ -116,6 +113,8 @@ impl SuccessionAuthority {
             || plan.compatibility_envelope_sha256 != envelope.envelope_sha256
             || plan.transfer_manifest_sha256 != transfer.manifest_sha256
             || receipt.plan_sha256 != plan.plan_sha256
+            || receipt.completed_tick < plan.start_tick
+            || receipt.completed_tick > plan.end_tick
         {
             return Err(PostClosureError::InvalidSuccession(
                 "succession certificate closure".into(),
@@ -135,10 +134,7 @@ impl SuccessionAuthority {
             outcome: "certified".into(),
             metadata: BTreeMap::from([
                 ("identity_sha256".into(), identity.identity_sha256.clone()),
-                (
-                    "cutover_receipt_sha256".into(),
-                    receipt.receipt_sha256.clone(),
-                ),
+                ("cutover_receipt_sha256".into(), receipt.receipt_sha256.clone()),
             ]),
         })?;
         let authority_audit_tail_hash = self.audit.tail_hash().to_owned();
