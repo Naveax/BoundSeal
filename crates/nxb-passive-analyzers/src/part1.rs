@@ -7,14 +7,11 @@ use url::Url;
 
 pub const MAX_OBSERVED_HEADERS: usize = 512;
 pub const MAX_OBSERVED_HEADER_BYTES: usize = 256 * 1024;
-pub const MAX_FINDINGS_PER_ANALYZER: usize = 256;
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum AnalyzerError {
     #[error("response observation is invalid: {0}")]
     InvalidObservation(String),
-    #[error("analyzer finding limit was exceeded")]
-    FindingLimit,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -191,4 +188,3 @@ pub trait PassiveAnalyzer {
 
 #[derive(Debug, Default)]
 pub struct HeaderSecurityAnalyzer;
-

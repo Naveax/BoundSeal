@@ -159,9 +159,6 @@ fn push_finding(
     summary: &str,
     metadata: BTreeMap<String, String>,
 ) -> Result<(), AnalyzerError> {
-    if findings.len() >= MAX_FINDINGS_PER_ANALYZER {
-        return Err(AnalyzerError::FindingLimit);
-    }
     let evidence_sha256 = hash_bytes(evidence);
     let finding_id = hash_serializable(&(
         rule_id,
@@ -239,4 +236,3 @@ fn hash_serializable<T: Serialize>(value: &T) -> String {
 fn hash_bytes(bytes: &[u8]) -> String {
     lower_hex(&Sha256::digest(bytes))
 }
-

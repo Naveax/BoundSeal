@@ -4,3 +4,5 @@ include!("part3.rs");
 include!("part4.rs");
 include!("part5.rs");
 include!("part6.rs");
+include!("part7.rs");
+include!("capacity_tests.rs");
