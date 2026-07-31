@@ -159,7 +159,72 @@ impl SafeMutationEngine {
         })
     }
 
-    pub fn generate(
+    #[allow(clippy::too_many_arguments)]
+    pub fn authorize_and_generate(
+        &mut self,
+        plan: &RequestIntentPlan,
+        capability: &mut ProbeCapability,
+        capability_request: CapabilityUseRequest,
+        target: MutationTarget,
+        template: &MutationTemplate,
+        kind: MutationKind,
+        ordinal: u32,
+    ) -> Result<SafeMutation, ValidationError> {
+        self.validate_static_request(
+            plan,
+            &capability_request,
+            &target,
+            template,
+            kind,
+            ordinal,
+        )?;
+        let capability_receipt = capability
+            .authorize(capability_request)
+            .map_err(|error| ValidationError::CapabilityDenied(error.to_string()))?;
+        if capability_receipt.endpoint_sha256 != plan.canonical_url_sha256
+            || capability_receipt.mutations_used != 1
+        {
+            return Err(ValidationError::MutationDenied);
+        }
+        self.generate_from_receipt(
+            plan,
+            &capability_receipt,
+            target,
+            template,
+            kind,
+            ordinal,
+        )
+    }
+
+    pub fn audit(&self) -> &ValidationAuditChain {
+        &self.audit
+    }
+
+    fn validate_static_request(
+        &self,
+        plan: &RequestIntentPlan,
+        capability_request: &CapabilityUseRequest,
+        target: &MutationTarget,
+        template: &MutationTemplate,
+        kind: MutationKind,
+        ordinal: u32,
+    ) -> Result<(), ValidationError> {
+        if plan.risk_class != RiskClass::SafeActive
+            || !plan.active_execution_allowed
+            || capability_request.endpoint_sha256 != plan.canonical_url_sha256
+            || capability_request.method != plan.method
+            || capability_request.mutations != 1
+            || ordinal >= template.maximum_variants
+            || !template.allowed_kinds.contains(&kind)
+            || !template.allowed_locations.contains(&target.location)
+            || !plan.parameter_names.contains(&target.name)
+        {
+            return Err(ValidationError::MutationDenied);
+        }
+        Ok(())
+    }
+
+    fn generate_from_receipt(
         &mut self,
         plan: &RequestIntentPlan,
         capability: &CapabilityUseReceipt,
@@ -168,23 +233,13 @@ impl SafeMutationEngine {
         kind: MutationKind,
         ordinal: u32,
     ) -> Result<SafeMutation, ValidationError> {
-        if plan.risk_class != RiskClass::SafeActive
-            || !plan.active_execution_allowed
-            || capability.endpoint_sha256 != plan.canonical_url_sha256
-            || capability.mutations_used == 0
-            || ordinal >= template.maximum_variants
-            || !template.allowed_kinds.contains(&kind)
-            || !template.allowed_locations.contains(&target.location)
-            || !plan.parameter_names.contains(&target.name)
-        {
-            return Err(ValidationError::MutationDenied);
-        }
         let plan_fingerprint = plan.fingerprint();
         let seed = hash_serializable(&(
             &self.engine_id,
             self.next_sequence,
             &plan_fingerprint,
             &capability.capability_id,
+            capability.request_number,
             &target.name_sha256,
             kind,
             ordinal,
@@ -206,18 +261,19 @@ impl SafeMutationEngine {
         self.audit.append(ValidationAuditEvent {
             action: "mutation_generated".into(),
             subject_id: mutation_id,
-            outcome: "inert_marker_ready".into(),
+            outcome: "live_capability_consumed_inert_marker_ready".into(),
             metadata: BTreeMap::from([
+                ("capability_id".into(), mutation.capability_id.clone()),
+                (
+                    "capability_request_number".into(),
+                    capability.request_number.to_string(),
+                ),
                 ("endpoint_sha256".into(), mutation.endpoint_sha256.clone()),
                 ("value_sha256".into(), mutation.value_sha256.clone()),
                 ("value_bytes".into(), mutation.value_bytes.to_string()),
             ]),
         })?;
         Ok(mutation)
-    }
-
-    pub fn audit(&self) -> &ValidationAuditChain {
-        &self.audit
     }
 }
 
