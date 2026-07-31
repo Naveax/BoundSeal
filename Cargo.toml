@@ -22,6 +22,7 @@ members = [
     "crates/nxb-pinned-transport",
     "crates/nxb-planner",
     "crates/nxb-platform-assurance",
+    "crates/nxb-post-closure-governance",
     "crates/nxb-policy",
     "crates/nxb-redirect",
     "crates/nxb-release-governance",
