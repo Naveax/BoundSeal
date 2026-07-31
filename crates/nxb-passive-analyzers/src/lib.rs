@@ -40,3 +40,9 @@ pub mod coverage_saturation {
     include!("coverage_part2.rs");
     include!("coverage_tests.rs");
 }
+
+pub mod adaptive_scheduler {
+    include!("scheduler_part1.rs");
+    include!("scheduler_part2.rs");
+    include!("scheduler_tests.rs");
+}
