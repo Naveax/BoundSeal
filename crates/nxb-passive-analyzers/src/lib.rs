@@ -25,3 +25,12 @@ pub mod exact_dedup {
     include!("dedup_part3.rs");
     include!("dedup_tests.rs");
 }
+
+pub mod root_cause_correlation {
+    use super::{Confidence, Finding, Severity};
+
+    include!("correlation_part1.rs");
+    include!("correlation_part2.rs");
+    include!("correlation_part3.rs");
+    include!("correlation_tests.rs");
+}
