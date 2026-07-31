@@ -34,3 +34,9 @@ pub mod root_cause_correlation {
     include!("correlation_part3.rs");
     include!("correlation_tests.rs");
 }
+
+pub mod coverage_saturation {
+    include!("coverage_part1.rs");
+    include!("coverage_part2.rs");
+    include!("coverage_tests.rs");
+}
