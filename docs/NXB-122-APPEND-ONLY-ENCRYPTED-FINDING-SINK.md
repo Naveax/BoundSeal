@@ -75,4 +75,4 @@ The regression suite covers:
 
 ## Next stage
 
-NXB-123 will place an exact disk-backed deduplication index in front of this sink. Bloom filters may accelerate negative lookups but can never suppress a finding without exact confirmation.
+NXB-123 places an exact disk-backed deduplication index in front of this sink. Bloom filters may accelerate negative lookups but can never suppress a finding without exact confirmation.
