@@ -6,3 +6,15 @@ include!("part5.rs");
 include!("part6.rs");
 include!("part7.rs");
 include!("capacity_tests.rs");
+
+pub mod finding_store {
+    use super::Finding;
+    #[cfg(test)]
+    use super::{Confidence, Severity};
+
+    include!("store_part1.rs");
+    include!("store_part2.rs");
+    include!("store_part3.rs");
+    include!("store_part4.rs");
+    include!("store_tests.rs");
+}
