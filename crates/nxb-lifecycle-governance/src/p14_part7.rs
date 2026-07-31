@@ -30,6 +30,11 @@ impl RecoveryQuorum {
             .iter()
             .map(|receipt| receipt.receipt_sha256.clone())
             .collect::<BTreeSet<_>>();
+        let maximum_final_virtual_tick = receipts
+            .iter()
+            .map(|receipt| receipt.final_virtual_tick)
+            .max()
+            .unwrap_or(0);
         if engine_ids.len() != receipts.len()
             || organization_roots.len() != receipts.len()
             || implementation_roots.len() != receipts.len()
@@ -53,6 +58,7 @@ impl RecoveryQuorum {
             &organization_roots,
             &implementation_roots,
             &receipt_sha256,
+            maximum_final_virtual_tick,
             required_quorum,
         ))?;
         Ok(Self {
@@ -63,6 +69,7 @@ impl RecoveryQuorum {
             organization_roots,
             implementation_roots,
             receipt_sha256,
+            maximum_final_virtual_tick,
             quorum: required_quorum,
             quorum_sha256,
         })
@@ -71,20 +78,30 @@ impl RecoveryQuorum {
     pub fn verify(&self) -> Result<(), LifecycleError> {
         for (name, value) in [
             ("recovery quorum plan", self.recovery_plan_sha256.as_str()),
-            (
-                "recovery quorum archive",
-                self.archive_bundle_sha256.as_str(),
-            ),
+            ("recovery quorum archive", self.archive_bundle_sha256.as_str()),
             ("recovery quorum result", self.result_root_sha256.as_str()),
             ("recovery quorum", self.quorum_sha256.as_str()),
         ] {
             validate_sha256(value, name)?;
         }
+        let receipt_count = self.receipt_sha256.len();
         if self.quorum < 2
-            || self.engine_ids.len() < self.quorum
-            || self.organization_roots.len() < self.quorum
-            || self.implementation_roots.len() < self.quorum
-            || self.receipt_sha256.len() < self.quorum
+            || receipt_count < self.quorum
+            || receipt_count > 16
+            || self.engine_ids.len() != receipt_count
+            || self.organization_roots.len() != receipt_count
+            || self.implementation_roots.len() != receipt_count
+            || self.maximum_final_virtual_tick > MAX_RECOVERY_TICKS
+            || self
+                .engine_ids
+                .iter()
+                .any(|engine| validate_identifier(engine, "recovery engine").is_err())
+            || self
+                .organization_roots
+                .iter()
+                .chain(self.implementation_roots.iter())
+                .chain(self.receipt_sha256.iter())
+                .any(|root| validate_sha256(root, "recovery quorum root").is_err())
         {
             return Err(LifecycleError::InvalidContinuity(
                 "recovery quorum diversity".into(),
@@ -98,6 +115,7 @@ impl RecoveryQuorum {
             &self.organization_roots,
             &self.implementation_roots,
             &self.receipt_sha256,
+            self.maximum_final_virtual_tick,
             self.quorum,
         ))?;
         if expected != self.quorum_sha256 {
