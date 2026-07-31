@@ -11,11 +11,24 @@ impl FinalAssuranceAuthority {
     ) -> Result<FinalAssuranceCertificate, AssuranceError> {
         release
             .verify()
-            .map_err(|e| AssuranceError::ClosureDenied(e.to_string()))?;
+            .map_err(|error| AssuranceError::ClosureDenied(error.to_string()))?;
         integration.verify()?;
         operator.verify()?;
         matrix.verify()?;
         freeze.verify()?;
+        for decision in exception_decisions {
+            decision.verify()?;
+        }
+        let allowed_evidence_sources = BTreeSet::from([
+            release.certificate_sha256.as_str(),
+            integration.certificate_sha256.as_str(),
+            operator.certificate_sha256.as_str(),
+        ]);
+        let evidence_sources_closed = matrix
+            .evidence
+            .values()
+            .flatten()
+            .all(|item| allowed_evidence_sources.contains(item.source_certificate_sha256.as_str()));
         if release.policy_snapshot_sha256 != self.policy_snapshot_sha256
             || matrix.policy_snapshot_sha256 != self.policy_snapshot_sha256
             || freeze.policy_snapshot_sha256 != self.policy_snapshot_sha256
@@ -23,10 +36,11 @@ impl FinalAssuranceAuthority {
             || freeze.integration_certificate_sha256 != integration.certificate_sha256
             || freeze.operator_control_certificate_sha256 != operator.certificate_sha256
             || operator.integration_certificate_sha256 != integration.certificate_sha256
-            || exception_decisions.iter().any(|d| d.accepted)
+            || !evidence_sources_closed
+            || exception_decisions.iter().any(|decision| decision.accepted)
         {
             return Err(AssuranceError::ClosureDenied(
-                "policy, certificate, freeze or exception closure".into(),
+                "policy, certificate, evidence, freeze or exception closure".into(),
             ));
         }
         let seed = hash_serializable(&(
@@ -65,7 +79,7 @@ impl FinalAssuranceAuthority {
             matrix.mandatory_count(),
             self.audit.tail_hash(),
         ))?;
-        let c = FinalAssuranceCertificate {
+        let certificate = FinalAssuranceCertificate {
             certificate_id,
             policy_snapshot_sha256: self.policy_snapshot_sha256.clone(),
             platform_release_certificate_sha256: release.certificate_sha256.clone(),
@@ -77,7 +91,7 @@ impl FinalAssuranceAuthority {
             authority_audit_tail_hash: self.audit.tail_hash().into(),
             certificate_sha256,
         };
-        c.verify()?;
-        Ok(c)
+        certificate.verify()?;
+        Ok(certificate)
     }
 }
