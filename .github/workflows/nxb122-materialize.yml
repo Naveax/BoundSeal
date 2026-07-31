@@ -1,0 +1,79 @@
+name: NXB122 Materialize
+
+on:
+  push:
+    branches:
+      - nxb-122-encrypted-finding-sink
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb122-materialize
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-122-encrypted-finding-sink
+          fetch-depth: 0
+
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+
+      - name: Decode source package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .nxb122/payload-*.b64 | base64 --decode > /tmp/nxb122.tar.gz
+          printf '%s  %s\n' 'b4da038d83c54e2723abe30c72d4c20e50cce947c65e5f51db994fdd97b722c2' /tmp/nxb122.tar.gz | sha256sum --check
+          rm -rf /tmp/nxb122-src
+          mkdir -p /tmp/nxb122-src crates/nxb-finding-sink/src
+          tar -xzf /tmp/nxb122.tar.gz -C /tmp/nxb122-src
+          cp /tmp/nxb122-src/Cargo.toml crates/nxb-finding-sink/Cargo.toml
+          cp /tmp/nxb122-src/lib.rs crates/nxb-finding-sink/src/lib.rs
+          cp /tmp/nxb122-src/part1.rs crates/nxb-finding-sink/src/part1.rs
+          cp /tmp/nxb122-src/part2.rs crates/nxb-finding-sink/src/part2.rs
+          cp /tmp/nxb122-src/part3.rs crates/nxb-finding-sink/src/part3.rs
+          cp /tmp/nxb122-src/tests.rs crates/nxb-finding-sink/src/tests.rs
+
+      - name: Register workspace member
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('Cargo.toml')
+          text = path.read_text()
+          member = '    "crates/nxb-finding-sink",\n'
+          if member not in text:
+              anchor = '    "crates/nxb-events",\n'
+              if anchor not in text:
+                  raise SystemExit('workspace anchor missing')
+              text = text.replace(anchor, anchor + member)
+              path.write_text(text)
+
+      - name: Format and regenerate lockfile
+        run: |
+          cargo fmt --all
+          cargo generate-lockfile
+          cargo check --workspace --all-features --locked
+          cargo test -p nxb-finding-sink --locked
+
+      - name: Commit materialized source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .nxb122
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Cargo.toml Cargo.lock crates/nxb-finding-sink .nxb122
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m 'Materialize NXB-122 encrypted finding sink'
+          git push origin HEAD:nxb-122-encrypted-finding-sink
