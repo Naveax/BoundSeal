@@ -8,7 +8,9 @@ include!("part7.rs");
 include!("capacity_tests.rs");
 
 pub mod finding_store {
-    use super::{Confidence, Finding, Severity};
+    use super::Finding;
+    #[cfg(test)]
+    use super::{Confidence, Severity};
 
     include!("store_part1.rs");
     include!("store_part2.rs");
