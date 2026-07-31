@@ -8,72 +8,15 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  materialize-lifecycle-governance:
-    name: Materialize P13-P15 lifecycle governance
-    if: (github.event_name == 'push' && github.ref_name == 'nxb-84-post-freeze-maintenance-contracts') || (github.event_name == 'pull_request' && github.head_ref == 'nxb-84-post-freeze-maintenance-contracts')
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout head branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
-
-      - name: Install stable Rust
-        run: |
-          rustup toolchain install stable --profile minimal --component rustfmt,clippy
-          rustup default stable
-
-      - name: Verify and materialize payload
-        run: |
-          test "$(git hash-object .lifecycle/chunk-00.b64)" = "5a454476cb16b5196eb637d7a6f018c62102879a"
-          test "$(git hash-object .lifecycle/chunk-01.b64)" = "f422cda317008bc88b8db00921d4803415e877e6"
-          test "$(git hash-object .lifecycle/chunk-02-0.b64)" = "e14301d75200ff0f061c52cdf28a31c2a448f655"
-          test "$(git hash-object .lifecycle/chunk-02-1.b64)" = "e65c8a8af950e251567c735c73a0dd47fd4b1fbe"
-          test "$(git hash-object .lifecycle/chunk-03.b64)" = "69100ef8853d490ba1be822e41b31642735825ad"
-          test "$(git hash-object .lifecycle/chunk-04.b64)" = "1e94e5b682968f1063479bbdd7f884a5b8ef8efb"
-          cat \
-            .lifecycle/chunk-00.b64 \
-            .lifecycle/chunk-01.b64 \
-            .lifecycle/chunk-02-0.b64 \
-            .lifecycle/chunk-02-1.b64 \
-            .lifecycle/chunk-03.b64 \
-            .lifecycle/chunk-04.b64 | base64 -d > /tmp/p13-p15.tar.gz
-          echo "cf14d471b4546b08a97684d5861b6a1b0160e415979689ec446360cdc8cb6907  /tmp/p13-p15.tar.gz" | sha256sum -c -
-          gzip -t /tmp/p13-p15.tar.gz
-          if tar -tzf /tmp/p13-p15.tar.gz | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
-            echo "unsafe archive path"
-            exit 1
-          fi
-          tar -xzf /tmp/p13-p15.tar.gz -C .
-          find crates/nxb-lifecycle-governance/src -name '*.rs' -print0 | xargs -0 rustfmt --edition 2021
-          cargo fmt --all
-
-      - name: Remove bootstrap material
-        run: |
-          rm -rf .lifecycle
-          git fetch origin main --depth=1
-          git checkout origin/main -- .github/workflows/ci.yml
-
-      - name: Commit permanent architecture
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "NXB P13-P15: materialize lifecycle governance"
-          git push origin HEAD:${{ github.head_ref || github.ref_name }}
-
   rust:
     name: Rust contract checks
-    if: github.head_ref != 'nxb-84-post-freeze-maintenance-contracts' && github.ref_name != 'nxb-84-post-freeze-maintenance-contracts'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
