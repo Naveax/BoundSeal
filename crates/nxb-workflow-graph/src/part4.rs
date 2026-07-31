@@ -122,6 +122,7 @@ impl WorkflowEngine {
             return Err(WorkflowError::InvalidWorkflowState);
         }
         self.state = WorkflowState::Cancelling;
+        let mut compensation_to_start = Vec::new();
         for (step_id, runtime) in &mut self.steps {
             if self.compensation_targets.contains(step_id) {
                 continue;
@@ -131,16 +132,19 @@ impl WorkflowEngine {
                 WorkflowStepState::Succeeded => {
                     if let Some(compensation_step_id) = self.definition.steps[step_id]
                         .compensation_step_id
-                        .as_deref()
+                        .clone()
                     {
-                        self.steps
-                            .get_mut(compensation_step_id)
-                            .expect("compensation runtime")
-                            .state = WorkflowStepState::Compensating;
+                        compensation_to_start.push(compensation_step_id);
                     }
                 }
                 _ => {}
             }
+        }
+        for compensation_step_id in compensation_to_start {
+            self.steps
+                .get_mut(&compensation_step_id)
+                .expect("compensation runtime")
+                .state = WorkflowStepState::Compensating;
         }
         self.record_state("workflow_cancel_requested", "cancelling")?;
         self.advance_terminal_state()?;
@@ -214,6 +218,7 @@ impl WorkflowEngine {
         runtime.attempts = runtime.attempts.saturating_add(1);
         runtime.state = WorkflowStepState::Leased;
         runtime.active_lease_id = Some(lease_id.clone());
+        let attempt = runtime.attempts;
         let expires_at_milliseconds = now_milliseconds
             .checked_add(lease_duration_milliseconds)
             .ok_or(WorkflowError::InvalidLease)?;
@@ -223,7 +228,7 @@ impl WorkflowEngine {
             definition_sha256: self.definition.definition_sha256.clone(),
             step_id: step_id.clone(),
             worker_id,
-            attempt: runtime.attempts,
+            attempt,
             issued_at_milliseconds: now_milliseconds,
             expires_at_milliseconds,
             compensation,
@@ -250,29 +255,32 @@ impl WorkflowEngine {
         let evidence_sha256 = evidence_sha256.into();
         validate_sha256(&evidence_sha256, "workflow step evidence")?;
         self.validate_lease(lease, now_milliseconds)?;
-        let runtime = self
-            .steps
-            .get_mut(&lease.step_id)
-            .ok_or(WorkflowError::InvalidLease)?;
-        runtime.state = if lease.compensation {
-            WorkflowStepState::Compensated
-        } else {
-            WorkflowStepState::Succeeded
+        let final_state = {
+            let runtime = self
+                .steps
+                .get_mut(&lease.step_id)
+                .ok_or(WorkflowError::InvalidLease)?;
+            runtime.state = if lease.compensation {
+                WorkflowStepState::Compensated
+            } else {
+                WorkflowStepState::Succeeded
+            };
+            runtime.active_lease_id = None;
+            runtime.evidence_sha256 = Some(evidence_sha256.clone());
+            runtime.state
         };
-        runtime.active_lease_id = None;
-        runtime.evidence_sha256 = Some(evidence_sha256.clone());
         self.consumed_leases.insert(lease.lease_id.clone());
         self.audit.append(WorkflowAuditEvent {
             action: "workflow_step_completed".into(),
             subject_id: lease.step_id.clone(),
-            outcome: format!("{:?}", runtime.state).to_ascii_lowercase(),
+            outcome: format!("{final_state:?}").to_ascii_lowercase(),
             metadata: BTreeMap::from([("evidence_sha256".into(), evidence_sha256.clone())]),
         })?;
         self.advance_terminal_state()?;
         Ok(WorkflowStepReceipt {
             lease_id: lease.lease_id.clone(),
             step_id: lease.step_id.clone(),
-            final_state: runtime.state,
+            final_state,
             evidence_sha256,
             workflow_state: self.state,
             audit_tail_hash: self.audit.tail_hash().into(),
@@ -288,13 +296,15 @@ impl WorkflowEngine {
         let evidence_sha256 = evidence_sha256.into();
         validate_sha256(&evidence_sha256, "workflow failure evidence")?;
         self.validate_lease(lease, now_milliseconds)?;
-        let runtime = self
-            .steps
-            .get_mut(&lease.step_id)
-            .ok_or(WorkflowError::InvalidLease)?;
-        runtime.state = WorkflowStepState::Failed;
-        runtime.active_lease_id = None;
-        runtime.evidence_sha256 = Some(evidence_sha256.clone());
+        {
+            let runtime = self
+                .steps
+                .get_mut(&lease.step_id)
+                .ok_or(WorkflowError::InvalidLease)?;
+            runtime.state = WorkflowStepState::Failed;
+            runtime.active_lease_id = None;
+            runtime.evidence_sha256 = Some(evidence_sha256.clone());
+        }
         self.consumed_leases.insert(lease.lease_id.clone());
         if lease.compensation {
             self.state = WorkflowState::Failed;
