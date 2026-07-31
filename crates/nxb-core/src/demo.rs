@@ -109,10 +109,10 @@ pub fn verify_demo_receipt(receipt: &DemoReceipt) -> Result<()> {
     }
 
     let mut previous_hash = expected_genesis;
-    for (index, (stage, expected_stage)) in receipt.stages.iter().zip(DEMO_STAGES.iter()).enumerate()
+    for (index, (stage, expected_stage)) in
+        receipt.stages.iter().zip(DEMO_STAGES.iter()).enumerate()
     {
-        let expected_sequence =
-            u16::try_from(index + 1).context("demo stage sequence overflow")?;
+        let expected_sequence = u16::try_from(index + 1).context("demo stage sequence overflow")?;
         if stage.sequence != expected_sequence
             || stage.stage != *expected_stage
             || stage.previous_hash != previous_hash
@@ -135,7 +135,10 @@ pub fn verify_demo_receipt(receipt: &DemoReceipt) -> Result<()> {
 }
 
 pub fn write_demo_receipt(path: &Path, receipt: &DemoReceipt) -> Result<()> {
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         fs::create_dir_all(parent)
             .with_context(|| format!("could not create {}", parent.display()))?;
     }
