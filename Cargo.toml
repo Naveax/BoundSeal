@@ -16,6 +16,7 @@ members = [
     "crates/nxb-http1",
     "crates/nxb-http1-fixture",
     "crates/nxb-knowledge-reporting",
+    "crates/nxb-lifecycle-governance",
     "crates/nxb-local-executor",
     "crates/nxb-passive-analyzers",
     "crates/nxb-pinned-transport",
