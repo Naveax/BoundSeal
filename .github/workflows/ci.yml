@@ -17,14 +17,15 @@ concurrency:
 jobs:
   materialize-p16-p18:
     name: Materialize P16-P18 once
-    if: github.ref == 'refs/heads/nxb-102-post-lifecycle-evolution-contracts'
+    if: github.ref == 'refs/heads/nxb-102-post-lifecycle-evolution-contracts' || github.head_ref == 'nxb-102-post-lifecycle-evolution-contracts'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Checkout
+      - name: Checkout branch head
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Detect payload
@@ -50,6 +51,7 @@ jobs:
           tar -xzf /tmp/p16p18.tar.gz -C .
           cargo fmt --all
           rm -rf .p16p18
+          rm -f docs/NXB-P16-P18-STATUS.md docs/NXB-P16-P18-TRIGGER.md docs/NXB-P16-P18-PR-NOTE.md
           git fetch origin main --depth=1
           git show origin/main:.github/workflows/ci.yml > .github/workflows/ci.yml
 
