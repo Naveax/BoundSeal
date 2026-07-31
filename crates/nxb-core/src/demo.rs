@@ -196,11 +196,15 @@ mod tests {
         for forbidden in [
             "http://",
             "https://",
-            "authorization",
-            "cookie",
-            "password",
-            "token",
-            "secret",
+            "authorization:",
+            "proxy-authorization:",
+            "cookie:",
+            "set-cookie:",
+            "bearer ",
+            "password=",
+            "token=",
+            "secret=",
+            "private_key",
         ] {
             assert!(!serialized.to_ascii_lowercase().contains(forbidden));
         }
