@@ -3,6 +3,7 @@ name = "nxb-cookie-jar"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+publish = false
 
 [dependencies]
 httpdate.workspace = true

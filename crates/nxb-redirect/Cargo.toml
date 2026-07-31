@@ -3,6 +3,7 @@ name = "nxb-redirect"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+publish = false
 
 [dependencies]
 nxb-gateway = { path = "../nxb-gateway" }

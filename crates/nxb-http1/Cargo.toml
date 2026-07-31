@@ -3,6 +3,7 @@ name = "nxb-http1"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+publish = false
 
 [features]
 default = []

@@ -3,6 +3,7 @@ name = "nxb-tls"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+publish = false
 
 [dependencies]
 nxb-stream = { path = "../nxb-stream" }

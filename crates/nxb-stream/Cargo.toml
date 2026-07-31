@@ -3,6 +3,7 @@ name = "nxb-stream"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+publish = false
 
 [dependencies]
 nxb-executor = { path = "../nxb-executor" }
