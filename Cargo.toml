@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/nxb-active-validation",
+    "crates/nxb-adapter-boundary",
     "crates/nxb-audit",
     "crates/nxb-budget",
     "crates/nxb-channel-contracts",
@@ -21,6 +22,8 @@ members = [
     "crates/nxb-planner",
     "crates/nxb-policy",
     "crates/nxb-redirect",
+    "crates/nxb-release-governance",
+    "crates/nxb-replay-lab",
     "crates/nxb-session",
     "crates/nxb-stream",
     "crates/nxb-stream-fixture",
