@@ -56,6 +56,7 @@ impl MutationTemplate {
         validate_identifier(&template_id, "template_id")?;
         if allowed_kinds.is_empty()
             || allowed_locations.is_empty()
+            || maximum_output_bytes == 0
             || maximum_output_bytes > MAX_MUTATION_VALUE_BYTES
             || maximum_variants == 0
             || maximum_variants > MAX_MUTATIONS_PER_PLAN
@@ -236,7 +237,7 @@ fn render_inert_value(
                 number.to_string()
             }
             ValueClass::Boolean => {
-                if seed.as_bytes()[0] % 2 == 0 {
+                if seed.as_bytes()[0].is_multiple_of(2) {
                     "true".into()
                 } else {
                     "false".into()
