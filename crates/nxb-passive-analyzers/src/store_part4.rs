@@ -113,7 +113,9 @@ fn lower_hex(bytes: &[u8]) -> String {
 }
 
 fn decode_hex(value: &str) -> Result<Vec<u8>, FindingStoreError> {
-    if value.len() % 2 != 0 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    if !value.len().is_multiple_of(2)
+        || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
         return Err(FindingStoreError::Serialization(
             "segment hex field is invalid".into(),
         ));
