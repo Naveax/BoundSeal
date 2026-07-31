@@ -47,6 +47,7 @@ impl CorrelationLimits {
             || self.maximum_endpoints_per_cluster > MAX_ENDPOINTS_PER_CLUSTER
             || self.maximum_total_members == 0
             || self.maximum_total_members > MAX_TOTAL_CORRELATION_MEMBERS
+            || self.maximum_members_per_cluster > self.maximum_total_members
         {
             return Err(CorrelationError::InvalidLimits(
                 "one or more limits are outside policy".into(),
@@ -149,15 +150,22 @@ pub struct CorrelationReceipt {
     pub root_cause_clusters: u64,
     pub total_finding_memberships: u64,
     pub total_endpoint_memberships: u64,
+    pub total_evidence_memberships: u64,
     pub exact_duplicate_observations: u64,
     pub correlation_tail_sha256: String,
+}
+
+#[derive(Debug, Clone)]
+struct FindingBinding {
+    root_cause_id: String,
+    finding_digest: String,
 }
 
 #[derive(Debug)]
 pub struct RootCauseCorrelator {
     limits: CorrelationLimits,
     clusters: BTreeMap<String, RootCauseCluster>,
-    finding_to_root_cause: BTreeMap<String, String>,
+    finding_bindings: BTreeMap<String, FindingBinding>,
     total_members: usize,
     exact_duplicate_observations: u64,
 }
