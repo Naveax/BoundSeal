@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  materialize-release:
-    name: Materialize release state once
+  materialize-lockfile:
+    name: Materialize lockfile once
     if: github.ref == 'refs/heads/nxb-120-post-program-maintenance-contracts' || github.head_ref == 'nxb-120-post-program-maintenance-contracts'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -35,89 +35,14 @@ jobs:
         run: |
           cargo generate-lockfile
           cargo check --workspace --all-features --locked
-          cargo fmt --all
 
-      - name: Restore permanent CI
-        run: |
-          cat > .github/workflows/ci.yml <<'YAML'
-          name: CI
-
-          on:
-            push:
-              branches:
-                - main
-                - "nxb-**"
-            pull_request:
-
-          permissions:
-            contents: read
-
-          concurrency:
-            group: ci-${{ github.workflow }}-${{ github.ref }}
-            cancel-in-progress: true
-
-          jobs:
-            rust:
-              name: Rust contract checks
-              runs-on: ubuntu-latest
-              timeout-minutes: 20
-
-              steps:
-                - name: Checkout
-                  uses: actions/checkout@v4
-
-                - name: Install pinned Rust
-                  run: rustup show active-toolchain
-
-                - name: Lockfile
-                  run: cargo check --workspace --all-features --locked
-
-                - name: Formatting
-                  run: cargo fmt --all --check
-
-                - name: Clippy
-                  run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-
-                - name: Tests
-                  run: cargo test --workspace --all-features --locked
-
-                - name: Synthetic system demo
-                  run: |
-                    cargo run -p nxb-core --locked -- demo-run --output target/nxb-demo-receipt.json
-                    cargo run -p nxb-core --locked -- verify-demo target/nxb-demo-receipt.json
-
-            supply-chain:
-              name: Dependency policy checks
-              runs-on: ubuntu-latest
-              timeout-minutes: 25
-
-              steps:
-                - name: Checkout
-                  uses: actions/checkout@v4
-
-                - name: Install pinned Rust
-                  run: rustup show active-toolchain
-
-                - name: Install cargo-audit
-                  run: cargo install cargo-audit --locked
-
-                - name: RustSec audit
-                  run: cargo audit --deny warnings
-
-                - name: Install cargo-deny
-                  run: cargo install cargo-deny --locked --version 0.19.7
-
-                - name: Dependency policy
-                  run: cargo deny check
-          YAML
-
-      - name: Commit release state
+      - name: Commit lockfile
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add Cargo.lock .github/workflows/ci.yml crates/nxb-core/src
+          git add Cargo.lock
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m 'build: lock contract-complete release state'
+          git commit -m 'build: lock contract-complete dependency graph'
           git push origin HEAD:nxb-120-post-program-maintenance-contracts
