@@ -3,7 +3,7 @@ impl RootCauseCorrelator {
         Ok(Self {
             limits: limits.validate()?,
             clusters: BTreeMap::new(),
-            finding_to_root_cause: BTreeMap::new(),
+            finding_bindings: BTreeMap::new(),
             total_members: 0,
             exact_duplicate_observations: 0,
         })
@@ -17,9 +17,10 @@ impl RootCauseCorrelator {
         validate_correlation_finding(finding)?;
         evidence.validate()?;
         let root_cause_id = evidence.root_cause_id(&finding.rule_id)?;
+        let finding_digest = correlation_hash_serializable(finding)?;
 
-        if let Some(existing_root) = self.finding_to_root_cause.get(&finding.finding_id) {
-            if existing_root == &root_cause_id {
+        if let Some(binding) = self.finding_bindings.get(&finding.finding_id) {
+            if binding.root_cause_id == root_cause_id && binding.finding_digest == finding_digest {
                 self.exact_duplicate_observations =
                     self.exact_duplicate_observations.saturating_add(1);
                 return Ok(CorrelationDisposition::ExactDuplicate);
@@ -45,6 +46,9 @@ impl RootCauseCorrelator {
                 return Err(CorrelationError::EndpointBudget);
             }
 
+            if finding.title < cluster.title {
+                cluster.title = finding.title.clone();
+            }
             cluster.finding_ids.insert(finding.finding_id.clone());
             cluster
                 .affected_endpoint_sha256
@@ -52,8 +56,13 @@ impl RootCauseCorrelator {
             cluster.evidence_sha256.insert(finding.evidence_sha256.clone());
             cluster.highest_severity = cluster.highest_severity.max(finding.severity);
             cluster.minimum_confidence = cluster.minimum_confidence.min(finding.confidence);
-            self.finding_to_root_cause
-                .insert(finding.finding_id.clone(), root_cause_id);
+            self.finding_bindings.insert(
+                finding.finding_id.clone(),
+                FindingBinding {
+                    root_cause_id,
+                    finding_digest,
+                },
+            );
             self.total_members = self.total_members.saturating_add(1);
 
             return Ok(if endpoint_is_new {
@@ -82,10 +91,19 @@ impl RootCauseCorrelator {
             evidence_sha256: BTreeSet::from([finding.evidence_sha256.clone()]),
         };
         self.clusters.insert(root_cause_id.clone(), cluster);
-        self.finding_to_root_cause
-            .insert(finding.finding_id.clone(), root_cause_id);
+        self.finding_bindings.insert(
+            finding.finding_id.clone(),
+            FindingBinding {
+                root_cause_id,
+                finding_digest,
+            },
+        );
         self.total_members = self.total_members.saturating_add(1);
         Ok(CorrelationDisposition::NewRootCause)
+    }
+
+    pub fn limits(&self) -> CorrelationLimits {
+        self.limits
     }
 
     pub fn cluster(&self, root_cause_id: &str) -> Option<&RootCauseCluster> {
@@ -104,6 +122,9 @@ impl RootCauseCorrelator {
         let total_endpoint_memberships = self.clusters.values().fold(0_u64, |sum, cluster| {
             sum.saturating_add(cluster.affected_endpoint_count())
         });
+        let total_evidence_memberships = self.clusters.values().fold(0_u64, |sum, cluster| {
+            sum.saturating_add(cluster.evidence_sha256.len() as u64)
+        });
         let cluster_digests = self
             .clusters
             .values()
@@ -112,12 +133,15 @@ impl RootCauseCorrelator {
         let correlation_tail_sha256 = correlation_hash_serializable(&(
             &cluster_digests,
             self.total_members,
+            total_endpoint_memberships,
+            total_evidence_memberships,
             self.exact_duplicate_observations,
         ))?;
         Ok(CorrelationReceipt {
             root_cause_clusters: self.clusters.len() as u64,
             total_finding_memberships: self.total_members as u64,
             total_endpoint_memberships,
+            total_evidence_memberships,
             exact_duplicate_observations: self.exact_duplicate_observations,
             correlation_tail_sha256,
         })
