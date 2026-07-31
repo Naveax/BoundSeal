@@ -96,6 +96,11 @@ impl ReportBuilder {
         if self.findings.len() >= MAX_REPORT_FINDINGS {
             return Err(KnowledgeError::ReportLimit);
         }
+        if record.finding.policy_snapshot_sha256 != self.policy_snapshot_sha256 {
+            return Err(KnowledgeError::InvalidEvidence(
+                "finding/report policy mismatch".into(),
+            ));
+        }
         let finding = ReportFinding::try_from(record)?;
         reject_secret_like_text(&finding.title)?;
         reject_secret_like_text(&finding.summary)?;
