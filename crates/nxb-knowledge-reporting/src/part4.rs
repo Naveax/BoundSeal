@@ -9,13 +9,17 @@ pub struct FindingEnvelope {
     pub origin: String,
     pub endpoint_sha256: String,
     pub evidence_sha256: String,
+    pub policy_snapshot_sha256: String,
     pub validated: bool,
     pub summary: String,
     pub metadata: BTreeMap<String, String>,
 }
 
 impl FindingEnvelope {
-    pub fn from_passive(finding: &Finding) -> Result<Self, KnowledgeError> {
+    pub fn from_passive(
+        finding: &Finding,
+        policy_snapshot_sha256: impl Into<String>,
+    ) -> Result<Self, KnowledgeError> {
         validate_finding_fields(
             &finding.finding_id,
             &finding.rule_id,
@@ -24,6 +28,8 @@ impl FindingEnvelope {
             &finding.evidence_sha256,
             &finding.summary,
         )?;
+        let policy_snapshot_sha256 = policy_snapshot_sha256.into();
+        validate_sha256(&policy_snapshot_sha256, "passive finding policy snapshot")?;
         Ok(Self {
             finding_id: finding.finding_id.clone(),
             source_finding_id: finding.finding_id.clone(),
@@ -34,6 +40,7 @@ impl FindingEnvelope {
             origin: finding.origin.clone(),
             endpoint_sha256: finding.endpoint_sha256.clone(),
             evidence_sha256: finding.evidence_sha256.clone(),
+            policy_snapshot_sha256,
             validated: false,
             summary: finding.summary.clone(),
             metadata: finding.metadata.clone(),
@@ -42,6 +49,7 @@ impl FindingEnvelope {
 
     pub fn from_validated(
         finding: &ValidatedFinding,
+        policy_snapshot_sha256: impl Into<String>,
         title: impl Into<String>,
         severity: Severity,
         confidence: Confidence,
@@ -58,6 +66,8 @@ impl FindingEnvelope {
             &finding.oracle_evidence_sha256,
             &finding.summary,
         )?;
+        let policy_snapshot_sha256 = policy_snapshot_sha256.into();
+        validate_sha256(&policy_snapshot_sha256, "validated finding policy snapshot")?;
         let title = title.into();
         if title.is_empty() || title.len() > 512 {
             return Err(KnowledgeError::InvalidEvidence(
@@ -75,6 +85,7 @@ impl FindingEnvelope {
             origin: finding.origin.clone(),
             endpoint_sha256: finding.endpoint_sha256.clone(),
             evidence_sha256: finding.oracle_evidence_sha256.clone(),
+            policy_snapshot_sha256,
             validated: true,
             summary: finding.summary.clone(),
             metadata,
@@ -82,7 +93,12 @@ impl FindingEnvelope {
     }
 
     pub fn dedup_key_sha256(&self) -> Result<String, KnowledgeError> {
-        hash_serializable(&(&self.rule_id, &self.origin, &self.endpoint_sha256))
+        hash_serializable(&(
+            &self.rule_id,
+            &self.origin,
+            &self.endpoint_sha256,
+            &self.policy_snapshot_sha256,
+        ))
     }
 }
 
@@ -187,7 +203,10 @@ impl FindingRegistry {
             action: "finding_registered".into(),
             subject_id: finding_id.clone(),
             outcome: format!("{initial_state:?}").to_ascii_lowercase(),
-            metadata: BTreeMap::new(),
+            metadata: BTreeMap::from([(
+                "policy_snapshot_sha256".into(),
+                finding.policy_snapshot_sha256.clone(),
+            )]),
         })?;
         self.records.insert(
             finding_id.clone(),
@@ -213,11 +232,7 @@ impl FindingRegistry {
             .records
             .get_mut(finding_id)
             .ok_or(KnowledgeError::UnknownNode)?;
-        if evidence.policy_snapshot_sha256 != record.finding.metadata
-            .get("policy_snapshot_sha256")
-            .cloned()
-            .unwrap_or_else(|| evidence.policy_snapshot_sha256.clone())
-        {
+        if evidence.policy_snapshot_sha256 != record.finding.policy_snapshot_sha256 {
             return Err(KnowledgeError::InvalidEvidence(
                 "finding/evidence policy mismatch".into(),
             ));
