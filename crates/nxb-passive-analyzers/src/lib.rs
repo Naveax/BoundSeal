@@ -46,3 +46,9 @@ pub mod adaptive_scheduler {
     include!("scheduler_part2.rs");
     include!("scheduler_tests.rs");
 }
+
+pub mod deterministic_sharding {
+    include!("sharding_part1.rs");
+    include!("sharding_part2.rs");
+    include!("sharding_tests.rs");
+}
