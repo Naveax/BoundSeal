@@ -79,7 +79,7 @@ mod tests {
                 pair(1, "NXB-A"),
             )
             .unwrap();
-        for candidate in 2..10_000 {
+        for candidate in 2_u64..10_000 {
             let assignment = coordinator
                 .assignment_for_origin(
                     &sha(candidate.saturating_add(50_000)),
