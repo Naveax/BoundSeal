@@ -1,0 +1,46 @@
+name: Live adapter local adversarial lab
+
+on:
+  pull_request:
+    paths:
+      - "crates/nxb-live-adapter/**"
+      - ".github/workflows/live-adapter-lab.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-adapter-lab-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  local-lab:
+    name: Loopback TLS and HTTP adversarial scenarios
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v7
+
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+
+      - name: Run loopback-only lab
+        env:
+          NXB130_TRANSCRIPT_PATH: target/nxb130-lab-transcript.json
+        run: |
+          cargo test -p nxb-live-adapter --locked adversarial_local_lab_produces_sanitized_transcript -- --nocapture --test-threads=1
+          test -s target/nxb130-lab-transcript.json
+
+      - name: Verify transcript contains no obvious secret or public-target material
+        run: |
+          ! grep -Eqi 'authorization|set-cookie|bearer |password=|token=|https?://' target/nxb130-lab-transcript.json
+
+      - name: Upload sanitized transcript
+        uses: actions/upload-artifact@v4
+        with:
+          name: nxb-live-adapter-lab-transcript
+          path: target/nxb130-lab-transcript.json
+          if-no-files-found: error
+          retention-days: 7
