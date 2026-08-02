@@ -10,6 +10,8 @@ on:
       - CI
     types:
       - completed
+  schedule:
+    - cron: "*/5 * * * *"
 
 permissions:
   contents: write
@@ -23,6 +25,7 @@ jobs:
     name: Loopback TLS and HTTP adversarial scenarios
     if: >-
       github.event_name == 'pull_request' ||
+      github.event_name == 'schedule' ||
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.run_number == 851)
