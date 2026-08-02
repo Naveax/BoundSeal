@@ -4,18 +4,21 @@ on:
   push:
     branches:
       - nxb-128-scope-controlled-live-passive-adapter
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: nxb128-formatter-${{ github.ref }}
+  group: nxb128-formatter-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
   format:
-    if: github.actor != 'github-actions[bot]'
+    if: github.actor != 'github-actions[bot]' && (github.event_name != 'pull_request' || github.head_ref == 'nxb-128-scope-controlled-live-passive-adapter')
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
