@@ -27,8 +27,10 @@ jobs:
       - name: Install pinned Rust
         run: rustup show active-toolchain
 
-      - name: Materialize lockfile
-        run: cargo generate-lockfile
+      - name: Materialize lockfile and formatting
+        run: |
+          cargo generate-lockfile
+          cargo fmt --all
 
       - name: Lockfile
         run: cargo check --workspace --all-features --locked
@@ -47,11 +49,15 @@ jobs:
           cargo run -p nxb-core --locked -- demo-run --output target/nxb-demo-receipt.json
           cargo run -p nxb-core --locked -- verify-demo target/nxb-demo-receipt.json
 
-      - name: Upload verified lockfile
+      - name: Upload verified NXB-129 material
         uses: actions/upload-artifact@v4
         with:
-          name: nxb129-cargo-lock
-          path: Cargo.lock
+          name: nxb129-materialized
+          path: |
+            Cargo.lock
+            crates/nxb-core/src/main.rs
+            crates/nxb-core/src/live_orchestrator.rs
+            crates/nxb-core/src/live_orchestrator_live.rs
           if-no-files-found: error
           retention-days: 1
 
