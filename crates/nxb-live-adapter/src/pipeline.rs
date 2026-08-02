@@ -1,8 +1,6 @@
 use std::time::Duration;
 
-use nxb_executor::{
-    ExecutionControl, ExecutionOutcome, ExecutorConfig, PermitExecutor,
-};
+use nxb_executor::{ExecutionControl, ExecutionOutcome, ExecutorConfig, PermitExecutor};
 use nxb_http1::Http1Codec;
 use nxb_pinned_transport::PinnedTransportCoordinator;
 use nxb_stream::{BoundedByteStream, StreamControl};

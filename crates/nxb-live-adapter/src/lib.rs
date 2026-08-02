@@ -4,9 +4,8 @@ mod pipeline;
 
 pub use backend::{LiveConnectBackend, LiveTlsByteStream};
 pub use model::{
-    LiveAdapterConfig, LiveAdapterError, LiveAdapterLimits, LivePassiveReceipt,
-    LivePassiveRequest, LivePassiveResult, LiveTlsObservation, PassiveMethod,
-    MAX_LIVE_REQUEST_TARGET_BYTES,
+    LiveAdapterConfig, LiveAdapterError, LiveAdapterLimits, LivePassiveReceipt, LivePassiveRequest,
+    LivePassiveResult, LiveTlsObservation, PassiveMethod, MAX_LIVE_REQUEST_TARGET_BYTES,
 };
 pub use pipeline::LivePassivePipeline;
 

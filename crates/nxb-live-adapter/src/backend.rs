@@ -170,9 +170,7 @@ impl LiveConnectBackend {
                     "ring provider rejected TLS 1.2/1.3 configuration".into(),
                 )
             })?;
-        let mut client_config = builder
-            .with_root_certificates(roots)
-            .with_no_client_auth();
+        let mut client_config = builder.with_root_certificates(roots).with_no_client_auth();
         client_config.alpn_protocols = vec![HTTP11_ALPN.to_vec()];
         client_config.resumption = Resumption::disabled();
         client_config.enable_early_data = false;
@@ -202,13 +200,7 @@ impl LiveConnectBackend {
     ) -> Result<BackendReport, BackendReport> {
         self.last_observation = None;
         if self.connected_stream.is_some() {
-            return Err(failure_report(
-                None,
-                0,
-                0,
-                0,
-                "previous_stream_not_taken",
-            ));
+            return Err(failure_report(None, 0, 0, 0, "previous_stream_not_taken"));
         }
         if control.emergency_stop_requested {
             return Err(failure_report(None, 0, 0, 0, "emergency_stop"));
@@ -379,8 +371,7 @@ impl LiveConnectBackend {
             remote_ip: endpoint.remote_ip.to_string(),
             server_name: server_name_text.into(),
             protocol_version: protocol_version.into(),
-            alpn_protocol: alpn_protocol
-                .map(|value| String::from_utf8_lossy(&value).into_owned()),
+            alpn_protocol: alpn_protocol.map(|value| String::from_utf8_lossy(&value).into_owned()),
             cipher_suite,
             handshake_kind,
             certificate_chain_length: certificates.len() as u64,
@@ -392,8 +383,7 @@ impl LiveConnectBackend {
         };
         self.last_observation = Some(observation);
         self.connected_stream = Some(LiveTlsByteStream::new(StreamOwned::new(
-            connection,
-            tcp_stream,
+            connection, tcp_stream,
         )));
 
         Ok(BackendReport {

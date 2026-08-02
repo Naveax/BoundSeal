@@ -80,7 +80,10 @@ fn production_backend_rejects_non_public_destination_before_connect() {
         &ExecutionLimits::default(),
         &ExecutionControl::default(),
     );
-    assert_eq!(report.failure_code.as_deref(), Some("non_public_destination"));
+    assert_eq!(
+        report.failure_code.as_deref(),
+        Some("non_public_destination")
+    );
     assert!(report.connected_after_milliseconds.is_none());
     assert!(backend.take_stream().is_none());
 }
@@ -94,7 +97,10 @@ fn production_backend_rejects_non_standard_port_before_connect() {
         &ExecutionLimits::default(),
         &ExecutionControl::default(),
     );
-    assert_eq!(report.failure_code.as_deref(), Some("permit_boundary_rejected"));
+    assert_eq!(
+        report.failure_code.as_deref(),
+        Some("permit_boundary_rejected")
+    );
     assert!(report.connected_after_milliseconds.is_none());
 }
 
@@ -252,7 +258,10 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
         .unwrap();
     assert_eq!(execution.outcome, ExecutionOutcome::Completed);
     let observation = executor.backend().last_observation().unwrap();
-    assert!(matches!(observation.protocol_version.as_str(), "tls_1_2" | "tls_1_3"));
+    assert!(matches!(
+        observation.protocol_version.as_str(),
+        "tls_1_2" | "tls_1_3"
+    ));
     assert_eq!(observation.alpn_protocol.as_deref(), Some("http/1.1"));
     assert_eq!(observation.certificate_chain_length, 1);
 
