@@ -130,6 +130,8 @@ pub struct LiveConnectBackend {
     connected_stream: Option<LiveTlsByteStream>,
     last_observation: Option<LiveTlsObservation>,
     allow_non_public_for_tests: bool,
+    #[cfg(test)]
+    test_socket_address: Option<SocketAddr>,
 }
 
 impl fmt::Debug for LiveConnectBackend {
@@ -151,6 +153,16 @@ impl LiveConnectBackend {
     #[cfg(test)]
     pub(crate) fn with_test_roots(roots: RootCertStore) -> Result<Self, LiveAdapterError> {
         Self::from_root_store(roots, true)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_test_roots_on_socket(
+        roots: RootCertStore,
+        socket_address: SocketAddr,
+    ) -> Result<Self, LiveAdapterError> {
+        let mut backend = Self::from_root_store(roots, true)?;
+        backend.test_socket_address = Some(socket_address);
+        Ok(backend)
     }
 
     fn from_root_store(
@@ -181,6 +193,8 @@ impl LiveConnectBackend {
             connected_stream: None,
             last_observation: None,
             allow_non_public_for_tests,
+            #[cfg(test)]
+            test_socket_address: None,
         })
     }
 
@@ -230,6 +244,11 @@ impl LiveConnectBackend {
         };
 
         let started = Instant::now();
+        #[cfg(test)]
+        let socket_address = self
+            .test_socket_address
+            .unwrap_or_else(|| SocketAddr::new(endpoint.remote_ip, endpoint.port));
+        #[cfg(not(test))]
         let socket_address = SocketAddr::new(endpoint.remote_ip, endpoint.port);
         let tcp_started = Instant::now();
         let tcp_stream = match TcpStream::connect_timeout(
