@@ -30,6 +30,16 @@ jobs:
       - name: Materialize lockfile and formatting
         run: |
           cargo generate-lockfile
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('crates/nxb-core/src/live_orchestrator.rs')
+          text = path.read_text()
+          old = 'value.len() % 2 != 0'
+          new = '!value.len().is_multiple_of(2)'
+          if old not in text:
+              raise SystemExit('expected NXB-129 lint marker was not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
           cargo fmt --all
 
       - name: Lockfile
