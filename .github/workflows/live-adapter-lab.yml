@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: live-adapter-lab-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.workflow_run.id }}
+  group: nxb130-local-adversarial-lab
   cancel-in-progress: true
 
 jobs:
@@ -36,35 +36,99 @@ jobs:
           ref: nxb-130-local-adversarial-integration-lab
           fetch-depth: 0
 
+      - name: Configure branch writer
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Record lab start and run identifier
+        env:
+          LAB_RUN_ID: ${{ github.run_id }}
+        run: |
+          mkdir -p docs/evidence
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          status = {
+              "version": 1,
+              "state": "running",
+              "run_id": int(os.environ["LAB_RUN_ID"]),
+              "source_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "mode": "local-test-only-no-public-network",
+          }
+          Path("docs/evidence/NXB-130-LAB-STATUS.json").write_text(json.dumps(status, indent=2) + "\n")
+          PY
+          git add docs/evidence/NXB-130-LAB-STATUS.json
+          git commit -m "NXB-130: record local lab start" || true
+          git push origin HEAD:nxb-130-local-adversarial-integration-lab
+
       - name: Install pinned Rust
         run: rustup show active-toolchain
 
       - name: Run loopback-only lab
+        id: lab
+        continue-on-error: true
         env:
           NXB130_TRANSCRIPT_PATH: target/nxb130-lab-transcript.json
         run: |
-          cargo test -p nxb-live-adapter --locked adversarial_local_lab_produces_sanitized_transcript -- --nocapture --test-threads=1
+          set -o pipefail
+          mkdir -p target
+          cargo test -p nxb-live-adapter --locked adversarial_local_lab_produces_sanitized_transcript -- --nocapture --test-threads=1 2>&1 | tee target/nxb130-lab.log
           test -s target/nxb130-lab-transcript.json
 
+      - name: Record failed lab state
+        if: steps.lab.outcome == 'failure'
+        env:
+          LAB_RUN_ID: ${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          log = Path("target/nxb130-lab.log").read_bytes() if Path("target/nxb130-lab.log").exists() else b""
+          status = {
+              "version": 1,
+              "state": "failed",
+              "run_id": int(os.environ["LAB_RUN_ID"]),
+              "log_sha256": hashlib.sha256(log).hexdigest(),
+              "mode": "local-test-only-no-public-network",
+          }
+          Path("docs/evidence/NXB-130-LAB-STATUS.json").write_text(json.dumps(status, indent=2) + "\n")
+          PY
+          git add docs/evidence/NXB-130-LAB-STATUS.json
+          git commit -m "NXB-130: record failed local lab" || true
+          git push origin HEAD:nxb-130-local-adversarial-integration-lab
+          exit 1
+
       - name: Verify transcript contains no obvious secret or public-target material
+        if: steps.lab.outcome == 'success'
         run: |
           ! grep -Eqi 'authorization|set-cookie|bearer |password=|token=|https?://' target/nxb130-lab-transcript.json
 
-      - name: Commit sanitized transcript to NXB-130 branch
+      - name: Commit successful transcript and status
+        if: steps.lab.outcome == 'success'
+        env:
+          LAB_RUN_ID: ${{ github.run_id }}
         run: |
-          mkdir -p docs/evidence
           cp target/nxb130-lab-transcript.json docs/evidence/NXB-130-LAB-TRANSCRIPT.json
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/evidence/NXB-130-LAB-TRANSCRIPT.json
-          if git diff --cached --quiet; then
-            echo "Transcript already committed."
-          else
-            git commit -m "NXB-130: record verified local lab transcript"
-            git push origin HEAD:nxb-130-local-adversarial-integration-lab
-          fi
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          transcript = Path("target/nxb130-lab-transcript.json").read_bytes()
+          status = {
+              "version": 1,
+              "state": "passed",
+              "run_id": int(os.environ["LAB_RUN_ID"]),
+              "transcript_sha256": hashlib.sha256(transcript).hexdigest(),
+              "mode": "local-test-only-no-public-network",
+          }
+          Path("docs/evidence/NXB-130-LAB-STATUS.json").write_text(json.dumps(status, indent=2) + "\n")
+          PY
+          git add docs/evidence/NXB-130-LAB-STATUS.json docs/evidence/NXB-130-LAB-TRANSCRIPT.json
+          git commit -m "NXB-130: record verified local lab transcript"
+          git push origin HEAD:nxb-130-local-adversarial-integration-lab
 
       - name: Upload sanitized transcript
+        if: steps.lab.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: nxb-live-adapter-lab-transcript
