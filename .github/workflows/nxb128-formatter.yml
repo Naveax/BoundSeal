@@ -1,0 +1,46 @@
+name: NXB-128 formatter
+
+on:
+  push:
+    branches:
+      - nxb-128-scope-controlled-live-passive-adapter
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb128-formatter-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-128-scope-controlled-live-passive-adapter
+          fetch-depth: 0
+
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+
+      - name: Format workspace
+        run: cargo fmt --all
+
+      - name: Commit formatted live adapter sources
+        shell: bash
+        run: |
+          if git diff --quiet -- crates/nxb-live-adapter/src; then
+            echo "Sources are already formatted"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/nxb-live-adapter/src
+          git commit -m "Format NXB-128 live adapter sources"
+          git push origin HEAD:nxb-128-scope-controlled-live-passive-adapter
