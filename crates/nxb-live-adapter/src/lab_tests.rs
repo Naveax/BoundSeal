@@ -298,7 +298,11 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
     )
     .err()
     .unwrap_or_else(|| "unexpected_success".into());
-    scenarios.push(record("wrong_hostname", "tls_io_invalid_data", observed));
+    scenarios.push(record(
+        "wrong_hostname",
+        "tls_certificate_or_protocol_rejected",
+        observed,
+    ));
     finish_server(server);
 
     let trusted = generate_simple_self_signed(vec!["localhost".into()])
@@ -319,7 +323,11 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
     )
     .err()
     .unwrap_or_else(|| "unexpected_success".into());
-    scenarios.push(record("untrusted_certificate", "tls_io_invalid_data", observed));
+    scenarios.push(record(
+        "untrusted_certificate",
+        "tls_certificate_or_protocol_rejected",
+        observed,
+    ));
     finish_server(server);
 
     let server = start_server(
