@@ -77,13 +77,13 @@ fn start_server(certificate_name: &str, behavior: LabBehavior) -> LabServer {
     let certificate = cert.der().clone();
     let private_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(signing_key.serialize_der()));
     let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let mut server_config = ServerConfig::builder_with_provider(provider)
+    let mut config = ServerConfig::builder_with_provider(provider)
         .with_protocol_versions(&[&TLS13, &TLS12])
         .unwrap()
         .with_no_client_auth()
         .with_single_cert(vec![certificate.clone()], private_key)
         .unwrap();
-    server_config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
 
     let handle = thread::spawn(move || {
         let Ok((socket, _)) = listener.accept() else {
@@ -91,7 +91,7 @@ fn start_server(certificate_name: &str, behavior: LabBehavior) -> LabServer {
         };
         let _ = socket.set_read_timeout(Some(Duration::from_secs(3)));
         let _ = socket.set_write_timeout(Some(Duration::from_secs(3)));
-        let Ok(connection) = ServerConnection::new(Arc::new(server_config)) else {
+        let Ok(connection) = ServerConnection::new(Arc::new(config)) else {
             return;
         };
         let mut stream = StreamOwned::new(connection, socket);
@@ -149,6 +149,13 @@ fn stream_limits(read_deadline_milliseconds: u64) -> StreamLimits {
     }
 }
 
+fn execution_failure_code(outcome: &ExecutionOutcome) -> String {
+    match outcome {
+        ExecutionOutcome::BackendFailure { backend_code } => backend_code.clone(),
+        other => other.code().to_string(),
+    }
+}
+
 fn run_exchange(
     server: &LabServer,
     trust: RootCertStore,
@@ -180,10 +187,9 @@ fn run_exchange(
         )
         .map_err(|error| error.to_string())?;
     if execution.outcome != ExecutionOutcome::Completed {
-        return Err(execution
-            .failure_code
-            .unwrap_or_else(|| "connection_failed".into()));
+        return Err(execution_failure_code(&execution.outcome));
     }
+
     let tls_stream = executor
         .backend_mut()
         .take_stream()
@@ -217,6 +223,18 @@ fn classify_http_error(error: &Http1Error) -> String {
         }
         other => format!("{other:?}").to_ascii_lowercase(),
     }
+}
+
+fn observe(
+    server: &LabServer,
+    trust: RootCertStore,
+    sni: &str,
+    limits: Http1Limits,
+    timeout: u64,
+) -> String {
+    run_exchange(server, trust, sni, limits, timeout)
+        .map(|status| format!("status_{status}"))
+        .unwrap_or_else(|error| error)
 }
 
 fn record(scenario: &str, expected: &str, observed: String) -> LabScenarioReceipt {
@@ -273,39 +291,37 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
             b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nOK".to_vec(),
         ),
     );
-    let observed = run_exchange(
-        &server,
-        roots_with(server.certificate.clone()),
-        "localhost",
-        Http1Limits::conservative_default(),
-        2_000,
-    )
-    .map(|status| format!("status_{status}"))
-    .unwrap_or_else(|error| error);
-    scenarios.push(record("valid_tls_http1", "status_200", observed));
+    scenarios.push(record(
+        "valid_tls_http1",
+        "status_200",
+        observe(
+            &server,
+            roots_with(server.certificate.clone()),
+            "localhost",
+            Http1Limits::conservative_default(),
+            2_000,
+        ),
+    ));
     finish_server(server);
 
     let server = start_server(
         "wrong.example",
         LabBehavior::Reply(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".to_vec()),
     );
-    let observed = run_exchange(
-        &server,
-        roots_with(server.certificate.clone()),
-        "localhost",
-        Http1Limits::conservative_default(),
-        2_000,
-    )
-    .err()
-    .unwrap_or_else(|| "unexpected_success".into());
     scenarios.push(record(
         "wrong_hostname",
         "tls_certificate_or_protocol_rejected",
-        observed,
+        observe(
+            &server,
+            roots_with(server.certificate.clone()),
+            "localhost",
+            Http1Limits::conservative_default(),
+            2_000,
+        ),
     ));
     finish_server(server);
 
-    let trusted = generate_simple_self_signed(vec!["localhost".into()])
+    let unrelated = generate_simple_self_signed(vec!["localhost".into()])
         .unwrap()
         .cert
         .der()
@@ -314,19 +330,16 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
         "localhost",
         LabBehavior::Reply(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".to_vec()),
     );
-    let observed = run_exchange(
-        &server,
-        roots_with(trusted),
-        "localhost",
-        Http1Limits::conservative_default(),
-        2_000,
-    )
-    .err()
-    .unwrap_or_else(|| "unexpected_success".into());
     scenarios.push(record(
         "untrusted_certificate",
         "tls_certificate_or_protocol_rejected",
-        observed,
+        observe(
+            &server,
+            roots_with(unrelated),
+            "localhost",
+            Http1Limits::conservative_default(),
+            2_000,
+        ),
     ));
     finish_server(server);
 
@@ -336,19 +349,21 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
             b"HTTP/1.1 302 Found\r\nLocation: https://other.example/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
         ),
     );
-    let observed = run_exchange(
+    let redirected = observe(
         &server,
         roots_with(server.certificate.clone()),
         "localhost",
         Http1Limits::conservative_default(),
         2_000,
-    )
-    .map(|status| format!("status_{status}_not_followed"))
-    .unwrap_or_else(|error| error);
+    );
     scenarios.push(record(
         "redirect_not_followed",
         "status_302_not_followed",
-        observed,
+        if redirected == "status_302" {
+            "status_302_not_followed".into()
+        } else {
+            redirected
+        },
     ));
     finish_server(server);
 
@@ -361,16 +376,17 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
     )
     .into_bytes();
     let server = start_server("localhost", LabBehavior::Reply(oversized));
-    let observed = run_exchange(
-        &server,
-        roots_with(server.certificate.clone()),
-        "localhost",
-        header_limits,
-        2_000,
-    )
-    .err()
-    .unwrap_or_else(|| "unexpected_success".into());
-    scenarios.push(record("oversized_header", "invalid_response", observed));
+    scenarios.push(record(
+        "oversized_header",
+        "invalid_response",
+        observe(
+            &server,
+            roots_with(server.certificate.clone()),
+            "localhost",
+            header_limits,
+            2_000,
+        ),
+    ));
     finish_server(server);
 
     let server = start_server(
@@ -379,19 +395,16 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
             b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nOK".to_vec(),
         ),
     );
-    let observed = run_exchange(
-        &server,
-        roots_with(server.certificate.clone()),
-        "localhost",
-        Http1Limits::conservative_default(),
-        2_000,
-    )
-    .err()
-    .unwrap_or_else(|| "unexpected_success".into());
     scenarios.push(record(
         "truncated_content_length",
         "truncated_response",
-        observed,
+        observe(
+            &server,
+            roots_with(server.certificate.clone()),
+            "localhost",
+            Http1Limits::conservative_default(),
+            2_000,
+        ),
     ));
     finish_server(server);
 
@@ -401,16 +414,17 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
             b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nZZ\r\nBAD\r\n0\r\n\r\n".to_vec(),
         ),
     );
-    let observed = run_exchange(
-        &server,
-        roots_with(server.certificate.clone()),
-        "localhost",
-        Http1Limits::conservative_default(),
-        2_000,
-    )
-    .err()
-    .unwrap_or_else(|| "unexpected_success".into());
-    scenarios.push(record("malformed_chunk", "invalid_response", observed));
+    scenarios.push(record(
+        "malformed_chunk",
+        "invalid_response",
+        observe(
+            &server,
+            roots_with(server.certificate.clone()),
+            "localhost",
+            Http1Limits::conservative_default(),
+            2_000,
+        ),
+    ));
     finish_server(server);
 
     let server = start_server(
@@ -420,16 +434,17 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
             b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
         ),
     );
-    let observed = run_exchange(
-        &server,
-        roots_with(server.certificate.clone()),
-        "localhost",
-        Http1Limits::conservative_default(),
-        50,
-    )
-    .err()
-    .unwrap_or_else(|| "unexpected_success".into());
-    scenarios.push(record("read_timeout", "stream_failure", observed));
+    scenarios.push(record(
+        "read_timeout",
+        "stream_failure",
+        observe(
+            &server,
+            roots_with(server.certificate.clone()),
+            "localhost",
+            Http1Limits::conservative_default(),
+            50,
+        ),
+    ));
     finish_server(server);
 
     write_transcript(scenarios);
