@@ -264,6 +264,8 @@ pub enum LiveAdapterError {
     InvalidExecutorId,
     #[error("live adapter limits are invalid: {0}")]
     InvalidLimits(String),
+    #[error("live TLS configuration is invalid: {0}")]
+    TlsConfiguration(String),
     #[error("live passive request target is invalid")]
     InvalidRequestTarget,
     #[error("live passive request target contains a denied action segment")]
