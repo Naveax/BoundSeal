@@ -31,16 +31,6 @@ impl LivePassivePipeline {
         Self::with_backend(transport, config, backend)
     }
 
-    #[cfg(test)]
-    pub(crate) fn new_with_test_backend(
-        transport: PinnedTransportCoordinator,
-        config: LiveAdapterConfig,
-        backend: LiveConnectBackend,
-    ) -> Result<Self, LiveAdapterError> {
-        config.validate()?;
-        Self::with_backend(transport, config, backend)
-    }
-
     fn with_backend(
         transport: PinnedTransportCoordinator,
         config: LiveAdapterConfig,
