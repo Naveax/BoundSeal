@@ -1,0 +1,108 @@
+name: NXB-130 local adversarial lab
+
+on:
+  pull_request:
+    branches:
+      - nxb-129-end-to-end-orchestrator-cli
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nxb130-lab-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  lab:
+    name: Controlled loopback TLS and HTTP lab
+    if: github.head_ref == 'nxb-130-local-adversarial-integration-lab'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v7
+
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+
+      - name: Add test-only ephemeral socket mapping
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('crates/nxb-live-adapter/src/backend.rs')
+          text = path.read_text()
+          if 'with_test_roots_on_socket' not in text:
+              text = text.replace(
+                  '    allow_non_public_for_tests: bool,\n}',
+                  '    allow_non_public_for_tests: bool,\n    #[cfg(test)]\n    test_socket_address: Option<SocketAddr>,\n}',
+                  1,
+              )
+              old = '''    #[cfg(test)]
+    pub(crate) fn with_test_roots(roots: RootCertStore) -> Result<Self, LiveAdapterError> {
+        Self::from_root_store(roots, true)
+    }
+'''
+              new = '''    #[cfg(test)]
+    pub(crate) fn with_test_roots(roots: RootCertStore) -> Result<Self, LiveAdapterError> {
+        Self::from_root_store(roots, true)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_test_roots_on_socket(
+        roots: RootCertStore,
+        socket_address: SocketAddr,
+    ) -> Result<Self, LiveAdapterError> {
+        let mut backend = Self::from_root_store(roots, true)?;
+        backend.test_socket_address = Some(socket_address);
+        Ok(backend)
+    }
+'''
+              if old not in text:
+                  raise SystemExit('test-root constructor marker missing')
+              text = text.replace(old, new, 1)
+              text = text.replace(
+                  '            allow_non_public_for_tests,\n        })',
+                  '            allow_non_public_for_tests,\n            #[cfg(test)]\n            test_socket_address: None,\n        })',
+                  1,
+              )
+              old_socket = '        let socket_address = SocketAddr::new(endpoint.remote_ip, endpoint.port);\n'
+              new_socket = '''        #[cfg(test)]
+        let socket_address = self
+            .test_socket_address
+            .unwrap_or_else(|| SocketAddr::new(endpoint.remote_ip, endpoint.port));
+        #[cfg(not(test))]
+        let socket_address = SocketAddr::new(endpoint.remote_ip, endpoint.port);
+'''
+              if old_socket not in text:
+                  raise SystemExit('socket-address marker missing')
+              text = text.replace(old_socket, new_socket, 1)
+              path.write_text(text)
+          PY
+          cargo fmt --all
+
+      - name: Run adversarial lab and emit transcript
+        env:
+          NXB130_TRANSCRIPT_PATH: target/nxb130-lab-transcript.json
+        run: |
+          cargo test -p nxb-live-adapter --locked adversarial_local_lab_produces_sanitized_transcript -- --nocapture --test-threads=1
+          test -s target/nxb130-lab-transcript.json
+
+      - name: Validate complete stacked workspace
+        run: |
+          cargo check --workspace --all-features --locked
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test --workspace --all-features --locked
+
+      - name: Upload sanitized transcript and formatted sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: nxb130-verified-lab
+          path: |
+            target/nxb130-lab-transcript.json
+            crates/nxb-live-adapter/src/backend.rs
+            crates/nxb-live-adapter/src/lab_tests.rs
+            crates/nxb-live-adapter/src/lib.rs
+          if-no-files-found: error
+          retention-days: 7
