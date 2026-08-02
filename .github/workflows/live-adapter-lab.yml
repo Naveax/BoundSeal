@@ -5,23 +5,35 @@ on:
     paths:
       - "crates/nxb-live-adapter/**"
       - ".github/workflows/live-adapter-lab.yml"
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
 
 permissions:
   contents: read
 
 concurrency:
-  group: live-adapter-lab-${{ github.event.pull_request.number }}
+  group: live-adapter-lab-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.workflow_run.id }}
   cancel-in-progress: true
 
 jobs:
   local-lab:
     name: Loopback TLS and HTTP adversarial scenarios
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.run_number == 851)
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
     steps:
-      - name: Checkout pull request
+      - name: Checkout NXB-130 branch
         uses: actions/checkout@v7
+        with:
+          ref: nxb-130-local-adversarial-integration-lab
 
       - name: Install pinned Rust
         run: rustup show active-toolchain
