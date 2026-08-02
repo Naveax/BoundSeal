@@ -39,4 +39,4 @@ The gateway in-flight reservation covers the entire connection, TLS and HTTP exc
 
 ## Status
 
-NXB-128 intentionally exposes no public CLI command. NXB-129 will provide the policy-driven orchestration and explicit operator interface after this adapter is merged and remains green.
+NXB-128 intentionally exposes no public CLI command. The existing `nxb-core` CLI cannot invoke this adapter. NXB-129 will provide the policy-driven orchestration and explicit operator interface after this adapter is merged and remains green.
