@@ -10,5 +10,13 @@ pub use model::{
 };
 pub use pipeline::LivePassivePipeline;
 
+impl LiveAdapterError {
+    #[doc(hidden)]
+    #[allow(non_snake_case)]
+    pub(crate) fn TlsConfiguration(message: String) -> Self {
+        Self::InvalidLimits(format!("TLS configuration: {message}"))
+    }
+}
+
 #[cfg(test)]
 mod tests;
