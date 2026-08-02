@@ -8,59 +8,62 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  materialize:
-    name: Commit verified NXB-129 material
-    if: github.event_name == 'pull_request' && github.head_ref == 'nxb-129-end-to-end-orchestrator-cli'
+  rust:
+    name: Rust contract checks
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
 
     steps:
-      - name: Checkout feature branch
+      - name: Checkout
         uses: actions/checkout@v7
-        with:
-          ref: nxb-129-end-to-end-orchestrator-cli
-          fetch-depth: 0
 
       - name: Install pinned Rust
         run: rustup show active-toolchain
 
-      - name: Materialize and verify
-        run: |
-          cargo generate-lockfile
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('crates/nxb-core/src/live_orchestrator.rs')
-          text = path.read_text()
-          old = 'value.len() % 2 != 0'
-          new = '!value.len().is_multiple_of(2)'
-          if old in text:
-              path.write_text(text.replace(old, new, 1))
-          elif new not in text:
-              raise SystemExit('expected NXB-129 lint expression was not found')
-          PY
-          cargo fmt --all
-          cargo check --workspace --all-features --locked
-          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-          cargo test --workspace --all-features --locked
+      - name: Lockfile
+        run: cargo check --workspace --all-features --locked
 
-      - name: Commit materialized files
+      - name: Formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace --all-features --locked
+
+      - name: Synthetic system demo
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.lock \
-            crates/nxb-core/src/main.rs \
-            crates/nxb-core/src/live_orchestrator.rs \
-            crates/nxb-core/src/live_orchestrator_live.rs
-          if git diff --cached --quiet; then
-            echo "Materialized files already committed."
-            exit 0
-          fi
-          git commit -m "NXB-129: commit verified lockfile and formatted sources"
-          git push origin HEAD:nxb-129-end-to-end-orchestrator-cli
+          cargo run -p nxb-core --locked -- demo-run --output target/nxb-demo-receipt.json
+          cargo run -p nxb-core --locked -- verify-demo target/nxb-demo-receipt.json
+
+  supply-chain:
+    name: Dependency policy checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: RustSec audit
+        run: cargo audit --deny warnings
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked --version 0.19.7
+
+      - name: Dependency policy
+        run: cargo deny check
