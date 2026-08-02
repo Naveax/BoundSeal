@@ -1,9 +1,4 @@
-use std::{
-    collections::BTreeSet,
-    fs,
-    net::IpAddr,
-    path::Path,
-};
+use std::{collections::BTreeSet, fs, net::IpAddr, path::Path};
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
@@ -34,16 +29,7 @@ const DENIED_PATH_SEGMENTS: &[&str] = &[
     "unsubscribe",
 ];
 
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    clap::ValueEnum,
-)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum PlannedMethod {
     Get,
@@ -129,10 +115,7 @@ impl LiveRunPlan {
         validate_identifier(&self.dns_resolver_id, "dns_resolver_id")?;
         validate_sha256(&self.policy_sha256, "policy_sha256")?;
         validate_sha256(&self.target_origin_sha256, "target_origin_sha256")?;
-        validate_sha256(
-            &self.activation_key_id_sha256,
-            "activation_key_id_sha256",
-        )?;
+        validate_sha256(&self.activation_key_id_sha256, "activation_key_id_sha256")?;
         if self.maximum_requests != LIVE_MVP_MAXIMUM_REQUESTS {
             bail!("live MVP permits exactly one request");
         }
@@ -191,7 +174,11 @@ impl LiveRunPlan {
 
     pub fn request_target(&self) -> Result<String> {
         let url = self.parsed_url()?;
-        let path = if url.path().is_empty() { "/" } else { url.path() };
+        let path = if url.path().is_empty() {
+            "/"
+        } else {
+            url.path()
+        };
         validate_request_target(path)?;
         Ok(path.to_string())
     }
@@ -276,12 +263,7 @@ pub struct LiveActivationCertificate {
 }
 
 impl LiveActivationCertificate {
-    pub fn verify(
-        &self,
-        plan: &LiveRunPlan,
-        public_key: &[u8],
-        now: DateTime<Utc>,
-    ) -> Result<()> {
+    pub fn verify(&self, plan: &LiveRunPlan, public_key: &[u8], now: DateTime<Utc>) -> Result<()> {
         plan.verify(now)?;
         self.payload.validate()?;
         if public_key.len() != 32 {
@@ -374,10 +356,8 @@ impl LiveOrchestratorReceipt {
 }
 
 pub fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T> {
-    let bytes = fs::read(path)
-        .with_context(|| format!("could not read {}", path.display()))?;
-    serde_json::from_slice(&bytes)
-        .with_context(|| format!("invalid JSON in {}", path.display()))
+    let bytes = fs::read(path).with_context(|| format!("could not read {}", path.display()))?;
+    serde_json::from_slice(&bytes).with_context(|| format!("invalid JSON in {}", path.display()))
 }
 
 pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
@@ -392,14 +372,13 @@ pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     let temporary = path.with_extension("tmp");
     fs::write(&temporary, bytes)
         .with_context(|| format!("could not write {}", temporary.display()))?;
-    fs::rename(&temporary, path)
-        .with_context(|| format!("could not commit {}", path.display()))?;
+    fs::rename(&temporary, path).with_context(|| format!("could not commit {}", path.display()))?;
     Ok(())
 }
 
 pub fn read_hex_file(path: &Path, field: &str) -> Result<Vec<u8>> {
-    let text = fs::read_to_string(path)
-        .with_context(|| format!("could not read {}", path.display()))?;
+    let text =
+        fs::read_to_string(path).with_context(|| format!("could not read {}", path.display()))?;
     decode_lower_hex(text.trim(), field)
 }
 
@@ -481,9 +460,9 @@ fn validate_request_target(target: &str) -> Result<()> {
 fn validate_identifier(value: &str, field: &str) -> Result<()> {
     if value.is_empty()
         || value.len() > 192
-        || !value.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':')
-        })
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
     {
         bail!("{field} is invalid");
     }
@@ -503,7 +482,7 @@ fn validate_sha256(value: &str, field: &str) -> Result<()> {
 
 fn decode_lower_hex(value: &str, field: &str) -> Result<Vec<u8>> {
     if value.is_empty()
-        || value.len() % 2 != 0
+        || !value.len().is_multiple_of(2)
         || !value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))

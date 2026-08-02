@@ -1,25 +1,18 @@
 mod demo;
 mod live_orchestrator;
 
-use std::{
-    collections::BTreeSet,
-    fs,
-    net::IpAddr,
-    path::PathBuf,
-};
+use std::{collections::BTreeSet, fs, net::IpAddr, path::PathBuf};
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 use demo::{
-    build_demo_receipt, default_demo_output, read_demo_receipt,
-    verify_demo_receipt, write_demo_receipt, MILESTONE_END,
-    MILESTONE_START, WORKSPACE_CRATE_COUNT,
+    build_demo_receipt, default_demo_output, read_demo_receipt, verify_demo_receipt,
+    write_demo_receipt, MILESTONE_END, MILESTONE_START, WORKSPACE_CRATE_COUNT,
 };
 use live_orchestrator::{
-    hash_bytes, read_hex_file, read_json, write_json,
-    LiveActivationCertificate, LiveActivationPayload, LiveRunPlan,
-    PlannedMethod,
+    hash_bytes, read_hex_file, read_json, write_json, LiveActivationCertificate,
+    LiveActivationPayload, LiveRunPlan, PlannedMethod,
 };
 use nxb_events::EventEnvelope;
 use nxb_policy::{is_public_destination, TargetPolicy};
@@ -199,13 +192,7 @@ fn main() -> Result<()> {
             not_before,
             expires_at,
             output,
-        } => live_activation_template(
-            plan,
-            activation_id,
-            not_before,
-            expires_at,
-            output,
-        ),
+        } => live_activation_template(plan, activation_id, not_before, expires_at, output),
         Command::VerifyLiveActivation {
             plan,
             activation,
@@ -333,12 +320,11 @@ fn live_plan(
     output: PathBuf,
     now: Option<String>,
 ) -> Result<()> {
-    let policy_bytes = fs::read(&policy)
-        .with_context(|| format!("could not read {}", policy.display()))?;
+    let policy_bytes =
+        fs::read(&policy).with_context(|| format!("could not read {}", policy.display()))?;
     let now = parse_now(now)?;
     let expires_at = parse_timestamp(&expires_at)?;
-    let public_key =
-        read_hex_file(&activation_public_key, "activation_public_key")?;
+    let public_key = read_hex_file(&activation_public_key, "activation_public_key")?;
     if public_key.len() != 32 {
         bail!("activation public key must contain 32 Ed25519 bytes");
     }
@@ -388,12 +374,7 @@ fn live_activation_template(
     let plan: LiveRunPlan = read_json(&plan)?;
     let not_before = parse_timestamp(&not_before)?;
     let expires_at = parse_timestamp(&expires_at)?;
-    let payload = LiveActivationPayload::template(
-        activation_id,
-        &plan,
-        not_before,
-        expires_at,
-    )?;
+    let payload = LiveActivationPayload::template(activation_id, &plan, not_before, expires_at)?;
     let signing_bytes = payload.signing_bytes()?;
     let document = ActivationTemplateDocument {
         payload,
@@ -448,8 +429,8 @@ fn live_run(
     if !enable_live {
         bail!("live execution requires the explicit --enable-live flag");
     }
-    let policy_bytes = fs::read(&policy)
-        .with_context(|| format!("could not read {}", policy.display()))?;
+    let policy_bytes =
+        fs::read(&policy).with_context(|| format!("could not read {}", policy.display()))?;
     let plan: LiveRunPlan = read_json(&plan)?;
     let activation: LiveActivationCertificate = read_json(&activation)?;
     let public_key = read_hex_file(&public_key, "public_key")?;
