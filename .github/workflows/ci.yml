@@ -17,7 +17,7 @@ concurrency:
 jobs:
   nxb138-harden:
     name: NXB-138 deterministic security hardening
-    if: github.event_name == 'push' && github.ref == 'refs/heads/nxb-138-vault-backed-session-injection'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/nxb-138-vault-backed-session-injection') || (github.event_name == 'pull_request' && github.head_ref == 'nxb-138-vault-backed-session-injection')
     permissions:
       contents: write
     runs-on: ubuntu-latest
