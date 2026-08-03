@@ -4,6 +4,16 @@ All notable changes to NXBounty are documented here.
 
 ## [Unreleased]
 
+### NXB-140
+
+- Added a concrete process-backed implementation of the NXB-139 external vault-provider contract.
+- Bound the provider executable's absolute path and SHA-256 digest to the signed provider instance identity.
+- Added shell-free startup with cleared environment, null stderr and anonymous pipe-only protocol transport.
+- Added bounded length-prefixed metadata/secret framing and zeroizing secret buffers.
+- Added exact handshake identity, sequence, timeout, single-session and clean-exit enforcement.
+- Added real child-process integration tests and permanent adversarial workflow coverage.
+- Updated repository status documentation through NXB-140.
+
 ### NXB-139
 
 - Added a signed, one-use external vault-provider bootstrap plan.
@@ -15,7 +25,7 @@ All notable changes to NXBounty are documented here.
 
 ### Planned
 
-- Concrete external vault provider adapters.
+- Password-manager, HSM and OS credential-store-specific provider adapters.
 - Unified authenticated operator CLI.
 - Encrypted local evidence persistence.
 

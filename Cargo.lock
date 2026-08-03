@@ -1088,6 +1088,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxb-vault-provider-process"
+version = "0.1.0"
+dependencies = [
+ "nxb-session",
+ "nxb-vault",
+ "nxb-vault-provider",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "zeroize",
+]
+
+[[package]]
 name = "nxb-workflow-graph"
 version = "0.1.0"
 dependencies = [
