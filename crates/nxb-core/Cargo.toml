@@ -33,8 +33,11 @@ nxb-operator = { path = "../nxb-operator" }
 nxb-passive-analyzers = { path = "../nxb-passive-analyzers", optional = true }
 nxb-pinned-transport = { path = "../nxb-pinned-transport", optional = true }
 nxb-policy = { path = "../nxb-policy" }
+nxb-session-injection = { path = "../nxb-session-injection" }
 nxb-stream = { path = "../nxb-stream", optional = true }
 nxb-transport = { path = "../nxb-transport", optional = true }
+nxb-unified-operator = { path = "../nxb-unified-operator" }
+nxb-vault-provider = { path = "../nxb-vault-provider" }
 ring = "0.17"
 serde.workspace = true
 serde_json.workspace = true
