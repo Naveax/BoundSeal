@@ -415,8 +415,10 @@ expires_at = "2035-01-01T00:00:00Z"
             let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
             let policy = policy(now);
             let target = Url::parse("https://example.com/").unwrap();
-            let mut config = OperatorConfig::default();
-            config.maximum_requests = 1;
+            let config = OperatorConfig {
+                maximum_requests: 1,
+                ..OperatorConfig::default()
+            };
             let artifacts = build_operator_artifacts(
                 config,
                 &policy,
@@ -446,8 +448,10 @@ expires_at = "2035-01-01T00:00:00Z"
             let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
             let policy = policy(now);
             let target = Url::parse("https://example.com/").unwrap();
-            let mut config = OperatorConfig::default();
-            config.maximum_requests = 1;
+            let config = OperatorConfig {
+                maximum_requests: 1,
+                ..OperatorConfig::default()
+            };
             let artifacts = build_operator_artifacts(
                 config,
                 &policy,
