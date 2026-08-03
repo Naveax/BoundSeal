@@ -705,8 +705,11 @@ dependencies = [
  "nxb-passive-analyzers",
  "nxb-pinned-transport",
  "nxb-policy",
+ "nxb-session-injection",
  "nxb-stream",
  "nxb-transport",
+ "nxb-unified-operator",
+ "nxb-vault-provider",
  "ring",
  "serde",
  "serde_json",
@@ -1058,6 +1061,17 @@ name = "nxb-transport"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
+name = "nxb-unified-operator"
+version = "0.1.0"
+dependencies = [
+ "ring",
+ "serde",
+ "serde_json",
  "sha2",
  "thiserror",
 ]
