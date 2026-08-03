@@ -2,7 +2,7 @@
 
 ## Status
 
-The first NXB-140 implementation block introduces the signed unified execution contract. It does not yet execute network requests.
+Implementation block A introduces the signed unified execution contract. It does not yet execute network requests.
 
 ## Purpose
 
