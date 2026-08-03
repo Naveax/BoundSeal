@@ -12,6 +12,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/nxb143_materialize.py"
+      - ".github/nxb143_fix_test.py"
       - ".github/workflows/nxb143-runtime-hardening.yml"
 
 permissions:
@@ -34,7 +35,11 @@ jobs:
           ref: nxb-143-checkpoint-bound-authenticated-runtime
           fetch-depth: 0
       - name: Apply deterministic materializer
-        run: python3 .github/nxb143_materialize.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/nxb143_materialize.py
+          python3 .github/nxb143_fix_test.py
       - name: Install pinned Rust
         uses: dtolnay/rust-toolchain@1.97.1
         with:
@@ -56,7 +61,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/nxb143_materialize.py .github/workflows/nxb143-materialize.yml .github/workflows/nxb143-pr-materialize.yml
+          git rm .github/nxb143_materialize.py .github/nxb143_fix_test.py .github/workflows/nxb143-materialize.yml .github/workflows/nxb143-pr-materialize.yml
           git add Cargo.toml Cargo.lock crates/nxb-operator-state crates/nxb-operator-runtime
           git commit -m "NXB-143: materialize checkpoint-bound runtime"
           git push origin HEAD:nxb-143-checkpoint-bound-authenticated-runtime
