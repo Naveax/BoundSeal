@@ -166,7 +166,7 @@ pub fn bootstrap_external_session<P: ExternalVaultProvider>(
                 maximum_value_bytes: spec.maximum_value_bytes,
                 required_version_sha256: spec.required_version_sha256.clone(),
             };
-            let material = provider.fetch(&mut provider_session, &request).map_err(|failure| {
+            let mut material = provider.fetch(&mut provider_session, &request).map_err(|failure| {
                 VaultProviderError::ProviderFetch {
                     logical_id_sha256: sha256_bytes(spec.logical_id.as_bytes()),
                     code: failure.code().into(),
@@ -186,7 +186,7 @@ pub fn bootstrap_external_session<P: ExternalVaultProvider>(
             let handle = vault.insert(
                 SecretInput {
                     kind: spec.kind,
-                    value: material.value.to_vec(),
+                    value: std::mem::take(&mut *material.value),
                     binding,
                     delivery: spec.delivery.secret_delivery()?,
                     expires_at_epoch_seconds: Some(material.expires_at_epoch_seconds),

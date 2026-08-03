@@ -6,7 +6,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 pub const MAX_SECRET_BYTES: usize = 64 * 1024;
 pub const MAX_SECRET_LEASE_SECONDS: i64 = 300;
@@ -160,6 +160,12 @@ impl fmt::Debug for SecretInput {
             .field("delivery", &self.delivery)
             .field("expires_at_epoch_seconds", &self.expires_at_epoch_seconds)
             .finish()
+    }
+}
+
+impl Drop for SecretInput {
+    fn drop(&mut self) {
+        self.value.zeroize();
     }
 }
 
@@ -561,7 +567,7 @@ impl InMemorySecretVault {
             handle.clone(),
             SecretEntry {
                 metadata,
-                delivery: input.delivery,
+                delivery: input.delivery.clone(),
                 value,
             },
         );
