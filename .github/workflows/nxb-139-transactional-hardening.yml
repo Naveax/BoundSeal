@@ -1,0 +1,228 @@
+name: NXB-139 transactional hardening
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    name: Harden provider, vault and session transactions
+    runs-on: ubuntu-slim
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout NXB-139 branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-139-external-vault-provider-lifecycle
+          fetch-depth: 0
+
+      - name: Apply transactional hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          vault_path = Path('crates/nxb-vault/src/lib.rs')
+          vault = vault_path.read_text(encoding='utf-8')
+          old = '''        self.audit.append(VaultAuditEvent {
+              action: "secret_inserted".into(),
+              outcome: "stored".into(),
+              vault_id: self.vault_id.clone(),
+              handle: Some(handle.0.clone()),
+              lease_id: None,
+              session_id: None,
+              metadata: BTreeMap::from([("kind".into(), input.kind.code().into())]),
+          })?;
+          Ok(handle)
+          '''
+          new = '''        if let Err(error) = self.audit.append(VaultAuditEvent {
+              action: "secret_inserted".into(),
+              outcome: "stored".into(),
+              vault_id: self.vault_id.clone(),
+              handle: Some(handle.0.clone()),
+              lease_id: None,
+              session_id: None,
+              metadata: BTreeMap::from([("kind".into(), input.kind.code().into())]),
+          }) {
+              self.entries.remove(&handle);
+              return Err(error);
+          }
+          Ok(handle)
+          '''
+          if vault.count(old) != 1:
+              raise SystemExit(f'unexpected vault insert audit block count: {vault.count(old)}')
+          vault_path.write_text(vault.replace(old, new, 1), encoding='utf-8', newline='\n')
+
+          session_path = Path('crates/nxb-session/src/lib.rs')
+          session = session_path.read_text(encoding='utf-8')
+          old = '''        self.audit.append(SessionAuditEvent {
+              action: "session_created".into(),
+              outcome: "active".into(),
+              broker_id: self.broker_id.clone(),
+              session_id: Some(session_id),
+              metadata: BTreeMap::from([
+                  (
+                      "secret_handle_count".into(),
+                      metadata.profile.secret_handles.len().to_string(),
+                  ),
+                  (
+                      "expires_at".into(),
+                      metadata.profile.expires_at_epoch_seconds.to_string(),
+                  ),
+              ]),
+          })?;
+          Ok(metadata)
+          '''
+          new = '''        if let Err(error) = self.audit.append(SessionAuditEvent {
+              action: "session_created".into(),
+              outcome: "active".into(),
+              broker_id: self.broker_id.clone(),
+              session_id: Some(session_id.clone()),
+              metadata: BTreeMap::from([
+                  (
+                      "secret_handle_count".into(),
+                      metadata.profile.secret_handles.len().to_string(),
+                  ),
+                  (
+                      "expires_at".into(),
+                      metadata.profile.expires_at_epoch_seconds.to_string(),
+                  ),
+              ]),
+          }) {
+              self.sessions.remove(&session_id);
+              return Err(error);
+          }
+          Ok(metadata)
+          '''
+          if session.count(old) != 1:
+              raise SystemExit(f'unexpected session create audit block count: {session.count(old)}')
+          session_path.write_text(session.replace(old, new, 1), encoding='utf-8', newline='\n')
+
+          lifecycle_path = Path('crates/nxb-vault-provider/src/lifecycle.inc.rs')
+          lifecycle = lifecycle_path.read_text(encoding='utf-8')
+          start_marker = '''    if let Err(failure) = provider.finish(provider_session, ProviderSessionOutcome::Committed) {'''
+          end_marker = '''    Ok(ProvisionedExternalSession {
+              session,
+              handles,
+              receipt,
+          })
+          '''
+          start = lifecycle.index(start_marker)
+          end = lifecycle.index(end_marker, start) + len(end_marker)
+          replacement = '''    let session = match created_session.clone() {
+              Some(session) => session,
+              None => {
+                  let finish = provider.finish(provider_session, ProviderSessionOutcome::Aborted);
+                  let rollback =
+                      rollback_provisioning(created_session.as_ref(), &handles, broker, vault);
+                  if let Err(rollback_error) = rollback {
+                      return Err(VaultProviderError::RollbackFailed(rollback_error));
+                  }
+                  if let Err(failure) = finish {
+                      return Err(VaultProviderError::ProviderAbort(failure.code().into()));
+                  }
+                  return Err(VaultProviderError::SessionNotCreated);
+              }
+          };
+
+          let receipt_result = (|| {
+              let mut receipt = ExternalVaultBootstrapReceipt {
+                  version: EXTERNAL_VAULT_RECEIPT_VERSION,
+                  plan_sha256: plan.plan_sha256.clone(),
+                  activation_certificate_sha256: consumed_activation.activation_certificate_sha256,
+                  discovery_plan_sha256: plan.discovery_plan_sha256.clone(),
+                  target_origin_sha256: plan.target_origin_sha256.clone(),
+                  provider_id: plan.provider.provider_id.clone(),
+                  provider_instance_sha256: plan.provider.provider_instance_sha256.clone(),
+                  capability_sha256: plan.provider.capability_sha256.clone(),
+                  session_id_sha256: sha256_bytes(session.session_id.as_bytes()),
+                  secret_count: provisioned.len() as u64,
+                  secret_binding_root_sha256: hash_serializable(&provisioned)?,
+                  provisioned_secrets: provisioned,
+                  session_audit_tail: broker.audit().tail_hash().to_string(),
+                  vault_audit_tail: vault.audit().tail_hash().to_string(),
+                  completed_at_epoch_seconds: now_epoch_seconds,
+                  receipt_sha256: String::new(),
+              };
+              receipt.receipt_sha256 = hash_serializable(&receipt)?;
+              receipt.verify()?;
+              Ok::<ExternalVaultBootstrapReceipt, VaultProviderError>(receipt)
+          })();
+          let receipt = match receipt_result {
+              Ok(receipt) => receipt,
+              Err(error) => {
+                  let finish = provider.finish(provider_session, ProviderSessionOutcome::Aborted);
+                  let rollback =
+                      rollback_provisioning(created_session.as_ref(), &handles, broker, vault);
+                  if let Err(rollback_error) = rollback {
+                      return Err(VaultProviderError::RollbackFailed(rollback_error));
+                  }
+                  if let Err(failure) = finish {
+                      return Err(VaultProviderError::ProviderAbort(failure.code().into()));
+                  }
+                  return Err(error);
+              }
+          };
+
+          if let Err(failure) = provider.finish(provider_session, ProviderSessionOutcome::Committed) {
+              let rollback = rollback_provisioning(created_session.as_ref(), &handles, broker, vault);
+              if let Err(rollback_error) = rollback {
+                  return Err(VaultProviderError::RollbackFailed(rollback_error));
+              }
+              return Err(VaultProviderError::ProviderCommit(failure.code().into()));
+          }
+
+          Ok(ProvisionedExternalSession {
+              session,
+              handles,
+              receipt,
+          })
+          '''
+          lifecycle_path.write_text(
+              lifecycle[:start] + replacement + lifecycle[end:],
+              encoding='utf-8',
+              newline='\n',
+          )
+          PY
+
+      - name: Install pinned Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.97.1
+          fi
+          source "$HOME/.cargo/env" 2>/dev/null || true
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+
+      - name: Verify transactional hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$HOME/.cargo/env" 2>/dev/null || true
+          cargo fmt --all
+          cargo fmt --all -- --check
+          cargo check --workspace --all-features --locked
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test --workspace --all-features --locked
+          git diff --check
+
+      - name: Commit transactional hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            crates/nxb-vault/src/lib.rs \
+            crates/nxb-session/src/lib.rs \
+            crates/nxb-vault-provider/src/lifecycle.inc.rs
+          git commit -m "fix: make external session provisioning transactional"
+          git push origin HEAD:nxb-139-external-vault-provider-lifecycle
