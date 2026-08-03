@@ -1,5 +1,6 @@
 mod demo;
 mod live_orchestrator;
+mod scan;
 
 use std::{collections::BTreeSet, fs, net::IpAddr, path::PathBuf};
 
@@ -16,6 +17,7 @@ use live_orchestrator::{
 };
 use nxb_events::EventEnvelope;
 use nxb_policy::{is_public_destination, TargetPolicy};
+use scan::ScanArgs;
 use serde::Serialize;
 
 #[derive(Debug, Parser)]
@@ -27,6 +29,8 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Build a bounded networkless scan plan and optional passive snapshot report.
+    Scan(ScanArgs),
     /// Parse and compile a target policy without making network requests.
     ValidatePolicy {
         path: PathBuf,
@@ -150,6 +154,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Command::Scan(args) => scan::run(args),
         Command::ValidatePolicy { path, now } => validate_policy(path, now),
         Command::ValidateEvent { path } => validate_event(path),
         Command::CheckDestination { ip } => check_destination(ip),
@@ -279,6 +284,7 @@ fn system_status() -> Result<()> {
             "disabled-at-compile-time"
         }
     );
+    println!("operator_scan: bounded-networkless-default");
     println!("demo_tail_sha256: {}", receipt.tail_hash);
     Ok(())
 }
