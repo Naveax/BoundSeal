@@ -1,0 +1,147 @@
+name: NXB-142 state-engine validation v3
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb142-state-validation-v3
+  cancel-in-progress: true
+
+jobs:
+  validate-state-engine:
+    if: github.head_ref == 'nxb-142-validation-v3'
+    runs-on: ubuntu-slim
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact NXB-142 source branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-142-checkpointed-bounded-operator-state
+          fetch-depth: 0
+
+      - name: Apply activation-marker and resume hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('crates/nxb-operator-state/src/lib.rs')
+          text = path.read_text(encoding='utf-8')
+
+          def sub_once(pattern, replacement, label):
+              global text
+              text, count = re.subn(pattern, replacement, text, count=1, flags=re.DOTALL)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+
+          sub_once(
+              r'fn permits_continuation\(self\) -> bool \{\s*matches!\(self,\s*Self::Running\)\s*\}',
+              'fn permits_continuation(self) -> bool {\n        matches!(self, Self::Ready | Self::Running)\n    }',
+              'continuation helper',
+          )
+          sub_once(
+              r'pub struct OperatorStateStore \{\s*directory: PathBuf,\s*plan: UnifiedOperatorPlan,\s*activation_certificate_sha256: String,\s*\}',
+              'pub struct OperatorStateStore {\n    directory: PathBuf,\n    plan: UnifiedOperatorPlan,\n    activation_certificate_sha256: String,\n    activation_marker_path: PathBuf,\n}',
+              'state-store fields',
+          )
+          sub_once(
+              r'\.field\(\s*"activation_certificate_sha256",\s*&self\.activation_certificate_sha256,\s*\)\s*\.finish\(\)',
+              '.field(\n                "activation_certificate_sha256",\n                &self.activation_certificate_sha256,\n            )\n            .field("activation_marker_path", &self.activation_marker_path)\n            .finish()',
+              'Debug implementation',
+          )
+          sub_once(
+              r'let store = Self \{\s*directory,\s*plan,\s*activation_certificate_sha256: consumed\s*\.activation_certificate_sha256\(\)\s*\.to_owned\(\),\s*\};',
+              'let store = Self {\n            directory,\n            plan,\n            activation_certificate_sha256: consumed\n                .activation_certificate_sha256()\n                .to_owned(),\n            activation_marker_path: consumed.marker_path().to_path_buf(),\n        };',
+              'initialize store',
+          )
+          sub_once(
+              r'(pub fn open\(\s*directory: impl Into<PathBuf>,\s*plan: UnifiedOperatorPlan,\s*activation_certificate_sha256: impl Into<String>,)(\s*now_epoch_seconds: i64,)',
+              lambda match: match.group(1) + '\n        activation_marker_path: impl Into<PathBuf>,' + match.group(2),
+              'open signature',
+          )
+          sub_once(
+              r'(let activation_certificate_sha256 = activation_certificate_sha256\.into\(\);\s*validate_sha256\(\s*&activation_certificate_sha256,\s*"activation_certificate_sha256",\s*\)\?;)\s*let store = Self \{\s*directory: directory\.into\(\),\s*plan,\s*activation_certificate_sha256,\s*\};',
+              lambda match: match.group(1) + '''
+        let activation_marker_path = activation_marker_path.into();
+        if !activation_marker_path.is_file() {
+            return Err(OperatorStateError::ActivationMarkerMissing);
+        }
+        let store = Self {
+            directory: directory.into(),
+            plan,
+            activation_certificate_sha256,
+            activation_marker_path,
+        };''',
+              'open store',
+          )
+          sub_once(
+              r'verify_plan_digest\(&self\.plan\)\?;\s*let entries = checkpoint_entries\(&self\.directory\)\?;',
+              'verify_plan_digest(&self.plan)?;\n        if !self.activation_marker_path.is_file() {\n            return Err(OperatorStateError::ActivationMarkerMissing);\n        }\n        let entries = checkpoint_entries(&self.directory)?;',
+              'recovery prelude',
+          )
+          sub_once(
+              r'#\[error\("activation expired before continuation"\)\]\s*ActivationExpired,',
+              '#[error("activation expired before continuation")]\n    ActivationExpired,\n    #[error("consumed activation marker is missing")]\n    ActivationMarkerMissing,',
+              'activation error block',
+          )
+          sub_once(
+              r'(OperatorStateStore::open\(\s*store\.directory\(\),\s*store\.plan\.clone\(\),\s*store\.activation_certificate_sha256\.clone\(\),)(\s*1_300,)',
+              lambda match: match.group(1) + '\n            store.activation_marker_path.clone(),' + match.group(2),
+              'open test call',
+          )
+
+          marker_test = '''
+    #[test]
+    fn missing_activation_marker_blocks_recovery() {
+        let (root, store) = initialized_store("marker", 1024 * 1024);
+        fs::remove_file(&store.activation_marker_path).expect("remove marker");
+        assert!(matches!(
+            store.recover(1_200).expect_err("missing marker must fail"),
+            OperatorStateError::ActivationMarkerMissing
+        ));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+'''
+          if 'fn missing_activation_marker_blocks_recovery()' not in text:
+              sub_once(
+                  r'(\s*#\[test\]\s*fn interrupted_publication_is_rejected\(\) \{)',
+                  lambda match: marker_test + match.group(1),
+                  'marker test anchor',
+              )
+
+          path.write_text(text, encoding='utf-8', newline='\n')
+          PY
+
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+
+      - name: Canonicalize and validate state engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          cargo fmt --all
+          cargo check -p nxb-operator-state --all-features --locked
+          cargo clippy -p nxb-operator-state --all-targets --all-features --locked -- -D warnings
+          cargo test -p nxb-operator-state --all-features --locked -- --test-threads=1
+          git diff --check
+
+      - name: Commit validated state engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock crates/nxb-operator-state
+          git commit -m "NXB-142: checkpointed bounded operator state"
+          git push origin HEAD:nxb-142-checkpointed-bounded-operator-state
