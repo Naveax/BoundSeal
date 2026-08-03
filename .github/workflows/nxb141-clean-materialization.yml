@@ -52,8 +52,8 @@ jobs:
           text = core.read_text(encoding='utf-8')
           additions = [
               ('nxb-session-injection = { path = "../nxb-session-injection" }\n', 'nxb-stream = { path = "../nxb-stream", optional = true }\n'),
-              ('nxb-unified-operator = { path = "../nxb-unified-operator" }\n', 'nxb-vault-provider = { path = "../nxb-vault-provider" }\n'),
               ('nxb-vault-provider = { path = "../nxb-vault-provider" }\n', 'ring = "0.17"\n'),
+              ('nxb-unified-operator = { path = "../nxb-unified-operator" }\n', 'nxb-vault-provider = { path = "../nxb-vault-provider" }\n'),
           ]
           for addition, anchor in additions:
               if addition not in text:
