@@ -25,6 +25,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{backend::LiveConnectBackend, LivePassiveRequest, PassiveMethod};
 
+const LAB_HOST: &str = "lab.example";
+
 #[derive(Clone)]
 enum LabBehavior {
     Reply(Vec<u8>),
@@ -56,6 +58,7 @@ struct LabServer {
 }
 
 fn logical_permit(host: &str) -> TransportPermit {
+    let host = if host == "localhost" { LAB_HOST } else { host };
     TransportPermit {
         ticket_id: "ticket-lab-0001".into(),
         decision_id: "decision-lab-0001".into(),
@@ -71,6 +74,11 @@ fn logical_permit(host: &str) -> TransportPermit {
 }
 
 fn start_server(certificate_name: &str, behavior: LabBehavior) -> LabServer {
+    let certificate_name = if certificate_name == "localhost" {
+        LAB_HOST
+    } else {
+        certificate_name
+    };
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     let address = listener.local_addr().unwrap();
     let CertifiedKey { cert, signing_key } =
@@ -339,7 +347,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
     let mut scenarios = Vec::new();
 
     let server = start_server(
-        "localhost",
+        LAB_HOST,
         LabBehavior::Reply(
             b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nOK".to_vec(),
         ),
@@ -350,7 +358,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
         observe(
             &server,
             roots_with(server.certificate.clone()),
-            "localhost",
+            LAB_HOST,
             Http1Limits::conservative_default(),
             2_000,
         ),
@@ -366,20 +374,20 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
         observe(
             &server,
             roots_with(server.certificate.clone()),
-            "localhost",
+            LAB_HOST,
             Http1Limits::conservative_default(),
             2_000,
         ),
     ));
     finish_server(server);
 
-    let unrelated = generate_simple_self_signed(vec!["localhost".into()])
+    let unrelated = generate_simple_self_signed(vec![LAB_HOST.into()])
         .unwrap()
         .cert
         .der()
         .clone();
     let server = start_server(
-        "localhost",
+        LAB_HOST,
         LabBehavior::Reply(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".to_vec()),
     );
     scenarios.push(record_tls_rejection(
@@ -387,7 +395,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
         observe(
             &server,
             roots_with(unrelated),
-            "localhost",
+            LAB_HOST,
             Http1Limits::conservative_default(),
             2_000,
         ),
@@ -395,7 +403,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
     finish_server(server);
 
     let server = start_server(
-        "localhost",
+        LAB_HOST,
         LabBehavior::Reply(
             b"HTTP/1.1 302 Found\r\nLocation: https://other.example/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
         ),
@@ -403,7 +411,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
     let redirected = observe(
         &server,
         roots_with(server.certificate.clone()),
-        "localhost",
+        LAB_HOST,
         Http1Limits::conservative_default(),
         2_000,
     );
@@ -426,14 +434,14 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
         "a".repeat(2048)
     )
     .into_bytes();
-    let server = start_server("localhost", LabBehavior::Reply(oversized));
+    let server = start_server(LAB_HOST, LabBehavior::Reply(oversized));
     scenarios.push(record_parser_rejection(
         "oversized_header",
         "bounded_header_rejection",
         observe(
             &server,
             roots_with(server.certificate.clone()),
-            "localhost",
+            LAB_HOST,
             header_limits,
             2_000,
         ),
@@ -442,7 +450,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
     finish_server(server);
 
     let server = start_server(
-        "localhost",
+        LAB_HOST,
         LabBehavior::Reply(
             b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nOK".to_vec(),
         ),
@@ -453,7 +461,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
         observe(
             &server,
             roots_with(server.certificate.clone()),
-            "localhost",
+            LAB_HOST,
             Http1Limits::conservative_default(),
             2_000,
         ),
@@ -462,7 +470,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
     finish_server(server);
 
     let server = start_server(
-        "localhost",
+        LAB_HOST,
         LabBehavior::Reply(
             b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nZZ\r\nBAD\r\n0\r\n\r\n".to_vec(),
         ),
@@ -473,7 +481,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
         observe(
             &server,
             roots_with(server.certificate.clone()),
-            "localhost",
+            LAB_HOST,
             Http1Limits::conservative_default(),
             2_000,
         ),
@@ -482,7 +490,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
     finish_server(server);
 
     let server = start_server(
-        "localhost",
+        LAB_HOST,
         LabBehavior::DelayReply(
             Duration::from_millis(300),
             b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
@@ -494,7 +502,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
         observe(
             &server,
             roots_with(server.certificate.clone()),
-            "localhost",
+            LAB_HOST,
             Http1Limits::conservative_default(),
             50,
         ),
@@ -508,7 +516,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
 #[test]
 fn production_constructor_still_rejects_loopback() {
     let mut backend = LiveConnectBackend::with_mozilla_roots().unwrap();
-    let permit = logical_permit("localhost");
+    let permit = logical_permit(LAB_HOST);
     let report = nxb_executor::PermitBackend::execute(
         &mut backend,
         nxb_executor::PermitEndpoint {
