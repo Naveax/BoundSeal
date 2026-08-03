@@ -11,8 +11,7 @@ on:
       - "crates/nxb-operator-state/**"
       - "Cargo.toml"
       - "Cargo.lock"
-      - ".github/nxb143_lock_patch.py"
-      - ".github/nxb143_lock_clippy_fix.py"
+      - ".github/nxb143_lock_unlink_fix.py"
       - ".github/workflows/nxb143-runtime-hardening.yml"
 
 permissions:
@@ -24,7 +23,7 @@ concurrency:
 
 jobs:
   lock-hardening:
-    name: Materialize crash-safe runtime lock
+    name: Materialize stable-inode runtime lock
     if: github.event_name == 'pull_request' && github.head_ref == 'nxb-143-checkpoint-bound-authenticated-runtime' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-slim
     timeout-minutes: 35
@@ -34,12 +33,8 @@ jobs:
         with:
           ref: nxb-143-checkpoint-bound-authenticated-runtime
           fetch-depth: 0
-      - name: Apply OS-lock patch
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 .github/nxb143_lock_patch.py
-          python3 .github/nxb143_lock_clippy_fix.py
+      - name: Eliminate lock-file unlink race
+        run: python3 .github/nxb143_lock_unlink_fix.py
       - name: Install pinned Rust
         uses: dtolnay/rust-toolchain@1.97.1
         with:
@@ -54,15 +49,15 @@ jobs:
           cargo clippy -p nxb-operator-runtime --all-targets --all-features --locked -- -D warnings
           cargo test -p nxb-operator-state -p nxb-operator-runtime --all-features --locked -- --test-threads=1
           git diff --check
-      - name: Commit validated OS-lock runtime
+      - name: Commit validated stable-inode lock
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/nxb143_lock_patch.py .github/nxb143_lock_clippy_fix.py
+          git rm .github/nxb143_lock_unlink_fix.py
           git add crates/nxb-operator-runtime
-          git commit -m "NXB-143: use crash-safe operating-system runtime lock"
+          git commit -m "NXB-143: keep runtime lock inode stable"
           git push origin HEAD:nxb-143-checkpoint-bound-authenticated-runtime
 
   runtime-contract:
