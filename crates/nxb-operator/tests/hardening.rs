@@ -125,10 +125,18 @@ fn scheduler_is_deterministic_under_reordered_input() {
 }
 
 #[test]
-fn secret_like_report_material_is_rejected_before_export() {
-    let error = fixture_report("Authorization: Bearer should-never-be-exported")
-        .expect_err("secret-like material must be rejected");
-    assert!(error.to_string().contains("secret-like"));
+fn secret_like_report_material_is_redacted_before_export() {
+    let report = fixture_report("Authorization: Bearer should-never-be-exported")
+        .expect("secret-like material must be redacted into a safe report");
+    assert_eq!(report.findings[0].summary, "Authorization: ***");
+    report.verify().unwrap();
+
+    let bundle = ReportBundle::build(report).expect("redacted report must remain exportable");
+    for export in [&bundle.json, &bundle.markdown, &bundle.hackerone_draft] {
+        let normalized = export.to_ascii_lowercase();
+        assert!(!normalized.contains("should-never-be-exported"));
+        assert!(!normalized.contains("bearer "));
+    }
 }
 
 #[test]
