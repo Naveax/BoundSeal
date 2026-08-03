@@ -325,7 +325,7 @@ mod enabled {
             .iter()
             .map(OperatorFinding::from_passive)
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        let stop_reason = scheduler_receipt.stop_reason.unwrap_or_else(|| {
+        let stop_reason = scheduler_receipt.stop_reason.unwrap_or({
             if scheduler_receipt.pending > 0 {
                 StopReason::RequestBudgetExhausted
             } else {
