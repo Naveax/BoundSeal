@@ -37,6 +37,7 @@ mod live_execution {
         consumed_at_epoch_seconds: i64,
     }
 
+    #[allow(dead_code)]
     #[derive(Debug)]
     pub struct LiveRunObservation {
         pub receipt: LiveOrchestratorReceipt,
@@ -46,6 +47,7 @@ mod live_execution {
         pub response_body: Vec<u8>,
     }
 
+    #[allow(dead_code)]
     pub fn execute_live_run(
         policy_bytes: &[u8],
         plan: &LiveRunPlan,
@@ -273,4 +275,5 @@ mod live_execution {
 }
 
 #[cfg(feature = "live-network")]
+#[allow(unused_imports)]
 pub use live_execution::{execute_live_run, execute_live_run_observed, LiveRunObservation};
