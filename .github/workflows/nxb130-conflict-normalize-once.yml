@@ -1,0 +1,45 @@
+name: NXB-130 conflict normalization one-shot
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    if: >-
+      github.event.pull_request.number == 36 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'nxb-129-end-to-end-orchestrator-cli'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact internal head branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-129-end-to-end-orchestrator-cli
+          fetch-depth: 0
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+      - name: Merge current main with verified branch precedence on conflict hunks
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git merge --no-edit -X ours origin/main
+      - name: Verify normalized branch
+        run: |
+          cargo check --workspace --all-features --locked
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test --workspace --all-features --locked
+          cargo test -p nxb-live-adapter --locked adversarial_local_lab_produces_sanitized_transcript -- --test-threads=1
+          cargo run -p nxb-core --bin nxb --locked -- demo-run --output target/nxb-demo-receipt.json
+          cargo run -p nxb-core --bin nxb --locked -- verify-demo target/nxb-demo-receipt.json
+      - name: Push verified normalization
+        run: git push origin HEAD:nxb-129-end-to-end-orchestrator-cli
