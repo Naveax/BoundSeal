@@ -75,15 +75,36 @@ The hardening test suite covers:
 
 - malformed config and session inputs without panics;
 - deterministic scheduler ordering;
-- secret-redaction rejection;
+- secret-like finding rejection before report construction;
 - stale temporary-file recovery;
 - unwritable output failure;
 - safe release paths;
 - deterministic checksums;
-- Windows long-path behavior when Windows CI is enabled;
+- Windows long-path behavior;
 - config migration to fail-closed schema v1 defaults.
 
-Release artifacts are represented by an ordered manifest containing per-file SHA-256 values and an SBOM hash. Signing keys are never stored in the repository. Release signing must occur in a separately authorized release job or offline operator environment.
+The release-evidence workflow builds the primary `nxb` binary, emits deterministic CycloneDX metadata, creates `SHA256SUMS`, scans the evidence directory for accidental secret material and uploads an immutable workflow artifact. Signing keys are never stored in the repository.
+
+### Offline Ed25519 release signing
+
+`nxb-release-sign` signs the exact bytes of a validated `SHA256SUMS` file with an operator-provided Ed25519 PKCS#8 document encoded as hexadecimal. On Unix, the private-key file must not be readable or writable by group or other users.
+
+```powershell
+cargo run -p nxb-core --bin nxb-release-sign --locked -- sign `
+  --checksums .\release-evidence\SHA256SUMS `
+  --private-key-hex .\private\release-key.pkcs8.hex `
+  --output .\release-evidence\SHA256SUMS.ed25519.json
+```
+
+Verification requires only the checksum file and the generated certificate, which contains the public key, signer key identifier, payload digest and signature:
+
+```powershell
+cargo run -p nxb-core --bin nxb-release-sign --locked -- verify `
+  --checksums .\release-evidence\SHA256SUMS `
+  --certificate .\release-evidence\SHA256SUMS.ed25519.json
+```
+
+The signing command never prints or copies the private key. Verification fails if the checksum file, signature payload, public key, signer identifier or certificate digest is modified.
 
 ## CLI boundary
 
