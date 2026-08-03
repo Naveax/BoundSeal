@@ -147,9 +147,7 @@ impl DiscoverySessionPlan {
         {
             bail!("discovery-session validity window is invalid");
         }
-        if self.maximum_requests == 0
-            || self.maximum_requests > MAX_DISCOVERY_SESSION_REQUESTS
-        {
+        if self.maximum_requests == 0 || self.maximum_requests > MAX_DISCOVERY_SESSION_REQUESTS {
             bail!("discovery-session request budget is outside supported bounds");
         }
         if self.maximum_depth > MAX_DISCOVERY_SESSION_DEPTH {
@@ -165,8 +163,7 @@ impl DiscoverySessionPlan {
         {
             bail!("total response byte budget is outside supported bounds");
         }
-        if self.minimum_request_interval_milliseconds
-            < MIN_DISCOVERY_SESSION_INTERVAL_MILLISECONDS
+        if self.minimum_request_interval_milliseconds < MIN_DISCOVERY_SESSION_INTERVAL_MILLISECONDS
         {
             bail!("discovery-session request interval is too aggressive");
         }
@@ -495,7 +492,9 @@ fn validate_candidate_url(value: &str) -> Result<Url> {
     {
         bail!("discovery-session URLs must be credential-free HTTPS/443 without query or fragment");
     }
-    let host = url.host_str().context("discovery-session URL has no host")?;
+    let host = url
+        .host_str()
+        .context("discovery-session URL has no host")?;
     if host.parse::<IpAddr>().is_ok()
         || host.ends_with('.')
         || !host.is_ascii()

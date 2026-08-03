@@ -5,24 +5,20 @@ mod live_orchestrator;
 #[path = "../discovery_session.rs"]
 mod discovery_session;
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fs,
-    net::IpAddr,
-    path::{Path, PathBuf},
-};
+use std::{collections::BTreeSet, fs, net::IpAddr, path::PathBuf};
 
 #[cfg(feature = "live-network")]
-use std::{thread, time::Duration};
+use std::{collections::BTreeMap, path::Path, thread, time::Duration};
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 use discovery_session::{
-    hash_bytes, hash_serializable, lower_hex, method_from_code,
-    validate_request_interval_against_policy, DiscoverySessionActivationCertificate,
-    DiscoverySessionActivationPayload, DiscoverySessionPlan,
+    hash_bytes, lower_hex, validate_request_interval_against_policy,
+    DiscoverySessionActivationCertificate, DiscoverySessionActivationPayload, DiscoverySessionPlan,
 };
+#[cfg(feature = "live-network")]
+use discovery_session::{hash_serializable, method_from_code};
 use live_orchestrator::{read_hex_file, read_json, write_json, PlannedMethod};
 use nxb_policy::{CompiledPolicy, TargetPolicy};
 use serde::Serialize;
@@ -31,9 +27,7 @@ use url::Url;
 #[cfg(feature = "live-network")]
 use discovery_session::consume_activation_once;
 #[cfg(feature = "live-network")]
-use live_orchestrator::{
-    execute_discovery_session_request, DiscoverySessionRequestSpec,
-};
+use live_orchestrator::{execute_discovery_session_request, DiscoverySessionRequestSpec};
 #[cfg(feature = "live-network")]
 use nxb_operator::{
     discover_response, write_report_bundle, CoverageSummary, DiscoveryCandidate,
@@ -639,7 +633,7 @@ fn execute_session(
             && !observation.response_body.is_empty()
             && candidate.depth < config.maximum_depth
         {
-            let batch = discover_response(
+            let mut batch = discover_response(
                 &config,
                 policy,
                 &target,
@@ -647,7 +641,19 @@ fn execute_session(
                 observation.response_content_type.as_deref(),
                 &observation.response_body,
             )?;
-            discovered_candidates = discovered_candidates.saturating_add(batch.candidates.len() as u64);
+            batch.candidates.retain(|candidate| {
+                let Ok(url) = Url::parse(&candidate.canonical_url) else {
+                    return false;
+                };
+                let Ok(method) = method_from_code(&candidate.method) else {
+                    return false;
+                };
+                plan.authorize_candidate(&url, method, candidate.depth)
+                    .is_ok()
+                    && policy.allows_request(&url, method.code())
+            });
+            discovered_candidates =
+                discovered_candidates.saturating_add(batch.candidates.len() as u64);
             scheduler.enqueue_batch(batch);
         }
         if total_response_bytes == plan.maximum_total_response_bytes {

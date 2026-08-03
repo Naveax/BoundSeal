@@ -8,9 +8,7 @@ use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use nxb_executor::ExecutionControl;
 use nxb_gateway::{DecisionOutcome, RequestIntent, ScopeGateway};
-use nxb_live_adapter::{
-    LiveAdapterConfig, LivePassivePipeline, LivePassiveRequest, PassiveMethod,
-};
+use nxb_live_adapter::{LiveAdapterConfig, LivePassivePipeline, LivePassiveRequest, PassiveMethod};
 use nxb_passive_analyzers::{
     CachePolicyAnalyzer, CookieSecurityAnalyzer, Finding, HeaderSecurityAnalyzer, ObservedHeader,
     PassiveAnalyzer, ResponseObservation,
@@ -113,7 +111,8 @@ pub fn execute_discovery_session_request(
         dns_resolver_id: spec.dns_resolver_id.clone(),
         dns_ttl_seconds: spec.dns_ttl_seconds,
     };
-    let authorization = transport.authorize_connection(&intent, spec.selected_ip, Duration::ZERO)?;
+    let authorization =
+        transport.authorize_connection(&intent, spec.selected_ip, Duration::ZERO)?;
     if authorization.decision.outcome != DecisionOutcome::Allow {
         bail!(
             "scope gateway denied discovery-session request: {:?}",

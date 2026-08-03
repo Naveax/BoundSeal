@@ -525,6 +525,7 @@ include!("live_orchestrator_live.rs");
 
 #[cfg(feature = "live-network")]
 #[path = "discovery_session_live.rs"]
+#[allow(dead_code)]
 mod discovery_session_live;
 
 #[cfg(feature = "live-network")]
