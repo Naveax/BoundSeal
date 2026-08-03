@@ -83,15 +83,27 @@ impl UnifiedComponentBinding {
                 &self.session_injection_manifest_sha256,
                 "session_injection_manifest_sha256",
             ),
-            (&self.external_vault_plan_sha256, "external_vault_plan_sha256"),
+            (
+                &self.external_vault_plan_sha256,
+                "external_vault_plan_sha256",
+            ),
             (
                 &self.external_vault_bootstrap_receipt_sha256,
                 "external_vault_bootstrap_receipt_sha256",
             ),
-            (&self.external_session_id_sha256, "external_session_id_sha256"),
+            (
+                &self.external_session_id_sha256,
+                "external_session_id_sha256",
+            ),
             (&self.provider_instance_sha256, "provider_instance_sha256"),
-            (&self.provider_capability_sha256, "provider_capability_sha256"),
-            (&self.secret_binding_root_sha256, "secret_binding_root_sha256"),
+            (
+                &self.provider_capability_sha256,
+                "provider_capability_sha256",
+            ),
+            (
+                &self.secret_binding_root_sha256,
+                "secret_binding_root_sha256",
+            ),
         ] {
             validate_sha256(value, field)?;
         }
@@ -211,10 +223,7 @@ impl UnifiedOperatorPlan {
         validate_identifier(&self.operator_id, "operator_id")?;
         self.binding.validate()?;
         validate_sha256(&self.binding_sha256, "binding_sha256")?;
-        validate_sha256(
-            &self.activation_key_id_sha256,
-            "activation_key_id_sha256",
-        )?;
+        validate_sha256(&self.activation_key_id_sha256, "activation_key_id_sha256")?;
         if !self.plan_sha256.is_empty() {
             validate_sha256(&self.plan_sha256, "plan_sha256")?;
         }
@@ -328,7 +337,10 @@ impl UnifiedOperatorActivationPayload {
                 &self.session_injection_manifest_sha256,
                 "session_injection_manifest_sha256",
             ),
-            (&self.external_vault_plan_sha256, "external_vault_plan_sha256"),
+            (
+                &self.external_vault_plan_sha256,
+                "external_vault_plan_sha256",
+            ),
             (
                 &self.external_vault_bootstrap_receipt_sha256,
                 "external_vault_bootstrap_receipt_sha256",
@@ -653,7 +665,7 @@ fn validate_passive_path(path: &str) -> Result<(), UnifiedOperatorError> {
 }
 
 fn decode_lower_hex(value: &str, field: &str) -> Result<Vec<u8>, UnifiedOperatorError> {
-    if value.len() % 2 != 0
+    if !value.len().is_multiple_of(2)
         || !value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
@@ -664,8 +676,10 @@ fn decode_lower_hex(value: &str, field: &str) -> Result<Vec<u8>, UnifiedOperator
         .as_bytes()
         .chunks_exact(2)
         .map(|pair| {
-            let high = hex_nibble(pair[0]).ok_or_else(|| UnifiedOperatorError::InvalidHex(field.into()))?;
-            let low = hex_nibble(pair[1]).ok_or_else(|| UnifiedOperatorError::InvalidHex(field.into()))?;
+            let high = hex_nibble(pair[0])
+                .ok_or_else(|| UnifiedOperatorError::InvalidHex(field.into()))?;
+            let low = hex_nibble(pair[1])
+                .ok_or_else(|| UnifiedOperatorError::InvalidHex(field.into()))?;
             Ok((high << 4) | low)
         })
         .collect()
@@ -762,13 +776,9 @@ mod tests {
 
     fn certificate(plan: &UnifiedOperatorPlan) -> UnifiedOperatorActivationCertificate {
         let key_pair = key_pair();
-        let payload = UnifiedOperatorActivationPayload::template(
-            "activation-1",
-            plan,
-            1_100,
-            1_800,
-        )
-        .expect("valid payload");
+        let payload =
+            UnifiedOperatorActivationPayload::template("activation-1", plan, 1_100, 1_800)
+                .expect("valid payload");
         let signature = key_pair.sign(&payload.signing_bytes().expect("signing bytes"));
         UnifiedOperatorActivationCertificate {
             payload,
@@ -804,7 +814,9 @@ mod tests {
     #[test]
     fn destructive_path_scope_is_rejected() {
         let mut binding = binding();
-        binding.allowed_path_prefixes.insert("/account/logout".into());
+        binding
+            .allowed_path_prefixes
+            .insert("/account/logout".into());
         assert_eq!(
             binding.validate().expect_err("logout path must fail"),
             UnifiedOperatorError::InvalidPathScope

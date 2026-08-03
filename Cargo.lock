@@ -1063,6 +1063,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxb-unified-operator"
+version = "0.1.0"
+dependencies = [
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "nxb-vault"
 version = "0.1.0"
 dependencies = [
