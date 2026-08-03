@@ -875,6 +875,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxb-operator-state"
+version = "0.1.0"
+dependencies = [
+ "nxb-unified-operator",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "nxb-passive-analyzers"
 version = "0.1.0"
 dependencies = [
