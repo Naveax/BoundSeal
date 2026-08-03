@@ -1,0 +1,56 @@
+name: NXB-139 canonicalize
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  canonicalize:
+    name: Canonical lockfile and Rustfmt
+    runs-on: ubuntu-slim
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout NXB-139 branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-139-external-vault-provider-lifecycle
+          fetch-depth: 0
+
+      - name: Install pinned Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.97.1
+          fi
+          source "$HOME/.cargo/env" 2>/dev/null || true
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
+          rustup default 1.97.1
+
+      - name: Canonicalize source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$HOME/.cargo/env" 2>/dev/null || true
+          cargo generate-lockfile
+          cargo fmt --all
+          cargo fmt --all -- --check
+          git diff --check
+
+      - name: Commit canonical output
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock crates/nxb-vault-provider Cargo.toml README.md CHANGELOG.md docs/STATUS.md docs/NXB-139-EXTERNAL-VAULT-PROVIDER-LIFECYCLE.md
+          git commit -m "chore: canonicalize NXB-139 source"
+          git push origin HEAD:nxb-139-external-vault-provider-lifecycle
