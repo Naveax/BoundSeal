@@ -1,5 +1,6 @@
 #[cfg(feature = "live-network")]
 #[path = "../live_orchestrator.rs"]
+#[allow(dead_code, unused_imports)]
 mod live_orchestrator;
 
 #[cfg(feature = "live-network")]
@@ -108,8 +109,7 @@ mod enabled {
         let now = parse_now(cli.now)?;
         let policy_bytes = fs::read(&cli.policy)
             .with_context(|| format!("could not read policy {}", cli.policy.display()))?;
-        let policy_text =
-            std::str::from_utf8(&policy_bytes).context("policy file is not UTF-8")?;
+        let policy_text = std::str::from_utf8(&policy_bytes).context("policy file is not UTF-8")?;
         let compiled = TargetPolicy::from_toml(policy_text)?.compile(now)?;
 
         let plan: LiveRunPlan = read_json(&cli.plan)?;
