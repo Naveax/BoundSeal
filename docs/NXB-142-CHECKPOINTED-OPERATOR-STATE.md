@@ -64,4 +64,6 @@ The caller must enter `teardown_pending` or `aborted` before provider/session/va
 
 ## Validation
 
-The permanent NXB-142 workflow runs targeted check, all-target/all-feature Clippy and deterministic state tests on Ubuntu, plus state/recovery tests on Windows. Repository-wide CI additionally runs the full workspace test suite, RustSec, cargo-deny, operator platform checks and release evidence generation.
+The permanent NXB-142 state-hardening workflow runs targeted check, all-target/all-feature Clippy and deterministic state tests on Ubuntu, plus state/recovery tests on Windows.
+
+The independent NXB-142 full-verification workflow also verifies the canonical lockfile, full workspace check/Clippy/tests, synthetic demo, RustSec, cargo-deny, release binary, deterministic CycloneDX SBOM, SHA-256 checksums and immutable secret-scanned evidence on Ubuntu-slim. Repository-wide CI and operator release-hardening remain additional independent gates.
