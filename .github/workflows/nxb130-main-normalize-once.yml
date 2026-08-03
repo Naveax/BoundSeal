@@ -1,0 +1,42 @@
+name: NXB-130 main normalization one-shot
+
+on:
+  push:
+    branches:
+      - nxb-130-local-adversarial-integration-lab
+    paths:
+      - ".github/workflows/nxb130-main-normalize-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    if: github.ref == 'refs/heads/nxb-130-local-adversarial-integration-lab'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-130-local-adversarial-integration-lab
+          fetch-depth: 0
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+      - name: Merge current main while preserving verified NXB-130 conflict hunks
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git merge --no-edit -X ours origin/main
+      - name: Verify normalized branch
+        run: |
+          cargo check --workspace --all-features --locked
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test --workspace --all-features --locked
+          cargo test -p nxb-live-adapter --locked adversarial_local_lab_produces_sanitized_transcript -- --test-threads=1
+          cargo run -p nxb-core --bin nxb --locked -- demo-run --output target/nxb-demo-receipt.json
+          cargo run -p nxb-core --bin nxb --locked -- verify-demo target/nxb-demo-receipt.json
+      - name: Push verified merge
+        run: git push origin HEAD:nxb-130-local-adversarial-integration-lab
