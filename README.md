@@ -4,16 +4,16 @@ NXBounty is a private, deterministic and scope-enforced bug bounty research plat
 
 ## Current status
 
-The architecture-contract program is complete through **NXB-119**. The repository contains 34 Rust crates covering policy, scope enforcement, destination and DNS pinning, one-use transport permits, bounded streams, strict HTTP/1 framing, secret/session boundaries, redirect isolation, TLS identity contracts, request planning, passive analysis, safe validation, evidence/reporting, workflow certification, replay, release governance, lifecycle governance and post-closure governance.
+The verified implementation is complete through **NXB-139**. The workspace now contains 38 private Rust crates spanning policy and scope enforcement, pinned live HTTPS transport, signed one-request and bounded discovery sessions, passive analysis/reporting, vault-backed session injection, and a signed one-use external vault-provider lifecycle.
 
-This does **not** mean the product is a live scanner. The current release is a networkless contract-complete foundation with deterministic fixtures and a synthetic end-to-end smoke demo.
+This is still not an unrestricted scanner. Live execution remains compile-time gated, explicitly acknowledged, signed, same-origin, HTTPS/443, GET/HEAD-only, sequential and resource bounded. No concrete external vault backend or unified authenticated operator CLI is enabled yet.
 
 ## What works
 
 - policy and authorization validation;
 - public-destination guardrails and scope narrowing;
 - one-use permit, executor, stream, TLS and HTTP contract layers;
-- in-memory secret, session and cookie lifecycle contracts;
+- in-memory and external-provider secret/session lifecycle contracts;
 - deterministic content analysis, planning, passive findings and validation contracts;
 - evidence, reporting, workflow, replay and release/lifecycle certification;
 - append-only metadata-only audit chains;
@@ -22,8 +22,8 @@ This does **not** mean the product is a live scanner. The current release is a n
 
 ## What is intentionally not enabled
 
-- real DNS resolution, sockets or public-network traffic;
-- browser, proxy or scanner automation;
+- unrestricted resolver, socket or public-network traffic;
+- browser, proxy or unrestricted scanner automation;
 - credential discovery, brute force or spraying;
 - destructive testing, persistence or lateral movement;
 - arbitrary shell, process or plugin execution;
@@ -74,4 +74,4 @@ The demo performs no I/O outside the selected output file. It creates a hash-cha
 
 ## Repository status
 
-Private. Every workspace package is marked `publish = false`. The intended first checkpoint is `v0.1.0-contract-complete`.
+Every workspace package is marked `publish = false`. The repository includes verified live-network components but still requires signed plans, one-use activations and explicit operator acknowledgement.

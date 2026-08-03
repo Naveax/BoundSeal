@@ -36,6 +36,7 @@ members = [
     "crates/nxb-tls",
     "crates/nxb-transport",
     "crates/nxb-vault",
+    "crates/nxb-vault-provider",
     "crates/nxb-workflow-graph",
 ]
 resolver = "2"
