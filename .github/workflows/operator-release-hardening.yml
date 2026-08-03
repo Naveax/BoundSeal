@@ -5,6 +5,8 @@ on:
     paths:
       - "crates/nxb-operator/**"
       - "crates/nxb-core/**"
+      - "crates/nxb-vault-provider/**"
+      - "crates/nxb-vault-provider-process/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/operator-release-hardening.yml"
@@ -23,7 +25,7 @@ jobs:
           - ubuntu-latest
           - windows-latest
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout tested revision
         uses: actions/checkout@v7
@@ -31,6 +33,8 @@ jobs:
         run: rustup show active-toolchain
       - name: Verify lockfile
         run: cargo check --workspace --all-targets --locked
+      - name: Process vault-provider tests
+        run: cargo test -p nxb-vault-provider-process --all-features --locked -- --test-threads=1
       - name: Operator tests
         run: cargo test -p nxb-operator --locked -- --test-threads=1
       - name: Core CLI tests
