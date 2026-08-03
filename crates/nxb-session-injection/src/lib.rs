@@ -13,7 +13,6 @@ use ring::signature::{UnparsedPublicKey, ED25519};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use url::Url;
 
 pub const SESSION_INJECTION_MANIFEST_VERSION: u32 = 1;
 pub const SESSION_INJECTION_ACTIVATION_VERSION: u32 = 1;
