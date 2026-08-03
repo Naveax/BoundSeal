@@ -183,12 +183,14 @@ pub fn bootstrap_external_session<P: ExternalVaultProvider>(
                 allowed_hosts: BTreeSet::from([plan.authority.clone()]),
                 allowed_schemes: BTreeSet::from([plan.scheme.clone()]),
             };
+            let delivery = spec.delivery.secret_delivery()?;
+            let value = std::mem::take(&mut *material.value);
             let handle = vault.insert(
                 SecretInput {
                     kind: spec.kind,
-                    value: std::mem::take(&mut *material.value),
+                    value,
                     binding,
-                    delivery: spec.delivery.secret_delivery()?,
+                    delivery,
                     expires_at_epoch_seconds: Some(material.expires_at_epoch_seconds),
                 },
                 now_epoch_seconds,
@@ -354,15 +356,13 @@ pub fn deprovision_external_session(
     now_epoch_seconds: i64,
 ) -> Result<ExternalVaultTeardownReceipt, VaultProviderError> {
     provisioned.receipt.verify()?;
-    broker.revoke_session(&provisioned.session.session_id)?;
-    let mut revoke_error = None;
-    for handle in &provisioned.handles {
-        if let Err(error) = vault.revoke_secret(handle) {
-            revoke_error.get_or_insert(error);
-        }
-    }
-    if let Some(error) = revoke_error {
-        return Err(error.into());
+    if let Err(error) = rollback_provisioning(
+        Some(&provisioned.session),
+        &provisioned.handles,
+        broker,
+        vault,
+    ) {
+        return Err(VaultProviderError::TeardownFailed(error));
     }
     let mut receipt = ExternalVaultTeardownReceipt {
         version: EXTERNAL_VAULT_TEARDOWN_VERSION,

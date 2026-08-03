@@ -69,6 +69,7 @@ impl ProviderSecretMaterial {
         value: Vec<u8>,
         expires_at_epoch_seconds: i64,
     ) -> Result<Self, VaultProviderError> {
+        let value = Zeroizing::new(value);
         let version_id = version_id.into();
         validate_identifier(&version_id, "provider_version_id")?;
         if value.is_empty() || value.len() > MAX_SECRET_BYTES {
@@ -76,7 +77,7 @@ impl ProviderSecretMaterial {
         }
         Ok(Self {
             version_id,
-            value: Zeroizing::new(value),
+            value,
             expires_at_epoch_seconds,
         })
     }

@@ -427,6 +427,39 @@ mod tests {
     }
 
     #[test]
+    fn teardown_still_revokes_vault_values_when_broker_is_wrong() {
+        let key_pair = Ed25519KeyPair::from_seed_unchecked(&[19_u8; 32]).unwrap();
+        let plan = plan(key_pair.public_key().as_ref());
+        let certificate = certificate(&plan, &key_pair);
+        let consumed = consumed(&plan, &certificate, &key_pair, "wrong-broker-teardown");
+        let mut provider = provider();
+        let mut vault = InMemorySecretVault::new("wrong-broker-vault").unwrap();
+        let mut original_broker = SessionBroker::new("original-broker").unwrap();
+        let provisioned = bootstrap_external_session(
+            &plan,
+            consumed,
+            &mut provider,
+            &mut original_broker,
+            &mut vault,
+            NOW + 1,
+        )
+        .unwrap();
+        assert_eq!(vault.secret_count(), 2);
+
+        let mut wrong_broker = SessionBroker::new("wrong-broker").unwrap();
+        assert!(matches!(
+            deprovision_external_session(
+                provisioned,
+                &mut wrong_broker,
+                &mut vault,
+                NOW + 2,
+            ),
+            Err(VaultProviderError::TeardownFailed(_))
+        ));
+        assert_eq!(vault.secret_count(), 0);
+    }
+
+    #[test]
     fn duplicate_or_broad_specs_fail_before_provider_use() {
         let key_pair = Ed25519KeyPair::from_seed_unchecked(&[18_u8; 32]).unwrap();
         let mut duplicate = specs();

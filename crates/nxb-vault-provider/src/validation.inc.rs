@@ -164,6 +164,8 @@ pub enum VaultProviderError {
     ReceiptBindingMismatch,
     #[error("external-vault bootstrap receipt digest mismatch")]
     ReceiptDigestMismatch,
+    #[error("external-vault teardown failed after attempting all revocations: {0}")]
+    TeardownFailed(String),
     #[error("external-vault teardown receipt is invalid")]
     InvalidTeardownReceipt,
     #[error("external-vault teardown receipt digest mismatch")]
