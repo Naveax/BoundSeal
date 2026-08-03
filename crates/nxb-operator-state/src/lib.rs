@@ -35,11 +35,14 @@ impl OperatorRunStatus {
     }
 
     fn requires_reason(self) -> bool {
-        matches!(self, Self::TeardownPending | Self::Completed | Self::Aborted)
+        matches!(
+            self,
+            Self::TeardownPending | Self::Completed | Self::Aborted
+        )
     }
 
     fn permits_continuation(self) -> bool {
-        matches!(self, Self::Running)
+        matches!(self, Self::Ready | Self::Running)
     }
 }
 
@@ -140,9 +143,7 @@ impl OperatorCheckpoint {
                 operator_id: plan.operator_id.clone(),
                 plan_sha256: plan.plan_sha256.clone(),
                 binding_sha256: plan.binding_sha256.clone(),
-                activation_certificate_sha256: consumed
-                    .activation_certificate_sha256()
-                    .to_owned(),
+                activation_certificate_sha256: consumed.activation_certificate_sha256().to_owned(),
                 activation_expires_at_epoch_seconds: consumed.expires_at_epoch_seconds(),
             },
             status: OperatorRunStatus::Ready,
@@ -216,6 +217,7 @@ pub struct OperatorStateStore {
     directory: PathBuf,
     plan: UnifiedOperatorPlan,
     activation_certificate_sha256: String,
+    activation_marker_path: PathBuf,
 }
 
 impl fmt::Debug for OperatorStateStore {
@@ -229,6 +231,7 @@ impl fmt::Debug for OperatorStateStore {
                 "activation_certificate_sha256",
                 &self.activation_certificate_sha256,
             )
+            .field("activation_marker_path", &self.activation_marker_path)
             .finish()
     }
 }
@@ -256,9 +259,8 @@ impl OperatorStateStore {
         let store = Self {
             directory,
             plan,
-            activation_certificate_sha256: consumed
-                .activation_certificate_sha256()
-                .to_owned(),
+            activation_certificate_sha256: consumed.activation_certificate_sha256().to_owned(),
+            activation_marker_path: consumed.marker_path().to_path_buf(),
         };
         let mut initial = OperatorCheckpoint::initial(&store.plan, consumed, now_epoch_seconds);
         initial.checkpoint_sha256 = initial.calculate_sha256()?;
@@ -275,6 +277,7 @@ impl OperatorStateStore {
         directory: impl Into<PathBuf>,
         plan: UnifiedOperatorPlan,
         activation_certificate_sha256: impl Into<String>,
+        activation_marker_path: impl Into<PathBuf>,
         now_epoch_seconds: i64,
     ) -> Result<(Self, RecoveredOperatorState), OperatorStateError> {
         verify_plan_digest(&plan)?;
@@ -283,10 +286,15 @@ impl OperatorStateStore {
             &activation_certificate_sha256,
             "activation_certificate_sha256",
         )?;
+        let activation_marker_path = activation_marker_path.into();
+        if !activation_marker_path.is_file() {
+            return Err(OperatorStateError::ActivationMarkerMissing);
+        }
         let store = Self {
             directory: directory.into(),
             plan,
             activation_certificate_sha256,
+            activation_marker_path,
         };
         let recovered = store.recover(now_epoch_seconds)?;
         Ok((store, recovered))
@@ -297,6 +305,9 @@ impl OperatorStateStore {
         now_epoch_seconds: i64,
     ) -> Result<RecoveredOperatorState, OperatorStateError> {
         verify_plan_digest(&self.plan)?;
+        if !self.activation_marker_path.is_file() {
+            return Err(OperatorStateError::ActivationMarkerMissing);
+        }
         let entries = checkpoint_entries(&self.directory)?;
         if entries.is_empty() {
             return Err(OperatorStateError::CheckpointChainEmpty);
@@ -405,7 +416,9 @@ impl OperatorStateStore {
         checkpoint: &OperatorCheckpoint,
         bytes: &[u8],
     ) -> Result<(), OperatorStateError> {
-        let final_path = self.directory.join(checkpoint_file_name(checkpoint.sequence));
+        let final_path = self
+            .directory
+            .join(checkpoint_file_name(checkpoint.sequence));
         let temporary_path = self.directory.join(format!(
             ".{}.{}.tmp",
             checkpoint_file_name(checkpoint.sequence),
@@ -443,8 +456,7 @@ fn validate_transition(
     plan: &UnifiedOperatorPlan,
 ) -> Result<(), OperatorStateError> {
     if next.sequence != previous.sequence + 1
-        || next.previous_checkpoint_sha256.as_deref()
-            != Some(previous.checkpoint_sha256.as_str())
+        || next.previous_checkpoint_sha256.as_deref() != Some(previous.checkpoint_sha256.as_str())
     {
         return Err(OperatorStateError::CheckpointChainMismatch);
     }
@@ -469,11 +481,20 @@ fn validate_transition(
             | (OperatorRunStatus::Ready, OperatorRunStatus::TeardownPending)
             | (OperatorRunStatus::Ready, OperatorRunStatus::Aborted)
             | (OperatorRunStatus::Running, OperatorRunStatus::Running)
-            | (OperatorRunStatus::Running, OperatorRunStatus::TeardownPending)
+            | (
+                OperatorRunStatus::Running,
+                OperatorRunStatus::TeardownPending
+            )
             | (OperatorRunStatus::Running, OperatorRunStatus::Completed)
             | (OperatorRunStatus::Running, OperatorRunStatus::Aborted)
-            | (OperatorRunStatus::TeardownPending, OperatorRunStatus::Completed)
-            | (OperatorRunStatus::TeardownPending, OperatorRunStatus::Aborted)
+            | (
+                OperatorRunStatus::TeardownPending,
+                OperatorRunStatus::Completed
+            )
+            | (
+                OperatorRunStatus::TeardownPending,
+                OperatorRunStatus::Aborted
+            )
     );
     if !transition_allowed {
         return Err(OperatorStateError::InvalidStatusTransition);
@@ -603,6 +624,8 @@ pub enum OperatorStateError {
     InvalidActivationExpiry,
     #[error("activation expired before continuation")]
     ActivationExpired,
+    #[error("consumed activation marker is missing")]
+    ActivationMarkerMissing,
     #[error("state directory must be empty during initialization")]
     StateDirectoryNotEmpty,
     #[error("checkpoint chain is empty")]
@@ -671,7 +694,10 @@ mod tests {
         UnifiedOperatorActivationPayload, UnifiedOperatorPlanParameters,
     };
     use ring::signature::{Ed25519KeyPair, KeyPair};
-    use std::{collections::BTreeSet, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        collections::BTreeSet,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     fn sha(character: char) -> String {
         character.to_string().repeat(64)
@@ -767,13 +793,9 @@ mod tests {
             1_100,
         )
         .expect("consume activation");
-        let (store, recovered) = OperatorStateStore::initialize(
-            &state_directory,
-            plan,
-            &consumed,
-            1_100,
-        )
-        .expect("initialize store");
+        let (store, recovered) =
+            OperatorStateStore::initialize(&state_directory, plan, &consumed, 1_100)
+                .expect("initialize store");
         assert_eq!(recovered.latest.status, OperatorRunStatus::Ready);
         (root, store)
     }
@@ -803,6 +825,7 @@ mod tests {
             store.directory(),
             store.plan.clone(),
             store.activation_certificate_sha256.clone(),
+            store.activation_marker_path.clone(),
             1_300,
         )
         .expect("open state");
@@ -891,6 +914,16 @@ mod tests {
         bytes[position] = b'1';
         fs::write(&path, bytes).expect("tamper checkpoint");
         assert!(store.recover(1_200).is_err());
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+    #[test]
+    fn missing_activation_marker_blocks_recovery() {
+        let (root, store) = initialized_store("marker", 1024 * 1024);
+        fs::remove_file(&store.activation_marker_path).expect("remove marker");
+        assert!(matches!(
+            store.recover(1_200).expect_err("missing marker must fail"),
+            OperatorStateError::ActivationMarkerMissing
+        ));
         fs::remove_dir_all(root).expect("cleanup");
     }
 
