@@ -1,0 +1,137 @@
+name: NXB-137 one-time source normalization
+
+on:
+  push:
+    branches:
+      - nxb-137-signed-bounded-discovery-session
+    paths:
+      - .github/workflows/nxb137-patch-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: nxb-137-signed-bounded-discovery-session
+      - name: Apply exact NXB-137 fixes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          contract = Path('crates/nxb-core/src/discovery_session.rs')
+          text = contract.read_text()
+          old = '''    pub fn request_target(&self, candidate: &Url) -> Result<String> {
+              self.authorize_candidate(candidate, self.seed_method, 0)
+                  .or_else(|_| {
+                      let parsed = validate_candidate_url(candidate.as_str())?;
+                      if hash_bytes(normalized_origin(&parsed)?.as_bytes())
+                          != self.target_origin_sha256
+                      {
+                          bail!("candidate origin is outside the signed discovery session");
+                      }
+                      request_target(&parsed)
+                  })?;
+              request_target(candidate)
+          }
+          '''
+          new = '''    pub fn request_target(&self, candidate: &Url) -> Result<String> {
+              let parsed = validate_candidate_url(candidate.as_str())?;
+              if hash_bytes(normalized_origin(&parsed)?.as_bytes()) != self.target_origin_sha256 {
+                  bail!("candidate origin is outside the signed discovery session");
+              }
+              request_target(&parsed)
+          }
+          '''
+          if old not in text:
+              raise SystemExit('request_target block did not match')
+          contract.write_text(text.replace(old, new, 1))
+
+          binary = Path('crates/nxb-core/src/bin/nxb-discovery-session.rs')
+          text = binary.read_text()
+          old = '''use std::{
+              collections::{BTreeMap, BTreeSet},
+              fs,
+              net::IpAddr,
+              path::{Path, PathBuf},
+          };
+
+          #[cfg(feature = "live-network")]
+          use std::{thread, time::Duration};
+          '''
+          new = '''use std::{collections::BTreeSet, fs, net::IpAddr, path::PathBuf};
+
+          #[cfg(feature = "live-network")]
+          use std::{collections::BTreeMap, path::Path, thread, time::Duration};
+          '''
+          if old not in text:
+              raise SystemExit('std import block did not match')
+          text = text.replace(old, new, 1)
+
+          old = '''use discovery_session::{
+              hash_bytes, hash_serializable, lower_hex, method_from_code,
+              validate_request_interval_against_policy, DiscoverySessionActivationCertificate,
+              DiscoverySessionActivationPayload, DiscoverySessionPlan,
+          };
+          '''
+          new = '''use discovery_session::{
+              hash_bytes, lower_hex, validate_request_interval_against_policy,
+              DiscoverySessionActivationCertificate, DiscoverySessionActivationPayload,
+              DiscoverySessionPlan,
+          };
+          #[cfg(feature = "live-network")]
+          use discovery_session::{hash_serializable, method_from_code};
+          '''
+          if old not in text:
+              raise SystemExit('discovery import block did not match')
+          text = text.replace(old, new, 1)
+
+          old = '''            let batch = discover_response(
+                      &config,
+                      policy,
+                      &target,
+                      candidate.depth,
+                      observation.response_content_type.as_deref(),
+                      &observation.response_body,
+                  )?;
+                  discovered_candidates = discovered_candidates.saturating_add(batch.candidates.len() as u64);
+                  scheduler.enqueue_batch(batch);
+          '''
+          new = '''            let mut batch = discover_response(
+                      &config,
+                      policy,
+                      &target,
+                      candidate.depth,
+                      observation.response_content_type.as_deref(),
+                      &observation.response_body,
+                  )?;
+                  batch.candidates.retain(|candidate| {
+                      let Ok(url) = Url::parse(&candidate.canonical_url) else {
+                          return false;
+                      };
+                      let Ok(method) = method_from_code(&candidate.method) else {
+                          return false;
+                      };
+                      plan.authorize_candidate(&url, method, candidate.depth).is_ok()
+                          && policy.allows_request(&url, method.code())
+                  });
+                  discovered_candidates = discovered_candidates
+                      .saturating_add(batch.candidates.len() as u64);
+                  scheduler.enqueue_batch(batch);
+          '''
+          if old not in text:
+              raise SystemExit('discovery enqueue block did not match')
+          binary.write_text(text.replace(old, new, 1))
+          PY
+          cargo fmt --all
+      - name: Commit normalized sources
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/nxb-core/src/discovery_session.rs crates/nxb-core/src/bin/nxb-discovery-session.rs
+          git commit -m "NXB-137: fix contract typing and candidate filtering"
+          git push origin HEAD:nxb-137-signed-bounded-discovery-session
