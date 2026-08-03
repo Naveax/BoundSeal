@@ -1,0 +1,252 @@
+name: NXB-142 state-engine validation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb142-state-validation
+  cancel-in-progress: true
+
+jobs:
+  validate-state-engine:
+    if: github.head_ref == 'nxb-142-validation'
+    runs-on: ubuntu-slim
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact NXB-142 source branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-142-checkpointed-bounded-operator-state
+          fetch-depth: 0
+
+      - name: Apply activation-marker and resume hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('crates/nxb-operator-state/src/lib.rs')
+          text = path.read_text(encoding='utf-8')
+
+          old = '''    fn permits_continuation(self) -> bool {
+              matches!(self, Self::Running)
+          }
+          '''
+          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines()) + '\n'
+          new = '''    fn permits_continuation(self) -> bool {
+              matches!(self, Self::Ready | Self::Running)
+          }
+          '''
+          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines()) + '\n'
+          if text.count(old) != 1:
+              raise SystemExit('unexpected continuation helper')
+          text = text.replace(old, new, 1)
+
+          old = '''pub struct OperatorStateStore {
+              directory: PathBuf,
+              plan: UnifiedOperatorPlan,
+              activation_certificate_sha256: String,
+          }
+          '''
+          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines()) + '\n'
+          new = '''pub struct OperatorStateStore {
+              directory: PathBuf,
+              plan: UnifiedOperatorPlan,
+              activation_certificate_sha256: String,
+              activation_marker_path: PathBuf,
+          }
+          '''
+          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines()) + '\n'
+          if text.count(old) != 1:
+              raise SystemExit('unexpected state-store fields')
+          text = text.replace(old, new, 1)
+
+          old = '''            .field(
+                  "activation_certificate_sha256",
+                  &self.activation_certificate_sha256,
+              )
+              .finish()
+          '''
+          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines()) + '\n'
+          new = '''            .field(
+                  "activation_certificate_sha256",
+                  &self.activation_certificate_sha256,
+              )
+              .field("activation_marker_path", &self.activation_marker_path)
+              .finish()
+          '''
+          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines()) + '\n'
+          if text.count(old) != 1:
+              raise SystemExit('unexpected Debug implementation')
+          text = text.replace(old, new, 1)
+
+          old = '''        let store = Self {
+              directory,
+              plan,
+              activation_certificate_sha256: consumed
+                  .activation_certificate_sha256()
+                  .to_owned(),
+          };
+          '''
+          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines()) + '\n'
+          new = '''        let store = Self {
+              directory,
+              plan,
+              activation_certificate_sha256: consumed
+                  .activation_certificate_sha256()
+                  .to_owned(),
+              activation_marker_path: consumed.marker_path().to_path_buf(),
+          };
+          '''
+          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines()) + '\n'
+          if text.count(old) != 1:
+              raise SystemExit('unexpected initialize store')
+          text = text.replace(old, new, 1)
+
+          old = '''    pub fn open(
+              directory: impl Into<PathBuf>,
+              plan: UnifiedOperatorPlan,
+              activation_certificate_sha256: impl Into<String>,
+              now_epoch_seconds: i64,
+          ) -> Result<(Self, RecoveredOperatorState), OperatorStateError> {
+          '''
+          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines()) + '\n'
+          new = '''    pub fn open(
+              directory: impl Into<PathBuf>,
+              plan: UnifiedOperatorPlan,
+              activation_certificate_sha256: impl Into<String>,
+              activation_marker_path: impl Into<PathBuf>,
+              now_epoch_seconds: i64,
+          ) -> Result<(Self, RecoveredOperatorState), OperatorStateError> {
+          '''
+          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines()) + '\n'
+          if text.count(old) != 1:
+              raise SystemExit('unexpected open signature')
+          text = text.replace(old, new, 1)
+
+          old = '''        let store = Self {
+              directory: directory.into(),
+              plan,
+              activation_certificate_sha256,
+          };
+          '''
+          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines()) + '\n'
+          new = '''        let activation_marker_path = activation_marker_path.into();
+              if !activation_marker_path.is_file() {
+                  return Err(OperatorStateError::ActivationMarkerMissing);
+              }
+              let store = Self {
+                  directory: directory.into(),
+                  plan,
+                  activation_certificate_sha256,
+                  activation_marker_path,
+              };
+          '''
+          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines()) + '\n'
+          if text.count(old) != 1:
+              raise SystemExit('unexpected open store')
+          text = text.replace(old, new, 1)
+
+          old = '''        verify_plan_digest(&self.plan)?;
+              let entries = checkpoint_entries(&self.directory)?;
+          '''
+          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines()) + '\n'
+          new = '''        verify_plan_digest(&self.plan)?;
+              if !self.activation_marker_path.is_file() {
+                  return Err(OperatorStateError::ActivationMarkerMissing);
+              }
+              let entries = checkpoint_entries(&self.directory)?;
+          '''
+          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines()) + '\n'
+          if text.count(old) != 1:
+              raise SystemExit('unexpected recovery prelude')
+          text = text.replace(old, new, 1)
+
+          old = '''    #[error("activation expired before continuation")]
+              ActivationExpired,
+          '''
+          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines()) + '\n'
+          new = '''    #[error("activation expired before continuation")]
+              ActivationExpired,
+              #[error("consumed activation marker is missing")]
+              ActivationMarkerMissing,
+          '''
+          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines()) + '\n'
+          if text.count(old) != 1:
+              raise SystemExit('unexpected activation error block')
+          text = text.replace(old, new, 1)
+
+          old = '''        let (_, opened) = OperatorStateStore::open(
+              store.directory(),
+              store.plan.clone(),
+              store.activation_certificate_sha256.clone(),
+              1_300,
+          )
+          '''
+          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines()) + '\n'
+          new = '''        let (_, opened) = OperatorStateStore::open(
+              store.directory(),
+              store.plan.clone(),
+              store.activation_certificate_sha256.clone(),
+              store.activation_marker_path.clone(),
+              1_300,
+          )
+          '''
+          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines()) + '\n'
+          if text.count(old) != 1:
+              raise SystemExit('unexpected open test call')
+          text = text.replace(old, new, 1)
+
+          insertion = '''
+              #[test]
+              fn missing_activation_marker_blocks_recovery() {
+                  let (root, store) = initialized_store("marker", 1024 * 1024);
+                  fs::remove_file(&store.activation_marker_path).expect("remove marker");
+                  assert!(matches!(
+                      store.recover(1_200).expect_err("missing marker must fail"),
+                      OperatorStateError::ActivationMarkerMissing
+                  ));
+                  fs::remove_dir_all(root).expect("cleanup");
+              }
+          '''
+          insertion = '\n'.join(line[14:] if line.startswith('              ') else line for line in insertion.splitlines()) + '\n'
+          anchor = '\n    #[test]\n    fn interrupted_publication_is_rejected() {'
+          if insertion.strip() not in text:
+              if text.count(anchor) != 1:
+                  raise SystemExit('unexpected test insertion anchor')
+              text = text.replace(anchor, insertion + anchor, 1)
+
+          path.write_text(text, encoding='utf-8', newline='\n')
+          PY
+
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+
+      - name: Canonicalize and validate state engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          cargo fmt --all
+          cargo check -p nxb-operator-state --all-features --locked
+          cargo clippy -p nxb-operator-state --all-targets --all-features --locked -- -D warnings
+          cargo test -p nxb-operator-state --all-features --locked -- --test-threads=1
+          git diff --check
+
+      - name: Commit validated state engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock crates/nxb-operator-state
+          git commit -m "NXB-142: checkpointed bounded operator state"
+          git push origin HEAD:nxb-142-checkpointed-bounded-operator-state
