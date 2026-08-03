@@ -27,6 +27,18 @@ jobs:
         uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
+      - name: Apply verified Rust 1.97 normalization
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('crates/nxb-unified-operator/src/lib.rs')
+          text = path.read_text()
+          old = 'if value.len() % 2 != 0\n'
+          new = 'if !value.len().is_multiple_of(2)\n'
+          if text.count(old) != 1:
+              raise SystemExit('expected exactly one manual modulo check')
+          path.write_text(text.replace(old, new))
+          PY
       - name: Canonicalize lockfile and Rust
         run: |
           cargo generate-lockfile
@@ -38,11 +50,11 @@ jobs:
           cargo test -p nxb-unified-operator --all-features --locked
       - name: Commit canonical files to source branch
         run: |
-          if git diff --quiet -- Cargo.lock crates/nxb-unified-operator/src/lib.rs; then
-            exit 0
-          fi
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add Cargo.lock crates/nxb-unified-operator/src/lib.rs
+          if git diff --cached --quiet; then
+            exit 0
+          fi
           git commit -m 'NXB-140: canonicalize unified operator contract'
           git push origin HEAD:nxb-140-unified-live-operator
