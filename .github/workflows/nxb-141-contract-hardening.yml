@@ -21,8 +21,8 @@ jobs:
           ref: nxb-140-unified-live-operator
           fetch-depth: 0
 
-      - name: Apply artifact publication hardening
-        run: python3 tools/nxb141_contract_hardening.py
+      - name: Apply bounded-input hardening
+        run: python3 tools/nxb141_input_hardening.py
 
       - name: Install pinned Rust
         shell: bash
@@ -49,7 +49,7 @@ jobs:
           cargo test -p nxb-core --bin nxb-unified-operator --all-features --locked -- --test-threads=1
           git diff --check
 
-      - name: Commit hardened canonical sources
+      - name: Commit bounded canonical sources
         shell: bash
         run: |
           set -euo pipefail
@@ -58,5 +58,5 @@ jobs:
           git add Cargo.lock \
             crates/nxb-unified-operator/src/lib.rs \
             crates/nxb-core/src/bin/nxb-unified-operator.rs
-          git commit -m "fix: publish unified operator artifacts atomically"
+          git commit -m "fix: bound unified operator artifacts and path scope"
           git push origin HEAD:nxb-140-unified-live-operator
