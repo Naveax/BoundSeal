@@ -1,0 +1,248 @@
+name: NXB-141 clean materialization
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb141-clean-materialization
+  cancel-in-progress: true
+
+jobs:
+  materialize-and-validate:
+    if: github.head_ref == 'nxb-141-validation'
+    runs-on: ubuntu-slim
+    timeout-minutes: 55
+    steps:
+      - name: Checkout clean NXB-141 target branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-141-unified-authenticated-operator
+          fetch-depth: 0
+
+      - name: Materialize unique product sources on current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin nxb-140-unified-live-operator
+          git checkout origin/nxb-140-unified-live-operator -- \
+            crates/nxb-unified-operator \
+            crates/nxb-core/src/bin/nxb-unified-operator.rs \
+            docs/NXB-141-UNIFIED-OPERATOR-CONTRACT.md
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('Cargo.toml')
+          text = root.read_text(encoding='utf-8')
+          member = '    "crates/nxb-unified-operator",\n'
+          if member not in text:
+              anchor = '    "crates/nxb-vault",\n'
+              if text.count(anchor) != 1:
+                  raise SystemExit('unexpected root workspace anchor')
+              text = text.replace(anchor, member + anchor, 1)
+          root.write_text(text, encoding='utf-8', newline='\n')
+
+          core = Path('crates/nxb-core/Cargo.toml')
+          text = core.read_text(encoding='utf-8')
+          additions = [
+              ('nxb-session-injection = { path = "../nxb-session-injection" }\n', 'nxb-stream = { path = "../nxb-stream", optional = true }\n'),
+              ('nxb-unified-operator = { path = "../nxb-unified-operator" }\n', 'nxb-vault-provider = { path = "../nxb-vault-provider" }\n'),
+              ('nxb-vault-provider = { path = "../nxb-vault-provider" }\n', 'ring = "0.17"\n'),
+          ]
+          for addition, anchor in additions:
+              if addition not in text:
+                  if text.count(anchor) != 1:
+                      raise SystemExit(f'unexpected nxb-core anchor for {addition.strip()}')
+                  text = text.replace(anchor, addition + anchor, 1)
+          core.write_text(text, encoding='utf-8', newline='\n')
+
+          library = Path('crates/nxb-unified-operator/src/lib.rs')
+          text = library.read_text(encoding='utf-8')
+          if not text.startswith('#![forbid(unsafe_code)]'):
+              text = '#![forbid(unsafe_code)]\n\n' + text
+          library.write_text(text, encoding='utf-8', newline='\n')
+
+          cli = Path('crates/nxb-core/src/bin/nxb-unified-operator.rs')
+          text = cli.read_text(encoding='utf-8')
+          if not text.startswith('#![forbid(unsafe_code)]'):
+              text = '#![forbid(unsafe_code)]\n\n' + text
+          text = text.replace(
+              'about = "Networkless NXB-140 unified operator artifact binder"',
+              'about = "Networkless NXB-141 unified operator artifact binder"',
+          )
+          imports = '''use std::{
+              collections::BTreeSet,
+              fs,
+              path::{Path, PathBuf},
+          };
+          '''
+          imports = '\n'.join(line[10:] if line.startswith('          ') else line for line in imports.splitlines()) + '\n'
+          hardened_imports = '''use std::{
+              collections::BTreeSet,
+              fs::{self, OpenOptions},
+              io::Write,
+              path::{Path, PathBuf},
+          };
+          '''
+          hardened_imports = '\n'.join(line[10:] if line.startswith('          ') else line for line in hardened_imports.splitlines()) + '\n'
+          if imports in text:
+              text = text.replace(imports, hardened_imports, 1)
+          elif 'fs::{self, OpenOptions}' not in text:
+              raise SystemExit('unexpected CLI import block')
+
+          write_pattern = re.compile(
+              r'fn write_json<T: Serialize>\(path: &Path, value: &T\) -> Result<\(\)> \{.*?\n\}\n\n(?=fn read_lower_hex_file)',
+              re.DOTALL,
+          )
+          hardened_write = '''fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
+              let parent = path.parent().unwrap_or_else(|| Path::new("."));
+              fs::create_dir_all(parent)
+                  .with_context(|| format!("could not create {}", parent.display()))?;
+              let file_name = path
+                  .file_name()
+                  .and_then(|value| value.to_str())
+                  .context("output path must end in a UTF-8 file name")?;
+              if path.exists() {
+                  bail!("refusing to overwrite existing output {}", path.display());
+              }
+              let bytes = serde_json::to_vec_pretty(value).context("could not serialize JSON output")?;
+              let temporary_path = parent.join(format!(
+                  ".{file_name}.{}.nxb.tmp",
+                  std::process::id()
+              ));
+              let publication = (|| -> Result<()> {
+                  let mut file = OpenOptions::new()
+                      .write(true)
+                      .create_new(true)
+                      .open(&temporary_path)
+                      .with_context(|| format!("could not create {}", temporary_path.display()))?;
+                  file.write_all(&bytes)
+                      .and_then(|()| file.write_all(b"\\n"))
+                      .and_then(|()| file.sync_all())
+                      .with_context(|| format!("could not synchronize {}", temporary_path.display()))?;
+                  fs::hard_link(&temporary_path, path)
+                      .with_context(|| format!("could not atomically publish {}", path.display()))?;
+                  Ok(())
+              })();
+              if let Err(error) = publication {
+                  let _ = fs::remove_file(&temporary_path);
+                  return Err(error);
+              }
+              let _ = fs::remove_file(&temporary_path);
+              Ok(())
+          }
+
+          '''
+          hardened_write = '\n'.join(line[10:] if line.startswith('          ') else line for line in hardened_write.splitlines()) + '\n'
+          text, count = write_pattern.subn(hardened_write, text, count=1)
+          if count != 1:
+              raise SystemExit(f'unexpected write_json function count: {count}')
+
+          test_pattern = re.compile(r'#\[cfg\(test\)\]\nmod tests \{.*\}\n?\Z', re.DOTALL)
+          hardened_tests = '''#[cfg(test)]
+          mod tests {
+              use std::{
+                  fs,
+                  sync::atomic::{AtomicU64, Ordering},
+              };
+
+              use serde_json::json;
+
+              use super::{path_matches_prefix, write_json};
+
+              #[test]
+              fn authenticated_prefix_must_not_widen_discovery_scope() {
+                  assert!(path_matches_prefix("/app/admin", "/app"));
+                  assert!(path_matches_prefix("/app", "/app"));
+                  assert!(!path_matches_prefix("/application", "/app"));
+                  assert!(!path_matches_prefix("/", "/app"));
+              }
+
+              #[test]
+              fn artifact_publication_is_complete_and_no_clobber() {
+                  static NEXT: AtomicU64 = AtomicU64::new(1);
+                  let directory = std::env::temp_dir().join(format!(
+                      "nxb141-unified-output-{}-{}",
+                      std::process::id(),
+                      NEXT.fetch_add(1, Ordering::Relaxed)
+                  ));
+                  fs::create_dir_all(&directory).unwrap();
+                  let output = directory.join("plan.json");
+                  write_json(&output, &json!({"version": 1, "state": "ready"})).unwrap();
+                  let bytes = fs::read(&output).unwrap();
+                  assert!(bytes.ends_with(b"\\n"));
+                  let parsed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                  assert_eq!(parsed["state"], "ready");
+                  assert!(write_json(&output, &json!({"state": "replaced"})).is_err());
+                  let unchanged: serde_json::Value =
+                      serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
+                  assert_eq!(unchanged["state"], "ready");
+                  fs::remove_dir_all(directory).unwrap();
+              }
+          }
+          '''
+          hardened_tests = '\n'.join(line[10:] if line.startswith('          ') else line for line in hardened_tests.splitlines()) + '\n'
+          text, count = test_pattern.subn(hardened_tests, text, count=1)
+          if count != 1:
+              raise SystemExit(f'unexpected CLI test module count: {count}')
+          cli.write_text(text, encoding='utf-8', newline='\n')
+
+          gated = Path('crates/nxb-http1/src/gated_codec.rs')
+          text = gated.read_text(encoding='utf-8')
+          old = '''    #[cfg(not(feature = "networkless-fixture"))]
+              {
+                  false
+              }
+          '''
+          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines()) + '\n'
+          new = '''    #[cfg(not(feature = "networkless-fixture"))]
+              {
+                  let _ = std::any::type_name::<B>();
+                  false
+              }
+          '''
+          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines()) + '\n'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif 'let _ = std::any::type_name::<B>();' not in text:
+              raise SystemExit('unexpected non-fixture generic branch')
+          gated.write_text(text, encoding='utf-8', newline='\n')
+          PY
+
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+
+      - name: Canonicalize and validate clean product tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          cargo fmt --all
+          cargo fmt --all -- --check
+          cargo check --workspace --all-features --locked
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test --workspace --all-features --locked -- --test-threads=1
+          git diff --check
+
+      - name: Commit one clean product change
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock \
+            crates/nxb-core/Cargo.toml \
+            crates/nxb-core/src/bin/nxb-unified-operator.rs \
+            crates/nxb-http1/src/gated_codec.rs \
+            crates/nxb-unified-operator \
+            docs/NXB-141-UNIFIED-OPERATOR-CONTRACT.md
+          git commit -m "NXB-141: unified authenticated operator contract"
+          git push origin HEAD:nxb-141-unified-authenticated-operator
