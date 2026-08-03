@@ -21,7 +21,7 @@ jobs:
           ref: nxb-140-process-vault-provider-backend
           fetch-depth: 0
 
-      - name: Correct timeout test phase
+      - name: Apply failed-pipe cleanup hardening
         shell: bash
         run: |
           set -euo pipefail
@@ -30,19 +30,25 @@ jobs:
 
           library = Path("crates/nxb-vault-provider-process/src/lib.rs")
           text = library.read_text(encoding="utf-8")
-          old = "thread::sleep(Duration::from_secs(5));"
-          new = "thread::sleep(Duration::from_secs(15));"
+          old = '''        let stdin = child
+              .stdin
+              .take()
+              .ok_or(ProcessVaultProviderError::SpawnFailed)?;
+          '''
+          old = old.replace("              ", "            ")
+          new = '''        let stdin = match child.stdin.take() {
+              Some(stdin) => stdin,
+              None => {
+                  let _ = child.kill();
+                  let _ = child.wait();
+                  return Err(ProcessVaultProviderError::SpawnFailed);
+              }
+          };
+          '''
+          new = new.replace("              ", "            ")
           if text.count(old) != 1:
-              raise SystemExit(f"unexpected fixture stall count: {text.count(old)}")
+              raise SystemExit(f"unexpected stdin pipe setup count: {text.count(old)}")
           library.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
-
-          tests = Path("crates/nxb-vault-provider-process/tests/process_backend.rs")
-          text = tests.read_text(encoding="utf-8")
-          old = "provider_config(Duration::from_millis(250))"
-          new = "provider_config(Duration::from_secs(5))"
-          if text.count(old) != 1:
-              raise SystemExit(f"unexpected timeout configuration count: {text.count(old)}")
-          tests.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
           PY
 
       - name: Install pinned Rust
@@ -69,15 +75,12 @@ jobs:
           cargo test -p nxb-vault-provider-process --all-features --locked -- --test-threads=1
           git diff --check
 
-      - name: Commit canonical sources and lockfile
+      - name: Commit hardened canonical sources
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.lock Cargo.toml \
-            crates/nxb-vault-provider/src/provider.inc.rs \
-            crates/nxb-vault-provider-process \
-            .github/workflows/live-adapter-lab.yml
-          git commit -m "NXB-140: canonicalize process vault-provider backend"
+          git add Cargo.lock crates/nxb-vault-provider-process/src/lib.rs
+          git commit -m "fix: reap process provider after pipe setup failure"
           git push origin HEAD:nxb-140-process-vault-provider-backend
