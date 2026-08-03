@@ -35,6 +35,7 @@ members = [
     "crates/nxb-stream-fixture",
     "crates/nxb-tls",
     "crates/nxb-transport",
+    "crates/nxb-unified-operator",
     "crates/nxb-vault",
     "crates/nxb-vault-provider",
     "crates/nxb-workflow-graph",
