@@ -2,13 +2,21 @@ use std::collections::BTreeMap;
 
 use nxb_stream::{BoundedByteStream, ByteStreamBackend};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::{
-    audit::{hex_sha256, TlsAuditChain, TlsAuditEvent},
+    audit::{hex_sha256, TlsAuditChain, TlsAuditError, TlsAuditEvent},
     identity::{expected_http_authority, normalize_dns_name},
     model::{is_lower_hex_sha256, TlsProtocolVersion, TlsSessionGrant},
-    TlsVerifierError,
 };
+
+#[derive(Debug, Error)]
+pub enum LibraryVerifiedTlsError {
+    #[error("TLS-library verification metadata is invalid: {0}")]
+    InvalidObservation(String),
+    #[error("TLS-library audit record could not be committed: {0}")]
+    Audit(#[from] TlsAuditError),
+}
 
 /// Metadata emitted by a TLS library after it has cryptographically verified the
 /// certificate chain and server name. This bridge does not perform a second
@@ -58,11 +66,11 @@ impl LibraryVerifiedTlsBinder {
         &mut self,
         stream: &BoundedByteStream<B>,
         observation: &LibraryVerifiedTlsObservation,
-    ) -> Result<TlsSessionGrant, TlsVerifierError> {
+    ) -> Result<TlsSessionGrant, LibraryVerifiedTlsError> {
         stream
             .audit()
             .verify()
-            .map_err(|error| TlsVerifierError::InvalidObservation(error.to_string()))?;
+            .map_err(|error| LibraryVerifiedTlsError::InvalidObservation(error.to_string()))?;
         validate_observation(stream, observation)?;
 
         let verification_id = format!(
@@ -75,11 +83,11 @@ impl LibraryVerifiedTlsBinder {
 
         let stream_grant = stream.grant();
         let normalized_sni = normalize_dns_name(
-            stream_grant
-                .sni()
-                .ok_or_else(|| TlsVerifierError::InvalidObservation("missing SNI".into()))?,
+            stream_grant.sni().ok_or_else(|| {
+                LibraryVerifiedTlsError::InvalidObservation("missing SNI".into())
+            })?,
         )
-        .map_err(|reason| TlsVerifierError::InvalidObservation(reason.code().into()))?;
+        .map_err(|reason| LibraryVerifiedTlsError::InvalidObservation(reason.code().into()))?;
         let matched_san_sha256 = hex_sha256(normalized_sni.as_bytes());
         let stream_audit_anchor = stream.audit().tail_hash().to_string();
         let mut details = BTreeMap::new();
@@ -149,30 +157,30 @@ impl LibraryVerifiedTlsBinder {
 fn validate_observation<B: ByteStreamBackend>(
     stream: &BoundedByteStream<B>,
     observation: &LibraryVerifiedTlsObservation,
-) -> Result<(), TlsVerifierError> {
+) -> Result<(), LibraryVerifiedTlsError> {
     let grant = stream.grant();
     let expected_sni = grant
         .sni()
-        .ok_or_else(|| TlsVerifierError::InvalidObservation("missing SNI".into()))?;
+        .ok_or_else(|| LibraryVerifiedTlsError::InvalidObservation("missing SNI".into()))?;
     let expected_sni = normalize_dns_name(expected_sni)
-        .map_err(|reason| TlsVerifierError::InvalidObservation(reason.code().into()))?;
+        .map_err(|reason| LibraryVerifiedTlsError::InvalidObservation(reason.code().into()))?;
     let observed_sni = normalize_dns_name(&observation.server_name)
-        .map_err(|reason| TlsVerifierError::InvalidObservation(reason.code().into()))?;
+        .map_err(|reason| LibraryVerifiedTlsError::InvalidObservation(reason.code().into()))?;
 
     if grant.scheme() != "https" {
-        return Err(TlsVerifierError::InvalidObservation(
+        return Err(LibraryVerifiedTlsError::InvalidObservation(
             "library-verified binding requires HTTPS".into(),
         ));
     }
     if expected_sni != observed_sni {
-        return Err(TlsVerifierError::InvalidObservation(
+        return Err(LibraryVerifiedTlsError::InvalidObservation(
             "verified server name does not match stream SNI".into(),
         ));
     }
     if grant.http_host().to_ascii_lowercase()
         != expected_http_authority(&expected_sni, grant.port())
     {
-        return Err(TlsVerifierError::InvalidObservation(
+        return Err(LibraryVerifiedTlsError::InvalidObservation(
             "HTTP authority does not match verified SNI".into(),
         ));
     }
@@ -182,7 +190,7 @@ fn validate_observation<B: ByteStreamBackend>(
             byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':')
         })
     {
-        return Err(TlsVerifierError::InvalidObservation(
+        return Err(LibraryVerifiedTlsError::InvalidObservation(
             "TLS library verifier identifier is invalid".into(),
         ));
     }
@@ -191,12 +199,12 @@ fn validate_observation<B: ByteStreamBackend>(
         TlsProtocolVersion::Tls12 | TlsProtocolVersion::Tls13
     ) || observation.alpn != "http/1.1"
     {
-        return Err(TlsVerifierError::InvalidObservation(
+        return Err(LibraryVerifiedTlsError::InvalidObservation(
             "TLS version or ALPN is outside the verified HTTP/1.1 boundary".into(),
         ));
     }
     if observation.chain_depth == 0 || observation.chain_depth > 16 {
-        return Err(TlsVerifierError::InvalidObservation(
+        return Err(LibraryVerifiedTlsError::InvalidObservation(
             "certificate chain depth is outside the bridge limit".into(),
         ));
     }
@@ -206,7 +214,7 @@ fn validate_observation<B: ByteStreamBackend>(
         (&observation.trust_anchor_sha256, "trust anchor snapshot"),
     ] {
         if !is_lower_hex_sha256(value) {
-            return Err(TlsVerifierError::InvalidObservation(format!(
+            return Err(LibraryVerifiedTlsError::InvalidObservation(format!(
                 "{name} fingerprint is invalid"
             )));
         }
@@ -215,7 +223,7 @@ fn validate_observation<B: ByteStreamBackend>(
         || observation.renegotiation_observed
         || observation.session_resumed
     {
-        return Err(TlsVerifierError::InvalidObservation(
+        return Err(LibraryVerifiedTlsError::InvalidObservation(
             "early data, renegotiation and resumed sessions are rejected".into(),
         ));
     }
