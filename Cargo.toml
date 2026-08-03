@@ -20,6 +20,7 @@ members = [
     "crates/nxb-live-adapter",
     "crates/nxb-local-executor",
     "crates/nxb-operator",
+    "crates/nxb-operator-runtime",
     "crates/nxb-operator-state",
     "crates/nxb-passive-analyzers",
     "crates/nxb-pinned-transport",

@@ -875,6 +875,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxb-operator-runtime"
+version = "0.1.0"
+dependencies = [
+ "nxb-executor",
+ "nxb-live-adapter",
+ "nxb-operator-state",
+ "nxb-session",
+ "nxb-session-injection",
+ "nxb-stream",
+ "nxb-transport",
+ "nxb-unified-operator",
+ "nxb-vault",
+ "nxb-vault-provider",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "nxb-operator-state"
 version = "0.1.0"
 dependencies = [

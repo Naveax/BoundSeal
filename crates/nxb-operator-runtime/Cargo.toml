@@ -1,0 +1,25 @@
+[package]
+name = "nxb-operator-runtime"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+nxb-executor = { path = "../nxb-executor" }
+nxb-live-adapter = { path = "../nxb-live-adapter" }
+nxb-operator-state = { path = "../nxb-operator-state" }
+nxb-session = { path = "../nxb-session" }
+nxb-session-injection = { path = "../nxb-session-injection" }
+nxb-stream = { path = "../nxb-stream" }
+nxb-transport = { path = "../nxb-transport" }
+nxb-unified-operator = { path = "../nxb-unified-operator" }
+nxb-vault = { path = "../nxb-vault" }
+nxb-vault-provider = { path = "../nxb-vault-provider" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+ring = "0.17"
