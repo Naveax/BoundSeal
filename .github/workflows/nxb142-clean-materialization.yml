@@ -1,0 +1,194 @@
+name: NXB-142 clean state-engine materialization
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb142-clean-state-materialization
+  cancel-in-progress: true
+
+jobs:
+  materialize-and-validate:
+    if: github.head_ref == 'nxb-142-clean-validation'
+    runs-on: ubuntu-slim
+    timeout-minutes: 65
+    steps:
+      - name: Checkout clean NXB-142 target branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-142-checkpointed-bounded-state-clean
+          fetch-depth: 0
+
+      - name: Materialize state engine on current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin nxb-142-checkpointed-bounded-operator-state
+          git checkout origin/nxb-142-checkpointed-bounded-operator-state -- crates/nxb-operator-state
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('Cargo.toml')
+          text = root.read_text(encoding='utf-8')
+          member = '    "crates/nxb-operator-state",\n'
+          if member not in text:
+              anchor = '    "crates/nxb-operator",\n'
+              if text.count(anchor) != 1:
+                  raise SystemExit('unexpected workspace member anchor')
+              text = text.replace(anchor, anchor + member, 1)
+          root.write_text(text, encoding='utf-8', newline='\n')
+
+          path = Path('crates/nxb-operator-state/src/lib.rs')
+          text = path.read_text(encoding='utf-8')
+
+          parse_anchor = '''            let checkpoint: OperatorCheckpoint = serde_json::from_slice(&bytes)
+                  .map_err(|error| OperatorStateError::Serialization(error.to_string()))?;
+              if checkpoint.sequence != sequence {
+          '''
+          parse_replacement = '''            let checkpoint: OperatorCheckpoint = serde_json::from_slice(&bytes)
+                  .map_err(|error| OperatorStateError::Serialization(error.to_string()))?;
+              if bytes != checkpoint_bytes(&checkpoint)? {
+                  return Err(OperatorStateError::NonCanonicalCheckpoint);
+              }
+              if checkpoint.sequence != sequence {
+          '''
+          parse_anchor = '\n'.join(line[10:] if line.startswith('          ') else line for line in parse_anchor.splitlines()) + '\n'
+          parse_replacement = '\n'.join(line[10:] if line.startswith('          ') else line for line in parse_replacement.splitlines()) + '\n'
+          if 'NonCanonicalCheckpoint' not in text:
+              if text.count(parse_anchor) != 1:
+                  raise SystemExit('unexpected checkpoint parse anchor')
+              text = text.replace(parse_anchor, parse_replacement, 1)
+
+          text = text.replace(
+              '            | (OperatorRunStatus::Running, OperatorRunStatus::Completed)\n',
+              '',
+              1,
+          )
+
+          error_anchor = '''    #[error("checkpoint SHA-256 does not match its contents")]
+              CheckpointDigestMismatch,
+          '''
+          error_replacement = '''    #[error("checkpoint SHA-256 does not match its contents")]
+              CheckpointDigestMismatch,
+              #[error("checkpoint bytes are not in canonical serialized form")]
+              NonCanonicalCheckpoint,
+          '''
+          error_anchor = '\n'.join(line[10:] if line.startswith('          ') else line for line in error_anchor.splitlines()) + '\n'
+          error_replacement = '\n'.join(line[10:] if line.startswith('          ') else line for line in error_replacement.splitlines()) + '\n'
+          if 'checkpoint bytes are not in canonical serialized form' not in text:
+              if text.count(error_anchor) != 1:
+                  raise SystemExit('unexpected checkpoint error anchor')
+              text = text.replace(error_anchor, error_replacement, 1)
+
+          test_anchor = '''    #[test]
+              fn interrupted_publication_is_rejected() {
+          '''
+          tests = '''    #[test]
+              fn noncanonical_checkpoint_bytes_are_rejected() {
+                  let (root, store) = initialized_store("noncanonical", 1024 * 1024);
+                  let path = store.directory().join(checkpoint_file_name(0));
+                  let mut bytes = fs::read(&path).expect("read checkpoint");
+                  bytes.push(b'\\n');
+                  fs::write(&path, bytes).expect("rewrite checkpoint");
+                  assert!(matches!(
+                      store.recover(1_200).expect_err("noncanonical bytes must fail"),
+                      OperatorStateError::NonCanonicalCheckpoint
+                  ));
+                  fs::remove_dir_all(root).expect("cleanup");
+              }
+
+              #[test]
+              fn completion_requires_teardown_checkpoint() {
+                  let (root, store) = initialized_store("teardown-order", 1024 * 1024);
+                  store
+                      .append(
+                          CheckpointUpdate {
+                              status: OperatorRunStatus::Running,
+                              counters: OperatorCounters::default(),
+                              stop_reason: None,
+                          },
+                          1_150,
+                      )
+                      .expect("enter running state");
+                  assert!(matches!(
+                      store
+                          .append(
+                              CheckpointUpdate {
+                                  status: OperatorRunStatus::Completed,
+                                  counters: OperatorCounters::default(),
+                                  stop_reason: Some("completed".into()),
+                              },
+                              1_160,
+                          )
+                          .expect_err("direct completion must fail"),
+                      OperatorStateError::InvalidStatusTransition
+                  ));
+                  store
+                      .append(
+                          CheckpointUpdate {
+                              status: OperatorRunStatus::TeardownPending,
+                              counters: OperatorCounters::default(),
+                              stop_reason: Some("teardown started".into()),
+                          },
+                          1_170,
+                      )
+                      .expect("enter teardown");
+                  store
+                      .append(
+                          CheckpointUpdate {
+                              status: OperatorRunStatus::Completed,
+                              counters: OperatorCounters::default(),
+                              stop_reason: Some("teardown completed".into()),
+                          },
+                          1_180,
+                      )
+                      .expect("complete after teardown");
+                  fs::remove_dir_all(root).expect("cleanup");
+              }
+
+              #[test]
+              fn interrupted_publication_is_rejected() {
+          '''
+          test_anchor = '\n'.join(line[10:] if line.startswith('          ') else line for line in test_anchor.splitlines()) + '\n'
+          tests = '\n'.join(line[10:] if line.startswith('          ') else line for line in tests.splitlines()) + '\n'
+          if 'fn noncanonical_checkpoint_bytes_are_rejected()' not in text:
+              if text.count(test_anchor) != 1:
+                  raise SystemExit('unexpected state test anchor')
+              text = text.replace(test_anchor, tests, 1)
+
+          path.write_text(text, encoding='utf-8', newline='\n')
+          PY
+
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+
+      - name: Canonicalize and validate full workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          cargo fmt --all
+          cargo fmt --all -- --check
+          cargo check --workspace --all-features --locked
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test --workspace --all-features --locked -- --test-threads=1
+          git diff --check
+
+      - name: Commit clean validated product tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock crates/nxb-operator-state
+          git commit -m "NXB-142: checkpointed bounded operator state"
+          git push origin HEAD:nxb-142-checkpointed-bounded-state-clean
