@@ -11,58 +11,18 @@ on:
       - "crates/nxb-operator-state/**"
       - "Cargo.toml"
       - "Cargo.lock"
-      - ".github/nxb143_lock_unlink_fix.py"
       - ".github/workflows/nxb143-runtime-hardening.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: nxb143-runtime-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  lock-hardening:
-    name: Materialize stable-inode runtime lock
-    if: github.event_name == 'pull_request' && github.head_ref == 'nxb-143-checkpoint-bound-authenticated-runtime' && github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-slim
-    timeout-minutes: 35
-    steps:
-      - name: Checkout exact product branch
-        uses: actions/checkout@v7
-        with:
-          ref: nxb-143-checkpoint-bound-authenticated-runtime
-          fetch-depth: 0
-      - name: Eliminate lock-file unlink race
-        run: python3 .github/nxb143_lock_unlink_fix.py
-      - name: Install pinned Rust
-        uses: dtolnay/rust-toolchain@1.97.1
-        with:
-          components: rustfmt, clippy
-      - name: Validate lock and recovery behavior
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo fmt --all
-          cargo fmt --all -- --check
-          cargo check --workspace --all-features --locked
-          cargo clippy -p nxb-operator-runtime --all-targets --all-features --locked -- -D warnings
-          cargo test -p nxb-operator-state -p nxb-operator-runtime --all-features --locked -- --test-threads=1
-          git diff --check
-      - name: Commit validated stable-inode lock
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/nxb143_lock_unlink_fix.py
-          git add crates/nxb-operator-runtime
-          git commit -m "NXB-143: keep runtime lock inode stable"
-          git push origin HEAD:nxb-143-checkpoint-bound-authenticated-runtime
-
   runtime-contract:
     name: Runtime contract, Clippy and recovery tests
-    if: github.actor == 'github-actions[bot]' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-slim
     timeout-minutes: 25
     steps:
@@ -91,7 +51,6 @@ jobs:
 
   runtime-windows:
     name: Runtime recovery tests (Windows)
-    if: github.actor == 'github-actions[bot]' || github.ref == 'refs/heads/main'
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
