@@ -293,6 +293,42 @@ pub fn run(args: ScanArgs) -> Result<()> {
     Ok(())
 }
 
+trait SnapshotFindingValidation {
+    fn validate(&self) -> Result<()>;
+}
+
+impl SnapshotFindingValidation for OperatorFinding {
+    fn validate(&self) -> Result<()> {
+        if self.finding_id.is_empty()
+            || self.finding_id.len() > 192
+            || self.rule_id.is_empty()
+            || self.rule_id.len() > 192
+            || self.title.is_empty()
+            || self.title.len() > 512
+            || self.summary.is_empty()
+            || self.summary.len() > 8192
+            || !is_sha256(&self.endpoint_sha256)
+            || !is_sha256(&self.evidence_sha256)
+            || self.affected_endpoints.iter().any(|value| !is_sha256(value))
+            || self.reproduction_metadata.len() > 256
+            || self
+                .reproduction_metadata
+                .iter()
+                .any(|(key, value)| key.len() > 128 || value.len() > 2048)
+        {
+            bail!("response snapshot contains an invalid finding envelope");
+        }
+        Ok(())
+    }
+}
+
+fn is_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 fn parse_now(value: Option<String>) -> Result<DateTime<Utc>> {
     match value {
         Some(value) => DateTime::parse_from_rfc3339(&value)
