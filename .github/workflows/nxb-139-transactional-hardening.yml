@@ -27,95 +27,105 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import textwrap
 
           vault_path = Path('crates/nxb-vault/src/lib.rs')
           vault = vault_path.read_text(encoding='utf-8')
-          old = '''        self.audit.append(VaultAuditEvent {
-              action: "secret_inserted".into(),
-              outcome: "stored".into(),
-              vault_id: self.vault_id.clone(),
-              handle: Some(handle.0.clone()),
-              lease_id: None,
-              session_id: None,
-              metadata: BTreeMap::from([("kind".into(), input.kind.code().into())]),
-          })?;
-          Ok(handle)
-          '''
-          new = '''        if let Err(error) = self.audit.append(VaultAuditEvent {
-              action: "secret_inserted".into(),
-              outcome: "stored".into(),
-              vault_id: self.vault_id.clone(),
-              handle: Some(handle.0.clone()),
-              lease_id: None,
-              session_id: None,
-              metadata: BTreeMap::from([("kind".into(), input.kind.code().into())]),
-          }) {
-              self.entries.remove(&handle);
-              return Err(error);
-          }
-          Ok(handle)
-          '''
+          old = (
+              '        self.audit.append(VaultAuditEvent {\n'
+              '            action: "secret_inserted".into(),\n'
+              '            outcome: "stored".into(),\n'
+              '            vault_id: self.vault_id.clone(),\n'
+              '            handle: Some(handle.0.clone()),\n'
+              '            lease_id: None,\n'
+              '            session_id: None,\n'
+              '            metadata: BTreeMap::from([("kind".into(), input.kind.code().into())]),\n'
+              '        })?;\n'
+              '        Ok(handle)\n'
+          )
+          new = (
+              '        if let Err(error) = self.audit.append(VaultAuditEvent {\n'
+              '            action: "secret_inserted".into(),\n'
+              '            outcome: "stored".into(),\n'
+              '            vault_id: self.vault_id.clone(),\n'
+              '            handle: Some(handle.0.clone()),\n'
+              '            lease_id: None,\n'
+              '            session_id: None,\n'
+              '            metadata: BTreeMap::from([("kind".into(), input.kind.code().into())]),\n'
+              '        }) {\n'
+              '            self.entries.remove(&handle);\n'
+              '            return Err(error);\n'
+              '        }\n'
+              '        Ok(handle)\n'
+          )
           if vault.count(old) != 1:
               raise SystemExit(f'unexpected vault insert audit block count: {vault.count(old)}')
           vault_path.write_text(vault.replace(old, new, 1), encoding='utf-8', newline='\n')
 
           session_path = Path('crates/nxb-session/src/lib.rs')
           session = session_path.read_text(encoding='utf-8')
-          old = '''        self.audit.append(SessionAuditEvent {
-              action: "session_created".into(),
-              outcome: "active".into(),
-              broker_id: self.broker_id.clone(),
-              session_id: Some(session_id),
-              metadata: BTreeMap::from([
-                  (
-                      "secret_handle_count".into(),
-                      metadata.profile.secret_handles.len().to_string(),
-                  ),
-                  (
-                      "expires_at".into(),
-                      metadata.profile.expires_at_epoch_seconds.to_string(),
-                  ),
-              ]),
-          })?;
-          Ok(metadata)
-          '''
-          new = '''        if let Err(error) = self.audit.append(SessionAuditEvent {
-              action: "session_created".into(),
-              outcome: "active".into(),
-              broker_id: self.broker_id.clone(),
-              session_id: Some(session_id.clone()),
-              metadata: BTreeMap::from([
-                  (
-                      "secret_handle_count".into(),
-                      metadata.profile.secret_handles.len().to_string(),
-                  ),
-                  (
-                      "expires_at".into(),
-                      metadata.profile.expires_at_epoch_seconds.to_string(),
-                  ),
-              ]),
-          }) {
-              self.sessions.remove(&session_id);
-              return Err(error);
-          }
-          Ok(metadata)
-          '''
+          old = (
+              '        self.audit.append(SessionAuditEvent {\n'
+              '            action: "session_created".into(),\n'
+              '            outcome: "active".into(),\n'
+              '            broker_id: self.broker_id.clone(),\n'
+              '            session_id: Some(session_id),\n'
+              '            metadata: BTreeMap::from([\n'
+              '                (\n'
+              '                    "secret_handle_count".into(),\n'
+              '                    metadata.profile.secret_handles.len().to_string(),\n'
+              '                ),\n'
+              '                (\n'
+              '                    "expires_at".into(),\n'
+              '                    metadata.profile.expires_at_epoch_seconds.to_string(),\n'
+              '                ),\n'
+              '            ]),\n'
+              '        })?;\n'
+              '        Ok(metadata)\n'
+          )
+          new = (
+              '        if let Err(error) = self.audit.append(SessionAuditEvent {\n'
+              '            action: "session_created".into(),\n'
+              '            outcome: "active".into(),\n'
+              '            broker_id: self.broker_id.clone(),\n'
+              '            session_id: Some(session_id.clone()),\n'
+              '            metadata: BTreeMap::from([\n'
+              '                (\n'
+              '                    "secret_handle_count".into(),\n'
+              '                    metadata.profile.secret_handles.len().to_string(),\n'
+              '                ),\n'
+              '                (\n'
+              '                    "expires_at".into(),\n'
+              '                    metadata.profile.expires_at_epoch_seconds.to_string(),\n'
+              '                ),\n'
+              '            ]),\n'
+              '        }) {\n'
+              '            self.sessions.remove(&session_id);\n'
+              '            return Err(error);\n'
+              '        }\n'
+              '        Ok(metadata)\n'
+          )
           if session.count(old) != 1:
               raise SystemExit(f'unexpected session create audit block count: {session.count(old)}')
           session_path.write_text(session.replace(old, new, 1), encoding='utf-8', newline='\n')
 
           lifecycle_path = Path('crates/nxb-vault-provider/src/lifecycle.inc.rs')
           lifecycle = lifecycle_path.read_text(encoding='utf-8')
-          start_marker = '''    if let Err(failure) = provider.finish(provider_session, ProviderSessionOutcome::Committed) {'''
-          end_marker = '''    Ok(ProvisionedExternalSession {
-              session,
-              handles,
-              receipt,
-          })
-          '''
+          start_marker = (
+              '    if let Err(failure) = '
+              'provider.finish(provider_session, ProviderSessionOutcome::Committed) {'
+          )
+          end_marker = (
+              '    Ok(ProvisionedExternalSession {\n'
+              '        session,\n'
+              '        handles,\n'
+              '        receipt,\n'
+              '    })\n'
+          )
           start = lifecycle.index(start_marker)
           end = lifecycle.index(end_marker, start) + len(end_marker)
-          replacement = '''    let session = match created_session.clone() {
+          replacement = textwrap.indent(textwrap.dedent('''\
+          let session = match created_session.clone() {
               Some(session) => session,
               None => {
                   let finish = provider.finish(provider_session, ProviderSessionOutcome::Aborted);
@@ -183,7 +193,7 @@ jobs:
               handles,
               receipt,
           })
-          '''
+          '''), '    ')
           lifecycle_path.write_text(
               lifecycle[:start] + replacement + lifecycle[end:],
               encoding='utf-8',
