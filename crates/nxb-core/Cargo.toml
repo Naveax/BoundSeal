@@ -29,6 +29,7 @@ nxb-events = { path = "../nxb-events" }
 nxb-executor = { path = "../nxb-executor", optional = true }
 nxb-gateway = { path = "../nxb-gateway", optional = true }
 nxb-live-adapter = { path = "../nxb-live-adapter", optional = true }
+nxb-operator = { path = "../nxb-operator" }
 nxb-passive-analyzers = { path = "../nxb-passive-analyzers", optional = true }
 nxb-pinned-transport = { path = "../nxb-pinned-transport", optional = true }
 nxb-policy = { path = "../nxb-policy" }
