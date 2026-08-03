@@ -4,11 +4,20 @@ All notable changes to NXBounty are documented here.
 
 ## [Unreleased]
 
+### NXB-139
+
+- Added a signed, one-use external vault-provider bootstrap plan.
+- Added metadata-only provider begin/fetch/commit-abort requests and zeroizing secret material.
+- Added transactional vault/session provisioning with exact origin and account partitioning.
+- Added rollback on partial fetch, vault, broker or provider-commit failure.
+- Added explicit session and secret teardown receipts.
+- Updated repository status documentation through NXB-139.
+
 ### Planned
 
-- Controlled live-adapter MVP under the existing permit, scope, TLS and audit contracts.
+- Concrete external vault provider adapters.
+- Unified authenticated operator CLI.
 - Encrypted local evidence persistence.
-- Authorized-target integration testing.
 
 ## [0.1.0-contract-complete] - 2026-07-31
 
