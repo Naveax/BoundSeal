@@ -395,7 +395,6 @@ struct JournalScan {
 }
 
 struct RuntimeLock {
-    path: PathBuf,
     file: Option<File>,
 }
 
@@ -405,7 +404,6 @@ impl Drop for RuntimeLock {
             let _ = file.unlock();
             drop(file);
         }
-        let _ = fs::remove_file(&self.path);
     }
 }
 
@@ -1117,10 +1115,7 @@ fn acquire_lock(
         let _ = file.unlock();
         return Err(io_error(error));
     }
-    Ok(RuntimeLock {
-        path,
-        file: Some(file),
-    })
+    Ok(RuntimeLock { file: Some(file) })
 }
 
 fn publish_record(path: &Path, bytes: &[u8]) -> Result<(), RuntimeError> {
