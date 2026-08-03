@@ -28,12 +28,26 @@ impl std::fmt::Debug for LiveSessionInjection<'_> {
     }
 }
 
-#[derive(Debug)]
 pub struct LiveAuthenticatedResult {
     pub live: LivePassiveResult,
     pub injection_authorization: InjectionUseAuthorization,
     pub session_audit_tail: String,
     pub vault_audit_tail: String,
+}
+
+impl std::fmt::Debug for LiveAuthenticatedResult {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LiveAuthenticatedResult")
+            .field(
+                "injection_authorization",
+                &self.injection_authorization,
+            )
+            .field("session_audit_tail", &self.session_audit_tail)
+            .field("vault_audit_tail", &self.vault_audit_tail)
+            .field("live", &"<sensitive authenticated response omitted>")
+            .finish()
+    }
 }
 
 #[derive(Debug, Error)]
