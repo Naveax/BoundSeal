@@ -11,7 +11,7 @@ mod discovery_session;
 use std::{
     collections::BTreeSet,
     fs::{self, OpenOptions},
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -29,6 +29,9 @@ use nxb_vault_provider::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 use sha2::{Digest, Sha256};
+
+const MAX_UNIFIED_ARTIFACT_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_UNIFIED_KEY_FILE_BYTES: u64 = 4 * 1024;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -508,7 +511,7 @@ fn consume_activation(
 }
 
 fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T> {
-    let bytes = fs::read(path).with_context(|| format!("could not read {}", path.display()))?;
+    let bytes = read_bounded_file(path, MAX_UNIFIED_ARTIFACT_BYTES)?;
     serde_json::from_slice(&bytes)
         .with_context(|| format!("could not parse JSON {}", path.display()))
 }
@@ -532,12 +535,7 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
             .open(&temporary_path)
             .with_context(|| format!("could not create {}", temporary_path.display()))?;
         file.write_all(&bytes)
-            .and_then(|()| {
-                file.write_all(
-                    b"
-",
-                )
-            })
+            .and_then(|()| file.write_all(b"\n"))
             .and_then(|()| file.sync_all())
             .with_context(|| format!("could not synchronize {}", temporary_path.display()))?;
         fs::hard_link(&temporary_path, path)
@@ -553,9 +551,37 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
 }
 
 fn read_lower_hex_file(path: &Path) -> Result<Vec<u8>> {
-    let text = fs::read_to_string(path)
-        .with_context(|| format!("could not read hex file {}", path.display()))?;
+    let bytes = read_bounded_file(path, MAX_UNIFIED_KEY_FILE_BYTES)?;
+    let text = std::str::from_utf8(&bytes)
+        .with_context(|| format!("hex file is not UTF-8: {}", path.display()))?;
     decode_lower_hex(text.trim())
+}
+
+fn read_bounded_file(path: &Path, maximum_bytes: u64) -> Result<Vec<u8>> {
+    let file = OpenOptions::new()
+        .read(true)
+        .open(path)
+        .with_context(|| format!("could not open {}", path.display()))?;
+    let metadata = file
+        .metadata()
+        .with_context(|| format!("could not inspect {}", path.display()))?;
+    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > maximum_bytes {
+        bail!(
+            "input file is not a bounded regular file: {}",
+            path.display()
+        );
+    }
+    let expected_bytes = metadata.len();
+    let capacity =
+        usize::try_from(expected_bytes).context("input size does not fit memory index")?;
+    let mut bytes = Vec::with_capacity(capacity);
+    file.take(maximum_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("could not read {}", path.display()))?;
+    if bytes.len() as u64 != expected_bytes {
+        bail!("input file changed while being read: {}", path.display());
+    }
+    Ok(bytes)
 }
 
 fn decode_lower_hex(value: &str) -> Result<Vec<u8>> {
@@ -616,13 +642,13 @@ fn lower_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use std::{
-        fs,
+        fs::{self, OpenOptions},
         sync::atomic::{AtomicU64, Ordering},
     };
 
     use serde_json::json;
 
-    use super::{path_matches_prefix, write_json};
+    use super::{path_matches_prefix, read_json, write_json, MAX_UNIFIED_ARTIFACT_BYTES};
 
     #[test]
     fn authenticated_prefix_must_not_widen_discovery_scope() {
@@ -630,6 +656,26 @@ mod tests {
         assert!(path_matches_prefix("/app", "/app"));
         assert!(!path_matches_prefix("/application", "/app"));
         assert!(!path_matches_prefix("/", "/app"));
+    }
+
+    #[test]
+    fn oversized_artifact_is_rejected_before_parsing() {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let directory = std::env::temp_dir().join(format!(
+            "nxb141-unified-input-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("oversized.json");
+        let file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&input)
+            .unwrap();
+        file.set_len(MAX_UNIFIED_ARTIFACT_BYTES + 1).unwrap();
+        assert!(read_json::<serde_json::Value>(&input).is_err());
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -644,10 +690,7 @@ mod tests {
         let output = directory.join("plan.json");
         write_json(&output, &json!({"version": 1, "state": "ready"})).unwrap();
         let bytes = fs::read(&output).unwrap();
-        assert!(bytes.ends_with(
-            b"
-"
-        ));
+        assert!(bytes.ends_with(b"\n"));
         let parsed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(parsed["state"], "ready");
         assert!(write_json(&output, &json!({"state": "replaced"})).is_err());
