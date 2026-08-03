@@ -1,0 +1,41 @@
+name: Operator one-shot normalization
+
+on:
+  pull_request:
+    paths:
+      - "crates/nxb-core/src/bin/nxb-release-sign.rs"
+      - "crates/nxb-operator/**"
+      - "Cargo.lock"
+      - ".github/workflows/operator-format-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'nxb-131-135-product-integration'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact source branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-131-135-product-integration
+          fetch-depth: 0
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+      - name: Canonicalize Rust and lockfile
+        run: |
+          cargo fmt --all
+          cargo generate-lockfile
+      - name: Commit normalized source branch
+        run: |
+          if git diff --quiet; then
+            echo "Source branch is already normalized"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock crates/nxb-core crates/nxb-operator
+          git commit -m "chore: format release signing tool"
+          git push origin HEAD:nxb-131-135-product-integration
