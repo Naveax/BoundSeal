@@ -30,6 +30,7 @@ pub struct DiscoverySessionRequestSpec {
     pub dns_context_id: String,
     pub dns_resolver_id: String,
     pub dns_ttl_seconds: u32,
+    pub dns_observation_elapsed: Duration,
     pub maximum_response_body_bytes: u64,
 }
 
@@ -54,6 +55,9 @@ impl DiscoverySessionRequestSpec {
             || self.dns_ttl_seconds > 86_400
         {
             bail!("discovery-session DNS metadata is invalid");
+        }
+        if self.dns_observation_elapsed > Duration::from_secs(u64::from(self.dns_ttl_seconds)) {
+            bail!("signed discovery-session DNS observation has expired");
         }
         if self.maximum_response_body_bytes == 0
             || self.maximum_response_body_bytes > 8 * 1024 * 1024
@@ -112,7 +116,7 @@ pub fn execute_discovery_session_request(
         dns_ttl_seconds: spec.dns_ttl_seconds,
     };
     let authorization =
-        transport.authorize_connection(&intent, spec.selected_ip, Duration::ZERO)?;
+        transport.authorize_connection(&intent, spec.selected_ip, spec.dns_observation_elapsed)?;
     if authorization.decision.outcome != DecisionOutcome::Allow {
         bail!(
             "scope gateway denied discovery-session request: {:?}",
@@ -226,4 +230,29 @@ pub fn execute_discovery_session_request(
         live_receipt_sha256: live_receipt.receipt_sha256.clone(),
         redirect_observed: live_receipt.redirect_observed,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spec(elapsed: Duration) -> DiscoverySessionRequestSpec {
+        DiscoverySessionRequestSpec {
+            target_url: Url::parse("https://example.com/app/").unwrap(),
+            method: PlannedMethod::Get,
+            selected_ip: "93.184.216.34".parse().unwrap(),
+            resolved_ips: BTreeSet::from(["93.184.216.34".parse().unwrap()]),
+            dns_context_id: "dns-context-expiry-test".into(),
+            dns_resolver_id: "signed-dns-observation".into(),
+            dns_ttl_seconds: 60,
+            dns_observation_elapsed: elapsed,
+            maximum_response_body_bytes: 1024,
+        }
+    }
+
+    #[test]
+    fn request_spec_rejects_expired_dns_observation() {
+        spec(Duration::from_secs(60)).validate().unwrap();
+        assert!(spec(Duration::from_secs(61)).validate().is_err());
+    }
 }

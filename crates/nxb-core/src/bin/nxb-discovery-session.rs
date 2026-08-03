@@ -8,7 +8,12 @@ mod discovery_session;
 use std::{collections::BTreeSet, fs, net::IpAddr, path::PathBuf};
 
 #[cfg(feature = "live-network")]
-use std::{collections::BTreeMap, path::Path, thread, time::Duration};
+use std::{
+    collections::BTreeMap,
+    path::Path,
+    thread,
+    time::{Duration, Instant},
+};
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
@@ -464,7 +469,14 @@ fn run_live_session(
 
     let activation_certificate_sha256 =
         consume_activation_once(&state_directory, &plan, &activation, now)?;
-    let artifacts = execute_session(&policy_bytes, &compiled, &plan, config, now)?;
+    let artifacts = execute_session(
+        &policy_bytes,
+        &compiled,
+        &plan,
+        activation.payload.expires_at_epoch_seconds,
+        config,
+        now,
+    )?;
     let export_manifest = write_report_bundle(&output_directory, &artifacts.bundle)?;
 
     let mut receipt = DiscoverySessionReceipt {
@@ -536,10 +548,12 @@ fn execute_session(
     policy_bytes: &[u8],
     policy: &CompiledPolicy,
     plan: &DiscoverySessionPlan,
+    activation_expires_at_epoch_seconds: i64,
     config: OperatorConfig,
     now: DateTime<Utc>,
 ) -> Result<SessionArtifacts> {
     let seed = plan.seed()?;
+    let session_started = Instant::now();
     let mut scheduler = DiscoveryScheduler::new(config.clone())?;
     scheduler.enqueue(DiscoveryCandidate {
         canonical_url: seed.to_string(),
@@ -576,6 +590,14 @@ fn execute_session(
                 plan.minimum_request_interval_milliseconds,
             ));
         }
+        let elapsed = session_started.elapsed();
+        let request_now = now
+            + chrono::Duration::from_std(elapsed)
+                .context("discovery-session elapsed time exceeded chrono bounds")?;
+        plan.verify(request_now)?;
+        if request_now.timestamp() > activation_expires_at_epoch_seconds {
+            bail!("discovery-session activation expired before the next request");
+        }
         let maximum_response_body_bytes = config
             .maximum_body_bytes
             .min(plan.maximum_response_body_bytes)
@@ -590,9 +612,10 @@ fn execute_session(
                 dns_context_id: plan.dns_context_id.clone(),
                 dns_resolver_id: plan.dns_resolver_id.clone(),
                 dns_ttl_seconds: plan.dns_ttl_seconds,
+                dns_observation_elapsed: elapsed,
                 maximum_response_body_bytes,
             },
-            now,
+            request_now,
         )?;
         total_response_bytes = total_response_bytes
             .checked_add(observation.response_body.len() as u64)
