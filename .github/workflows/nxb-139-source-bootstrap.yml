@@ -1,0 +1,48 @@
+name: NXB-139 source bootstrap
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  export-source:
+    name: Export exact main workspace
+    runs-on: ubuntu-slim
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout tested revision
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify NXB-138 base
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor a0a8049657c54898cfcf8661e611526194f8b1b1 HEAD
+
+      - name: Build source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar \
+            --exclude=.git \
+            --exclude=target \
+            --exclude=.github/workflows/nxb-139-source-bootstrap.yml \
+            -czf /tmp/nxb-139-source.tar.gz .
+          sha256sum /tmp/nxb-139-source.tar.gz | tee /tmp/nxb-139-source.tar.gz.sha256
+
+      - name: Upload source archive
+        uses: actions/upload-artifact@v6
+        with:
+          name: nxb-139-source-bootstrap
+          path: |
+            /tmp/nxb-139-source.tar.gz
+            /tmp/nxb-139-source.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 1
