@@ -32,36 +32,49 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           live = Path("crates/nxb-core/src/discovery_session_live.rs")
           text = live.read_text()
           if "pub dns_observation_elapsed: Duration," not in text:
-              text = text.replace(
-                  "    pub dns_ttl_seconds: u32,\n    pub maximum_response_body_bytes: u64,",
-                  "    pub dns_ttl_seconds: u32,\n    pub dns_observation_elapsed: Duration,\n    pub maximum_response_body_bytes: u64,",
-                  1,
-              )
-              old = '''        if self.dns_context_id.is_empty()
+              old = "    pub dns_ttl_seconds: u32,\n    pub maximum_response_body_bytes: u64,"
+              new = "    pub dns_ttl_seconds: u32,\n    pub dns_observation_elapsed: Duration,\n    pub maximum_response_body_bytes: u64,"
+              if old not in text:
+                  raise SystemExit("request-spec field marker did not match")
+              text = text.replace(old, new, 1)
+
+              dns_marker = '''        if self.dns_context_id.is_empty()
                       || self.dns_resolver_id.is_empty()
                       || self.dns_ttl_seconds == 0
                       || self.dns_ttl_seconds > 86_400
                   {
                       bail!("discovery-session DNS metadata is invalid");
                   }'''
-              new = old + '''
+              dns_hardened = dns_marker + '''
                   if self.dns_observation_elapsed
                       > Duration::from_secs(u64::from(self.dns_ttl_seconds))
                   {
                       bail!("signed discovery-session DNS observation has expired");
                   }'''
-              if old not in text:
+              if dns_marker not in text:
                   raise SystemExit("DNS validation block did not match")
-              text = text.replace(old, new, 1)
-              text = text.replace(
-                  "transport.authorize_connection(&intent, spec.selected_ip, Duration::ZERO)?;",
-                  "transport.authorize_connection(\n        &intent,\n        spec.selected_ip,\n        spec.dns_observation_elapsed,\n    )?;",
-                  1,
+              text = text.replace(dns_marker, dns_hardened, 1)
+
+              authorization_pattern = re.compile(
+                  r'''    let authorization =\s*\n\s*transport\.authorize_connection\(&intent, spec\.selected_ip, Duration::ZERO\)\?;'''
               )
+              text, count = authorization_pattern.subn(
+                  '''    let authorization = transport.authorize_connection(
+                      &intent,
+                      spec.selected_ip,
+                      spec.dns_observation_elapsed,
+                  )?;''',
+                  text,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit("transport authorization block did not match")
+
               text += '''
 
           #[cfg(test)]
@@ -94,71 +107,98 @@ jobs:
           binary = Path("crates/nxb-core/src/bin/nxb-discovery-session.rs")
           text = binary.read_text()
           if "time::{Duration, Instant}" not in text:
-              text = text.replace(
-                  "use std::{collections::BTreeMap, path::Path, thread, time::Duration};",
-                  "use std::{\n    collections::BTreeMap,\n    path::Path,\n    thread,\n    time::{Duration, Instant},\n};",
-                  1,
+              import_marker = "use std::{collections::BTreeMap, path::Path, thread, time::Duration};"
+              import_replacement = '''use std::{
+                  collections::BTreeMap,
+                  path::Path,
+                  thread,
+                  time::{Duration, Instant},
+              };'''
+              if import_marker not in text:
+                  raise SystemExit("live std import marker did not match")
+              text = text.replace(import_marker, import_replacement, 1)
+
+              call_pattern = re.compile(
+                  r'''    let artifacts = execute_session\(&policy_bytes, &compiled, &plan, config, now\)\?;'''
               )
-              old_call = "    let artifacts = execute_session(&policy_bytes, &compiled, &plan, config, now)?;"
-              new_call = '''    let artifacts = execute_session(
-                  &policy_bytes,
-                  &compiled,
-                  &plan,
-                  activation.payload.expires_at_epoch_seconds,
-                  config,
-                  now,
-              )?;'''
-              if old_call not in text:
+              text, count = call_pattern.subn(
+                  '''    let artifacts = execute_session(
+                      &policy_bytes,
+                      &compiled,
+                      &plan,
+                      activation.payload.expires_at_epoch_seconds,
+                      config,
+                      now,
+                  )?;''',
+                  text,
+                  count=1,
+              )
+              if count != 1:
                   raise SystemExit("execute_session call did not match")
-              text = text.replace(old_call, new_call, 1)
-              old_signature = '''fn execute_session(
-                  policy_bytes: &[u8],
-                  policy: &CompiledPolicy,
-                  plan: &DiscoverySessionPlan,
-                  config: OperatorConfig,
-                  now: DateTime<Utc>,
-              ) -> Result<SessionArtifacts> {'''
-              new_signature = '''fn execute_session(
-                  policy_bytes: &[u8],
-                  policy: &CompiledPolicy,
-                  plan: &DiscoverySessionPlan,
-                  activation_expires_at_epoch_seconds: i64,
-                  config: OperatorConfig,
-                  now: DateTime<Utc>,
-              ) -> Result<SessionArtifacts> {'''
-              if old_signature not in text:
+
+              signature_pattern = re.compile(
+                  r'''fn execute_session\(\s*\n\s*policy_bytes: &\[u8\],\s*\n\s*policy: &CompiledPolicy,\s*\n\s*plan: &DiscoverySessionPlan,\s*\n\s*config: OperatorConfig,\s*\n\s*now: DateTime<Utc>,\s*\n\) -> Result<SessionArtifacts> \{'''
+              )
+              text, count = signature_pattern.subn(
+                  '''fn execute_session(
+                      policy_bytes: &[u8],
+                      policy: &CompiledPolicy,
+                      plan: &DiscoverySessionPlan,
+                      activation_expires_at_epoch_seconds: i64,
+                      config: OperatorConfig,
+                      now: DateTime<Utc>,
+                  ) -> Result<SessionArtifacts> {''',
+                  text,
+                  count=1,
+              )
+              if count != 1:
                   raise SystemExit("execute_session signature did not match")
-              text = text.replace(old_signature, new_signature, 1)
+
+              seed_marker = "    let seed = plan.seed()?;\n    let mut scheduler"
+              if seed_marker not in text:
+                  raise SystemExit("session-start marker did not match")
               text = text.replace(
-                  "    let seed = plan.seed()?;\n    let mut scheduler",
+                  seed_marker,
                   "    let seed = plan.seed()?;\n    let session_started = Instant::now();\n    let mut scheduler",
                   1,
               )
-              marker = '''        let method = method_from_code(&candidate.method)?;
-                  plan.authorize_candidate(&target, method, candidate.depth)?;'''
-              replacement = '''        let method = method_from_code(&candidate.method)?;
-                  let elapsed = session_started.elapsed();
-                  let request_now = now
-                      + chrono::Duration::from_std(elapsed)
-                          .context("discovery-session elapsed time exceeded chrono bounds")?;
-                  plan.verify(request_now)?;
-                  if request_now.timestamp() > activation_expires_at_epoch_seconds {
-                      bail!("discovery-session activation expired before the next request");
-                  }
-                  plan.authorize_candidate(&target, method, candidate.depth)?;'''
-              if marker not in text:
-                  raise SystemExit("per-request authorization marker did not match")
-              text = text.replace(marker, replacement, 1)
+
+              sleep_marker = '''        if !request_receipts.is_empty() {
+                  thread::sleep(Duration::from_millis(
+                      plan.minimum_request_interval_milliseconds,
+                  ));
+              }
+              let maximum_response_body_bytes'''
+              expiry_block = '''        if !request_receipts.is_empty() {
+                  thread::sleep(Duration::from_millis(
+                      plan.minimum_request_interval_milliseconds,
+                  ));
+              }
+              let elapsed = session_started.elapsed();
+              let request_now = now
+                  + chrono::Duration::from_std(elapsed)
+                      .context("discovery-session elapsed time exceeded chrono bounds")?;
+              plan.verify(request_now)?;
+              if request_now.timestamp() > activation_expires_at_epoch_seconds {
+                  bail!("discovery-session activation expired before the next request");
+              }
+              let maximum_response_body_bytes'''
+              if sleep_marker not in text:
+                  raise SystemExit("inter-request delay marker did not match")
+              text = text.replace(sleep_marker, expiry_block, 1)
+
+              spec_marker = "                dns_ttl_seconds: plan.dns_ttl_seconds,\n                maximum_response_body_bytes,"
+              if spec_marker not in text:
+                  raise SystemExit("request-spec construction marker did not match")
               text = text.replace(
-                  "                dns_ttl_seconds: plan.dns_ttl_seconds,\n                maximum_response_body_bytes,",
+                  spec_marker,
                   "                dns_ttl_seconds: plan.dns_ttl_seconds,\n                dns_observation_elapsed: elapsed,\n                maximum_response_body_bytes,",
                   1,
               )
-              text = text.replace(
-                  "            now,\n        )?;",
-                  "            request_now,\n        )?;",
-                  1,
-              )
+
+              execute_start = text.index("        let observation = execute_discovery_session_request(")
+              now_index = text.index("            now,", execute_start)
+              text = text[:now_index] + "            request_now," + text[now_index + len("            now,"):]
               binary.write_text(text)
           PY
           cargo fmt --all
