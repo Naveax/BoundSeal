@@ -54,6 +54,12 @@ The `plan` command verifies all source artifacts before emitting a unified plan.
 
 The unified expiration is capped by the earliest discovery, injection or external-session expiration.
 
+Input files are read through opened regular-file handles with explicit limits:
+
+- JSON component artifacts: at most 16 MiB each;
+- public-key and signature hex files: at most 4 KiB each;
+- empty, oversized and size-changing files fail before parsing or decoding.
+
 ## Activation
 
 A separate Ed25519 activation certificate binds the complete unified plan and its component hashes. Activation is consumed with an atomic `create_new` marker. Reusing the same activation fails closed.
@@ -63,7 +69,7 @@ Plan and activation-template artifacts are published through a no-clobber tempor
 ## Safety boundary
 
 - HTTPS-origin metadata only; no secret values are accepted.
-- Only passive path prefixes are allowed; destructive path tokens are rejected.
+- Only passive path prefixes are allowed; destructive path tokens, percent encoding, delimiters, control characters and whitespace are rejected.
 - Maximum concurrency is fixed to one.
 - Unified validity cannot exceed the earliest bound component expiration.
 - Request and response budgets cannot exceed the discovery-session limits.
