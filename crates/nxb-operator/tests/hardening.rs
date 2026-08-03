@@ -1,8 +1,10 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    path::PathBuf,
 };
+
+#[cfg(windows)]
+use std::path::PathBuf;
 
 use nxb_operator::{
     write_report_bundle, CoverageSummary, DiscoveryCandidate, DiscoveryScheduler,
