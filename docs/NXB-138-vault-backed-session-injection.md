@@ -57,9 +57,9 @@ The resulting lease duration is the minimum remaining lifetime across the manife
 
 ## Cookie rotation
 
-Static header secrets cannot be added after binding. Allowlisted cookies may rotate through the existing `nxb-session` cookie jar only when the replacement cookie remains secure, unexpired, exact-authority-bound, name-allowlisted and contained by a signed request-path prefix.
+Static header secrets cannot be added after binding. Allowlisted cookies may rotate through the existing `nxb-session` cookie jar when the replacement cookie remains secure, unexpired, exact-authority-bound, name-allowlisted and contained by a signed request-path prefix.
 
-This permits bounded authenticated session renewal without turning server-controlled `Set-Cookie` responses into a general secret-injection channel.
+Bootstrap cookie metadata must remain resolvable for the bounded manifest lifetime; cookie values are never read during injection authorization. This keeps manifest provenance auditable while allowing the active session handle to rotate.
 
 ## Live adapter integration
 
@@ -75,7 +75,7 @@ The authenticated path:
 6. delegates short-lived secret leasing and header/cookie materialization to `SessionBroker::exchange`;
 7. returns the ordinary live receipt plus the injection-authorization digest, session-audit tail and vault-audit tail.
 
-Secrets are materialized only inside the existing zeroizing vault/header lease types and only after verified TLS binding.
+Secrets are materialized only inside the existing zeroizing vault/header lease types and only after verified TLS binding. The authenticated response remains an in-memory sensitive value because a remote server could reflect request credentials. `LiveAuthenticatedResult` therefore uses a custom `Debug` implementation that omits the live response and displays only metadata-safe authorization and audit material.
 
 ## Deliberately excluded
 
