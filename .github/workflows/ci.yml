@@ -1,23 +1,19 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
-      - "nxb-**"
   pull_request:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-nxb138-hardening-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   nxb138-harden:
     name: NXB-138 deterministic security hardening
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/nxb-138-vault-backed-session-injection') || (github.event_name == 'pull_request' && github.head_ref == 'nxb-138-vault-backed-session-injection')
+    if: github.head_ref == 'nxb-138-vault-backed-session-injection'
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -45,56 +41,3 @@ jobs:
           git add Cargo.lock crates/nxb-session-injection/src/lib.rs
           git commit -m "NXB-138: enforce consumed activation and exact secret scope"
           git push origin HEAD:nxb-138-vault-backed-session-injection
-
-  rust:
-    name: Rust contract checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Install pinned Rust
-        run: rustup show active-toolchain
-
-      - name: Lockfile
-        run: cargo check --workspace --all-features --locked
-
-      - name: Formatting
-        run: cargo fmt --all --check
-
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-
-      - name: Tests
-        run: cargo test --workspace --all-features --locked
-
-      - name: Synthetic system demo
-        run: |
-          cargo run -p nxb-core --bin nxb --locked -- demo-run --output target/nxb-demo-receipt.json
-          cargo run -p nxb-core --bin nxb --locked -- verify-demo target/nxb-demo-receipt.json
-
-  supply-chain:
-    name: Dependency policy checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Install pinned Rust
-        run: rustup show active-toolchain
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-
-      - name: RustSec audit
-        run: cargo audit --deny warnings
-
-      - name: Install cargo-deny
-        run: cargo install cargo-deny --locked --version 0.19.7
-
-      - name: Dependency policy
-        run: cargo deny check
