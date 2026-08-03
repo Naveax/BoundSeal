@@ -325,6 +325,9 @@ impl OperatorStateStore {
                 .ok_or(OperatorStateError::WorkspaceBudgetExceeded)?;
             let checkpoint: OperatorCheckpoint = serde_json::from_slice(&bytes)
                 .map_err(|error| OperatorStateError::Serialization(error.to_string()))?;
+            if bytes != checkpoint_bytes(&checkpoint)? {
+                return Err(OperatorStateError::NonCanonicalCheckpoint);
+            }
             if checkpoint.sequence != sequence {
                 return Err(OperatorStateError::CheckpointSequenceMismatch);
             }
@@ -485,7 +488,6 @@ fn validate_transition(
                 OperatorRunStatus::Running,
                 OperatorRunStatus::TeardownPending
             )
-            | (OperatorRunStatus::Running, OperatorRunStatus::Completed)
             | (OperatorRunStatus::Running, OperatorRunStatus::Aborted)
             | (
                 OperatorRunStatus::TeardownPending,
@@ -642,6 +644,8 @@ pub enum OperatorStateError {
     MissingPreviousCheckpointHash,
     #[error("checkpoint SHA-256 does not match its contents")]
     CheckpointDigestMismatch,
+    #[error("checkpoint bytes are not in canonical serialized form")]
+    NonCanonicalCheckpoint,
     #[error("checkpoint already exists")]
     CheckpointAlreadyExists,
     #[error("checkpoint publication was interrupted")]
@@ -924,6 +928,71 @@ mod tests {
             store.recover(1_200).expect_err("missing marker must fail"),
             OperatorStateError::ActivationMarkerMissing
         ));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn noncanonical_checkpoint_bytes_are_rejected() {
+        let (root, store) = initialized_store("noncanonical", 1024 * 1024);
+        let path = store.directory().join(checkpoint_file_name(0));
+        let mut bytes = fs::read(&path).expect("read checkpoint");
+        bytes.push(b'\n');
+        fs::write(&path, bytes).expect("rewrite checkpoint");
+        assert!(matches!(
+            store
+                .recover(1_200)
+                .expect_err("noncanonical bytes must fail"),
+            OperatorStateError::NonCanonicalCheckpoint
+        ));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn completion_requires_teardown_checkpoint() {
+        let (root, store) = initialized_store("teardown-order", 1024 * 1024);
+        store
+            .append(
+                CheckpointUpdate {
+                    status: OperatorRunStatus::Running,
+                    counters: OperatorCounters::default(),
+                    stop_reason: None,
+                },
+                1_150,
+            )
+            .expect("enter running state");
+        assert!(matches!(
+            store
+                .append(
+                    CheckpointUpdate {
+                        status: OperatorRunStatus::Completed,
+                        counters: OperatorCounters::default(),
+                        stop_reason: Some("completed".into()),
+                    },
+                    1_160,
+                )
+                .expect_err("direct completion must fail"),
+            OperatorStateError::InvalidStatusTransition
+        ));
+        store
+            .append(
+                CheckpointUpdate {
+                    status: OperatorRunStatus::TeardownPending,
+                    counters: OperatorCounters::default(),
+                    stop_reason: Some("teardown started".into()),
+                },
+                1_170,
+            )
+            .expect("enter teardown");
+        store
+            .append(
+                CheckpointUpdate {
+                    status: OperatorRunStatus::Completed,
+                    counters: OperatorCounters::default(),
+                    stop_reason: Some("teardown completed".into()),
+                },
+                1_180,
+            )
+            .expect("complete after teardown");
         fs::remove_dir_all(root).expect("cleanup");
     }
 

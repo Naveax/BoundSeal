@@ -79,9 +79,7 @@ pub struct RuntimeClock {
 
 impl RuntimeClock {
     pub fn validate(self) -> Result<Self, RuntimeError> {
-        if self.epoch_seconds <= 0
-            || self.epoch_milliseconds / 1_000 != self.epoch_seconds as u64
-        {
+        if self.epoch_seconds <= 0 || self.epoch_milliseconds / 1_000 != self.epoch_seconds as u64 {
             return Err(RuntimeError::InvalidClock);
         }
         Ok(self)
@@ -247,8 +245,7 @@ impl PreparedRequestRecord {
     fn verify(&self) -> Result<(), RuntimeError> {
         if self.version != OPERATOR_RUNTIME_VERSION
             || self.prepared_at_epoch_seconds <= 0
-            || self.prepared_at_epoch_milliseconds / 1_000
-                != self.prepared_at_epoch_seconds as u64
+            || self.prepared_at_epoch_milliseconds / 1_000 != self.prepared_at_epoch_seconds as u64
         {
             return Err(RuntimeError::InvalidJournalRecord);
         }
@@ -616,12 +613,8 @@ impl CheckpointBoundRuntime {
             }
         }
 
-        let prepared = PreparedRequestRecord::build(
-            self.next_request_index,
-            &recovered.latest,
-            &spec,
-            clock,
-        )?;
+        let prepared =
+            PreparedRequestRecord::build(self.next_request_index, &recovered.latest, &spec, clock)?;
         let prepared_bytes = record_bytes(&prepared)?;
         let prospective = recovered
             .state_file_bytes
@@ -975,7 +968,11 @@ fn scan_journal(
     let mut last_committed = None;
     let mut unresolved = None;
     let mut reconcile = None;
+    let mut incomplete_seen = false;
     for (expected, (index, paths)) in records.into_iter().enumerate() {
+        if incomplete_seen {
+            return Err(RuntimeError::StateJournalMismatch);
+        }
         let expected = expected as u64;
         if index != expected {
             return Err(RuntimeError::JournalSequenceGap);
@@ -1043,12 +1040,7 @@ fn scan_journal(
                 last_committed = Some(commit.committed_at_epoch_milliseconds);
             }
         }
-        if unresolved.is_some() || reconcile.is_some() {
-            if index + 1 != records_len_hint(expected, committed_requests, unresolved, reconcile.as_ref())
-            {
-                // Any later file would imply work was scheduled after an unresolved request.
-            }
-        }
+        incomplete_seen = unresolved.is_some() || reconcile.is_some();
     }
     if reconcile.is_none() && state.latest.counters.requests_completed != committed_requests {
         return Err(RuntimeError::StateJournalMismatch);
@@ -1067,16 +1059,6 @@ fn scan_journal(
         unresolved_request: unresolved,
         reconcile,
     })
-}
-
-fn records_len_hint(
-    expected: u64,
-    committed: u64,
-    unresolved: Option<(u64, UnresolvedRequestPhase)>,
-    reconcile: Option<&RequestOutcomeRecord>,
-) -> u64 {
-    let _ = (committed, unresolved, reconcile);
-    expected + 1
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1113,15 +1095,10 @@ fn read_checkpoint(
     state_directory: &Path,
     sequence: u64,
 ) -> Result<OperatorCheckpoint, RuntimeError> {
-    read_canonical(&state_directory.join(format!(
-        "checkpoint-{sequence:020}.json"
-    )))
+    read_canonical(&state_directory.join(format!("checkpoint-{sequence:020}.json")))
 }
 
-fn acquire_lock(
-    journal_directory: &Path,
-    clock: RuntimeClock,
-) -> Result<PathBuf, RuntimeError> {
+fn acquire_lock(journal_directory: &Path, clock: RuntimeClock) -> Result<PathBuf, RuntimeError> {
     let path = journal_directory.join(RUNTIME_LOCK_FILE);
     let mut file = OpenOptions::new()
         .write(true)
@@ -1371,7 +1348,10 @@ mod tests {
         UnifiedOperatorActivationPayload, UnifiedOperatorPlanParameters,
     };
     use ring::signature::{Ed25519KeyPair, KeyPair};
-    use std::{collections::BTreeSet, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        collections::BTreeSet,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     fn sha(character: char) -> String {
         character.to_string().repeat(64)
@@ -1434,16 +1414,18 @@ mod tests {
         ))
     }
 
-    fn setup(label: &str) -> (PathBuf, UnifiedOperatorPlan, ConsumedUnifiedOperatorActivation) {
+    fn setup(
+        label: &str,
+    ) -> (
+        PathBuf,
+        UnifiedOperatorPlan,
+        ConsumedUnifiedOperatorActivation,
+    ) {
         let root = unique_root(label);
         let plan = plan();
-        let payload = UnifiedOperatorActivationPayload::template(
-            "runtime-activation",
-            &plan,
-            1_050,
-            1_800,
-        )
-        .expect("payload");
+        let payload =
+            UnifiedOperatorActivationPayload::template("runtime-activation", &plan, 1_050, 1_800)
+                .expect("payload");
         let signature = key_pair().sign(&payload.signing_bytes().expect("signing bytes"));
         let certificate = UnifiedOperatorActivationCertificate {
             payload,
@@ -1480,7 +1462,7 @@ mod tests {
 
     #[test]
     fn successful_request_is_journaled_and_checkpointed_exactly_once() {
-        let (root, plan, consumed) = setup("success");
+        let (root, runtime_plan, consumed) = setup("success");
         let clock = RuntimeClock {
             epoch_seconds: 1_101,
             epoch_milliseconds: 1_101_000,
@@ -1488,7 +1470,7 @@ mod tests {
         let (mut runtime, initial) = CheckpointBoundRuntime::initialize(
             root.join("state"),
             root.join("journal"),
-            plan,
+            runtime_plan,
             &consumed,
             clock,
         )
@@ -1634,7 +1616,10 @@ mod tests {
                 },
             )
             .expect_err("interval gate");
-        assert!(matches!(interval_error, RuntimeError::RequestIntervalDenied));
+        assert!(matches!(
+            interval_error,
+            RuntimeError::RequestIntervalDenied
+        ));
         assert!(!called);
         let path_error = runtime
             .execute_with(
