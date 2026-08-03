@@ -1,4 +1,5 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum ProviderSessionOutcome {
     Committed,
     Aborted,
@@ -29,7 +30,7 @@ impl fmt::Display for ProviderFailure {
 
 impl std::error::Error for ProviderFailure {}
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderSessionRequest {
     pub bootstrap_id_sha256: String,
@@ -47,7 +48,7 @@ pub struct ProviderSessionRequest {
     pub session_expires_at_epoch_seconds: i64,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderSecretRequest {
     pub logical_id: String,
