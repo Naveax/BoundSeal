@@ -1,0 +1,68 @@
+name: Operator Clippy cleanup one-shot
+
+on:
+  pull_request:
+    branches:
+      - nxb-130-local-adversarial-integration-lab
+    paths:
+      - "crates/nxb-core/**"
+      - ".github/workflows/operator-clippy-cleanup-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'nxb-131-135-product-integration'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact source branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-131-135-product-integration
+          fetch-depth: 0
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+      - name: Apply exact Clippy cleanup
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          signer = Path("crates/nxb-core/src/bin/nxb-release-sign.rs")
+          text = signer.read_text()
+          old = "|| value.len() % 2 != 0"
+          new = "|| !value.len().is_multiple_of(2)"
+          if old not in text and new not in text:
+              raise SystemExit("release-sign parity check not found")
+          signer.write_text(text.replace(old, new, 1))
+
+          scan = Path("crates/nxb-core/src/scan.rs")
+          text = scan.read_text()
+          start_marker = "\ntrait SnapshotFindingValidation {"
+          end_marker = "\nfn parse_now(value: Option<String>)"
+          if start_marker in text:
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              text = text[:start] + "\n" + text[end:]
+          elif "trait SnapshotFindingValidation" in text or "fn is_sha256(value: &str)" in text:
+              raise SystemExit("snapshot validation cleanup markers are inconsistent")
+          scan.write_text(text)
+          PY
+      - name: Canonicalize and verify
+        run: |
+          cargo fmt --all
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test -p nxb-operator --locked -- --test-threads=1
+          cargo test -p nxb-core --all-features --locked -- --test-threads=1
+      - name: Commit verified cleanup
+        run: |
+          if git diff --quiet; then
+            echo "Clippy cleanup already applied"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/nxb-core
+          git commit -m "fix: satisfy Rust 1.97 Clippy contracts"
+          git push origin HEAD:nxb-131-135-product-integration
