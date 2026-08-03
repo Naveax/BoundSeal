@@ -1,6 +1,7 @@
 use nxb_executor::{ExecutionLimits, ExecutionReceipt};
 use nxb_http1::{Http1Exchange, Http1Header, Http1Limits, Http1Request};
 use nxb_stream::{StreamLimits, StreamReceipt};
+use nxb_tls::{LibraryVerifiedTlsObservation, TlsProtocolVersion};
 use nxb_transport::TicketUseResult;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -199,11 +200,59 @@ pub struct LiveTlsObservation {
     pub cipher_suite: String,
     pub handshake_kind: String,
     pub certificate_chain_length: u64,
+    pub certificate_chain_sha256: String,
     pub leaf_certificate_sha256: String,
+    pub trust_store_sha256: String,
     pub connected_after_milliseconds: u64,
     pub handshake_elapsed_milliseconds: u64,
     pub tls_read_bytes: u64,
     pub tls_written_bytes: u64,
+    pub early_data_accepted: bool,
+    pub renegotiation_observed: bool,
+    pub session_resumed: bool,
+}
+
+impl LiveTlsObservation {
+    pub(crate) fn library_verified(
+        &self,
+        verifier_id: impl Into<String>,
+    ) -> Result<LibraryVerifiedTlsObservation, LiveAdapterError> {
+        let protocol_version = match self.protocol_version.as_str() {
+            "tls_1_2" => TlsProtocolVersion::Tls12,
+            "tls_1_3" => TlsProtocolVersion::Tls13,
+            _ => {
+                return Err(LiveAdapterError::TlsConfiguration(
+                    "live TLS observation has an unsupported protocol version".into(),
+                ))
+            }
+        };
+        let alpn = self.alpn_protocol.clone().ok_or_else(|| {
+            LiveAdapterError::TlsConfiguration(
+                "live TLS observation is missing the required HTTP/1.1 ALPN".into(),
+            )
+        })?;
+        let chain_depth = usize::try_from(self.certificate_chain_length).map_err(|_| {
+            LiveAdapterError::TlsConfiguration(
+                "certificate chain length does not fit the platform".into(),
+            )
+        })?;
+        Ok(LibraryVerifiedTlsObservation {
+            verifier_id: verifier_id.into(),
+            server_name: self.server_name.clone(),
+            protocol_version,
+            alpn,
+            handshake_read_bytes: self.tls_read_bytes,
+            handshake_write_bytes: self.tls_written_bytes,
+            elapsed_milliseconds: self.handshake_elapsed_milliseconds,
+            chain_depth,
+            chain_fingerprint_sha256: self.certificate_chain_sha256.clone(),
+            leaf_fingerprint_sha256: self.leaf_certificate_sha256.clone(),
+            trust_anchor_sha256: self.trust_store_sha256.clone(),
+            early_data_accepted: self.early_data_accepted,
+            renegotiation_observed: self.renegotiation_observed,
+            session_resumed: self.session_resumed,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -284,6 +333,8 @@ pub enum LiveAdapterError {
     Executor(#[from] nxb_executor::ExecutorError),
     #[error("bounded stream rejected live execution: {0}")]
     StreamOpen(#[from] nxb_stream::StreamOpenError),
+    #[error("verified TLS stream binding failed: {0}")]
+    TlsBinding(#[from] nxb_tls::LibraryVerifiedTlsError),
     #[error("HTTP/1 exchange rejected live execution: {0}")]
     Http(#[from] nxb_http1::Http1Error),
     #[error("live receipt serialization failed: {0}")]
