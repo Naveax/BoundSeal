@@ -4,10 +4,9 @@ use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use clap::Args;
 use nxb_operator::{
-    authorize_probe, discover_response, write_report_bundle, CoverageSummary,
-    DiscoveryCandidate, DiscoveryScheduler, OperatorConfig, OperatorFinding,
-    OperatorReport, ProbeKind, ProbeRequest, ReportBundle, SchedulerReceipt,
-    SessionManifest, StopReason,
+    authorize_probe, discover_response, write_report_bundle, CoverageSummary, DiscoveryCandidate,
+    DiscoveryScheduler, OperatorConfig, OperatorFinding, OperatorReport, ProbeKind, ProbeRequest,
+    ReportBundle, SchedulerReceipt, SessionManifest, StopReason,
 };
 use nxb_policy::TargetPolicy;
 use serde::{Deserialize, Serialize};
@@ -140,9 +139,8 @@ pub fn run(args: ScanArgs) -> Result<()> {
         .unwrap_or_else(|| format!("scan-{}", now.timestamp()));
     let session_manifest_sha256 = match args.session_manifest {
         Some(path) => {
-            let bytes = fs::read(&path).with_context(|| {
-                format!("could not read session manifest {}", path.display())
-            })?;
+            let bytes = fs::read(&path)
+                .with_context(|| format!("could not read session manifest {}", path.display()))?;
             let manifest = SessionManifest::from_json(&bytes)?;
             manifest.validate_for_target(&target, now.timestamp())?;
             Some(hash_bytes(&bytes))
@@ -166,16 +164,17 @@ pub fn run(args: ScanArgs) -> Result<()> {
     let mut untested_areas = Vec::new();
     let response_snapshot_sha256 = match args.response_snapshot {
         Some(path) => {
-            let snapshot_bytes = fs::read(&path).with_context(|| {
-                format!("could not read response snapshot {}", path.display())
-            })?;
+            let snapshot_bytes = fs::read(&path)
+                .with_context(|| format!("could not read response snapshot {}", path.display()))?;
             let snapshot: ResponseSnapshot = serde_json::from_slice(&snapshot_bytes)
                 .context("response snapshot JSON is invalid")?;
             let body = fs::read(&snapshot.body_path).with_context(|| {
-                format!("could not read snapshot body {}", snapshot.body_path.display())
+                format!(
+                    "could not read snapshot body {}",
+                    snapshot.body_path.display()
+                )
             })?;
-            if snapshot.body_bytes != body.len() as u64
-                || snapshot.body_sha256 != hash_bytes(&body)
+            if snapshot.body_bytes != body.len() as u64 || snapshot.body_sha256 != hash_bytes(&body)
             {
                 bail!("response snapshot body length or SHA-256 does not match");
             }
@@ -195,8 +194,8 @@ pub fn run(args: ScanArgs) -> Result<()> {
                 snapshot.content_type.as_deref().map(str::as_bytes),
                 &body,
             )?;
-            discovered_endpoints = discovered_endpoints
-                .saturating_add(batch.candidates.len() as u64);
+            discovered_endpoints =
+                discovered_endpoints.saturating_add(batch.candidates.len() as u64);
             depth_reached = depth_reached.max(
                 batch
                     .candidates
@@ -253,7 +252,9 @@ pub fn run(args: ScanArgs) -> Result<()> {
         findings,
         coverage,
         untested_areas,
-        scheduler_receipt.stop_reason.unwrap_or(StopReason::Completed),
+        scheduler_receipt
+            .stop_reason
+            .unwrap_or(StopReason::Completed),
     )?;
     let bundle = ReportBundle::build(report)?;
     let export_manifest = write_report_bundle(&args.output_directory, &bundle)?;
@@ -309,7 +310,10 @@ impl SnapshotFindingValidation for OperatorFinding {
             || self.summary.len() > 8192
             || !is_sha256(&self.endpoint_sha256)
             || !is_sha256(&self.evidence_sha256)
-            || self.affected_endpoints.iter().any(|value| !is_sha256(value))
+            || self
+                .affected_endpoints
+                .iter()
+                .any(|value| !is_sha256(value))
             || self.reproduction_metadata.len() > 256
             || self
                 .reproduction_metadata
@@ -342,10 +346,7 @@ fn write_json_atomic<T: Serialize>(path: &std::path::Path, value: &T) -> Result<
     let bytes = serde_json::to_vec_pretty(value).context("could not serialize scan plan")?;
     let parent = path.parent().context("scan plan path has no parent")?;
     fs::create_dir_all(parent)?;
-    let temporary = parent.join(format!(
-        ".scan-plan-{}.tmp",
-        &hash_bytes(&bytes)[..16]
-    ));
+    let temporary = parent.join(format!(".scan-plan-{}.tmp", &hash_bytes(&bytes)[..16]));
     if temporary.exists() {
         fs::remove_file(&temporary)?;
     }

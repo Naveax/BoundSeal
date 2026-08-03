@@ -151,17 +151,20 @@ fn stale_temporary_export_is_recovered_atomically() {
 
     let manifest = write_report_bundle(&root, &bundle).unwrap();
     assert!(!stale.exists());
-    assert_eq!(fs::read_to_string(root.join("report.json")).unwrap(), bundle.json);
-    assert_eq!(manifest.entries["report.json"].content_sha256, bundle.json_sha256);
+    assert_eq!(
+        fs::read_to_string(root.join("report.json")).unwrap(),
+        bundle.json
+    );
+    assert_eq!(
+        manifest.entries["report.json"].content_sha256,
+        bundle.json_sha256
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn unwritable_output_boundary_fails_closed() {
-    let root = std::env::temp_dir().join(format!(
-        "nxb-operator-unwritable-{}",
-        std::process::id()
-    ));
+    let root = std::env::temp_dir().join(format!("nxb-operator-unwritable-{}", std::process::id()));
     let _ = fs::remove_file(&root);
     let _ = fs::remove_dir_all(&root);
     fs::write(&root, b"not-a-directory").unwrap();

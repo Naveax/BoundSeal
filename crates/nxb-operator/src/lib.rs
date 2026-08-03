@@ -61,9 +61,7 @@ pub enum OperatorError {
     Filesystem(String),
 }
 
-#[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord,
-)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum ProbeKind {
     SecurityHeaders,
@@ -198,21 +196,17 @@ impl OperatorConfig {
             || self.maximum_requests > self.maximum_endpoints
         {
             return Err(OperatorError::InvalidConfig(
-                "maximum_requests must be non-zero and no greater than maximum_endpoints"
-                    .into(),
+                "maximum_requests must be non-zero and no greater than maximum_endpoints".into(),
             ));
         }
-        if self.maximum_body_bytes == 0
-            || self.maximum_body_bytes > MAX_OPERATOR_BODY_BYTES
-        {
+        if self.maximum_body_bytes == 0 || self.maximum_body_bytes > MAX_OPERATOR_BODY_BYTES {
             return Err(OperatorError::InvalidConfig(format!(
                 "maximum_body_bytes must be between 1 and {MAX_OPERATOR_BODY_BYTES}"
             )));
         }
         if self.follow_redirects {
             return Err(OperatorError::InvalidConfig(
-                "redirect following is hard-disabled; redirects must be re-authorized"
-                    .into(),
+                "redirect following is hard-disabled; redirects must be re-authorized".into(),
             ));
         }
         if self.allow_session_mutation {
@@ -280,9 +274,7 @@ impl OperatorConfig {
     }
 }
 
-#[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord,
-)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum VaultReferenceKind {
     Cookie,
@@ -291,9 +283,7 @@ pub enum VaultReferenceKind {
     CsrfToken,
 }
 
-#[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord,
-)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionSameSite {
     Strict,
@@ -383,9 +373,7 @@ impl SessionManifest {
                     "vault handles must be unique".into(),
                 ));
             }
-            if reference.account_id != self.account_id
-                || reference.tenant_id != self.tenant_id
-            {
+            if reference.account_id != self.account_id || reference.tenant_id != self.tenant_id {
                 return Err(OperatorError::InvalidSession(
                     "vault partition does not match session account/tenant".into(),
                 ));
@@ -483,9 +471,9 @@ fn validate_secret_header_name(value: &str) -> Result<(), OperatorError> {
     let normalized = value.to_ascii_lowercase();
     if normalized.is_empty()
         || normalized.len() > 128
-        || !normalized.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')
-        })
+        || !normalized
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
         || matches!(
             normalized.as_str(),
             "host"
@@ -503,9 +491,7 @@ fn validate_secret_header_name(value: &str) -> Result<(), OperatorError> {
     Ok(())
 }
 
-#[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord,
-)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum DiscoveryDecision {
     Scheduled,
@@ -613,7 +599,7 @@ pub fn discover_response(
             observations.push(observation);
             continue;
         }
-        if observation.source_kind.contains("form:form:action") {
+        if observation.source_kind == "form" {
             observation.decision = DiscoveryDecision::PassiveMetadata;
             observation.reason = "form_action_uses_form_metadata_contract".into();
             observations.push(observation);
@@ -667,15 +653,15 @@ pub fn discover_response(
         observation.canonical_url_sha256 = canonical_url_sha256.clone();
         observation.decision = DiscoveryDecision::Scheduled;
         observation.reason = "same_origin_scope_allowed".into();
-        candidates.entry((canonical_url.clone(), method.to_string())).or_insert(
-            DiscoveryCandidate {
+        candidates
+            .entry((canonical_url.clone(), method.to_string()))
+            .or_insert(DiscoveryCandidate {
                 canonical_url,
                 canonical_url_sha256,
                 method: method.to_string(),
                 depth: observation.depth,
                 source_kind: observation.source_kind.clone(),
-            },
-        );
+            });
         observations.push(observation);
     }
     let maximum = usize::try_from(config.maximum_endpoints).unwrap_or(usize::MAX);
@@ -690,9 +676,7 @@ pub fn discover_response(
     })
 }
 
-#[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord,
-)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum StopReason {
     Completed,
@@ -748,18 +732,15 @@ impl DiscoveryScheduler {
         }
         if candidate.depth > self.config.maximum_depth {
             self.rejected_count = self.rejected_count.saturating_add(1);
-            self.stop_reason.get_or_insert(StopReason::DepthLimitReached);
+            self.stop_reason
+                .get_or_insert(StopReason::DepthLimitReached);
             return false;
         }
         let identity = (candidate.canonical_url.clone(), candidate.method.clone());
         if self.seen.contains(&identity)
-            || self
-                .pending
-                .values()
-                .any(|queued| {
-                    queued.canonical_url == candidate.canonical_url
-                        && queued.method == candidate.method
-                })
+            || self.pending.values().any(|queued| {
+                queued.canonical_url == candidate.canonical_url && queued.method == candidate.method
+            })
         {
             self.duplicate_count = self.duplicate_count.saturating_add(1);
             return false;
@@ -899,8 +880,7 @@ pub fn authorize_probe(
             && (request.account_partition.is_none() || request.tenant_partition.is_none())
         {
             return Err(OperatorError::ProbeDenied(
-                "authorization differential requires explicit account and tenant partitions"
-                    .into(),
+                "authorization differential requires explicit account and tenant partitions".into(),
             ));
         }
     }
@@ -916,9 +896,7 @@ pub fn authorize_probe(
     Ok(authorization)
 }
 
-#[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord,
-)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum FindingDisposition {
     Confirmed,
@@ -1097,9 +1075,7 @@ impl OperatorReport {
     }
 }
 
-fn group_root_causes(
-    findings: &[OperatorFinding],
-) -> Result<Vec<RootCauseGroup>, OperatorError> {
+fn group_root_causes(findings: &[OperatorFinding]) -> Result<Vec<RootCauseGroup>, OperatorError> {
     let mut groups: BTreeMap<(String, String), RootCauseGroup> = BTreeMap::new();
     for finding in findings {
         let key = (finding.rule_id.clone(), finding.origin.clone());
@@ -1178,7 +1154,10 @@ fn render_markdown(report: &OperatorReport) -> String {
     let mut output = String::new();
     output.push_str("# NXB operator report\n\n");
     output.push_str(&format!("- Run: `{}`\n", report.run_id));
-    output.push_str(&format!("- Program: {}\n", markdown_escape(&report.program_name)));
+    output.push_str(&format!(
+        "- Program: {}\n",
+        markdown_escape(&report.program_name)
+    ));
     output.push_str(&format!(
         "- Policy snapshot: `{}`\n",
         report.policy_snapshot_sha256
@@ -1205,7 +1184,8 @@ fn render_markdown(report: &OperatorReport) -> String {
     for group in &report.root_cause_groups {
         output.push_str(&format!(
             "### {} — `{}`\n\n",
-            markdown_escape(&group.rule_id), group.group_id
+            markdown_escape(&group.rule_id),
+            group.group_id
         ));
         output.push_str(&format!("- Origin: `{}`\n", markdown_escape(&group.origin)));
         output.push_str(&format!("- Findings: {}\n", group.finding_ids.len()));
@@ -1216,18 +1196,12 @@ fn render_markdown(report: &OperatorReport) -> String {
     }
     output.push_str("## Findings\n\n");
     for finding in &report.findings {
-        output.push_str(&format!(
-            "### {}\n\n",
-            markdown_escape(&finding.title)
-        ));
+        output.push_str(&format!("### {}\n\n", markdown_escape(&finding.title)));
         output.push_str(&format!("- ID: `{}`\n", finding.finding_id));
         output.push_str(&format!("- Rule: `{}`\n", finding.rule_id));
         output.push_str(&format!("- Severity: `{:?}`\n", finding.severity));
         output.push_str(&format!("- Confidence: `{:?}`\n", finding.confidence));
-        output.push_str(&format!(
-            "- Disposition: `{:?}`\n",
-            finding.disposition
-        ));
+        output.push_str(&format!("- Disposition: `{:?}`\n", finding.disposition));
         output.push_str(&format!(
             "- Evidence SHA-256: `{}`\n\n",
             finding.evidence_sha256
@@ -1259,13 +1233,19 @@ fn render_hackerone_draft(report: &OperatorReport) -> String {
         output.push_str("### Summary\n\n");
         output.push_str(&markdown_escape(&finding.summary));
         output.push_str("\n\n### Scope and endpoint\n\n");
-        output.push_str(&format!("- Origin: `{}`\n", markdown_escape(&finding.origin)));
+        output.push_str(&format!(
+            "- Origin: `{}`\n",
+            markdown_escape(&finding.origin)
+        ));
         output.push_str(&format!(
             "- Endpoint SHA-256: `{}`\n",
             finding.endpoint_sha256
         ));
         output.push_str("\n### Evidence\n\n");
-        output.push_str(&format!("- Evidence SHA-256: `{}`\n", finding.evidence_sha256));
+        output.push_str(&format!(
+            "- Evidence SHA-256: `{}`\n",
+            finding.evidence_sha256
+        ));
         output.push_str("- Raw secrets and response bodies are intentionally excluded.\n\n");
         output.push_str("### Triage state\n\n");
         output.push_str(&format!("- `{:?}`\n\n", finding.disposition));
@@ -1332,16 +1312,12 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), OperatorError> {
     let parent = path
         .parent()
         .ok_or_else(|| OperatorError::Filesystem("output path has no parent".into()))?;
-    fs::create_dir_all(parent)
-        .map_err(|error| OperatorError::Filesystem(error.to_string()))?;
+    fs::create_dir_all(parent).map_err(|error| OperatorError::Filesystem(error.to_string()))?;
     let file_name = path
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| OperatorError::Filesystem("output file name is invalid".into()))?;
-    let temporary = parent.join(format!(
-        ".{file_name}.{}.tmp",
-        &hash_bytes(bytes)[..16]
-    ));
+    let temporary = parent.join(format!(".{file_name}.{}.tmp", &hash_bytes(bytes)[..16]));
     if temporary.exists() {
         fs::remove_file(&temporary)
             .map_err(|error| OperatorError::Filesystem(error.to_string()))?;
@@ -1357,11 +1333,9 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), OperatorError> {
         .map_err(|error| OperatorError::Filesystem(error.to_string()))?;
     drop(file);
     if path.exists() {
-        fs::remove_file(path)
-            .map_err(|error| OperatorError::Filesystem(error.to_string()))?;
+        fs::remove_file(path).map_err(|error| OperatorError::Filesystem(error.to_string()))?;
     }
-    fs::rename(&temporary, path)
-        .map_err(|error| OperatorError::Filesystem(error.to_string()))?;
+    fs::rename(&temporary, path).map_err(|error| OperatorError::Filesystem(error.to_string()))?;
     Ok(())
 }
 
@@ -1415,9 +1389,7 @@ impl ReleaseManifest {
         let mut output = self
             .artifacts
             .iter()
-            .map(|artifact| {
-                format!("{}  {}", artifact.content_sha256, artifact.logical_path)
-            })
+            .map(|artifact| format!("{}  {}", artifact.content_sha256, artifact.logical_path))
             .collect::<Vec<_>>();
         output.push(format!("{}  SBOM", self.sbom_sha256));
         output.join("\n") + "\n"
@@ -1486,15 +1458,19 @@ fn origin(url: &Url) -> Result<String, OperatorError> {
     let port = url
         .port_or_known_default()
         .ok_or_else(|| OperatorError::InvalidTarget("URL port is missing".into()))?;
-    Ok(format!("{}://{}:{port}", url.scheme(), host.to_ascii_lowercase()))
+    Ok(format!(
+        "{}://{}:{port}",
+        url.scheme(),
+        host.to_ascii_lowercase()
+    ))
 }
 
 fn validate_identifier(value: &str, name: &str) -> Result<(), OperatorError> {
     if value.is_empty()
         || value.len() > 192
-        || !value.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':')
-        })
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
     {
         return Err(OperatorError::InvalidConfig(format!(
             "{name} is not a bounded identifier"
@@ -1788,10 +1764,7 @@ expires_at = "2099-01-01T00:00:00Z"
 
     #[test]
     fn atomic_report_export_replaces_complete_files() {
-        let root = std::env::temp_dir().join(format!(
-            "nxb-operator-test-{}",
-            std::process::id()
-        ));
+        let root = std::env::temp_dir().join(format!("nxb-operator-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let report = OperatorReport::build(
             "run-export",
