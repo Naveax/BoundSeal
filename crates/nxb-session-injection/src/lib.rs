@@ -115,7 +115,9 @@ pub struct SessionInjectionManifest {
 }
 
 impl SessionInjectionManifest {
-    pub fn build(parameters: SessionInjectionManifestParameters) -> Result<Self, SessionInjectionError> {
+    pub fn build(
+        parameters: SessionInjectionManifestParameters,
+    ) -> Result<Self, SessionInjectionError> {
         let mut manifest = Self {
             version: SESSION_INJECTION_MANIFEST_VERSION,
             injection_id: parameters.injection_id,
@@ -546,7 +548,9 @@ impl BoundSessionInjection {
             return Err(SessionInjectionError::SessionGenerationRegression);
         }
         let remaining = [
-            self.manifest.expires_at_epoch_seconds.saturating_sub(now_epoch_seconds),
+            self.manifest
+                .expires_at_epoch_seconds
+                .saturating_sub(now_epoch_seconds),
             self.activation_expires_at_epoch_seconds
                 .saturating_sub(now_epoch_seconds),
             session
@@ -773,9 +777,7 @@ fn validate_secret_identity(
     Ok(())
 }
 
-fn normalize_paths(
-    values: BTreeSet<String>,
-) -> Result<BTreeSet<String>, SessionInjectionError> {
+fn normalize_paths(values: BTreeSet<String>) -> Result<BTreeSet<String>, SessionInjectionError> {
     values
         .into_iter()
         .map(|value| {
@@ -1085,9 +1087,7 @@ mod tests {
     };
 
     use nxb_session::{SessionProfile, SessionStatus};
-    use nxb_vault::{
-        CookieMetadata, SameSitePolicy, SecretBinding, SecretDelivery, SecretInput,
-    };
+    use nxb_vault::{CookieMetadata, SameSitePolicy, SecretBinding, SecretDelivery, SecretInput};
     use ring::signature::{Ed25519KeyPair, KeyPair};
 
     use super::*;
@@ -1200,10 +1200,7 @@ mod tests {
             role_id: "admin".into(),
             bootstrap_secret_handles: handles,
             allowed_path_prefixes: BTreeSet::from(["/app".into()]),
-            allowed_header_names: BTreeSet::from([
-                "authorization".into(),
-                "x-csrf-token".into(),
-            ]),
+            allowed_header_names: BTreeSet::from(["authorization".into(), "x-csrf-token".into()]),
             allowed_cookie_names: BTreeSet::from(["sid".into()]),
             csrf_bindings: vec![CsrfBinding {
                 cookie_name: "sid".into(),
@@ -1222,13 +1219,9 @@ mod tests {
         manifest: &SessionInjectionManifest,
         key_pair: &Ed25519KeyPair,
     ) -> SessionInjectionActivationCertificate {
-        let payload = SessionInjectionActivationPayload::template(
-            "activation-138",
-            manifest,
-            NOW,
-            NOW + 300,
-        )
-        .unwrap();
+        let payload =
+            SessionInjectionActivationPayload::template("activation-138", manifest, NOW, NOW + 300)
+                .unwrap();
         let signature = key_pair.sign(&payload.signing_bytes().unwrap());
         SessionInjectionActivationCertificate {
             payload,
@@ -1427,11 +1420,16 @@ mod tests {
             })
             .cloned()
             .unwrap();
-        session.profile.secret_handles.retain(|handle| handle != &cookie);
         session
             .profile
             .secret_handles
-            .push(insert_cookie(&mut vault, "sid", "/app/admin", b"cookie-admin"));
+            .retain(|handle| handle != &cookie);
+        session.profile.secret_handles.push(insert_cookie(
+            &mut vault,
+            "sid",
+            "/app/admin",
+            b"cookie-admin",
+        ));
         let bound = BoundSessionInjection::bind(
             manifest,
             &certificate,

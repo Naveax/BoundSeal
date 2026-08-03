@@ -9,9 +9,7 @@ use nxb_tls::LibraryVerifiedTlsBinder;
 use nxb_transport::{ConnectionAttempt, TicketUseOutcome, TransportScheme};
 
 use crate::{
-    authenticated::{
-        LiveAuthenticatedError, LiveAuthenticatedResult, LiveSessionInjection,
-    },
+    authenticated::{LiveAuthenticatedError, LiveAuthenticatedResult, LiveSessionInjection},
     backend::LiveConnectBackend,
     model::{
         build_live_receipt, LiveAdapterConfig, LiveAdapterError, LivePassiveRequest,
@@ -297,12 +295,9 @@ impl LivePassivePipeline {
                 .tls_binder
                 .bind(&stream, &verified_observation)
                 .map_err(LiveAdapterError::from)?;
-            let mut codec = Http1Codec::new_verified_tls(
-                stream,
-                &tls_grant,
-                self.config.limits.http,
-            )
-            .map_err(LiveAdapterError::from)?;
+            let mut codec =
+                Http1Codec::new_verified_tls(stream, &tls_grant, self.config.limits.http)
+                    .map_err(LiveAdapterError::from)?;
             let exchange = injection.broker.exchange(
                 &session_id,
                 &session_context,

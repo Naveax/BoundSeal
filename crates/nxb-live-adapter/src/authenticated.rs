@@ -17,7 +17,10 @@ impl std::fmt::Debug for LiveSessionInjection<'_> {
         formatter
             .debug_struct("LiveSessionInjection")
             .field("manifest_sha256", &self.bound.manifest().manifest_sha256)
-            .field("session_id_sha256", &sha256(self.bound.session_id().as_bytes()))
+            .field(
+                "session_id_sha256",
+                &sha256(self.bound.session_id().as_bytes()),
+            )
             .field("now_epoch_seconds", &self.now_epoch_seconds)
             .field("broker", &"<opaque session broker>")
             .field("vault", &"<opaque secret vault>")

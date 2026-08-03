@@ -825,9 +825,12 @@ dependencies = [
  "nxb-http1",
  "nxb-pinned-transport",
  "nxb-policy",
+ "nxb-session",
+ "nxb-session-injection",
  "nxb-stream",
  "nxb-tls",
  "nxb-transport",
+ "nxb-vault",
  "rcgen",
  "rustls",
  "serde",
@@ -994,6 +997,20 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror",
+]
+
+[[package]]
+name = "nxb-session-injection"
+version = "0.1.0"
+dependencies = [
+ "nxb-session",
+ "nxb-vault",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "url",
 ]
 
 [[package]]
