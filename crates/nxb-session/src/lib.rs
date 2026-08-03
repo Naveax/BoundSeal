@@ -277,11 +277,11 @@ impl SessionBroker {
                 cookie_jar,
             },
         );
-        self.audit.append(SessionAuditEvent {
+        if let Err(error) = self.audit.append(SessionAuditEvent {
             action: "session_created".into(),
             outcome: "active".into(),
             broker_id: self.broker_id.clone(),
-            session_id: Some(session_id),
+            session_id: Some(session_id.clone()),
             metadata: BTreeMap::from([
                 (
                     "secret_handle_count".into(),
@@ -292,7 +292,10 @@ impl SessionBroker {
                     metadata.profile.expires_at_epoch_seconds.to_string(),
                 ),
             ]),
-        })?;
+        }) {
+            self.sessions.remove(&session_id);
+            return Err(error);
+        }
         Ok(metadata)
     }
 

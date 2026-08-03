@@ -235,6 +235,61 @@ pub fn bootstrap_external_session<P: ExternalVaultProvider>(
         return Err(error);
     }
 
+    let session = match created_session.clone() {
+        Some(session) => session,
+        None => {
+            let finish = provider.finish(provider_session, ProviderSessionOutcome::Aborted);
+            let rollback =
+                rollback_provisioning(created_session.as_ref(), &handles, broker, vault);
+            if let Err(rollback_error) = rollback {
+                return Err(VaultProviderError::RollbackFailed(rollback_error));
+            }
+            if let Err(failure) = finish {
+                return Err(VaultProviderError::ProviderAbort(failure.code().into()));
+            }
+            return Err(VaultProviderError::SessionNotCreated);
+        }
+    };
+
+    let receipt_result = (|| {
+        let mut receipt = ExternalVaultBootstrapReceipt {
+            version: EXTERNAL_VAULT_RECEIPT_VERSION,
+            plan_sha256: plan.plan_sha256.clone(),
+            activation_certificate_sha256: consumed_activation.activation_certificate_sha256,
+            discovery_plan_sha256: plan.discovery_plan_sha256.clone(),
+            target_origin_sha256: plan.target_origin_sha256.clone(),
+            provider_id: plan.provider.provider_id.clone(),
+            provider_instance_sha256: plan.provider.provider_instance_sha256.clone(),
+            capability_sha256: plan.provider.capability_sha256.clone(),
+            session_id_sha256: sha256_bytes(session.session_id.as_bytes()),
+            secret_count: provisioned.len() as u64,
+            secret_binding_root_sha256: hash_serializable(&provisioned)?,
+            provisioned_secrets: provisioned,
+            session_audit_tail: broker.audit().tail_hash().to_string(),
+            vault_audit_tail: vault.audit().tail_hash().to_string(),
+            completed_at_epoch_seconds: now_epoch_seconds,
+            receipt_sha256: String::new(),
+        };
+        receipt.receipt_sha256 = hash_serializable(&receipt)?;
+        receipt.verify()?;
+        Ok::<ExternalVaultBootstrapReceipt, VaultProviderError>(receipt)
+    })();
+    let receipt = match receipt_result {
+        Ok(receipt) => receipt,
+        Err(error) => {
+            let finish = provider.finish(provider_session, ProviderSessionOutcome::Aborted);
+            let rollback =
+                rollback_provisioning(created_session.as_ref(), &handles, broker, vault);
+            if let Err(rollback_error) = rollback {
+                return Err(VaultProviderError::RollbackFailed(rollback_error));
+            }
+            if let Err(failure) = finish {
+                return Err(VaultProviderError::ProviderAbort(failure.code().into()));
+            }
+            return Err(error);
+        }
+    };
+
     if let Err(failure) = provider.finish(provider_session, ProviderSessionOutcome::Committed) {
         let rollback = rollback_provisioning(created_session.as_ref(), &handles, broker, vault);
         if let Err(rollback_error) = rollback {
@@ -243,27 +298,6 @@ pub fn bootstrap_external_session<P: ExternalVaultProvider>(
         return Err(VaultProviderError::ProviderCommit(failure.code().into()));
     }
 
-    let session = created_session.ok_or(VaultProviderError::SessionNotCreated)?;
-    let mut receipt = ExternalVaultBootstrapReceipt {
-        version: EXTERNAL_VAULT_RECEIPT_VERSION,
-        plan_sha256: plan.plan_sha256.clone(),
-        activation_certificate_sha256: consumed_activation.activation_certificate_sha256,
-        discovery_plan_sha256: plan.discovery_plan_sha256.clone(),
-        target_origin_sha256: plan.target_origin_sha256.clone(),
-        provider_id: plan.provider.provider_id.clone(),
-        provider_instance_sha256: plan.provider.provider_instance_sha256.clone(),
-        capability_sha256: plan.provider.capability_sha256.clone(),
-        session_id_sha256: sha256_bytes(session.session_id.as_bytes()),
-        secret_count: provisioned.len() as u64,
-        secret_binding_root_sha256: hash_serializable(&provisioned)?,
-        provisioned_secrets: provisioned,
-        session_audit_tail: broker.audit().tail_hash().to_string(),
-        vault_audit_tail: vault.audit().tail_hash().to_string(),
-        completed_at_epoch_seconds: now_epoch_seconds,
-        receipt_sha256: String::new(),
-    };
-    receipt.receipt_sha256 = hash_serializable(&receipt)?;
-    receipt.verify()?;
     Ok(ProvisionedExternalSession {
         session,
         handles,

@@ -571,7 +571,7 @@ impl InMemorySecretVault {
                 value,
             },
         );
-        self.audit.append(VaultAuditEvent {
+        if let Err(error) = self.audit.append(VaultAuditEvent {
             action: "secret_inserted".into(),
             outcome: "stored".into(),
             vault_id: self.vault_id.clone(),
@@ -579,7 +579,10 @@ impl InMemorySecretVault {
             lease_id: None,
             session_id: None,
             metadata: BTreeMap::from([("kind".into(), input.kind.code().into())]),
-        })?;
+        }) {
+            self.entries.remove(&handle);
+            return Err(error);
+        }
         Ok(handle)
     }
 
