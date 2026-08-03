@@ -10,15 +10,18 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   refresh-lockfile:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout tested revision
+      - name: Checkout source branch
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          fetch-depth: 0
       - name: Install pinned Rust
         run: rustup show active-toolchain
       - name: Generate canonical lockfile
@@ -29,5 +32,19 @@ jobs:
           name: generated-cargo-lock-${{ github.run_id }}
           path: Cargo.lock
           retention-days: 3
-      - name: Require committed lockfile to match
+      - name: Commit canonical lockfile for same-repository PR
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if git diff --quiet -- Cargo.lock; then
+            echo "Cargo.lock is already canonical"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock
+          git commit -m "chore: refresh Cargo.lock"
+          git push origin "HEAD:${HEAD_BRANCH}"
+      - name: Require clean canonical lockfile
         run: git diff --exit-code -- Cargo.lock
