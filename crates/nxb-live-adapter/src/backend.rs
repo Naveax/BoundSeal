@@ -16,7 +16,7 @@ use nxb_stream::{
 use nxb_transport::TransportScheme;
 use rustls::{
     client::Resumption,
-    pki_types::ServerName,
+    pki_types::{CertificateDer, ServerName},
     version::{TLS12, TLS13},
     ClientConfig, ClientConnection, HandshakeKind, ProtocolVersion, RootCertStore, StreamOwned,
 };
@@ -127,6 +127,7 @@ impl ByteStreamBackend for LiveTlsByteStream {
 
 pub struct LiveConnectBackend {
     client_config: Arc<ClientConfig>,
+    trust_store_sha256: String,
     connected_stream: Option<LiveTlsByteStream>,
     last_observation: Option<LiveTlsObservation>,
     allow_non_public_for_tests: bool,
@@ -138,6 +139,7 @@ impl fmt::Debug for LiveConnectBackend {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("LiveConnectBackend")
+            .field("trust_store_sha256", &self.trust_store_sha256)
             .field("connected_stream_ready", &self.connected_stream.is_some())
             .field("last_observation_ready", &self.last_observation.is_some())
             .finish_non_exhaustive()
@@ -174,6 +176,7 @@ impl LiveConnectBackend {
                 "root certificate store is empty".into(),
             ));
         }
+        let trust_store_sha256 = live_hash_bytes(format!("{roots:?}").as_bytes());
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let builder = ClientConfig::builder_with_provider(provider)
             .with_protocol_versions(&[&TLS13, &TLS12])
@@ -190,6 +193,7 @@ impl LiveConnectBackend {
 
         Ok(Self {
             client_config: Arc::new(client_config),
+            trust_store_sha256,
             connected_stream: None,
             last_observation: None,
             allow_non_public_for_tests,
@@ -339,18 +343,17 @@ impl LiveConnectBackend {
             }
         };
         let alpn_protocol = connection.alpn_protocol().map(|value| value.to_vec());
-        if let Some(alpn) = &alpn_protocol {
-            if alpn.as_slice() != HTTP11_ALPN {
-                return Err(failure_report(
-                    Some(connected_after),
-                    elapsed_milliseconds(started),
-                    tls_read_bytes,
-                    tls_written_bytes,
-                    "alpn_rejected",
-                ));
-            }
+        if alpn_protocol.as_deref() != Some(HTTP11_ALPN) {
+            return Err(failure_report(
+                Some(connected_after),
+                elapsed_milliseconds(started),
+                tls_read_bytes,
+                tls_written_bytes,
+                "alpn_rejected",
+            ));
         }
-        if matches!(connection.handshake_kind(), Some(HandshakeKind::Resumed)) {
+        let session_resumed = matches!(connection.handshake_kind(), Some(HandshakeKind::Resumed));
+        if session_resumed {
             return Err(failure_report(
                 Some(connected_after),
                 elapsed_milliseconds(started),
@@ -394,11 +397,16 @@ impl LiveConnectBackend {
             cipher_suite,
             handshake_kind,
             certificate_chain_length: certificates.len() as u64,
+            certificate_chain_sha256: certificate_chain_sha256(certificates),
             leaf_certificate_sha256: live_hash_bytes(leaf.as_ref()),
+            trust_store_sha256: self.trust_store_sha256.clone(),
             connected_after_milliseconds: connected_after,
             handshake_elapsed_milliseconds: handshake_elapsed,
             tls_read_bytes,
             tls_written_bytes,
+            early_data_accepted: false,
+            renegotiation_observed: false,
+            session_resumed,
         };
         self.last_observation = Some(observation);
         self.connected_stream = Some(LiveTlsByteStream::new(StreamOwned::new(
@@ -426,6 +434,16 @@ impl PermitBackend for LiveConnectBackend {
             Ok(report) | Err(report) => report,
         }
     }
+}
+
+fn certificate_chain_sha256(certificates: &[CertificateDer<'_>]) -> String {
+    let mut material = Vec::new();
+    for certificate in certificates {
+        let bytes = certificate.as_ref();
+        material.extend_from_slice(&(bytes.len() as u64).to_be_bytes());
+        material.extend_from_slice(bytes);
+    }
+    live_hash_bytes(&material)
 }
 
 fn authority_matches_sni(authority: &str, sni: &str) -> bool {
