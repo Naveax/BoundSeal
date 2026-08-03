@@ -252,6 +252,7 @@ fn is_networkless_fixture_backend<B: ByteStreamBackend>() -> bool {
     }
     #[cfg(not(feature = "networkless-fixture"))]
     {
+        let _ = std::any::type_name::<B>();
         false
     }
 }

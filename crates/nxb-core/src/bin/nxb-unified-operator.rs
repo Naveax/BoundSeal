@@ -3,6 +3,7 @@
 mod live_orchestrator;
 
 #[path = "../discovery_session.rs"]
+#[allow(dead_code)]
 mod discovery_session;
 
 use std::{
@@ -178,12 +179,7 @@ fn main() -> Result<()> {
             activation,
             public_key,
             now,
-        } => verify_activation(
-            &plan,
-            &activation,
-            &public_key,
-            parse_now(now)?,
-        ),
+        } => verify_activation(&plan, &activation, &public_key, parse_now(now)?),
         Command::ConsumeActivation {
             plan,
             activation,
@@ -531,7 +527,8 @@ fn read_lower_hex_file(path: &Path) -> Result<Vec<u8>> {
 }
 
 fn decode_lower_hex(value: &str) -> Result<Vec<u8>> {
-    if !value.len().is_multiple_of(2)
+    if value.is_empty()
+        || !value.len().is_multiple_of(2)
         || !value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
