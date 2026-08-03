@@ -29,7 +29,9 @@ const DENIED_PATH_SEGMENTS: &[&str] = &[
     "unsubscribe",
 ];
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum PlannedMethod {
     Get,
@@ -520,6 +522,17 @@ fn lower_hex(bytes: &[u8]) -> String {
 
 #[cfg(feature = "live-network")]
 include!("live_orchestrator_live.rs");
+
+#[cfg(feature = "live-network")]
+#[path = "discovery_session_live.rs"]
+mod discovery_session_live;
+
+#[cfg(feature = "live-network")]
+#[allow(unused_imports)]
+pub use discovery_session_live::{
+    execute_discovery_session_request, DiscoverySessionRequestObservation,
+    DiscoverySessionRequestSpec,
+};
 
 #[cfg(test)]
 mod tests {
