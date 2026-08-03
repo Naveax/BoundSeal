@@ -20,12 +20,15 @@ jobs:
           ref: nxb-138-vault-backed-session-injection
       - name: Normalize and verify
         run: |
+          sed -i '/use url::Url;/d' crates/nxb-session-injection/src/lib.rs
+          sed -i '/url.workspace = true/d' crates/nxb-session-injection/Cargo.toml
           cargo generate-lockfile
           cargo fmt --all
           cargo check --workspace --all-features --locked
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
           cargo test -p nxb-session-injection --locked
           cargo test -p nxb-live-adapter --locked
-      - name: Commit canonical lockfile and formatting
+      - name: Commit canonical sources
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
@@ -33,5 +36,5 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "NXB-138: commit canonical lockfile and formatting"
+          git commit -m "NXB-138: canonicalize injection sources and lockfile"
           git push origin HEAD:nxb-138-vault-backed-session-injection
