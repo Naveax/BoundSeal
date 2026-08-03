@@ -7,9 +7,7 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use ring::{
-    signature::{Ed25519KeyPair, KeyPair, UnparsedPublicKey, ED25519},
-};
+use ring::signature::{Ed25519KeyPair, KeyPair, UnparsedPublicKey, ED25519};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -124,7 +122,8 @@ fn sign_file(checksums: &Path, private_key_hex: &Path) -> Result<SignatureCertif
         signer_key_id_sha256: hash_bytes(public_key),
     };
     validate_payload(&payload)?;
-    let signing_bytes = serde_json::to_vec(&payload).context("could not serialize signature payload")?;
+    let signing_bytes =
+        serde_json::to_vec(&payload).context("could not serialize signature payload")?;
     let signature = key_pair.sign(&signing_bytes);
     let mut certificate = SignatureCertificate {
         payload,
@@ -156,8 +155,8 @@ fn verify_file(checksums: &Path, certificate: &SignatureCertificate) -> Result<(
     if signature.len() != 64 {
         bail!("signature certificate must contain a 64-byte Ed25519 signature");
     }
-    let signing_bytes =
-        serde_json::to_vec(&certificate.payload).context("could not serialize signature payload")?;
+    let signing_bytes = serde_json::to_vec(&certificate.payload)
+        .context("could not serialize signature payload")?;
     UnparsedPublicKey::new(&ED25519, &public_key)
         .verify(&signing_bytes, &signature)
         .map_err(|_| anyhow::anyhow!("Ed25519 signature verification failed"))?;
@@ -182,7 +181,8 @@ fn validate_payload(payload: &SignaturePayload) -> Result<()> {
 fn certificate_digest(certificate: &SignatureCertificate) -> Result<String> {
     let mut material = certificate.clone();
     material.certificate_sha256.clear();
-    let bytes = serde_json::to_vec(&material).context("could not serialize certificate material")?;
+    let bytes =
+        serde_json::to_vec(&material).context("could not serialize certificate material")?;
     Ok(hash_bytes(&bytes))
 }
 
@@ -254,8 +254,8 @@ fn read_text_bounded(path: &Path, maximum_bytes: u64) -> Result<String> {
 }
 
 fn read_bytes_bounded(path: &Path, maximum_bytes: u64) -> Result<Vec<u8>> {
-    let metadata = fs::metadata(path)
-        .with_context(|| format!("could not inspect {}", path.display()))?;
+    let metadata =
+        fs::metadata(path).with_context(|| format!("could not inspect {}", path.display()))?;
     if !metadata.is_file() || metadata.len() == 0 || metadata.len() > maximum_bytes {
         bail!("input file is empty, not regular, or exceeds its size limit");
     }
@@ -263,11 +263,16 @@ fn read_bytes_bounded(path: &Path, maximum_bytes: u64) -> Result<Vec<u8>> {
 }
 
 fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<()> {
-    let bytes = serde_json::to_vec_pretty(value).context("could not serialize signature certificate")?;
-    let parent = path.parent().context("signature output path has no parent")?;
-    fs::create_dir_all(parent)
-        .with_context(|| format!("could not create {}", parent.display()))?;
-    let temporary = parent.join(format!(".nxb-release-sign-{}.tmp", &hash_bytes(&bytes)[..16]));
+    let bytes =
+        serde_json::to_vec_pretty(value).context("could not serialize signature certificate")?;
+    let parent = path
+        .parent()
+        .context("signature output path has no parent")?;
+    fs::create_dir_all(parent).with_context(|| format!("could not create {}", parent.display()))?;
+    let temporary = parent.join(format!(
+        ".nxb-release-sign-{}.tmp",
+        &hash_bytes(&bytes)[..16]
+    ));
     if temporary.exists() {
         fs::remove_file(&temporary)
             .with_context(|| format!("could not remove stale {}", temporary.display()))?;
@@ -283,8 +288,7 @@ fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<()> {
         .with_context(|| format!("could not sync {}", temporary.display()))?;
     drop(file);
     if path.exists() {
-        fs::remove_file(path)
-            .with_context(|| format!("could not replace {}", path.display()))?;
+        fs::remove_file(path).with_context(|| format!("could not replace {}", path.display()))?;
     }
     fs::rename(&temporary, path).with_context(|| {
         format!(
@@ -340,7 +344,10 @@ fn lower_hex(bytes: &[u8]) -> String {
 }
 
 fn decode_hex(value: &str) -> Result<Vec<u8>> {
-    if value.is_empty() || value.len() % 2 != 0 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    if value.is_empty()
+        || value.len() % 2 != 0
+        || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
         bail!("hexadecimal input is invalid");
     }
     value
@@ -373,10 +380,8 @@ mod tests {
 
     #[test]
     fn signed_checksums_verify_and_tampering_fails() {
-        let root = std::env::temp_dir().join(format!(
-            "nxb-release-sign-test-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("nxb-release-sign-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         let checksums = root.join("SHA256SUMS");
