@@ -15,6 +15,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  nxb138-harden:
+    name: NXB-138 deterministic security hardening
+    if: github.event_name == 'push' && github.ref == 'refs/heads/nxb-138-vault-backed-session-injection'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout NXB-138 branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-138-vault-backed-session-injection
+
+      - name: Apply and verify hardening
+        run: |
+          python3 tools/nxb138_harden.py
+          cargo generate-lockfile
+          cargo fmt --all
+          cargo check --workspace --all-features --locked
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test -p nxb-session-injection --locked
+          cargo test -p nxb-live-adapter --locked
+
+      - name: Commit hardened sources
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add Cargo.lock crates/nxb-session-injection/src/lib.rs
+          git commit -m "NXB-138: enforce consumed activation and exact secret scope"
+          git push origin HEAD:nxb-138-vault-backed-session-injection
+
   rust:
     name: Rust contract checks
     runs-on: ubuntu-latest
