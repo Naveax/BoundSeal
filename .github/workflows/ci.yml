@@ -79,17 +79,11 @@ jobs:
           use discovery_session::{hash_serializable, method_from_code};''',
               1,
           )
-          old = '''            let batch = discover_response(
-                      &config,
-                      policy,
-                      &target,
-                      candidate.depth,
-                      observation.response_content_type.as_deref(),
-                      &observation.response_body,
-                  )?;
-                  discovered_candidates = discovered_candidates.saturating_add(batch.candidates.len() as u64);
-                  scheduler.enqueue_batch(batch);'''
-          new = '''            let mut batch = discover_response(
+          search_from = text.index("        if method == PlannedMethod::Get")
+          start = text.index("            let batch = discover_response(", search_from)
+          end_marker = "            scheduler.enqueue_batch(batch);"
+          end = text.index(end_marker, start) + len(end_marker)
+          replacement = '''            let mut batch = discover_response(
                       &config,
                       policy,
                       &target,
@@ -110,9 +104,7 @@ jobs:
                   discovered_candidates = discovered_candidates
                       .saturating_add(batch.candidates.len() as u64);
                   scheduler.enqueue_batch(batch);'''
-          if old not in text:
-              raise SystemExit("discovery candidate enqueue block did not match")
-          binary.write_text(text.replace(old, new, 1))
+          binary.write_text(text[:start] + replacement + text[end:])
           PY
           cargo fmt --all
 
