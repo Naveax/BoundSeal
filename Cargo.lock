@@ -826,6 +826,7 @@ dependencies = [
  "nxb-pinned-transport",
  "nxb-policy",
  "nxb-stream",
+ "nxb-tls",
  "nxb-transport",
  "rcgen",
  "rustls",

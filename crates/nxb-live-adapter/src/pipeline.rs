@@ -4,6 +4,7 @@ use nxb_executor::{ExecutionControl, ExecutionOutcome, ExecutorConfig, PermitExe
 use nxb_http1::Http1Codec;
 use nxb_pinned_transport::PinnedTransportCoordinator;
 use nxb_stream::{BoundedByteStream, StreamControl};
+use nxb_tls::LibraryVerifiedTlsBinder;
 use nxb_transport::{ConnectionAttempt, TicketUseOutcome};
 
 use crate::{
@@ -18,6 +19,7 @@ use crate::{
 pub struct LivePassivePipeline {
     transport: PinnedTransportCoordinator,
     executor: PermitExecutor<LiveConnectBackend>,
+    tls_binder: LibraryVerifiedTlsBinder,
     config: LiveAdapterConfig,
 }
 
@@ -45,6 +47,7 @@ impl LivePassivePipeline {
         Ok(Self {
             transport,
             executor,
+            tls_binder: LibraryVerifiedTlsBinder::new(),
             config,
         })
     }
@@ -130,7 +133,11 @@ impl LivePassivePipeline {
                 self.config.limits.stream,
                 tls_stream,
             )?;
-            let mut codec = Http1Codec::new(stream, self.config.limits.http)?;
+            let verified_observation = tls_observation
+                .library_verified(format!("{}:rustls-webpki", self.config.executor_id))?;
+            let tls_grant = self.tls_binder.bind(&stream, &verified_observation)?;
+            let mut codec =
+                Http1Codec::new_verified_tls(stream, &tls_grant, self.config.limits.http)?;
             let exchange = codec.exchange(&request.to_http1(), stream_control)?;
             let stream_receipt = codec.stream().receipt();
             let receipt = build_live_receipt(

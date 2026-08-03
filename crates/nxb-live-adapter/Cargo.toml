@@ -11,6 +11,7 @@ nxb-executor = { path = "../nxb-executor" }
 nxb-http1 = { path = "../nxb-http1" }
 nxb-pinned-transport = { path = "../nxb-pinned-transport" }
 nxb-stream = { path = "../nxb-stream" }
+nxb-tls = { path = "../nxb-tls" }
 nxb-transport = { path = "../nxb-transport" }
 rustls.workspace = true
 serde.workspace = true
