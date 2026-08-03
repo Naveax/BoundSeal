@@ -2,7 +2,7 @@
 
 use std::{
     collections::BTreeMap,
-    fs::{self, OpenOptions},
+    fs::{self, File, OpenOptions, TryLockError},
     io::Write,
     path::{Path, PathBuf},
     time::Duration,
@@ -394,11 +394,26 @@ struct JournalScan {
     reconcile: Option<RequestOutcomeRecord>,
 }
 
+struct RuntimeLock {
+    path: PathBuf,
+    file: Option<File>,
+}
+
+impl Drop for RuntimeLock {
+    fn drop(&mut self) {
+        if let Some(file) = self.file.take() {
+            let _ = file.unlock();
+            drop(file);
+        }
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
 pub struct CheckpointBoundRuntime {
     plan: UnifiedOperatorPlan,
     state_store: OperatorStateStore,
     journal_directory: PathBuf,
-    lock_path: PathBuf,
+    _lock: RuntimeLock,
     next_request_index: u64,
     journal_bytes: u64,
     last_committed_epoch_milliseconds: Option<u64>,
@@ -430,32 +445,24 @@ impl CheckpointBoundRuntime {
         let clock = clock.validate()?;
         let journal_directory = journal_directory.into();
         fs::create_dir_all(&journal_directory).map_err(io_error)?;
-        if fs::read_dir(&journal_directory)
-            .map_err(io_error)?
-            .next()
-            .is_some()
-        {
-            return Err(RuntimeError::JournalDirectoryNotEmpty);
+        for entry in fs::read_dir(&journal_directory).map_err(io_error)? {
+            let entry = entry.map_err(io_error)?;
+            if entry.file_name() != RUNTIME_LOCK_FILE {
+                return Err(RuntimeError::JournalDirectoryNotEmpty);
+            }
         }
-        let lock_path = acquire_lock(&journal_directory, clock)?;
-        let initialized = OperatorStateStore::initialize(
+        let lock = acquire_lock(&journal_directory, clock)?;
+        let (state_store, state) = OperatorStateStore::initialize(
             state_directory,
             plan.clone(),
             consumed_activation,
             clock.epoch_seconds,
-        );
-        let (state_store, state) = match initialized {
-            Ok(value) => value,
-            Err(error) => {
-                let _ = fs::remove_file(&lock_path);
-                return Err(error.into());
-            }
-        };
+        )?;
         let runtime = Self {
             plan,
             state_store,
             journal_directory,
-            lock_path,
+            _lock: lock,
             next_request_index: 0,
             journal_bytes: 0,
             last_committed_epoch_milliseconds: None,
@@ -483,28 +490,15 @@ impl CheckpointBoundRuntime {
         let clock = clock.validate()?;
         let journal_directory = journal_directory.into();
         fs::create_dir_all(&journal_directory).map_err(io_error)?;
-        let lock_path = acquire_lock(&journal_directory, clock)?;
-        let opened = OperatorStateStore::open(
+        let lock = acquire_lock(&journal_directory, clock)?;
+        let (state_store, state) = OperatorStateStore::open(
             state_directory,
             plan.clone(),
             activation_certificate_sha256,
             activation_marker_path,
             clock.epoch_seconds,
-        );
-        let (state_store, state) = match opened {
-            Ok(value) => value,
-            Err(error) => {
-                let _ = fs::remove_file(&lock_path);
-                return Err(error.into());
-            }
-        };
-        let scan = match scan_journal(&journal_directory, state_store.directory(), &state) {
-            Ok(scan) => scan,
-            Err(error) => {
-                let _ = fs::remove_file(&lock_path);
-                return Err(error);
-            }
-        };
+        )?;
+        let scan = scan_journal(&journal_directory, state_store.directory(), &state)?;
         let scan = if let Some(outcome) = scan.reconcile.clone() {
             let checkpoint = read_checkpoint(
                 state_store.directory(),
@@ -513,7 +507,6 @@ impl CheckpointBoundRuntime {
             let commit = RequestCommitRecord::build(&outcome, &checkpoint)?;
             let bytes = record_bytes(&commit)?;
             if bytes.len() as u64 > RUNTIME_COMMIT_RESERVATION_BYTES {
-                let _ = fs::remove_file(&lock_path);
                 return Err(RuntimeError::CommitReservationExceeded);
             }
             publish_record(
@@ -529,7 +522,6 @@ impl CheckpointBoundRuntime {
             .checked_add(scan.journal_bytes)
             .ok_or(RuntimeError::WorkspaceBudgetExceeded)?;
         if exact_workspace > plan.maximum_workspace_bytes {
-            let _ = fs::remove_file(&lock_path);
             return Err(RuntimeError::WorkspaceBudgetExceeded);
         }
         let continuation_allowed = state.continuation_allowed && scan.unresolved_request.is_none();
@@ -544,7 +536,7 @@ impl CheckpointBoundRuntime {
             plan,
             state_store,
             journal_directory,
-            lock_path,
+            _lock: lock,
             next_request_index: scan.next_request_index,
             journal_bytes: scan.journal_bytes,
             last_committed_epoch_milliseconds: scan.last_committed_epoch_milliseconds,
@@ -919,12 +911,6 @@ impl CheckpointBoundRuntime {
     }
 }
 
-impl Drop for CheckpointBoundRuntime {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.lock_path);
-    }
-}
-
 fn scan_journal(
     journal_directory: &Path,
     state_directory: &Path,
@@ -1098,19 +1084,27 @@ fn read_checkpoint(
     read_canonical(&state_directory.join(format!("checkpoint-{sequence:020}.json")))
 }
 
-fn acquire_lock(journal_directory: &Path, clock: RuntimeClock) -> Result<PathBuf, RuntimeError> {
+fn acquire_lock(
+    journal_directory: &Path,
+    clock: RuntimeClock,
+) -> Result<RuntimeLock, RuntimeError> {
     let path = journal_directory.join(RUNTIME_LOCK_FILE);
     let mut file = OpenOptions::new()
+        .read(true)
         .write(true)
-        .create_new(true)
+        .create(true)
+        .truncate(false)
         .open(&path)
-        .map_err(|error| {
-            if error.kind() == std::io::ErrorKind::AlreadyExists {
-                RuntimeError::RuntimeLocked
-            } else {
-                io_error(error)
-            }
-        })?;
+        .map_err(io_error)?;
+    match file.try_lock() {
+        Ok(()) => {}
+        Err(TryLockError::WouldBlock) => return Err(RuntimeError::RuntimeLocked),
+        Err(TryLockError::Error(error)) => return Err(io_error(error)),
+    }
+    if let Err(error) = file.set_len(0) {
+        let _ = file.unlock();
+        return Err(io_error(error));
+    }
     let bytes = format!(
         "pid={}\nepoch_seconds={}\n",
         std::process::id(),
@@ -1120,10 +1114,13 @@ fn acquire_lock(journal_directory: &Path, clock: RuntimeClock) -> Result<PathBuf
         .write_all(bytes.as_bytes())
         .and_then(|()| file.sync_all())
     {
-        let _ = fs::remove_file(&path);
+        let _ = file.unlock();
         return Err(io_error(error));
     }
-    Ok(path)
+    Ok(RuntimeLock {
+        path,
+        file: Some(file),
+    })
 }
 
 fn publish_record(path: &Path, bytes: &[u8]) -> Result<(), RuntimeError> {
@@ -1636,6 +1633,54 @@ mod tests {
             )
             .expect_err("path gate");
         assert!(matches!(path_error, RuntimeError::PathDenied));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn os_lock_rejects_concurrent_owner_and_recovers_stale_path() {
+        let (root, runtime_plan, consumed) = setup("os-lock");
+        let clock = RuntimeClock {
+            epoch_seconds: 1_101,
+            epoch_milliseconds: 1_101_000,
+        };
+        let state_directory = root.join("state");
+        let journal_directory = root.join("journal");
+        let (runtime, _) = CheckpointBoundRuntime::initialize(
+            &state_directory,
+            &journal_directory,
+            runtime_plan.clone(),
+            &consumed,
+            clock,
+        )
+        .expect("initialize");
+        assert!(matches!(
+            CheckpointBoundRuntime::open(
+                &state_directory,
+                &journal_directory,
+                runtime_plan.clone(),
+                consumed.activation_certificate_sha256(),
+                consumed.marker_path(),
+                clock,
+            ),
+            Err(RuntimeError::RuntimeLocked)
+        ));
+        drop(runtime);
+        fs::write(journal_directory.join(RUNTIME_LOCK_FILE), b"stale owner\n")
+            .expect("write stale lock path");
+        let (reopened, recovery) = CheckpointBoundRuntime::open(
+            state_directory,
+            journal_directory,
+            runtime_plan,
+            consumed.activation_certificate_sha256(),
+            consumed.marker_path(),
+            RuntimeClock {
+                epoch_seconds: 1_102,
+                epoch_milliseconds: 1_102_000,
+            },
+        )
+        .expect("OS lock must recover a stale path");
+        assert!(recovery.continuation_allowed);
+        drop(reopened);
         fs::remove_dir_all(root).expect("cleanup");
     }
 
