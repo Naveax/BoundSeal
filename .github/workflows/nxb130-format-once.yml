@@ -1,0 +1,38 @@
+name: NXB-130 one-shot formatting
+
+on:
+  pull_request:
+    paths:
+      - "crates/nxb-live-adapter/**"
+      - "crates/nxb-tls/**"
+      - ".github/workflows/nxb130-format-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'nxb-130-local-adversarial-integration-lab'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact source branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-130-local-adversarial-integration-lab
+          fetch-depth: 0
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+      - name: Apply canonical Rust formatting
+        run: cargo fmt --all
+      - name: Commit formatting
+        run: |
+          if git diff --quiet; then
+            echo "NXB-130 is already formatted"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/nxb-live-adapter crates/nxb-tls
+          git commit -m "chore: format NXB-130 TLS lab"
+          git push origin HEAD:nxb-130-local-adversarial-integration-lab
