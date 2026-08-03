@@ -30,6 +30,7 @@ members = [
     "crates/nxb-release-governance",
     "crates/nxb-replay-lab",
     "crates/nxb-session",
+    "crates/nxb-session-injection",
     "crates/nxb-stream",
     "crates/nxb-stream-fixture",
     "crates/nxb-tls",

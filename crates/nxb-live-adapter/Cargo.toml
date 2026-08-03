@@ -10,9 +10,12 @@ nxb-destination = { path = "../nxb-destination" }
 nxb-executor = { path = "../nxb-executor" }
 nxb-http1 = { path = "../nxb-http1" }
 nxb-pinned-transport = { path = "../nxb-pinned-transport" }
+nxb-session = { path = "../nxb-session" }
+nxb-session-injection = { path = "../nxb-session-injection" }
 nxb-stream = { path = "../nxb-stream" }
 nxb-tls = { path = "../nxb-tls" }
 nxb-transport = { path = "../nxb-transport" }
+nxb-vault = { path = "../nxb-vault" }
 rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
