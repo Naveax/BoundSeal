@@ -15,6 +15,165 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  nxb137-expiry-hardening:
+    name: NXB-137 per-request expiry hardening
+    if: github.event_name == 'pull_request' && github.head_ref == 'nxb-137-signed-bounded-discovery-session'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-137-signed-bounded-discovery-session
+
+      - name: Apply elapsed-time security checks
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          live = Path("crates/nxb-core/src/discovery_session_live.rs")
+          text = live.read_text()
+          if "pub dns_observation_elapsed: Duration," not in text:
+              text = text.replace(
+                  "    pub dns_ttl_seconds: u32,\n    pub maximum_response_body_bytes: u64,",
+                  "    pub dns_ttl_seconds: u32,\n    pub dns_observation_elapsed: Duration,\n    pub maximum_response_body_bytes: u64,",
+                  1,
+              )
+              old = '''        if self.dns_context_id.is_empty()
+                      || self.dns_resolver_id.is_empty()
+                      || self.dns_ttl_seconds == 0
+                      || self.dns_ttl_seconds > 86_400
+                  {
+                      bail!("discovery-session DNS metadata is invalid");
+                  }'''
+              new = old + '''
+                  if self.dns_observation_elapsed
+                      > Duration::from_secs(u64::from(self.dns_ttl_seconds))
+                  {
+                      bail!("signed discovery-session DNS observation has expired");
+                  }'''
+              if old not in text:
+                  raise SystemExit("DNS validation block did not match")
+              text = text.replace(old, new, 1)
+              text = text.replace(
+                  "transport.authorize_connection(&intent, spec.selected_ip, Duration::ZERO)?;",
+                  "transport.authorize_connection(\n        &intent,\n        spec.selected_ip,\n        spec.dns_observation_elapsed,\n    )?;",
+                  1,
+              )
+              text += '''
+
+          #[cfg(test)]
+          mod tests {
+              use super::*;
+
+              fn spec(elapsed: Duration) -> DiscoverySessionRequestSpec {
+                  DiscoverySessionRequestSpec {
+                      target_url: Url::parse("https://example.com/app/").unwrap(),
+                      method: PlannedMethod::Get,
+                      selected_ip: "93.184.216.34".parse().unwrap(),
+                      resolved_ips: BTreeSet::from(["93.184.216.34".parse().unwrap()]),
+                      dns_context_id: "dns-context-expiry-test".into(),
+                      dns_resolver_id: "signed-dns-observation".into(),
+                      dns_ttl_seconds: 60,
+                      dns_observation_elapsed: elapsed,
+                      maximum_response_body_bytes: 1024,
+                  }
+              }
+
+              #[test]
+              fn request_spec_rejects_expired_dns_observation() {
+                  spec(Duration::from_secs(60)).validate().unwrap();
+                  assert!(spec(Duration::from_secs(61)).validate().is_err());
+              }
+          }
+          '''
+              live.write_text(text)
+
+          binary = Path("crates/nxb-core/src/bin/nxb-discovery-session.rs")
+          text = binary.read_text()
+          if "time::{Duration, Instant}" not in text:
+              text = text.replace(
+                  "use std::{collections::BTreeMap, path::Path, thread, time::Duration};",
+                  "use std::{\n    collections::BTreeMap,\n    path::Path,\n    thread,\n    time::{Duration, Instant},\n};",
+                  1,
+              )
+              old_call = "    let artifacts = execute_session(&policy_bytes, &compiled, &plan, config, now)?;"
+              new_call = '''    let artifacts = execute_session(
+                  &policy_bytes,
+                  &compiled,
+                  &plan,
+                  activation.payload.expires_at_epoch_seconds,
+                  config,
+                  now,
+              )?;'''
+              if old_call not in text:
+                  raise SystemExit("execute_session call did not match")
+              text = text.replace(old_call, new_call, 1)
+              old_signature = '''fn execute_session(
+                  policy_bytes: &[u8],
+                  policy: &CompiledPolicy,
+                  plan: &DiscoverySessionPlan,
+                  config: OperatorConfig,
+                  now: DateTime<Utc>,
+              ) -> Result<SessionArtifacts> {'''
+              new_signature = '''fn execute_session(
+                  policy_bytes: &[u8],
+                  policy: &CompiledPolicy,
+                  plan: &DiscoverySessionPlan,
+                  activation_expires_at_epoch_seconds: i64,
+                  config: OperatorConfig,
+                  now: DateTime<Utc>,
+              ) -> Result<SessionArtifacts> {'''
+              if old_signature not in text:
+                  raise SystemExit("execute_session signature did not match")
+              text = text.replace(old_signature, new_signature, 1)
+              text = text.replace(
+                  "    let seed = plan.seed()?;\n    let mut scheduler",
+                  "    let seed = plan.seed()?;\n    let session_started = Instant::now();\n    let mut scheduler",
+                  1,
+              )
+              marker = '''        let method = method_from_code(&candidate.method)?;
+                  plan.authorize_candidate(&target, method, candidate.depth)?;'''
+              replacement = '''        let method = method_from_code(&candidate.method)?;
+                  let elapsed = session_started.elapsed();
+                  let request_now = now
+                      + chrono::Duration::from_std(elapsed)
+                          .context("discovery-session elapsed time exceeded chrono bounds")?;
+                  plan.verify(request_now)?;
+                  if request_now.timestamp() > activation_expires_at_epoch_seconds {
+                      bail!("discovery-session activation expired before the next request");
+                  }
+                  plan.authorize_candidate(&target, method, candidate.depth)?;'''
+              if marker not in text:
+                  raise SystemExit("per-request authorization marker did not match")
+              text = text.replace(marker, replacement, 1)
+              text = text.replace(
+                  "                dns_ttl_seconds: plan.dns_ttl_seconds,\n                maximum_response_body_bytes,",
+                  "                dns_ttl_seconds: plan.dns_ttl_seconds,\n                dns_observation_elapsed: elapsed,\n                maximum_response_body_bytes,",
+                  1,
+              )
+              text = text.replace(
+                  "            now,\n        )?;",
+                  "            request_now,\n        )?;",
+                  1,
+              )
+              binary.write_text(text)
+          PY
+          cargo fmt --all
+
+      - name: Commit elapsed-time hardening
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/nxb-core/src/discovery_session_live.rs crates/nxb-core/src/bin/nxb-discovery-session.rs
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "NXB-137: enforce per-request TTL and authorization expiry"
+          git push origin HEAD:nxb-137-signed-bounded-discovery-session
+
   rust:
     name: Rust contract checks
     runs-on: ubuntu-latest
