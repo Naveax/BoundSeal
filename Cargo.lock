@@ -245,9 +245,9 @@ dependencies = [
 
 [[package]]
 name = "data-encoding"
-version = "2.11.0"
+version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4ae5f15dda3c708c0ade84bfee31ccab44a3da4f88015ed22f63732abe300c8"
+checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
 
 [[package]]
 name = "der-parser"
@@ -825,9 +825,12 @@ dependencies = [
  "nxb-http1",
  "nxb-pinned-transport",
  "nxb-policy",
+ "nxb-session",
+ "nxb-session-injection",
  "nxb-stream",
  "nxb-tls",
  "nxb-transport",
+ "nxb-vault",
  "rcgen",
  "rustls",
  "serde",
@@ -990,6 +993,19 @@ dependencies = [
  "nxb-stream-fixture",
  "nxb-transport",
  "nxb-vault",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
+name = "nxb-session-injection"
+version = "0.1.0"
+dependencies = [
+ "nxb-session",
+ "nxb-vault",
+ "ring",
  "serde",
  "serde_json",
  "sha2",

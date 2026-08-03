@@ -1,7 +1,9 @@
+mod authenticated;
 mod backend;
 mod model;
 mod pipeline;
 
+pub use authenticated::{LiveAuthenticatedError, LiveAuthenticatedResult, LiveSessionInjection};
 pub use backend::{LiveConnectBackend, LiveTlsByteStream};
 pub use model::{
     LiveAdapterConfig, LiveAdapterError, LiveAdapterLimits, LivePassiveReceipt, LivePassiveRequest,
