@@ -2,8 +2,8 @@
 
 ## Completion
 
-- Architecture milestones: NXB-0 through NXB-140
-- Workspace crates: 39
+- Architecture milestones: NXB-0 through NXB-141 contract block
+- Workspace crates: 40
 - Current package version: 0.1.0
 - Distribution status: private, `publish = false`
 - Execution mode: deterministic by default; signed and explicitly gated live HTTPS available
@@ -35,11 +35,12 @@ The permanent CI requires:
 | Vault-backed authenticated request injection | Complete |
 | External vault-provider lifecycle contract | Complete |
 | Concrete external vault backend | Complete; absolute-path and SHA-256-pinned process bridge |
+| Unified operator artifact/activation contract | Complete; networkless binder and one-use activation |
 | Password-manager/OS credential-store adapter | Not implemented |
-| Unified authenticated operator CLI | Not implemented |
+| Unified authenticated live-execution CLI | Not implemented |
 | Browser/proxy automation | Not implemented |
 | Encrypted persistent evidence store | Contract only; production sealer not implemented |
 
 ## Release meaning
 
-The repository now includes a bounded live execution path and a pinned process bridge for externally managed secrets. It does not claim unrestricted autonomous scanning, browser automation, credential discovery, active exploitation, arbitrary process execution or automatic HackerOne submission.
+The repository now includes a bounded live execution path, a pinned process bridge for externally managed secrets and a networkless unified authorization contract. It does not claim unified authenticated live orchestration, unrestricted autonomous scanning, browser automation, credential discovery, active exploitation, arbitrary process execution or automatic HackerOne submission.
