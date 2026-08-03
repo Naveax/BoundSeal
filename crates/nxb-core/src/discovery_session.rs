@@ -203,8 +203,7 @@ impl DiscoverySessionPlan {
         if hash_bytes(normalized_origin(&seed)?.as_bytes()) != self.target_origin_sha256 {
             bail!("seed origin digest does not match the discovery-session plan");
         }
-        self.authorize_candidate(&seed, self.seed_method, 0)?;
-        Ok(())
+        self.authorize_candidate(&seed, self.seed_method, 0)
     }
 
     pub fn calculate_sha256(&self) -> Result<String> {
@@ -254,20 +253,6 @@ impl DiscoverySessionPlan {
             bail!("candidate path is outside the signed discovery session");
         }
         Ok(())
-    }
-
-    pub fn request_target(&self, candidate: &Url) -> Result<String> {
-        self.authorize_candidate(candidate, self.seed_method, 0)
-            .or_else(|_| {
-                let parsed = validate_candidate_url(candidate.as_str())?;
-                if hash_bytes(normalized_origin(&parsed)?.as_bytes())
-                    != self.target_origin_sha256
-                {
-                    bail!("candidate origin is outside the signed discovery session");
-                }
-                request_target(&parsed)
-            })?;
-        request_target(candidate)
     }
 }
 
@@ -520,12 +505,23 @@ fn validate_candidate_url(value: &str) -> Result<Url> {
     {
         bail!("discovery-session URLs require a normalized DNS hostname");
     }
-    validate_path(if url.path().is_empty() { "/" } else { url.path() }, "request path")?;
+    validate_path(
+        if url.path().is_empty() {
+            "/"
+        } else {
+            url.path()
+        },
+        "request path",
+    )?;
     Ok(url)
 }
 
 fn request_target(url: &Url) -> Result<String> {
-    let path = if url.path().is_empty() { "/" } else { url.path() };
+    let path = if url.path().is_empty() {
+        "/"
+    } else {
+        url.path()
+    };
     validate_path(path, "request path")?;
     Ok(path.to_string())
 }
@@ -567,10 +563,7 @@ fn validate_path(value: &str, field: &str) -> Result<()> {
 }
 
 fn path_matches_prefix(path: &str, prefix: &str) -> bool {
-    if prefix == "/" {
-        return true;
-    }
-    if path == prefix {
+    if prefix == "/" || path == prefix {
         return true;
     }
     if prefix.ends_with('/') {
@@ -690,8 +683,7 @@ mod tests {
 
     #[test]
     fn activation_binds_exact_session_budget() {
-        let seed = [11_u8; 32];
-        let key_pair = Ed25519KeyPair::from_seed_unchecked(&seed).unwrap();
+        let key_pair = Ed25519KeyPair::from_seed_unchecked(&[11_u8; 32]).unwrap();
         let plan = test_plan(key_pair.public_key().as_ref());
         let payload = DiscoverySessionActivationPayload::template(
             "session-activation-1",
@@ -712,7 +704,6 @@ mod tests {
                 DateTime::from_timestamp(1_800_000_100, 0).unwrap(),
             )
             .unwrap();
-
         let mut tampered = plan.clone();
         tampered.maximum_requests += 1;
         tampered.plan_sha256 = tampered.calculate_sha256().unwrap();
