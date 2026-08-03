@@ -16,6 +16,12 @@ The runtime accepts only `GET` and `HEAD` requests already covered by the signed
 
 The production bridge additionally binds the live connection attempt to HTTPS port 443, the exact plan authority, exact SNI and the declared redirect depth. Secret values remain inside the existing session broker and in-memory vault path.
 
+## Runtime ownership
+
+One runtime process owns a journal through an operating-system file lock. Concurrent owners fail closed before state recovery or request preparation.
+
+The lock file remains at one stable path and inode between runs. Only the operating-system lock is released when the runtime is dropped. A process crash therefore releases ownership without requiring lock-file deletion, and stale diagnostic text in the file does not prevent recovery. Keeping the inode stable also prevents a second process from creating and locking a replacement file while an earlier owner still holds the original inode.
+
 ## Write-ahead request journal
 
 Each request uses three immutable files:
