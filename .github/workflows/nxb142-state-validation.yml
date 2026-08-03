@@ -30,165 +30,104 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path('crates/nxb-operator-state/src/lib.rs')
           text = path.read_text(encoding='utf-8')
 
-          def replace_once(old: str, new: str, label: str) -> None:
+          def sub_once(pattern: str, replacement: str, label: str) -> None:
               global text
-              count = text.count(old)
+              text, count = re.subn(pattern, replacement, text, count=1, flags=re.DOTALL)
               if count != 1:
                   raise SystemExit(f'{label}: expected one match, found {count}')
-              text = text.replace(old, new, 1)
 
-          replace_once(
-              '''    fn permits_continuation(self) -> bool {
-                  matches!(self, Self::Running)
-              }
-          ''',
-              '''    fn permits_continuation(self) -> bool {
+          sub_once(
+              r'fn permits_continuation\(self\) -> bool \{\s*matches!\(self,\s*Self::Running\)\s*\}',
+              '''fn permits_continuation(self) -> bool {
                   matches!(self, Self::Ready | Self::Running)
-              }
-          ''',
+              }''',
               'continuation helper',
           )
 
-          replace_once(
-              '''pub struct OperatorStateStore {
-              directory: PathBuf,
-              plan: UnifiedOperatorPlan,
-              activation_certificate_sha256: String,
-          }
-          ''',
+          sub_once(
+              r'pub struct OperatorStateStore \{\s*directory: PathBuf,\s*plan: UnifiedOperatorPlan,\s*activation_certificate_sha256: String,\s*\}',
               '''pub struct OperatorStateStore {
               directory: PathBuf,
               plan: UnifiedOperatorPlan,
               activation_certificate_sha256: String,
               activation_marker_path: PathBuf,
-          }
-          ''',
+          }''',
               'state-store fields',
           )
 
-          replace_once(
-              '''            .field(
-                  "activation_certificate_sha256",
-                  &self.activation_certificate_sha256,
-              )
-              .finish()
-          ''',
-              '''            .field(
+          sub_once(
+              r'\.field\(\s*"activation_certificate_sha256",\s*&self\.activation_certificate_sha256,\s*\)\s*\.finish\(\)',
+              '''.field(
                   "activation_certificate_sha256",
                   &self.activation_certificate_sha256,
               )
               .field("activation_marker_path", &self.activation_marker_path)
-              .finish()
-          ''',
+              .finish()''',
               'Debug implementation',
           )
 
-          replace_once(
-              '''        let store = Self {
-              directory,
-              plan,
-              activation_certificate_sha256: consumed
-                  .activation_certificate_sha256()
-                  .to_owned(),
-          };
-          ''',
-              '''        let store = Self {
+          sub_once(
+              r'let store = Self \{\s*directory,\s*plan,\s*activation_certificate_sha256: consumed\s*\.activation_certificate_sha256\(\)\s*\.to_owned\(\),\s*\};',
+              '''let store = Self {
               directory,
               plan,
               activation_certificate_sha256: consumed
                   .activation_certificate_sha256()
                   .to_owned(),
               activation_marker_path: consumed.marker_path().to_path_buf(),
-          };
-          ''',
+          };''',
               'initialize store',
           )
 
-          replace_once(
-              '''    pub fn open(
-              directory: impl Into<PathBuf>,
-              plan: UnifiedOperatorPlan,
-              activation_certificate_sha256: impl Into<String>,
-              now_epoch_seconds: i64,
-          ) -> Result<(Self, RecoveredOperatorState), OperatorStateError> {
-          ''',
-              '''    pub fn open(
-              directory: impl Into<PathBuf>,
-              plan: UnifiedOperatorPlan,
-              activation_certificate_sha256: impl Into<String>,
-              activation_marker_path: impl Into<PathBuf>,
-              now_epoch_seconds: i64,
-          ) -> Result<(Self, RecoveredOperatorState), OperatorStateError> {
-          ''',
+          sub_once(
+              r'(pub fn open\(\s*directory: impl Into<PathBuf>,\s*plan: UnifiedOperatorPlan,\s*activation_certificate_sha256: impl Into<String>,)(\s*now_epoch_seconds: i64,)',
+              r'\1\n        activation_marker_path: impl Into<PathBuf>,\2',
               'open signature',
           )
 
-          replace_once(
-              '''        let store = Self {
+          sub_once(
+              r'(let activation_certificate_sha256 = activation_certificate_sha256\.into\(\);\s*validate_sha256\(\s*&activation_certificate_sha256,\s*"activation_certificate_sha256",\s*\)\?;)\s*let store = Self \{\s*directory: directory\.into\(\),\s*plan,\s*activation_certificate_sha256,\s*\};',
+              '''\1
+          let activation_marker_path = activation_marker_path.into();
+          if !activation_marker_path.is_file() {
+              return Err(OperatorStateError::ActivationMarkerMissing);
+          }
+          let store = Self {
               directory: directory.into(),
               plan,
               activation_certificate_sha256,
-          };
-          ''',
-              '''        let activation_marker_path = activation_marker_path.into();
-              if !activation_marker_path.is_file() {
-                  return Err(OperatorStateError::ActivationMarkerMissing);
-              }
-              let store = Self {
-                  directory: directory.into(),
-                  plan,
-                  activation_certificate_sha256,
-                  activation_marker_path,
-              };
-          ''',
+              activation_marker_path,
+          };''',
               'open store',
           )
 
-          replace_once(
-              '''        verify_plan_digest(&self.plan)?;
-              let entries = checkpoint_entries(&self.directory)?;
-          ''',
-              '''        verify_plan_digest(&self.plan)?;
-              if !self.activation_marker_path.is_file() {
-                  return Err(OperatorStateError::ActivationMarkerMissing);
-              }
-              let entries = checkpoint_entries(&self.directory)?;
-          ''',
+          sub_once(
+              r'verify_plan_digest\(&self\.plan\)\?;\s*let entries = checkpoint_entries\(&self\.directory\)\?;',
+              '''verify_plan_digest(&self.plan)?;
+          if !self.activation_marker_path.is_file() {
+              return Err(OperatorStateError::ActivationMarkerMissing);
+          }
+          let entries = checkpoint_entries(&self.directory)?;''',
               'recovery prelude',
           )
 
-          replace_once(
-              '''    #[error("activation expired before continuation")]
-              ActivationExpired,
-          ''',
-              '''    #[error("activation expired before continuation")]
-              ActivationExpired,
-              #[error("consumed activation marker is missing")]
-              ActivationMarkerMissing,
-          ''',
+          sub_once(
+              r'#\[error\("activation expired before continuation"\)\]\s*ActivationExpired,',
+              '''#[error("activation expired before continuation")]
+          ActivationExpired,
+          #[error("consumed activation marker is missing")]
+          ActivationMarkerMissing,''',
               'activation error block',
           )
 
-          replace_once(
-              '''        let (_, opened) = OperatorStateStore::open(
-              store.directory(),
-              store.plan.clone(),
-              store.activation_certificate_sha256.clone(),
-              1_300,
-          )
-          ''',
-              '''        let (_, opened) = OperatorStateStore::open(
-              store.directory(),
-              store.plan.clone(),
-              store.activation_certificate_sha256.clone(),
-              store.activation_marker_path.clone(),
-              1_300,
-          )
-          ''',
+          sub_once(
+              r'(OperatorStateStore::open\(\s*store\.directory\(\),\s*store\.plan\.clone\(\),\s*store\.activation_certificate_sha256\.clone\(\),)(\s*1_300,)',
+              r'\1\n            store.activation_marker_path.clone(),\2',
               'open test call',
           )
 
@@ -203,13 +142,14 @@ jobs:
                   ));
                   fs::remove_dir_all(root).expect("cleanup");
               }
+
           '''
-          anchor = '''
-              #[test]
-              fn interrupted_publication_is_rejected() {
-          '''
-          if marker_test.strip() not in text:
-              replace_once(anchor, marker_test + anchor, 'marker test anchor')
+          if 'fn missing_activation_marker_blocks_recovery()' not in text:
+              sub_once(
+                  r'(\s*#\[test\]\s*fn interrupted_publication_is_rejected\(\) \{)',
+                  marker_test + r'\1',
+                  'marker test anchor',
+              )
 
           path.write_text(text, encoding='utf-8', newline='\n')
           PY
