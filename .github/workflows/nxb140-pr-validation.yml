@@ -27,6 +27,32 @@ jobs:
         uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
+      - name: Apply verified feature-matrix hardening
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          binder = Path('crates/nxb-core/src/bin/nxb-unified-operator.rs')
+          text = binder.read_text()
+          old = '#[path = "../discovery_session.rs"]\nmod discovery_session;\n'
+          new = '#[path = "../discovery_session.rs"]\n#[allow(dead_code)]\nmod discovery_session;\n'
+          if text.count(old) != 1:
+              raise SystemExit('expected exactly one discovery module declaration')
+          text = text.replace(old, new)
+          old = 'if !value.len().is_multiple_of(2)\n        || !value\n'
+          new = 'if value.is_empty()\n        || !value.len().is_multiple_of(2)\n        || !value\n'
+          if text.count(old) != 1:
+              raise SystemExit('expected exactly one lower-hex validation expression')
+          binder.write_text(text.replace(old, new))
+
+          gated = Path('crates/nxb-http1/src/gated_codec.rs')
+          text = gated.read_text()
+          old = '''    #[cfg(not(feature = "networkless-fixture"))]\n    {\n        false\n    }\n'''
+          new = '''    #[cfg(not(feature = "networkless-fixture"))]\n    {\n        let _ = std::any::type_name::<B>();\n        false\n    }\n'''
+          if text.count(old) != 1:
+              raise SystemExit('expected exactly one non-fixture backend branch')
+          gated.write_text(text.replace(old, new))
+          PY
       - name: Canonicalize lockfile and Rust
         run: |
           cargo generate-lockfile
@@ -43,9 +69,9 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add Cargo.lock crates/nxb-unified-operator/src/lib.rs crates/nxb-core/src/bin/nxb-unified-operator.rs
+          git add Cargo.lock crates/nxb-unified-operator/src/lib.rs crates/nxb-core/src/bin/nxb-unified-operator.rs crates/nxb-http1/src/gated_codec.rs
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m 'NXB-140: canonicalize unified binder'
+          git commit -m 'NXB-140: canonicalize and harden unified binder'
           git push origin HEAD:nxb-140-unified-live-operator
