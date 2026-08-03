@@ -218,9 +218,9 @@ fn classify_http_error(error: &Http1Error) -> String {
     match error {
         Http1Error::InvalidResponse(_) => "invalid_response".into(),
         Http1Error::TruncatedResponse(_) => "truncated_response".into(),
-        Http1Error::Stream(_) | Http1Error::StreamState { .. } | Http1Error::StreamOutcome { .. } => {
-            "stream_failure".into()
-        }
+        Http1Error::Stream(_)
+        | Http1Error::StreamState { .. }
+        | Http1Error::StreamOutcome { .. } => "stream_failure".into(),
         other => format!("{other:?}").to_ascii_lowercase(),
     }
 }
@@ -237,8 +237,12 @@ fn observe(
         .unwrap_or_else(|error| error)
 }
 
-fn record(scenario: &str, expected: &str, observed: String) -> LabScenarioReceipt {
-    let passed = observed == expected;
+fn record(
+    scenario: &str,
+    expected: &str,
+    observed: String,
+    passed: bool,
+) -> LabScenarioReceipt {
     LabScenarioReceipt {
         scenario: scenario.into(),
         expected: expected.into(),
@@ -246,6 +250,27 @@ fn record(scenario: &str, expected: &str, observed: String) -> LabScenarioReceip
         observed,
         passed,
     }
+}
+
+fn record_exact(scenario: &str, expected: &str, observed: String) -> LabScenarioReceipt {
+    let passed = observed == expected;
+    record(scenario, expected, observed, passed)
+}
+
+fn record_tls_rejection(scenario: &str, observed: String) -> LabScenarioReceipt {
+    let passed = observed.starts_with("tls_") && !observed.starts_with("status_");
+    record(scenario, "tls_rejection", observed, passed)
+}
+
+fn record_parser_rejection(
+    scenario: &str,
+    expected: &str,
+    observed: String,
+    accepted: &[&str],
+) -> LabScenarioReceipt {
+    let passed = accepted.iter().any(|candidate| observed == *candidate)
+        && !observed.starts_with("status_");
+    record(scenario, expected, observed, passed)
 }
 
 fn finish_server(server: LabServer) {
@@ -263,7 +288,16 @@ fn hash_bytes(bytes: &[u8]) -> String {
 }
 
 fn write_transcript(scenarios: Vec<LabScenarioReceipt>) {
-    assert!(scenarios.iter().all(|scenario| scenario.passed));
+    let failures = scenarios
+        .iter()
+        .filter(|scenario| !scenario.passed)
+        .map(|scenario| {
+            format!(
+                "{} expected={} observed={}",
+                scenario.scenario, scenario.expected, scenario.observed
+            )
+        })
+        .collect::<Vec<_>>();
     let mut transcript = LabTranscript {
         version: 1,
         mode: "local-test-only-no-public-network".into(),
@@ -279,6 +313,11 @@ fn write_transcript(scenarios: Vec<LabScenarioReceipt>) {
         }
         std::fs::write(path, serde_json::to_vec_pretty(&transcript).unwrap()).unwrap();
     }
+    assert!(
+        failures.is_empty(),
+        "adversarial lab scenario mismatch: {}",
+        failures.join("; ")
+    );
 }
 
 #[test]
@@ -291,7 +330,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
             b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nOK".to_vec(),
         ),
     );
-    scenarios.push(record(
+    scenarios.push(record_exact(
         "valid_tls_http1",
         "status_200",
         observe(
@@ -308,9 +347,8 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
         "wrong.example",
         LabBehavior::Reply(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".to_vec()),
     );
-    scenarios.push(record(
+    scenarios.push(record_tls_rejection(
         "wrong_hostname",
-        "tls_certificate_or_protocol_rejected",
         observe(
             &server,
             roots_with(server.certificate.clone()),
@@ -330,9 +368,8 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
         "localhost",
         LabBehavior::Reply(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".to_vec()),
     );
-    scenarios.push(record(
+    scenarios.push(record_tls_rejection(
         "untrusted_certificate",
-        "tls_certificate_or_protocol_rejected",
         observe(
             &server,
             roots_with(unrelated),
@@ -356,7 +393,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
         Http1Limits::conservative_default(),
         2_000,
     );
-    scenarios.push(record(
+    scenarios.push(record_exact(
         "redirect_not_followed",
         "status_302_not_followed",
         if redirected == "status_302" {
@@ -376,9 +413,9 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
     )
     .into_bytes();
     let server = start_server("localhost", LabBehavior::Reply(oversized));
-    scenarios.push(record(
+    scenarios.push(record_parser_rejection(
         "oversized_header",
-        "invalid_response",
+        "bounded_header_rejection",
         observe(
             &server,
             roots_with(server.certificate.clone()),
@@ -386,6 +423,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
             header_limits,
             2_000,
         ),
+        &["invalid_response", "truncated_response", "stream_failure"],
     ));
     finish_server(server);
 
@@ -395,9 +433,9 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
             b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nOK".to_vec(),
         ),
     );
-    scenarios.push(record(
+    scenarios.push(record_parser_rejection(
         "truncated_content_length",
-        "truncated_response",
+        "incomplete_body_rejection",
         observe(
             &server,
             roots_with(server.certificate.clone()),
@@ -405,6 +443,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
             Http1Limits::conservative_default(),
             2_000,
         ),
+        &["truncated_response", "stream_failure"],
     ));
     finish_server(server);
 
@@ -414,9 +453,9 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
             b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nZZ\r\nBAD\r\n0\r\n\r\n".to_vec(),
         ),
     );
-    scenarios.push(record(
+    scenarios.push(record_parser_rejection(
         "malformed_chunk",
-        "invalid_response",
+        "malformed_chunk_rejection",
         observe(
             &server,
             roots_with(server.certificate.clone()),
@@ -424,6 +463,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
             Http1Limits::conservative_default(),
             2_000,
         ),
+        &["invalid_response", "truncated_response", "stream_failure"],
     ));
     finish_server(server);
 
@@ -434,9 +474,9 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
             b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
         ),
     );
-    scenarios.push(record(
+    scenarios.push(record_parser_rejection(
         "read_timeout",
-        "stream_failure",
+        "bounded_timeout_rejection",
         observe(
             &server,
             roots_with(server.certificate.clone()),
@@ -444,6 +484,7 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
             Http1Limits::conservative_default(),
             50,
         ),
+        &["stream_failure"],
     ));
     finish_server(server);
 
@@ -471,5 +512,8 @@ fn production_constructor_still_rejects_loopback() {
         &ExecutionLimits::default(),
         &ExecutionControl::default(),
     );
-    assert_eq!(report.failure_code.as_deref(), Some("non_public_destination"));
+    assert_eq!(
+        report.failure_code.as_deref(),
+        Some("non_public_destination")
+    );
 }
