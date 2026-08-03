@@ -701,6 +701,7 @@ dependencies = [
  "nxb-executor",
  "nxb-gateway",
  "nxb-live-adapter",
+ "nxb-operator",
  "nxb-passive-analyzers",
  "nxb-pinned-transport",
  "nxb-policy",
@@ -848,6 +849,21 @@ dependencies = [
  "nxb-policy",
  "nxb-transport",
  "serde",
+ "thiserror",
+ "url",
+]
+
+[[package]]
+name = "nxb-operator"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "nxb-content-analysis",
+ "nxb-passive-analyzers",
+ "nxb-policy",
+ "serde",
+ "serde_json",
+ "sha2",
  "thiserror",
  "url",
 ]

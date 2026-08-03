@@ -19,6 +19,7 @@ members = [
     "crates/nxb-lifecycle-governance",
     "crates/nxb-live-adapter",
     "crates/nxb-local-executor",
+    "crates/nxb-operator",
     "crates/nxb-passive-analyzers",
     "crates/nxb-pinned-transport",
     "crates/nxb-planner",

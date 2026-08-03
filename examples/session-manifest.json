@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "session_id": "session-example-001",
+  "account_id": "account-example-001",
+  "tenant_id": "tenant-example-001",
+  "expires_at_epoch_seconds": 4102444800,
+  "references": [
+    {
+      "handle": "vault-cookie-example-001",
+      "kind": "cookie",
+      "account_id": "account-example-001",
+      "tenant_id": "tenant-example-001",
+      "allowed_hosts": [
+        "example.com"
+      ],
+      "allowed_schemes": [
+        "https"
+      ],
+      "header_name": null,
+      "cookie": {
+        "domain": "example.com",
+        "path": "/",
+        "secure": true,
+        "http_only": true,
+        "same_site": "lax"
+      }
+    }
+  ]
+}

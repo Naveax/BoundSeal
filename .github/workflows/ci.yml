@@ -41,8 +41,8 @@ jobs:
 
       - name: Synthetic system demo
         run: |
-          cargo run -p nxb-core --locked -- demo-run --output target/nxb-demo-receipt.json
-          cargo run -p nxb-core --locked -- verify-demo target/nxb-demo-receipt.json
+          cargo run -p nxb-core --bin nxb --locked -- demo-run --output target/nxb-demo-receipt.json
+          cargo run -p nxb-core --bin nxb --locked -- verify-demo target/nxb-demo-receipt.json
 
   supply-chain:
     name: Dependency policy checks
