@@ -1,0 +1,474 @@
+name: NXB-138 one-time security hardening
+
+on:
+  push:
+    branches:
+      - nxb-138-vault-backed-session-injection
+    paths:
+      - .github/workflows/nxb138-security-hardening.yml
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: nxb-138-vault-backed-session-injection
+      - name: Apply fail-closed hardening
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("crates/nxb-session-injection/src/lib.rs")
+          text = path.read_text()
+
+          old = '''    pub fn build(
+              parameters: SessionInjectionManifestParameters,
+          ) -> Result<Self, SessionInjectionError> {
+              let mut manifest = Self {'''
+          new = '''    pub fn build(
+              parameters: SessionInjectionManifestParameters,
+          ) -> Result<Self, SessionInjectionError> {
+              if parameters.activation_public_key.len() != 32 {
+                  return Err(SessionInjectionError::InvalidActivationPublicKey);
+              }
+              let mut manifest = Self {'''
+          if old not in text:
+              raise SystemExit("manifest build marker did not match")
+          text = text.replace(old, new, 1)
+
+          old = '''pub struct BoundSessionInjection {
+              manifest: SessionInjectionManifest,
+              activation_expires_at_epoch_seconds: i64,
+              activation_certificate_sha256: String,
+              initial_session_generation: u64,
+          }'''
+          new = '''pub struct BoundSessionInjection {
+              manifest: SessionInjectionManifest,
+              activation_not_before_epoch_seconds: i64,
+              activation_expires_at_epoch_seconds: i64,
+              activation_certificate_sha256: String,
+              initial_session_generation: u64,
+          }'''
+          if old not in text:
+              raise SystemExit("bound injection struct marker did not match")
+          text = text.replace(old, new, 1)
+
+          old = '''    pub fn bind(
+              manifest: SessionInjectionManifest,
+              certificate: &SessionInjectionActivationCertificate,
+              public_key: &[u8],
+              expected_discovery_plan_sha256: &str,
+              expected_target_origin_sha256: &str,
+              session: &SessionMetadata,
+              vault: &InMemorySecretVault,
+              now_epoch_seconds: i64,
+          ) -> Result<Self, SessionInjectionError> {'''
+          new = '''    pub fn bind(
+              state_directory: &Path,
+              manifest: SessionInjectionManifest,
+              certificate: &SessionInjectionActivationCertificate,
+              public_key: &[u8],
+              expected_discovery_plan_sha256: &str,
+              expected_target_origin_sha256: &str,
+              session: &SessionMetadata,
+              vault: &InMemorySecretVault,
+              now_epoch_seconds: i64,
+          ) -> Result<Self, SessionInjectionError> {'''
+          if old not in text:
+              raise SystemExit("bind signature marker did not match")
+          text = text.replace(old, new, 1)
+
+          old = '''        validate_session_state(&manifest, session, vault, None, now_epoch_seconds)?;
+              Ok(Self {
+                  activation_expires_at_epoch_seconds: certificate.payload.expires_at_epoch_seconds,
+                  activation_certificate_sha256: certificate.certificate_sha256()?,
+                  initial_session_generation: session.generation,
+                  manifest,
+              })'''
+          new = '''        validate_session_state(&manifest, session, vault, None, now_epoch_seconds)?;
+              let activation_certificate_sha256 = consume_activation_once(
+                  state_directory,
+                  &manifest,
+                  certificate,
+                  public_key,
+                  now_epoch_seconds,
+              )?;
+              Ok(Self {
+                  activation_not_before_epoch_seconds: certificate.payload.not_before_epoch_seconds,
+                  activation_expires_at_epoch_seconds: certificate.payload.expires_at_epoch_seconds,
+                  activation_certificate_sha256,
+                  initial_session_generation: session.generation,
+                  manifest,
+              })'''
+          if old not in text:
+              raise SystemExit("bind construction marker did not match")
+          text = text.replace(old, new, 1)
+
+          old = '''        if now_epoch_seconds > self.activation_expires_at_epoch_seconds {
+                  return Err(SessionInjectionError::ActivationExpired);
+              }'''
+          new = '''        if now_epoch_seconds < self.activation_not_before_epoch_seconds
+                  || now_epoch_seconds > self.activation_expires_at_epoch_seconds
+              {
+                  return Err(SessionInjectionError::ActivationExpired);
+              }'''
+          if old not in text:
+              raise SystemExit("activation request-window marker did not match")
+          text = text.replace(old, new, 1)
+
+          old = '''impl InjectionUseAuthorization {
+              pub fn verify(&self) -> Result<(), SessionInjectionError> {
+                  let mut material = self.clone();
+                  material.authorization_sha256.clear();
+                  if self.authorization_sha256 != hash_serializable(&material)? {
+                      return Err(SessionInjectionError::AuthorizationDigestMismatch);
+                  }
+                  Ok(())
+              }
+          }'''
+          new = '''impl InjectionUseAuthorization {
+              pub fn verify(&self) -> Result<(), SessionInjectionError> {
+                  if self.version != 1
+                      || !matches!(self.request_method.as_str(), "GET" | "HEAD")
+                      || self.lease_seconds <= 0
+                      || self.lease_seconds > MAX_SESSION_INJECTION_LEASE_SECONDS
+                      || self.authorized_at_epoch_seconds <= 0
+                  {
+                      return Err(SessionInjectionError::InvalidAuthorization);
+                  }
+                  for (value, field) in [
+                      (&self.manifest_sha256, "manifest_sha256"),
+                      (
+                          &self.activation_certificate_sha256,
+                          "activation_certificate_sha256",
+                      ),
+                      (&self.discovery_plan_sha256, "discovery_plan_sha256"),
+                      (&self.session_id_sha256, "session_id_sha256"),
+                      (&self.request_target_sha256, "request_target_sha256"),
+                      (&self.authorization_sha256, "authorization_sha256"),
+                  ] {
+                      validate_sha256(value, field)?;
+                  }
+                  let mut material = self.clone();
+                  material.authorization_sha256.clear();
+                  if self.authorization_sha256 != hash_serializable(&material)? {
+                      return Err(SessionInjectionError::AuthorizationDigestMismatch);
+                  }
+                  Ok(())
+              }
+          }'''
+          if old not in text:
+              raise SystemExit("authorization verification marker did not match")
+          text = text.replace(old, new, 1)
+
+          old = '''            SecretDeliveryMetadata::Cookie { cookie } => {
+                      let name = normalize_cookie_name(&cookie.name)?;
+                      if !manifest.allowed_cookie_names.contains(&name)
+                          || !cookie.secure
+                          || !domain_matches(&manifest.authority, &normalize_host(&cookie.domain)?)
+                      {
+                          return Err(SessionInjectionError::CookieDenied);
+                      }
+                      if cookie
+                          .expires_at_epoch_seconds
+                          .is_some_and(|expires| now_epoch_seconds >= expires)
+                      {
+                          return Err(SessionInjectionError::CookieExpired);
+                      }
+                      cookie_records.entry(name).or_default().push(cookie);
+                      cookie_secret_count = cookie_secret_count.saturating_add(1);
+                  }'''
+          new = '''            SecretDeliveryMetadata::Cookie { cookie } => {
+                      let name = normalize_cookie_name(&cookie.name)?;
+                      let domain = normalize_host(&cookie.domain)?;
+                      validate_passive_path(&cookie.path)?;
+                      if !manifest.allowed_cookie_names.contains(&name)
+                          || !cookie.secure
+                          || domain != manifest.authority
+                          || !manifest
+                              .allowed_path_prefixes
+                              .iter()
+                              .any(|prefix| path_matches_prefix(&cookie.path, prefix))
+                      {
+                          return Err(SessionInjectionError::CookieDenied);
+                      }
+                      if cookie
+                          .expires_at_epoch_seconds
+                          .is_some_and(|expires| now_epoch_seconds >= expires)
+                      {
+                          return Err(SessionInjectionError::CookieExpired);
+                      }
+                      cookie_records.entry(name).or_default().push(cookie);
+                      cookie_secret_count = cookie_secret_count.saturating_add(1);
+                  }'''
+          if old not in text:
+              raise SystemExit("cookie validation marker did not match")
+          text = text.replace(old, new, 1)
+
+          old = '''        || !binding.allowed_hosts.contains(&manifest.authority)
+                  || !binding.allowed_schemes.contains(&manifest.scheme)'''
+          new = '''        || binding.allowed_hosts != BTreeSet::from([manifest.authority.clone()])
+                  || binding.allowed_schemes != BTreeSet::from([manifest.scheme.clone()])'''
+          if old not in text:
+              raise SystemExit("secret binding marker did not match")
+          text = text.replace(old, new, 1)
+
+          old = '''        || normalized
+                      .split('.')
+                      .any(|label| label.is_empty() || label.len() > 63)'''
+          new = '''        || normalized.split('.').any(|label| {
+                      label.is_empty()
+                          || label.len() > 63
+                          || label.starts_with('-')
+                          || label.ends_with('-')
+                  })'''
+          if old not in text:
+              raise SystemExit("host label marker did not match")
+          text = text.replace(old, new, 1)
+
+          start = text.index("fn validate_passive_path(value: &str) -> Result<(), SessionInjectionError> {")
+          end = text.index("\nfn path_matches_prefix", start)
+          replacement = '''fn validate_passive_path(value: &str) -> Result<(), SessionInjectionError> {
+              let invalid_segment = value.split('/').any(|segment| {
+                  segment == "."
+                      || segment == ".."
+                      || segment
+                          .split(['-', '_', '.'])
+                          .any(|token| {
+                              DENIED_PATH_SEGMENTS
+                                  .iter()
+                                  .any(|denied| token.eq_ignore_ascii_case(denied))
+                          })
+              });
+              if value.is_empty()
+                  || value.len() > 4 * 1024
+                  || !value.starts_with('/')
+                  || value.contains("//")
+                  || value.contains('?')
+                  || value.contains('#')
+                  || value.contains('%')
+                  || value.contains(';')
+                  || value.contains('\\\\')
+                  || value
+                      .bytes()
+                      .any(|byte| byte.is_ascii_control() || byte == b' ')
+                  || invalid_segment
+              {
+                  return Err(SessionInjectionError::InvalidPathScope);
+              }
+              Ok(())
+          }
+          '''
+          text = text[:start] + replacement + text[end:]
+
+          domain_start = text.index("fn domain_matches(host: &str, domain: &str) -> bool {")
+          domain_end = text.index("\nfn normalize_header_name", domain_start)
+          text = text[:domain_start] + text[domain_end:]
+
+          old = '''    #[error("session-injection activation key does not match")]
+              ActivationKeyMismatch,'''
+          new = '''    #[error("session-injection activation public key is invalid")]
+              InvalidActivationPublicKey,
+              #[error("session-injection activation key does not match")]
+              ActivationKeyMismatch,'''
+          if old not in text:
+              raise SystemExit("activation key error marker did not match")
+          text = text.replace(old, new, 1)
+
+          old = '''    #[error("session-injection authorization digest mismatch")]
+              AuthorizationDigestMismatch,'''
+          new = '''    #[error("session-injection authorization is invalid")]
+              InvalidAuthorization,
+              #[error("session-injection authorization digest mismatch")]
+              AuthorizationDigestMismatch,'''
+          if old not in text:
+              raise SystemExit("authorization error marker did not match")
+          text = text.replace(old, new, 1)
+
+          test_marker = "#[cfg(test)]\nmod tests {"
+          head, tests = text.split(test_marker, 1)
+          tests = tests.replace("BoundSessionInjection::bind(", "bind_for_test(")
+          first_test = tests.index("    #[test]\n    fn exact_manifest_authorizes_only_bounded_get_and_head_requests()")
+          helper = '''    fn unique_state_directory(label: &str) -> std::path::PathBuf {
+                  let unique = SystemTime::now()
+                      .duration_since(UNIX_EPOCH)
+                      .unwrap()
+                      .as_nanos();
+                  env::temp_dir().join(format!(
+                      "nxb-session-injection-{label}-{}-{unique}",
+                      std::process::id()
+                  ))
+              }
+
+              #[allow(clippy::too_many_arguments)]
+              fn bind_for_test(
+                  manifest: SessionInjectionManifest,
+                  certificate: &SessionInjectionActivationCertificate,
+                  public_key: &[u8],
+                  expected_discovery_plan_sha256: &str,
+                  expected_target_origin_sha256: &str,
+                  session: &SessionMetadata,
+                  vault: &InMemorySecretVault,
+                  now_epoch_seconds: i64,
+              ) -> Result<BoundSessionInjection, SessionInjectionError> {
+                  let directory = unique_state_directory("bind");
+                  let result = BoundSessionInjection::bind(
+                      &directory,
+                      manifest,
+                      certificate,
+                      public_key,
+                      expected_discovery_plan_sha256,
+                      expected_target_origin_sha256,
+                      session,
+                      vault,
+                      now_epoch_seconds,
+                  );
+                  if directory.exists() {
+                      fs::remove_dir_all(directory).unwrap();
+                  }
+                  result
+              }
+
+          '''
+          tests = tests[:first_test] + helper + tests[first_test:]
+
+          old = '''        assert!(bound
+                      .authorize_request(
+                          &session,
+                          &vault,
+                          "app.example.com",
+                          "https",
+                          "/app/api/me",
+                          "POST",
+                          NOW + 2,
+                      )
+                      .is_err());
+              }'''
+          new = '''        assert!(bound
+                      .authorize_request(
+                          &session,
+                          &vault,
+                          "app.example.com",
+                          "https",
+                          "/app/api/me",
+                          "POST",
+                          NOW + 2,
+                      )
+                      .is_err());
+                  for unsafe_path in ["/app/../admin", "/app//admin", "/app/logout.json"] {
+                      assert!(bound
+                          .authorize_request(
+                              &session,
+                              &vault,
+                              "app.example.com",
+                              "https",
+                              unsafe_path,
+                              "GET",
+                              NOW + 2,
+                          )
+                          .is_err());
+                  }
+              }'''
+          if old not in tests:
+              raise SystemExit("path regression test marker did not match")
+          tests = tests.replace(old, new, 1)
+
+          serial_test = tests.index(
+              "    #[test]\n    fn serialized_and_debug_material_never_contains_secret_values()"
+          )
+          replay_test = '''    #[test]
+              fn binding_atomically_consumes_activation() {
+                  let (vault, session, manifest, certificate, key_pair) = fixture();
+                  let directory = unique_state_directory("mandatory-replay");
+                  BoundSessionInjection::bind(
+                      &directory,
+                      manifest.clone(),
+                      &certificate,
+                      key_pair.public_key().as_ref(),
+                      &"b".repeat(64),
+                      &hash_bytes(b"https://app.example.com:443"),
+                      &session,
+                      &vault,
+                      NOW + 1,
+                  )
+                  .unwrap();
+                  assert!(matches!(
+                      BoundSessionInjection::bind(
+                          &directory,
+                          manifest,
+                          &certificate,
+                          key_pair.public_key().as_ref(),
+                          &"b".repeat(64),
+                          &hash_bytes(b"https://app.example.com:443"),
+                          &session,
+                          &vault,
+                          NOW + 1,
+                      ),
+                      Err(SessionInjectionError::StateIo(_))
+                  ));
+                  fs::remove_dir_all(directory).unwrap();
+              }
+
+              #[test]
+              fn broad_secret_authority_binding_is_denied() {
+                  let (mut vault, mut session, manifest, certificate, key_pair) = fixture();
+                  let mut broad = binding();
+                  broad.allowed_hosts.insert("other.example.com".into());
+                  let handle = vault
+                      .insert(
+                          SecretInput {
+                              kind: SecretKind::ApiKey,
+                              value: b"broad-secret".to_vec(),
+                              binding: broad,
+                              delivery: SecretDelivery::Header {
+                                  name: "X-Broad-Key".into(),
+                                  prefix: Vec::new(),
+                              },
+                              expires_at_epoch_seconds: Some(NOW + 3_600),
+                          },
+                          NOW,
+                      )
+                      .unwrap();
+                  session.profile.secret_handles.push(handle);
+                  let directory = unique_state_directory("broad-binding");
+                  assert!(matches!(
+                      BoundSessionInjection::bind(
+                          &directory,
+                          manifest,
+                          &certificate,
+                          key_pair.public_key().as_ref(),
+                          &"b".repeat(64),
+                          &hash_bytes(b"https://app.example.com:443"),
+                          &session,
+                          &vault,
+                          NOW + 1,
+                      ),
+                      Err(SessionInjectionError::SecretBindingMismatch)
+                  ));
+                  if directory.exists() {
+                      fs::remove_dir_all(directory).unwrap();
+                  }
+              }
+
+          '''
+          tests = tests[:serial_test] + replay_test + tests[serial_test:]
+          path.write_text(head + test_marker + tests)
+          PY
+          cargo generate-lockfile
+          cargo fmt --all
+          cargo check --workspace --all-features --locked
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test -p nxb-session-injection --locked
+          cargo test -p nxb-live-adapter --locked
+      - name: Commit hardened sources
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add Cargo.lock crates/nxb-session-injection/src/lib.rs
+          git commit -m "NXB-138: enforce mandatory replay and exact secret scope"
+          git push origin HEAD:nxb-138-vault-backed-session-injection
