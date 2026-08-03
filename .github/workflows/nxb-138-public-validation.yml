@@ -1,0 +1,104 @@
+name: NXB-138 public runner validation
+
+on:
+  push:
+    branches:
+      - nxb-138-public-runner-validation
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nxb-138-public-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Public runner Rust validation
+    runs-on: ubuntu-slim
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout validation tree
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify exact final source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD
+          git diff --exit-code 92eb94319e84ae7a0ad820ac650eedf9634a8d54 -- . \
+            ':(exclude).github/workflows/nxb-138-public-validation.yml'
+
+      - name: Install build prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential curl ca-certificates pkg-config
+
+      - name: Install pinned Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.97.1
+          fi
+          source "$HOME/.cargo/env" 2>/dev/null || true
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+          rustc --version --verbose
+          cargo --version --verbose
+
+      - name: Formatting check
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$HOME/.cargo/env" 2>/dev/null || true
+          cargo fmt --all -- --check
+
+      - name: Locked workspace check
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$HOME/.cargo/env" 2>/dev/null || true
+          cargo check --workspace --all-features --locked
+
+      - name: Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$HOME/.cargo/env" 2>/dev/null || true
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: NXB-138 targeted tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$HOME/.cargo/env" 2>/dev/null || true
+          cargo test -p nxb-session-injection --all-features --locked
+          cargo test -p nxb-live-adapter --all-features --locked
+
+      - name: Workspace tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$HOME/.cargo/env" 2>/dev/null || true
+          cargo test --workspace --all-features --locked
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: nxb-138-public-validation-evidence
+          if-no-files-found: ignore
+          retention-days: 1
+          path: |
+            Cargo.lock
+            crates/nxb-live-adapter/src/authenticated.rs
+            crates/nxb-session-injection/src/tests.rs
