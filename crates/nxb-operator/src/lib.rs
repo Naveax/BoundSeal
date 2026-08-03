@@ -923,15 +923,52 @@ pub struct OperatorFinding {
 }
 
 impl OperatorFinding {
+    pub fn validate(&self) -> Result<(), OperatorError> {
+        validate_identifier(&self.finding_id, "finding_id")?;
+        validate_identifier(&self.rule_id, "rule_id")?;
+        validate_report_text(&self.title, "finding title")?;
+        validate_report_text(&self.summary, "finding summary")?;
+        validate_sha256(&self.endpoint_sha256, "finding endpoint")?;
+        validate_sha256(&self.evidence_sha256, "finding evidence")?;
+
+        let parsed_origin = Url::parse(&self.origin).map_err(|error| {
+            OperatorError::InvalidReport(format!("finding origin is invalid: {error}"))
+        })?;
+        if parsed_origin.scheme() != "https"
+            || parsed_origin.host_str().is_none()
+            || !parsed_origin.username().is_empty()
+            || parsed_origin.password().is_some()
+            || parsed_origin.query().is_some()
+            || parsed_origin.fragment().is_some()
+            || parsed_origin.path() != "/"
+            || parsed_origin.port_or_known_default().is_none()
+        {
+            return Err(OperatorError::InvalidReport(
+                "finding origin must be an HTTPS origin without credentials, path, query, or fragment"
+                    .into(),
+            ));
+        }
+
+        if self.affected_endpoints.is_empty()
+            || self.affected_endpoints.len() > MAX_OPERATOR_ENDPOINTS as usize
+            || !self.affected_endpoints.contains(&self.endpoint_sha256)
+        {
+            return Err(OperatorError::InvalidReport(
+                "finding affected endpoints are empty, oversized, or omit the primary endpoint"
+                    .into(),
+            ));
+        }
+        for endpoint in &self.affected_endpoints {
+            validate_sha256(endpoint, "affected endpoint")?;
+        }
+        validate_metadata(&self.reproduction_metadata)?;
+        Ok(())
+    }
+
     pub fn from_passive(finding: &Finding) -> Result<Self, OperatorError> {
-        validate_sha256(&finding.endpoint_sha256, "finding endpoint")?;
-        validate_sha256(&finding.evidence_sha256, "finding evidence")?;
-        validate_report_text(&finding.title, "finding title")?;
-        validate_report_text(&finding.summary, "finding summary")?;
         let mut reproduction_metadata = finding.metadata.clone();
         reproduction_metadata.insert("source".into(), "passive_analyzer".into());
-        validate_metadata(&reproduction_metadata)?;
-        Ok(Self {
+        let operator_finding = Self {
             finding_id: finding.finding_id.clone(),
             rule_id: finding.rule_id.clone(),
             title: finding.title.clone(),
@@ -944,7 +981,9 @@ impl OperatorFinding {
             disposition: FindingDisposition::Candidate,
             affected_endpoints: BTreeSet::from([finding.endpoint_sha256.clone()]),
             reproduction_metadata,
-        })
+        };
+        operator_finding.validate()?;
+        Ok(operator_finding)
     }
 }
 
@@ -1024,6 +1063,9 @@ impl OperatorReport {
         }
         for area in &untested_areas {
             validate_report_text(area, "untested area")?;
+        }
+        for finding in &findings {
+            finding.validate()?;
         }
         let mut findings = findings;
         findings.sort_by(|left, right| left.finding_id.cmp(&right.finding_id));

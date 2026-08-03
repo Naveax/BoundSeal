@@ -125,15 +125,9 @@ fn scheduler_is_deterministic_under_reordered_input() {
 }
 
 #[test]
-fn secret_like_report_material_is_rejected_before_export() {
-    let report = fixture_report("Authorization: Bearer should-never-be-exported")
-        .expect("report construction must remain deterministic before export validation");
-    assert!(report.findings[0]
-        .summary
-        .contains("should-never-be-exported"));
-
-    let error = ReportBundle::build(report)
-        .expect_err("secret-like material must be rejected at the export boundary");
+fn secret_like_report_material_is_rejected_before_report_build() {
+    let error = fixture_report("Authorization: Bearer should-never-be-exported")
+        .expect_err("secret-like material must never enter an operator report");
     assert!(error.to_string().contains("secret-like"));
 }
 
