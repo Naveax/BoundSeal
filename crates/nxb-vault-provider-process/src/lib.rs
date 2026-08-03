@@ -266,10 +266,14 @@ impl ProcessVaultProvider {
         let mut child = command
             .spawn()
             .map_err(|_| ProcessVaultProviderError::SpawnFailed)?;
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or(ProcessVaultProviderError::SpawnFailed)?;
+        let stdin = match child.stdin.take() {
+            Some(stdin) => stdin,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(ProcessVaultProviderError::SpawnFailed);
+            }
+        };
         let stdout = match child.stdout.take() {
             Some(stdout) => stdout,
             None => {
