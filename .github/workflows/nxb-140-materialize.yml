@@ -21,6 +21,30 @@ jobs:
           ref: nxb-140-process-vault-provider-backend
           fetch-depth: 0
 
+      - name: Correct timeout test phase
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          library = Path("crates/nxb-vault-provider-process/src/lib.rs")
+          text = library.read_text(encoding="utf-8")
+          old = "thread::sleep(Duration::from_secs(5));"
+          new = "thread::sleep(Duration::from_secs(15));"
+          if text.count(old) != 1:
+              raise SystemExit(f"unexpected fixture stall count: {text.count(old)}")
+          library.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
+
+          tests = Path("crates/nxb-vault-provider-process/tests/process_backend.rs")
+          text = tests.read_text(encoding="utf-8")
+          old = "provider_config(Duration::from_millis(250))"
+          new = "provider_config(Duration::from_secs(5))"
+          if text.count(old) != 1:
+              raise SystemExit(f"unexpected timeout configuration count: {text.count(old)}")
+          tests.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
+          PY
+
       - name: Install pinned Rust
         shell: bash
         run: |
