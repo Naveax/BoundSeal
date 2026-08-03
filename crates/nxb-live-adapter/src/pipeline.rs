@@ -133,10 +133,8 @@ impl LivePassivePipeline {
                 self.config.limits.stream,
                 tls_stream,
             )?;
-            let verified_observation = tls_observation.library_verified(format!(
-                "{}:rustls-webpki",
-                self.config.executor_id
-            ))?;
+            let verified_observation = tls_observation
+                .library_verified(format!("{}:rustls-webpki", self.config.executor_id))?;
             let tls_grant = self.tls_binder.bind(&stream, &verified_observation)?;
             let mut codec =
                 Http1Codec::new_verified_tls(stream, &tls_grant, self.config.limits.http)?;

@@ -73,21 +73,17 @@ impl LibraryVerifiedTlsBinder {
             .map_err(|error| LibraryVerifiedTlsError::InvalidObservation(error.to_string()))?;
         validate_observation(stream, observation)?;
 
-        let verification_id = format!(
-            "tls-library-verification-{:020}",
-            self.next_verification_id
-        );
+        let verification_id = format!("tls-library-verification-{:020}", self.next_verification_id);
         self.next_verification_id = self.next_verification_id.saturating_add(1);
         let tls_session_id = format!("tls-library-session-{:020}", self.next_session_id);
         self.next_session_id = self.next_session_id.saturating_add(1);
 
         let stream_grant = stream.grant();
-        let normalized_sni = normalize_dns_name(
-            stream_grant.sni().ok_or_else(|| {
+        let normalized_sni =
+            normalize_dns_name(stream_grant.sni().ok_or_else(|| {
                 LibraryVerifiedTlsError::InvalidObservation("missing SNI".into())
-            })?,
-        )
-        .map_err(|reason| LibraryVerifiedTlsError::InvalidObservation(reason.code().into()))?;
+            })?)
+            .map_err(|reason| LibraryVerifiedTlsError::InvalidObservation(reason.code().into()))?;
         let matched_san_sha256 = hex_sha256(normalized_sni.as_bytes());
         let stream_audit_anchor = stream.audit().tail_hash().to_string();
         let mut details = BTreeMap::new();
@@ -186,9 +182,10 @@ fn validate_observation<B: ByteStreamBackend>(
     }
     if observation.verifier_id.is_empty()
         || observation.verifier_id.len() > 128
-        || !observation.verifier_id.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':')
-        })
+        || !observation
+            .verifier_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
     {
         return Err(LibraryVerifiedTlsError::InvalidObservation(
             "TLS library verifier identifier is invalid".into(),

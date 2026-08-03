@@ -259,12 +259,7 @@ fn observe(
         .unwrap_or_else(|error| error)
 }
 
-fn record(
-    scenario: &str,
-    expected: &str,
-    observed: String,
-    passed: bool,
-) -> LabScenarioReceipt {
+fn record(scenario: &str, expected: &str, observed: String, passed: bool) -> LabScenarioReceipt {
     LabScenarioReceipt {
         scenario: scenario.into(),
         expected: expected.into(),
@@ -290,8 +285,8 @@ fn record_parser_rejection(
     observed: String,
     accepted: &[&str],
 ) -> LabScenarioReceipt {
-    let passed = accepted.iter().any(|candidate| observed == *candidate)
-        && !observed.starts_with("status_");
+    let passed =
+        accepted.iter().any(|candidate| observed == *candidate) && !observed.starts_with("status_");
     record(scenario, expected, observed, passed)
 }
 
