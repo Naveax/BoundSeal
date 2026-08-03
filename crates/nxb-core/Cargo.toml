@@ -9,12 +9,33 @@ publish = false
 name = "nxb"
 path = "src/main.rs"
 
+[features]
+default = []
+live-network = [
+    "dep:nxb-executor",
+    "dep:nxb-gateway",
+    "dep:nxb-live-adapter",
+    "dep:nxb-passive-analyzers",
+    "dep:nxb-pinned-transport",
+    "dep:nxb-stream",
+    "dep:nxb-transport",
+]
+
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
 nxb-events = { path = "../nxb-events" }
+nxb-executor = { path = "../nxb-executor", optional = true }
+nxb-gateway = { path = "../nxb-gateway", optional = true }
+nxb-live-adapter = { path = "../nxb-live-adapter", optional = true }
+nxb-passive-analyzers = { path = "../nxb-passive-analyzers", optional = true }
+nxb-pinned-transport = { path = "../nxb-pinned-transport", optional = true }
 nxb-policy = { path = "../nxb-policy" }
+nxb-stream = { path = "../nxb-stream", optional = true }
+nxb-transport = { path = "../nxb-transport", optional = true }
+ring = "0.17"
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+url.workspace = true

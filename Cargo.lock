@@ -698,10 +698,19 @@ dependencies = [
  "chrono",
  "clap",
  "nxb-events",
+ "nxb-executor",
+ "nxb-gateway",
+ "nxb-live-adapter",
+ "nxb-passive-analyzers",
+ "nxb-pinned-transport",
  "nxb-policy",
+ "nxb-stream",
+ "nxb-transport",
+ "ring",
  "serde",
  "serde_json",
  "sha2",
+ "url",
 ]
 
 [[package]]
