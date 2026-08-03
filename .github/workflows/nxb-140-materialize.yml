@@ -27,28 +27,32 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           library = Path("crates/nxb-vault-provider-process/src/lib.rs")
           text = library.read_text(encoding="utf-8")
-          old = '''        let stdin = child
-              .stdin
-              .take()
-              .ok_or(ProcessVaultProviderError::SpawnFailed)?;
-          '''
-          old = old.replace("              ", "            ")
-          new = '''        let stdin = match child.stdin.take() {
+          pattern = re.compile(
+              r"        let stdin = child\n"
+              r"            \.stdin\n"
+              r"            \.take\(\)\n"
+              r"            \.ok_or\(ProcessVaultProviderError::SpawnFailed\)\?;"
+          )
+          replacement = '''        let stdin = match child.stdin.take() {
               Some(stdin) => stdin,
               None => {
                   let _ = child.kill();
                   let _ = child.wait();
                   return Err(ProcessVaultProviderError::SpawnFailed);
               }
-          };
-          '''
-          new = new.replace("              ", "            ")
-          if text.count(old) != 1:
-              raise SystemExit(f"unexpected stdin pipe setup count: {text.count(old)}")
-          library.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
+          };'''
+          replacement = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in replacement.splitlines()
+          )
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f"unexpected stdin pipe setup count: {count}")
+          library.write_text(text, encoding="utf-8", newline="\n")
           PY
 
       - name: Install pinned Rust
