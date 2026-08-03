@@ -1,9 +1,13 @@
+#[cfg(feature = "live-network")]
 #[path = "../live_orchestrator.rs"]
 mod live_orchestrator;
 
 #[cfg(feature = "live-network")]
 mod enabled {
-    use std::{fs, path::PathBuf};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
 
     use anyhow::{bail, Context, Result};
     use chrono::{DateTime, Utc};
@@ -118,7 +122,7 @@ mod enabled {
         }
         let target = plan.parsed_url()?;
 
-        let mut config = load_operator_config(cli.config.as_ref())?;
+        let mut config = load_operator_config(cli.config.as_deref())?;
         if !config.passive_only {
             bail!("NXB-136 live operator bridge accepts only passive_only operator configs");
         }
@@ -197,7 +201,7 @@ mod enabled {
         Ok(())
     }
 
-    fn load_operator_config(path: Option<&PathBuf>) -> Result<OperatorConfig> {
+    fn load_operator_config(path: Option<&Path>) -> Result<OperatorConfig> {
         let mut config = match path {
             Some(path) => {
                 let bytes = fs::read(path).with_context(|| {
