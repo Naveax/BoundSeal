@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   validate-state-engine:
-    if: github.head_ref == 'nxb-142-validation'
+    if: github.head_ref == 'nxb-142-validation-v2'
     runs-on: ubuntu-slim
     timeout-minutes: 35
     steps:
