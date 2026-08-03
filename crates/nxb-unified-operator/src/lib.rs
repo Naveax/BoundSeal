@@ -649,7 +649,9 @@ fn validate_passive_path(path: &str) -> Result<(), UnifiedOperatorError> {
         || path.contains('\\')
         || path.contains("//")
         || path.contains(';')
-        || path.chars().any(char::is_control)
+        || path
+            .chars()
+            .any(|character| character.is_control() || character.is_whitespace())
     {
         return Err(UnifiedOperatorError::InvalidPathScope);
     }
@@ -821,6 +823,18 @@ mod tests {
             .insert("/account/logout".into());
         assert_eq!(
             binding.validate().expect_err("logout path must fail"),
+            UnifiedOperatorError::InvalidPathScope
+        );
+    }
+
+    #[test]
+    fn whitespace_path_scope_is_rejected() {
+        let mut binding = binding();
+        binding
+            .allowed_path_prefixes
+            .insert("/api/user data".into());
+        assert_eq!(
+            binding.validate().expect_err("whitespace path must fail"),
             UnifiedOperatorError::InvalidPathScope
         );
     }

@@ -4,6 +4,15 @@ All notable changes to NXBounty are documented here.
 
 ## [Unreleased]
 
+### NXB-141
+
+- Added a signed unified operator plan binding discovery, policy, target origin, session injection, external-vault lifecycle, provider identity/capability, account partition, secret roots and execution budgets.
+- Added external Ed25519 activation templates, verification and atomic one-use consumption.
+- Added a networkless binder CLI for plan, verification and activation operations.
+- Added no-clobber synchronized artifact publication and bounded artifact/key-file reads.
+- Added passive-path whitespace rejection and explicit sequential/checkpoint/workspace constraints.
+- Kept live unified execution disabled pending checkpoint recovery, workspace accounting, provider startup, request injection and teardown-order validation.
+
 ### NXB-140
 
 - Added a concrete process-backed implementation of the NXB-139 external vault-provider contract.
@@ -26,7 +35,7 @@ All notable changes to NXBounty are documented here.
 ### Planned
 
 - Password-manager, HSM and OS credential-store-specific provider adapters.
-- Unified authenticated operator CLI.
+- Checkpointed unified authenticated live-execution CLI.
 - Encrypted local evidence persistence.
 
 ## [0.1.0-contract-complete] - 2026-07-31
