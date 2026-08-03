@@ -12,6 +12,7 @@ use nxb_executor::{
 };
 use nxb_http1::{Http1Codec, Http1Error, Http1Limits};
 use nxb_stream::{BoundedByteStream, StreamControl, StreamLimits};
+use nxb_tls::LibraryVerifiedTlsBinder;
 use nxb_transport::{TransportPermit, TransportScheme};
 use rcgen::{generate_simple_self_signed, CertifiedKey};
 use rustls::{
@@ -190,6 +191,11 @@ fn run_exchange(
         return Err(execution_failure_code(&execution.outcome));
     }
 
+    let tls_observation = executor
+        .backend()
+        .last_observation()
+        .cloned()
+        .ok_or_else(|| "missing_tls_observation".to_string())?;
     let tls_stream = executor
         .backend_mut()
         .take_stream()
@@ -202,7 +208,15 @@ fn run_exchange(
         tls_stream,
     )
     .map_err(|error| error.to_string())?;
-    let mut codec = Http1Codec::new(stream, http_limits).map_err(|error| error.to_string())?;
+    let verified_observation = tls_observation
+        .library_verified("nxb130-lab:rustls-webpki")
+        .map_err(|error| error.to_string())?;
+    let mut tls_binder = LibraryVerifiedTlsBinder::new();
+    let tls_grant = tls_binder
+        .bind(&stream, &verified_observation)
+        .map_err(|error| error.to_string())?;
+    let mut codec = Http1Codec::new_verified_tls(stream, &tls_grant, http_limits)
+        .map_err(|error| error.to_string())?;
     codec
         .exchange(
             &LivePassiveRequest::new(PassiveMethod::Get, "/health")
