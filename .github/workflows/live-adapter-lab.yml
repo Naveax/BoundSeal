@@ -1,0 +1,86 @@
+name: Live adapter local adversarial lab
+
+on:
+  pull_request:
+    paths:
+      - "crates/nxb-live-adapter/**"
+      - ".github/workflows/live-adapter-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nxb130-local-adversarial-lab-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  local-lab:
+    name: Loopback TLS and HTTP adversarial scenarios
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout tested revision
+        uses: actions/checkout@v7
+
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+
+      - name: Run loopback-only lab
+        id: lab
+        env:
+          NXB130_TRANSCRIPT_PATH: ${{ github.workspace }}/target/nxb130-lab-transcript.json
+        run: |
+          set -o pipefail
+          mkdir -p target
+          cargo test -p nxb-live-adapter --locked adversarial_local_lab_produces_sanitized_transcript -- --nocapture --test-threads=1 2>&1 | tee target/nxb130-lab.log
+          test -s "$NXB130_TRANSCRIPT_PATH"
+
+      - name: Verify sanitized transcript
+        env:
+          NXB130_TRANSCRIPT_PATH: ${{ github.workspace }}/target/nxb130-lab-transcript.json
+        run: |
+          ! grep -Eqi 'authorization|set-cookie|bearer |password=|token=|https?://' "$NXB130_TRANSCRIPT_PATH"
+
+      - name: Record immutable run status
+        if: always()
+        env:
+          LAB_RUN_ID: ${{ github.run_id }}
+          LAB_OUTCOME: ${{ steps.lab.outcome }}
+          SOURCE_SHA: ${{ github.sha }}
+          NXB130_TRANSCRIPT_PATH: ${{ github.workspace }}/target/nxb130-lab-transcript.json
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+
+          transcript_path = Path(os.environ["NXB130_TRANSCRIPT_PATH"])
+          log_path = Path("target/nxb130-lab.log")
+          status = {
+              "version": 1,
+              "state": "passed" if os.environ["LAB_OUTCOME"] == "success" else "failed",
+              "run_id": int(os.environ["LAB_RUN_ID"]),
+              "source_sha": os.environ["SOURCE_SHA"],
+              "mode": "local-test-only-no-public-network",
+              "transcript_sha256": hashlib.sha256(transcript_path.read_bytes()).hexdigest()
+                  if transcript_path.exists() else None,
+              "log_sha256": hashlib.sha256(log_path.read_bytes()).hexdigest()
+                  if log_path.exists() else None,
+          }
+          Path("target/nxb130-lab-status.json").write_text(
+              json.dumps(status, indent=2, sort_keys=True) + "\n"
+          )
+          PY
+
+      - name: Upload sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nxb-live-adapter-lab-${{ github.run_id }}
+          path: |
+            target/nxb130-lab-transcript.json
+            target/nxb130-lab-status.json
+            target/nxb130-lab.log
+          if-no-files-found: warn
+          retention-days: 14

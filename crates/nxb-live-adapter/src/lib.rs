@@ -11,3 +11,6 @@ pub use pipeline::LivePassivePipeline;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod lab_tests;
