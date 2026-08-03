@@ -11,64 +11,18 @@ on:
       - "crates/nxb-operator-state/**"
       - "Cargo.toml"
       - "Cargo.lock"
-      - ".github/nxb143_materialize.py"
-      - ".github/nxb143_fix_test.py"
       - ".github/workflows/nxb143-runtime-hardening.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: nxb143-runtime-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  bootstrap:
-    name: Materialize validated runtime tree
-    if: github.event_name == 'pull_request' && github.head_ref == 'nxb-143-checkpoint-bound-authenticated-runtime' && github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-slim
-    timeout-minutes: 50
-    steps:
-      - name: Checkout exact product branch
-        uses: actions/checkout@v7
-        with:
-          ref: nxb-143-checkpoint-bound-authenticated-runtime
-          fetch-depth: 0
-      - name: Apply deterministic materializer
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 .github/nxb143_materialize.py
-          python3 .github/nxb143_fix_test.py
-      - name: Install pinned Rust
-        uses: dtolnay/rust-toolchain@1.97.1
-        with:
-          components: rustfmt, clippy
-      - name: Canonicalize and validate product tree
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo generate-lockfile
-          cargo fmt --all
-          cargo fmt --all -- --check
-          cargo check --workspace --all-features --locked
-          cargo clippy -p nxb-operator-state -p nxb-operator-runtime --all-targets --all-features --locked -- -D warnings
-          cargo test -p nxb-operator-state -p nxb-operator-runtime --all-features --locked -- --test-threads=1
-          git diff --check
-      - name: Commit validated runtime tree
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/nxb143_materialize.py .github/nxb143_fix_test.py .github/workflows/nxb143-materialize.yml .github/workflows/nxb143-pr-materialize.yml
-          git add Cargo.toml Cargo.lock crates/nxb-operator-state crates/nxb-operator-runtime
-          git commit -m "NXB-143: materialize checkpoint-bound runtime"
-          git push origin HEAD:nxb-143-checkpoint-bound-authenticated-runtime
-
   runtime-contract:
     name: Runtime contract, Clippy and recovery tests
-    if: github.actor == 'github-actions[bot]' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-slim
     timeout-minutes: 25
     steps:
@@ -97,7 +51,6 @@ jobs:
 
   runtime-windows:
     name: Runtime recovery tests (Windows)
-    if: github.actor == 'github-actions[bot]' || github.ref == 'refs/heads/main'
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
