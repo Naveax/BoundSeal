@@ -12,6 +12,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/nxb143_lock_patch.py"
+      - ".github/nxb143_lock_clippy_fix.py"
       - ".github/workflows/nxb143-runtime-hardening.yml"
 
 permissions:
@@ -34,7 +35,11 @@ jobs:
           ref: nxb-143-checkpoint-bound-authenticated-runtime
           fetch-depth: 0
       - name: Apply OS-lock patch
-        run: python3 .github/nxb143_lock_patch.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/nxb143_lock_patch.py
+          python3 .github/nxb143_lock_clippy_fix.py
       - name: Install pinned Rust
         uses: dtolnay/rust-toolchain@1.97.1
         with:
@@ -55,7 +60,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/nxb143_lock_patch.py
+          git rm .github/nxb143_lock_patch.py .github/nxb143_lock_clippy_fix.py
           git add crates/nxb-operator-runtime
           git commit -m "NXB-143: use crash-safe operating-system runtime lock"
           git push origin HEAD:nxb-143-checkpoint-bound-authenticated-runtime
