@@ -30,16 +30,18 @@ jobs:
       - name: Run loopback-only lab
         id: lab
         env:
-          NXB130_TRANSCRIPT_PATH: target/nxb130-lab-transcript.json
+          NXB130_TRANSCRIPT_PATH: ${{ github.workspace }}/target/nxb130-lab-transcript.json
         run: |
           set -o pipefail
           mkdir -p target
           cargo test -p nxb-live-adapter --locked adversarial_local_lab_produces_sanitized_transcript -- --nocapture --test-threads=1 2>&1 | tee target/nxb130-lab.log
-          test -s target/nxb130-lab-transcript.json
+          test -s "$NXB130_TRANSCRIPT_PATH"
 
       - name: Verify sanitized transcript
+        env:
+          NXB130_TRANSCRIPT_PATH: ${{ github.workspace }}/target/nxb130-lab-transcript.json
         run: |
-          ! grep -Eqi 'authorization|set-cookie|bearer |password=|token=|https?://' target/nxb130-lab-transcript.json
+          ! grep -Eqi 'authorization|set-cookie|bearer |password=|token=|https?://' "$NXB130_TRANSCRIPT_PATH"
 
       - name: Record immutable run status
         if: always()
@@ -47,12 +49,13 @@ jobs:
           LAB_RUN_ID: ${{ github.run_id }}
           LAB_OUTCOME: ${{ steps.lab.outcome }}
           SOURCE_SHA: ${{ github.sha }}
+          NXB130_TRANSCRIPT_PATH: ${{ github.workspace }}/target/nxb130-lab-transcript.json
         run: |
           python3 - <<'PY'
           import hashlib, json, os
           from pathlib import Path
 
-          transcript_path = Path("target/nxb130-lab-transcript.json")
+          transcript_path = Path(os.environ["NXB130_TRANSCRIPT_PATH"])
           log_path = Path("target/nxb130-lab.log")
           status = {
               "version": 1,
