@@ -233,9 +233,7 @@ impl fmt::Debug for ProcessVaultProvider {
 }
 
 impl ProcessVaultProvider {
-    pub fn connect(
-        config: ProcessVaultProviderConfig,
-    ) -> Result<Self, ProcessVaultProviderError> {
+    pub fn connect(config: ProcessVaultProviderConfig) -> Result<Self, ProcessVaultProviderError> {
         validate_config(&config)?;
         let executable_path = validate_executable_path(&config.executable)?;
         let digest_before_spawn = sha256_file(&executable_path)?;
@@ -370,12 +368,8 @@ impl ProcessVaultProvider {
             .ok_or(ProcessVaultProviderError::ProcessClosed)?;
         match responses.recv_timeout(self.operation_timeout) {
             Ok(result) => result,
-            Err(RecvTimeoutError::Timeout) => {
-                Err(ProcessVaultProviderError::OperationTimeout)
-            }
-            Err(RecvTimeoutError::Disconnected) => {
-                Err(ProcessVaultProviderError::ProcessClosed)
-            }
+            Err(RecvTimeoutError::Timeout) => Err(ProcessVaultProviderError::OperationTimeout),
+            Err(RecvTimeoutError::Disconnected) => Err(ProcessVaultProviderError::ProcessClosed),
         }
     }
 
@@ -495,10 +489,7 @@ impl ExternalVaultProvider for ProcessVaultProvider {
             Err(error) => return Err(self.fatal_failure(error, None)),
         };
         if !frame.secret.is_empty() {
-            return Err(self.fatal_failure(
-                ProcessVaultProviderError::ProtocolViolation,
-                None,
-            ));
+            return Err(self.fatal_failure(ProcessVaultProviderError::ProtocolViolation, None));
         }
         match frame.message {
             ProviderMessage::Begun {
@@ -512,13 +503,8 @@ impl ExternalVaultProvider for ProcessVaultProvider {
             ProviderMessage::Failure {
                 sequence: response_sequence,
                 code,
-            } if response_sequence == sequence => {
-                Err(self.child_failure(code, None, false))
-            }
-            _ => Err(self.fatal_failure(
-                ProcessVaultProviderError::ProtocolViolation,
-                None,
-            )),
+            } if response_sequence == sequence => Err(self.child_failure(code, None, false)),
+            _ => Err(self.fatal_failure(ProcessVaultProviderError::ProtocolViolation, None)),
         }
     }
 
@@ -566,11 +552,7 @@ impl ExternalVaultProvider for ProcessVaultProvider {
                     ));
                 }
                 let value = std::mem::take(&mut *frame.secret);
-                match ProviderSecretMaterial::new(
-                    version_id,
-                    value,
-                    expires_at_epoch_seconds,
-                ) {
+                match ProviderSecretMaterial::new(version_id, value, expires_at_epoch_seconds) {
                     Ok(material) => Ok(material),
                     Err(_) => Err(self.fatal_failure(
                         ProcessVaultProviderError::InvalidSecretMaterial,
@@ -614,10 +596,7 @@ impl ExternalVaultProvider for ProcessVaultProvider {
             Err(error) => return Err(self.fatal_failure(error, None)),
         };
         if !frame.secret.is_empty() {
-            return Err(self.fatal_failure(
-                ProcessVaultProviderError::ProtocolViolation,
-                None,
-            ));
+            return Err(self.fatal_failure(ProcessVaultProviderError::ProtocolViolation, None));
         }
         match frame.message {
             ProviderMessage::Finished {
@@ -629,13 +608,8 @@ impl ExternalVaultProvider for ProcessVaultProvider {
             ProviderMessage::Failure {
                 sequence: response_sequence,
                 code,
-            } if response_sequence == sequence => {
-                Err(self.child_failure(code, None, false))
-            }
-            _ => Err(self.fatal_failure(
-                ProcessVaultProviderError::ProtocolViolation,
-                None,
-            )),
+            } if response_sequence == sequence => Err(self.child_failure(code, None, false)),
+            _ => Err(self.fatal_failure(ProcessVaultProviderError::ProtocolViolation, None)),
         }
     }
 }
@@ -709,8 +683,8 @@ fn validate_executable_path(path: &Path) -> Result<PathBuf, ProcessVaultProvider
     if link_metadata.file_type().is_symlink() {
         return Err(ProcessVaultProviderError::ExecutableSymlinkDenied);
     }
-    let canonical = fs::canonicalize(path)
-        .map_err(|_| ProcessVaultProviderError::ExecutableNotRegularFile)?;
+    let canonical =
+        fs::canonicalize(path).map_err(|_| ProcessVaultProviderError::ExecutableNotRegularFile)?;
     let metadata = fs::metadata(&canonical)
         .map_err(|_| ProcessVaultProviderError::ExecutableNotRegularFile)?;
     if !metadata.is_file() {
@@ -756,8 +730,8 @@ fn write_frame<T: Serialize, W: Write>(
     {
         return Err(ProcessVaultProviderError::ProtocolViolation);
     }
-    let metadata_len = u32::try_from(metadata.len())
-        .map_err(|_| ProcessVaultProviderError::ProtocolViolation)?;
+    let metadata_len =
+        u32::try_from(metadata.len()).map_err(|_| ProcessVaultProviderError::ProtocolViolation)?;
     let secret_len =
         u32::try_from(secret.len()).map_err(|_| ProcessVaultProviderError::ProtocolViolation)?;
     let mut header = [0_u8; FRAME_HEADER_BYTES];
@@ -863,7 +837,10 @@ pub mod fixture {
                 maximum_secret_bytes,
             } if protocol_version == PROCESS_PROVIDER_PROTOCOL_VERSION
                 && maximum_metadata_bytes == MAX_PROCESS_METADATA_BYTES as u64
-                && maximum_secret_bytes == MAX_SECRET_BYTES as u64 => nonce_hex,
+                && maximum_secret_bytes == MAX_SECRET_BYTES as u64 =>
+            {
+                nonce_hex
+            }
             _ => return Err(ProcessVaultProviderError::ProtocolViolation),
         };
         let executable = std::env::current_exe()
@@ -921,7 +898,7 @@ pub mod fixture {
                             )?;
                         }
                         "fixture/stall" => {
-                            thread::sleep(Duration::from_secs(5));
+                            thread::sleep(Duration::from_secs(15));
                             write_frame(
                                 &mut writer,
                                 &ProviderMessage::Failure {

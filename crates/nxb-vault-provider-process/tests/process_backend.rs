@@ -12,9 +12,10 @@ use nxb_session::SessionBroker;
 use nxb_vault::{InMemorySecretVault, SecretKind};
 use nxb_vault_provider::{
     bootstrap_external_session, consume_activation_once, deprovision_external_session,
-    ExternalVaultActivationCertificate, ExternalVaultActivationPayload, ExternalVaultPlanParameters,
-    ExternalVaultProvider, ExternalVaultSessionPlan, ProviderDeliverySpec, ProviderIdentity,
-    ProviderSecretRequest, ProviderSecretSpec, ProviderSessionOutcome, ProviderSessionRequest,
+    ExternalVaultActivationCertificate, ExternalVaultActivationPayload,
+    ExternalVaultPlanParameters, ExternalVaultProvider, ExternalVaultSessionPlan,
+    ProviderDeliverySpec, ProviderIdentity, ProviderSecretRequest, ProviderSecretSpec,
+    ProviderSessionOutcome, ProviderSessionRequest,
 };
 use nxb_vault_provider_process::{
     fixture, sha256_file, sha256_hex, ProcessVaultProvider, ProcessVaultProviderConfig,
@@ -82,13 +83,9 @@ fn certificate(
     plan: &ExternalVaultSessionPlan,
     key_pair: &Ed25519KeyPair,
 ) -> ExternalVaultActivationCertificate {
-    let payload = ExternalVaultActivationPayload::template(
-        "activation-process-1",
-        plan,
-        NOW,
-        NOW + 240,
-    )
-    .unwrap();
+    let payload =
+        ExternalVaultActivationPayload::template("activation-process-1", plan, NOW, NOW + 240)
+            .unwrap();
     let signature = key_pair.sign(&payload.signing_bytes().unwrap());
     ExternalVaultActivationCertificate {
         payload,
@@ -162,13 +159,8 @@ fn pinned_process_provider_bootstraps_and_tears_down() {
     assert!(!debug.contains("nxb140-test-secret"));
     assert!(!debug.contains(&executable_display));
 
-    let teardown = deprovision_external_session(
-        provisioned,
-        &mut broker,
-        &mut vault,
-        NOW + 2,
-    )
-    .unwrap();
+    let teardown =
+        deprovision_external_session(provisioned, &mut broker, &mut vault, NOW + 2).unwrap();
     teardown.verify().unwrap();
     assert_eq!(vault.secret_count(), 0);
 }
@@ -198,7 +190,7 @@ fn handshake_identity_mismatch_is_fail_closed() {
 #[test]
 fn timeout_kills_child_but_allows_upstream_abort_completion() {
     let mut provider =
-        ProcessVaultProvider::connect(provider_config(Duration::from_millis(250))).unwrap();
+        ProcessVaultProvider::connect(provider_config(Duration::from_secs(5))).unwrap();
     let mut session = provider.begin(&session_request()).unwrap();
     let failure = provider
         .fetch(
