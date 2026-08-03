@@ -1,0 +1,62 @@
+name: NXB-142 isolated clean state validation
+
+on:
+  push:
+    branches:
+      - nxb-142-clean-validation
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb142-isolated-clean-state-validation
+  cancel-in-progress: true
+
+jobs:
+  materialize-and-validate:
+    runs-on: ubuntu-slim
+    timeout-minutes: 65
+    steps:
+      - name: Checkout validation branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-142-clean-validation
+          fetch-depth: 0
+
+      - name: Preserve materializer and switch to clean product branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp tools/nxb142_clean_materialize.py /tmp/nxb142_clean_materialize.py
+          git fetch origin nxb-142-checkpointed-bounded-state-clean
+          git checkout --force -B nxb-142-checkpointed-bounded-state-clean origin/nxb-142-checkpointed-bounded-state-clean
+          git fetch origin nxb-142-checkpointed-bounded-operator-state
+          git checkout origin/nxb-142-checkpointed-bounded-operator-state -- crates/nxb-operator-state
+          python3 /tmp/nxb142_clean_materialize.py
+
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+
+      - name: Canonicalize and validate full workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          cargo fmt --all
+          cargo fmt --all -- --check
+          cargo check --workspace --all-features --locked
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test --workspace --all-features --locked -- --test-threads=1
+          git diff --check
+
+      - name: Commit clean validated product tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock crates/nxb-operator-state
+          git commit -m "NXB-142: checkpointed bounded operator state"
+          git push origin HEAD:nxb-142-checkpointed-bounded-state-clean
