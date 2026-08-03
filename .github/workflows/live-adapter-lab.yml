@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "crates/nxb-live-adapter/**"
+      - "crates/nxb-core/**"
+      - "crates/nxb-operator/**"
       - ".github/workflows/live-adapter-lab.yml"
   workflow_dispatch:
 
@@ -36,6 +38,9 @@ jobs:
           mkdir -p target
           cargo test -p nxb-live-adapter --locked adversarial_local_lab_produces_sanitized_transcript -- --nocapture --test-threads=1 2>&1 | tee target/nxb130-lab.log
           test -s "$NXB130_TRANSCRIPT_PATH"
+
+      - name: Test signed live operator bridge
+        run: cargo test -p nxb-core --bin nxb-live-scan --all-features --locked -- --test-threads=1
 
       - name: Verify sanitized transcript
         env:

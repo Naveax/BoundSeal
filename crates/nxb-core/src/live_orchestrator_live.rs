@@ -13,13 +13,11 @@ mod live_execution {
     use nxb_executor::ExecutionControl;
     use nxb_gateway::{DecisionOutcome, RequestIntent, ScopeGateway};
     use nxb_live_adapter::{
-        LiveAdapterConfig, LivePassivePipeline, LivePassiveRequest,
-        PassiveMethod,
+        LiveAdapterConfig, LivePassivePipeline, LivePassiveRequest, PassiveMethod,
     };
     use nxb_passive_analyzers::{
-        CachePolicyAnalyzer, CookieSecurityAnalyzer, Finding,
-        HeaderSecurityAnalyzer, ObservedHeader, PassiveAnalyzer,
-        ResponseObservation,
+        CachePolicyAnalyzer, CookieSecurityAnalyzer, Finding, HeaderSecurityAnalyzer,
+        ObservedHeader, PassiveAnalyzer, ResponseObservation,
     };
     use nxb_pinned_transport::PinnedTransportCoordinator;
     use nxb_policy::TargetPolicy;
@@ -27,8 +25,8 @@ mod live_execution {
     use nxb_transport::{ConnectionAttempt, TransportScheme};
 
     use super::{
-        hash_bytes, hash_serializable, LiveActivationCertificate,
-        LiveOrchestratorReceipt, LiveRunPlan, PlannedMethod,
+        hash_bytes, hash_serializable, LiveActivationCertificate, LiveOrchestratorReceipt,
+        LiveRunPlan, PlannedMethod,
     };
 
     #[derive(Debug, serde::Serialize)]
@@ -39,6 +37,17 @@ mod live_execution {
         consumed_at_epoch_seconds: i64,
     }
 
+    #[allow(dead_code)]
+    #[derive(Debug)]
+    pub struct LiveRunObservation {
+        pub receipt: LiveOrchestratorReceipt,
+        pub findings: Vec<Finding>,
+        pub response_status: u16,
+        pub response_content_type: Option<Vec<u8>>,
+        pub response_body: Vec<u8>,
+    }
+
+    #[allow(dead_code)]
     pub fn execute_live_run(
         policy_bytes: &[u8],
         plan: &LiveRunPlan,
@@ -47,21 +56,39 @@ mod live_execution {
         state_directory: &Path,
         now: DateTime<Utc>,
     ) -> Result<(LiveOrchestratorReceipt, Vec<Finding>)> {
+        let observation = execute_live_run_observed(
+            policy_bytes,
+            plan,
+            activation,
+            public_key,
+            state_directory,
+            now,
+        )?;
+        Ok((observation.receipt, observation.findings))
+    }
+
+    pub fn execute_live_run_observed(
+        policy_bytes: &[u8],
+        plan: &LiveRunPlan,
+        activation: &LiveActivationCertificate,
+        public_key: &[u8],
+        state_directory: &Path,
+        now: DateTime<Utc>,
+    ) -> Result<LiveRunObservation> {
         plan.verify(now)?;
         activation.verify(plan, public_key, now)?;
         if hash_bytes(policy_bytes) != plan.policy_sha256 {
             bail!("policy file does not match signed live-plan");
         }
 
-        let policy_text = std::str::from_utf8(policy_bytes)
-            .context("policy file is not UTF-8")?;
+        let policy_text =
+            std::str::from_utf8(policy_bytes).context("policy file is not UTF-8")?;
         let compiled = TargetPolicy::from_toml(policy_text)?
             .compile(now)
             .context("policy could not be compiled for live run")?;
         let target_url = plan.parsed_url()?;
 
-        let activation_certificate_sha256 =
-            activation.certificate_sha256()?;
+        let activation_certificate_sha256 = activation.certificate_sha256()?;
         consume_activation_once(
             state_directory,
             activation,
@@ -81,11 +108,8 @@ mod live_execution {
             dns_resolver_id: plan.dns_resolver_id.clone(),
             dns_ttl_seconds: plan.dns_ttl_seconds,
         };
-        let authorization = transport.authorize_connection(
-            &intent,
-            plan.selected_ip,
-            Duration::ZERO,
-        )?;
+        let authorization =
+            transport.authorize_connection(&intent, plan.selected_ip, Duration::ZERO)?;
         if authorization.decision.outcome != DecisionOutcome::Allow {
             bail!(
                 "scope gateway denied live request: {:?}",
@@ -106,15 +130,13 @@ mod live_execution {
             redirect_depth: ticket.redirect_depth,
         };
 
-        let config =
-            LiveAdapterConfig::conservative("nxb-cli-live-orchestrator")?;
+        let config = LiveAdapterConfig::conservative("nxb-cli-live-orchestrator")?;
         let mut pipeline = LivePassivePipeline::new(transport, config)?;
         let method = match plan.method {
             PlannedMethod::Get => PassiveMethod::Get,
             PlannedMethod::Head => PassiveMethod::Head,
         };
-        let request =
-            LivePassiveRequest::new(method, plan.request_target()?)?;
+        let request = LivePassiveRequest::new(method, plan.request_target()?)?;
         let result = pipeline.execute(
             attempt,
             Duration::ZERO,
@@ -132,16 +154,27 @@ mod live_execution {
             .as_ref()
             .context("live adapter did not produce an HTTP exchange")?;
 
+        let response_body = exchange.response.body.clone();
+        if response_body.len() as u64 != live_receipt.response_body_bytes
+            || hash_bytes(&response_body) != live_receipt.response_body_sha256
+        {
+            bail!("live response body does not match the verified HTTP receipt");
+        }
+        let mut content_types = exchange
+            .response
+            .headers
+            .iter()
+            .filter(|header| header.name.eq_ignore_ascii_case("content-type"));
+        let response_content_type = content_types.next().map(|header| header.value.clone());
+        if content_types.next().is_some() {
+            bail!("multiple Content-Type headers are outside the live operator bridge contract");
+        }
+
         let headers = exchange
             .response
             .headers
             .iter()
-            .map(|header| {
-                ObservedHeader::new(
-                    header.name.clone(),
-                    header.value.clone(),
-                )
-            })
+            .map(|header| ObservedHeader::new(header.name.clone(), header.value.clone()))
             .collect::<std::result::Result<Vec<_>, _>>()?;
         let observation = ResponseObservation {
             url: target_url,
@@ -150,9 +183,6 @@ mod live_execution {
             headers,
             body_sha256: live_receipt.response_body_sha256.clone(),
             body_bytes: live_receipt.response_body_bytes,
-            // NXB-128 proves the rustls peer connection but does not yet
-            // export the complete certificate-validity/root metadata needed
-            // by TlsMetadataAnalyzer. NXB-130 will close that transcript gap.
             tls: None,
         };
         observation.validate()?;
@@ -194,7 +224,13 @@ mod live_execution {
         };
         receipt.receipt_sha256 = hash_serializable(&receipt)?;
         receipt.verify()?;
-        Ok((receipt, findings))
+        Ok(LiveRunObservation {
+            receipt,
+            findings,
+            response_status: exchange.response.status_code,
+            response_content_type,
+            response_body,
+        })
     }
 
     fn consume_activation_once(
@@ -210,8 +246,7 @@ mod live_execution {
                 state_directory.display()
             )
         })?;
-        let activation_id_sha256 =
-            hash_bytes(activation.payload.activation_id.as_bytes());
+        let activation_id_sha256 = hash_bytes(activation.payload.activation_id.as_bytes());
         let marker_path = state_directory.join(format!(
             "activation-{activation_id_sha256}.used.json"
         ));
@@ -240,4 +275,5 @@ mod live_execution {
 }
 
 #[cfg(feature = "live-network")]
-pub use live_execution::execute_live_run;
+#[allow(unused_imports)]
+pub use live_execution::{execute_live_run, execute_live_run_observed, LiveRunObservation};
