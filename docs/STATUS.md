@@ -2,11 +2,11 @@
 
 ## Completion
 
-- Architecture milestones: NXB-0 through NXB-119
-- Workspace crates: 34
+- Architecture milestones: NXB-0 through NXB-139
+- Workspace crates: 38
 - Current package version: 0.1.0
 - Distribution status: private, `publish = false`
-- Execution mode: deterministic and networkless
+- Execution mode: deterministic by default; signed and explicitly gated live HTTPS available
 - Planned checkpoint: `v0.1.0-contract-complete`
 
 ## Quality gates
@@ -30,11 +30,15 @@ The permanent CI requires:
 | Networkless fixture coverage | Complete |
 | Synthetic end-to-end smoke demo | Complete |
 | Documentation and release metadata | Complete |
-| Real resolver/socket/TLS backend | Not implemented |
-| Browser/scanner automation | Not implemented |
-| Live authorized-target runner | Not implemented |
-| Encrypted persistent evidence store | Not implemented |
+| Scope-controlled HTTPS/TLS backend | Complete |
+| Signed one-request and bounded discovery sessions | Complete |
+| Vault-backed authenticated request injection | Complete |
+| External vault-provider lifecycle contract | Complete |
+| Concrete external vault backend | Not implemented |
+| Unified authenticated operator CLI | Not implemented |
+| Browser/proxy automation | Not implemented |
+| Encrypted persistent evidence store | Contract only; production sealer not implemented |
 
 ## Release meaning
 
-`contract-complete` means the safety and governance architecture is implemented and regression-tested. It does not claim that NXBounty can scan a live HackerOne target.
+The repository now includes a bounded live execution path. It does not claim unrestricted autonomous scanning, browser automation, credential discovery, active exploitation, or automatic HackerOne submission.
