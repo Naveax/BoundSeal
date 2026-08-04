@@ -21,11 +21,65 @@ fn verify_component_bindings(
 fn verify_report_bundle(report: &ReportBundle) -> Result<(), ManualHandoffError> {
     let parsed: ReportDocument = serde_json::from_str(&report.json)
         .map_err(|error| ManualHandoffError::ReportSerialization(error.to_string()))?;
+    let canonical_json = serde_json::to_string_pretty(&report.document)
+        .map_err(|error| ManualHandoffError::ReportSerialization(error.to_string()))?;
     if parsed != report.document
+        || report.json != canonical_json
         || hash_bytes(report.json.as_bytes()) != report.json_sha256
         || hash_bytes(report.markdown.as_bytes()) != report.markdown_sha256
     {
         return Err(ManualHandoffError::ReportDigestMismatch);
+    }
+    validate_report_document(&report.document)
+}
+
+fn validate_report_document(document: &ReportDocument) -> Result<(), ManualHandoffError> {
+    validate_identifier(&document.report_id)?;
+    validate_sha256(&document.policy_snapshot_sha256)?;
+    validate_sha256(&document.evidence_manifest_sha256)?;
+    validate_sha256(&document.source_audit_tail_hash)?;
+    if document.program_name.is_empty()
+        || document.program_name.len() > 256
+        || document.program_name.bytes().any(|byte| byte == 0)
+        || document.generated_at_epoch_seconds <= 0
+        || document.findings.is_empty()
+        || document.findings.len() > MAX_FINDINGS
+        || contains_report_secret_like_text(&document.program_name)
+    {
+        return Err(ManualHandoffError::InvalidReportDocument);
+    }
+    let mut previous_finding_id: Option<&str> = None;
+    for finding in &document.findings {
+        validate_identifier(&finding.finding_id)?;
+        validate_identifier(&finding.rule_id)?;
+        validate_sha256(&finding.endpoint_sha256)?;
+        if finding.title.is_empty()
+            || finding.title.len() > 512
+            || finding.summary.is_empty()
+            || finding.summary.len() > 2_048
+            || finding.origin.is_empty()
+            || finding.origin.len() > 512
+            || finding
+                .title
+                .bytes()
+                .chain(finding.summary.bytes())
+                .chain(finding.origin.bytes())
+                .any(|byte| byte == 0)
+            || finding.evidence_ids.is_empty()
+            || contains_report_secret_like_text(&finding.title)
+            || contains_report_secret_like_text(&finding.summary)
+        {
+            return Err(ManualHandoffError::InvalidReportDocument);
+        }
+        if let Some(previous) = previous_finding_id {
+            if previous >= finding.finding_id.as_str() {
+                return Err(ManualHandoffError::NonCanonicalFindingOrder);
+            }
+        }
+        previous_finding_id = Some(&finding.finding_id);
+        for evidence_id in &finding.evidence_ids {
+            validate_identifier(evidence_id)?;
+        }
     }
     Ok(())
 }
@@ -91,6 +145,23 @@ fn contains_secret_like_text(value: &str) -> bool {
         "https://",
         "file://",
         "ssh://",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+fn contains_report_secret_like_text(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    [
+        "authorization: bearer ",
+        "proxy-authorization:",
+        "cookie:",
+        "set-cookie:",
+        "password=",
+        "client_secret=",
+        "access_token=",
+        "refresh_token=",
+        "api_key=",
     ]
     .iter()
     .any(|needle| lower.contains(needle))
@@ -180,6 +251,10 @@ pub enum ManualHandoffError {
     InvalidGenerationTime,
     #[error("report bundle digest mismatch")]
     ReportDigestMismatch,
+    #[error("report document is invalid or not safely redacted")]
+    InvalidReportDocument,
+    #[error("report findings are not in canonical order")]
+    NonCanonicalFindingOrder,
     #[error("report serialization failed: {0}")]
     ReportSerialization(String),
     #[error("handoff finding count is invalid")]
