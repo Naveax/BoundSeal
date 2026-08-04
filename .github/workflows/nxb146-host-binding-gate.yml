@@ -4,6 +4,15 @@ on:
   push:
     branches:
       - nxb-146-signed-run-closure
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "crates/nxb-run-closure/**"
+      - ".github/nxb146_host_binding.py"
+      - ".github/workflows/nxb146-host-binding-gate.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
 
 permissions:
   contents: write
