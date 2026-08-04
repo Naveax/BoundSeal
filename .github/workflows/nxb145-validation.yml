@@ -1,0 +1,39 @@
+name: NXB-145 signed closure validation
+
+on:
+  pull_request:
+    paths:
+      - "crates/nxb-run-closure/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "docs/NXB-145-SIGNED-RUN-CLOSURE.md"
+      - ".github/workflows/nxb145-validation.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nxb145-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  closure-contract:
+    runs-on: ubuntu-slim
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - name: Materialize canonical workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          cargo fmt --all
+      - name: Check
+        run: cargo check -p nxb-run-closure --all-features --locked
+      - name: Clippy
+        run: cargo clippy -p nxb-run-closure --all-targets --all-features --locked -- -D warnings
+      - name: Tests
+        run: cargo test -p nxb-run-closure --all-features --locked
