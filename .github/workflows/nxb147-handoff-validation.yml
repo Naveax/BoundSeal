@@ -1,0 +1,40 @@
+name: NXB-147 manual handoff validation
+
+on:
+  push:
+    branches:
+      - nxb-147-signed-manual-submission-handoff
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "crates/nxb-manual-submission-handoff/**"
+      - "docs/NXB-147-SIGNED-MANUAL-SUBMISSION-HANDOFF.md"
+      - ".github/workflows/nxb147-handoff-validation.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nxb147-handoff-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  ubuntu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - name: Canonicalize lockfile in validation tree
+        run: cargo generate-lockfile
+      - name: Rustfmt
+        run: cargo fmt --all -- --check
+      - name: Check handoff contract
+        run: cargo check -p nxb-manual-submission-handoff --all-features --locked
+      - name: Clippy handoff contract
+        run: cargo clippy -p nxb-manual-submission-handoff --all-targets --all-features --locked -- -D warnings
