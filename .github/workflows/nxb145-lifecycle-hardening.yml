@@ -34,8 +34,8 @@ jobs:
           set -euo pipefail
           base64 -d tools/nxb145_hardening.patch.gz.b64 | gzip -d > /tmp/nxb145-hardening.patch
           echo "eae8349b313e4179e94a56eb78598a7f8ad95fbf781c9fcc8042ee5e0b66eae2  /tmp/nxb145-hardening.patch" | sha256sum -c -
-          git apply --check /tmp/nxb145-hardening.patch
-          git apply /tmp/nxb145-hardening.patch
+          patch --dry-run --batch --forward -p1 --fuzz=3 < /tmp/nxb145-hardening.patch
+          patch --batch --forward -p1 --fuzz=3 < /tmp/nxb145-hardening.patch
       - name: Format and validate hardened host
         shell: bash
         run: |
@@ -51,6 +51,6 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add crates/nxb-live-run-host/src/host.rs crates/nxb-live-run-host/src/error.rs crates/nxb-live-run-host/src/tests.rs
-          git rm tools/nxb145_hardening.patch.gz.b64
+          git rm tools/nxb145_hardening.patch.gz.b64 tools/nxb145_hardening.patch
           git commit -m "NXB-145: harden initialization and fail-closed DNS paths"
           git push origin HEAD:nxb-145-signed-live-run-host
