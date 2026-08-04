@@ -892,6 +892,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxb-manual-submission-handoff"
+version = "0.1.0"
+dependencies = [
+ "nxb-knowledge-reporting",
+ "nxb-live-run-host",
+ "nxb-operator-runtime",
+ "nxb-operator-state",
+ "nxb-passive-analyzers",
+ "nxb-resumable-runner",
+ "nxb-run-closure",
+ "nxb-unified-operator",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "nxb-operator"
 version = "0.1.0"
 dependencies = [

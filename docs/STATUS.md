@@ -2,11 +2,12 @@
 
 ## Completion
 
-- Architecture milestones: NXB-0 through NXB-141 contract block
-- Workspace crates: 40
+- Architecture milestones: NXB-0 through NXB-147 contract block
+- Workspace crates: 46
 - Current package version: 0.1.0
 - Distribution status: private, `publish = false`
 - Execution mode: deterministic by default; signed and explicitly gated live HTTPS available
+- Submission mode: operator-reviewed manual handoff only; automatic submission disabled
 - Planned checkpoint: `v0.1.0-contract-complete`
 
 ## Quality gates
@@ -14,13 +15,15 @@
 The permanent CI requires:
 
 - pinned Rust toolchain;
-- committed `Cargo.lock`;
+- canonical committed `Cargo.lock`;
 - `cargo fmt --all --check`;
 - `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`;
 - `cargo test --workspace --all-features --locked`;
+- Ubuntu and Windows contract regression tests;
 - deterministic demo generation and verification;
 - RustSec dependency audit;
-- cargo-deny advisories, licenses, bans and source checks.
+- cargo-deny advisories, licenses, bans and source checks;
+- secret-pattern scanning and immutable release evidence.
 
 ## Product readiness
 
@@ -29,18 +32,22 @@ The permanent CI requires:
 | Safety and authorization contracts | Complete |
 | Networkless fixture coverage | Complete |
 | Synthetic end-to-end smoke demo | Complete |
-| Documentation and release metadata | Complete |
 | Scope-controlled HTTPS/TLS backend | Complete |
 | Signed one-request and bounded discovery sessions | Complete |
 | Vault-backed authenticated request injection | Complete |
 | External vault-provider lifecycle contract | Complete |
 | Concrete external vault backend | Complete; absolute-path and SHA-256-pinned process bridge |
 | Unified operator artifact/activation contract | Complete; networkless binder and one-use activation |
+| Durable authenticated operator state | Complete; canonical checkpoints and recovery journal |
+| Unified authenticated live execution | Complete; bounded GET/HEAD runtime, resumable runner and signed host |
+| Ordered external teardown | Complete; fail-closed terminal lifecycle binding |
+| Signed run closure and evidence attestation | Complete |
+| Signed manual-submission handoff | Complete; exact report/export and review binding |
+| Automatic HackerOne submission | Intentionally not implemented |
 | Password-manager/OS credential-store adapter | Not implemented |
-| Unified authenticated live-execution CLI | Not implemented |
 | Browser/proxy automation | Not implemented |
 | Encrypted persistent evidence store | Contract only; production sealer not implemented |
 
 ## Release meaning
 
-The repository now includes a bounded live execution path, a pinned process bridge for externally managed secrets and a networkless unified authorization contract. It does not claim unified authenticated live orchestration, unrestricted autonomous scanning, browser automation, credential discovery, active exploitation, arbitrary process execution or automatic HackerOne submission.
+The repository contains the signed bounded live-execution chain from unified activation through authenticated runtime, resumable execution, terminal teardown, cryptographic closure and operator-reviewed manual-submission handoff. It does not claim unrestricted autonomous scanning, browser automation, credential discovery, active exploitation, arbitrary process execution or automatic HackerOne submission.

@@ -207,10 +207,10 @@ fn append_dedup_manifest_line(path: &Path, line: &[u8]) -> Result<(), ExactDedup
     Ok(())
 }
 
-fn dedup_sync_directory(path: &Path) -> Result<(), ExactDedupError> {
+fn dedup_sync_directory(_path: &Path) -> Result<(), ExactDedupError> {
     #[cfg(unix)]
     {
-        File::open(path)
+        File::open(_path)
             .map_err(dedup_io_error)?
             .sync_all()
             .map_err(dedup_io_error)?;

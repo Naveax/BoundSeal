@@ -57,10 +57,10 @@ fn append_manifest_line(path: &Path, line: &[u8]) -> Result<(), FindingStoreErro
     Ok(())
 }
 
-fn sync_directory(path: &Path) -> Result<(), FindingStoreError> {
+fn sync_directory(_path: &Path) -> Result<(), FindingStoreError> {
     #[cfg(unix)]
     {
-        File::open(path)
+        File::open(_path)
             .map_err(io_error)?
             .sync_all()
             .map_err(io_error)?;
