@@ -258,11 +258,7 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
         )
         .unwrap();
     assert_eq!(execution.outcome, ExecutionOutcome::Completed);
-    let observation = executor
-        .backend()
-        .last_observation()
-        .cloned()
-        .unwrap();
+    let observation = executor.backend().last_observation().cloned().unwrap();
     assert!(matches!(
         observation.protocol_version.as_str(),
         "tls_1_2" | "tls_1_3"
@@ -292,12 +288,9 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
         .unwrap();
     let mut tls_binder = LibraryVerifiedTlsBinder::new();
     let tls_grant = tls_binder.bind(&stream, &verified_observation).unwrap();
-    let mut codec = Http1Codec::new_verified_tls(
-        stream,
-        &tls_grant,
-        Http1Limits::conservative_default(),
-    )
-    .unwrap();
+    let mut codec =
+        Http1Codec::new_verified_tls(stream, &tls_grant, Http1Limits::conservative_default())
+            .unwrap();
     let exchange = codec
         .exchange(
             &LivePassiveRequest::new(PassiveMethod::Get, "/health")
