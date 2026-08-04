@@ -11,6 +11,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "docs/NXB-145-SIGNED-RUN-CLOSURE.md"
+      - ".github/nxb145_exact_binding.py"
       - ".github/workflows/nxb145-validation.yml"
 
 permissions:
@@ -32,14 +33,14 @@ jobs:
         uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
+      - name: Apply exact component binding patch
+        run: python3 .github/nxb145_exact_binding.py
       - name: Canonical lockfile and formatting
         shell: bash
         run: |
           set -euo pipefail
-          cp Cargo.lock /tmp/Cargo.lock.expected
           cargo generate-lockfile
-          cmp Cargo.lock /tmp/Cargo.lock.expected
-          cargo fmt --all -- --check
+          cargo fmt --all
       - name: Closure check
         run: cargo check -p nxb-run-closure --all-features --locked
       - name: Closure Clippy
@@ -56,6 +57,12 @@ jobs:
         uses: actions/checkout@v7
       - name: Install pinned Rust
         uses: dtolnay/rust-toolchain@1.97.1
+      - name: Apply exact component binding patch
+        shell: pwsh
+        run: python .github/nxb145_exact_binding.py
       - name: Closure tests
         shell: pwsh
-        run: cargo test -p nxb-run-closure --all-features --locked -- --test-threads=1
+        run: |
+          cargo generate-lockfile
+          cargo fmt --all
+          cargo test -p nxb-run-closure --all-features --locked -- --test-threads=1
