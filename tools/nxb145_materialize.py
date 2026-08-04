@@ -40,4 +40,5 @@ def materialize() -> None:
 
 
 if __name__ == "__main__":
+    # Second push intentionally triggers the pre-existing one-shot workflow.
     materialize()
