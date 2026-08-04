@@ -1,0 +1,62 @@
+name: NXB-144 resumable runner hardening
+
+on:
+  push:
+    branches:
+      - main
+      - nxb-144-resumable-bounded-live-runner
+  pull_request:
+    paths:
+      - "crates/nxb-resumable-runner/**"
+      - "crates/nxb-operator-runtime/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "docs/NXB-144-RESUMABLE-BOUNDED-LIVE-RUNNER.md"
+      - ".github/workflows/nxb144-resumable-runner.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nxb144-runner-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runner-contract:
+    name: Runner contract, Clippy and recovery tests
+    runs-on: ubuntu-slim
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - name: Canonical lockfile and formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp Cargo.lock /tmp/Cargo.lock.expected
+          cargo generate-lockfile
+          cmp Cargo.lock /tmp/Cargo.lock.expected
+          cargo fmt --all -- --check
+      - name: Runner and runtime check
+        run: cargo check -p nxb-operator-runtime -p nxb-resumable-runner --all-features --locked
+      - name: Runner and runtime Clippy
+        run: cargo clippy -p nxb-operator-runtime -p nxb-resumable-runner --all-targets --all-features --locked -- -D warnings
+      - name: Runner and runtime tests
+        run: cargo test -p nxb-operator-runtime -p nxb-resumable-runner --all-features --locked -- --test-threads=1
+
+  runner-windows:
+    name: Runner recovery tests (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+      - name: Runner and runtime tests
+        shell: pwsh
+        run: cargo test -p nxb-operator-runtime -p nxb-resumable-runner --all-features --locked -- --test-threads=1

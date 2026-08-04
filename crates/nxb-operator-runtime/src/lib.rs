@@ -133,7 +133,7 @@ pub struct RuntimeExecutionReceipt {
 }
 
 impl RuntimeExecutionReceipt {
-    fn from_live(
+    pub fn from_live(
         spec: &RuntimeRequestSpec,
         result: &LiveAuthenticatedResult,
         completed_at_epoch_seconds: i64,
@@ -369,11 +369,24 @@ pub enum UnresolvedRequestPhase {
     OutcomePersisted,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeCommittedRequest {
+    pub request_index: u64,
+    pub method: RuntimeMethod,
+    pub request_target_sha256: String,
+    pub depth: u16,
+    pub execution_receipt_sha256: String,
+    pub checkpoint_sequence: u64,
+    pub checkpoint_sha256: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct RuntimeRecovery {
     pub state: RecoveredOperatorState,
     pub journal_bytes: u64,
     pub committed_requests: u64,
+    pub last_committed_request: Option<RuntimeCommittedRequest>,
     pub unresolved_request: Option<(u64, UnresolvedRequestPhase)>,
     pub continuation_allowed: bool,
 }
@@ -388,6 +401,7 @@ struct RecordPaths {
 struct JournalScan {
     journal_bytes: u64,
     committed_requests: u64,
+    last_committed_request: Option<RuntimeCommittedRequest>,
     next_request_index: u64,
     last_committed_epoch_milliseconds: Option<u64>,
     unresolved_request: Option<(u64, UnresolvedRequestPhase)>,
@@ -471,6 +485,7 @@ impl CheckpointBoundRuntime {
             state,
             journal_bytes: 0,
             committed_requests: 0,
+            last_committed_request: None,
             unresolved_request: None,
         };
         Ok((runtime, recovery))
@@ -527,6 +542,7 @@ impl CheckpointBoundRuntime {
             state: state.clone(),
             journal_bytes: scan.journal_bytes,
             committed_requests: scan.committed_requests,
+            last_committed_request: scan.last_committed_request.clone(),
             unresolved_request: scan.unresolved_request,
             continuation_allowed,
         };
@@ -563,6 +579,7 @@ impl CheckpointBoundRuntime {
             state,
             journal_bytes: scan.journal_bytes,
             committed_requests: scan.committed_requests,
+            last_committed_request: scan.last_committed_request.clone(),
             unresolved_request: scan.unresolved_request,
         })
     }
@@ -571,6 +588,19 @@ impl CheckpointBoundRuntime {
         &mut self,
         spec: RuntimeRequestSpec,
         clock: RuntimeClock,
+        executor: F,
+    ) -> Result<(RuntimeExecutionReceipt, RecoveredOperatorState), RuntimeError>
+    where
+        F: FnOnce(&RuntimeRequestSpec) -> Result<RuntimeExecutionReceipt, RuntimeError>,
+    {
+        self.execute_with_reserved_workspace(spec, clock, 0, executor)
+    }
+
+    pub fn execute_with_reserved_workspace<F>(
+        &mut self,
+        spec: RuntimeRequestSpec,
+        clock: RuntimeClock,
+        external_reserved_bytes: u64,
         executor: F,
     ) -> Result<(RuntimeExecutionReceipt, RecoveredOperatorState), RuntimeError>
     where
@@ -612,6 +642,7 @@ impl CheckpointBoundRuntime {
             .and_then(|value| value.checked_add(prepared_bytes.len() as u64))
             .and_then(|value| value.checked_add(MAX_RUNTIME_OUTCOME_BYTES))
             .and_then(|value| value.checked_add(RUNTIME_COMMIT_RESERVATION_BYTES))
+            .and_then(|value| value.checked_add(external_reserved_bytes))
             .ok_or(RuntimeError::WorkspaceBudgetExceeded)?;
         if prospective > self.plan.maximum_workspace_bytes {
             return Err(RuntimeError::WorkspaceBudgetExceeded);
@@ -697,14 +728,13 @@ impl CheckpointBoundRuntime {
                 self.blocked = true;
                 return Err(RuntimeError::OutcomeTooLarge);
             }
-            let calculated = recovered
-                .latest
-                .counters
-                .evidence_bytes
-                .checked_add(prepared_bytes.len() as u64)
-                .and_then(|value| value.checked_add(outcome_bytes.len() as u64))
+            let exact_evidence = self
+                .journal_bytes
+                .checked_add(outcome_bytes.len() as u64)
                 .and_then(|value| value.checked_add(RUNTIME_COMMIT_RESERVATION_BYTES))
+                .and_then(|value| value.checked_add(external_reserved_bytes))
                 .ok_or(RuntimeError::WorkspaceBudgetExceeded)?;
+            let calculated = recovered.latest.counters.evidence_bytes.max(exact_evidence);
             if calculated == evidence_bytes {
                 break;
             }
@@ -950,6 +980,7 @@ fn scan_journal(
 
     let mut committed_requests = 0_u64;
     let mut last_committed = None;
+    let mut last_committed_request = None;
     let mut unresolved = None;
     let mut reconcile = None;
     let mut incomplete_seen = false;
@@ -1022,6 +1053,15 @@ fn scan_journal(
                 }
                 committed_requests += 1;
                 last_committed = Some(commit.committed_at_epoch_milliseconds);
+                last_committed_request = Some(RuntimeCommittedRequest {
+                    request_index: index,
+                    method: prepared.method,
+                    request_target_sha256: prepared.request_target_sha256.clone(),
+                    depth: prepared.depth,
+                    execution_receipt_sha256: outcome.execution.receipt_sha256.clone(),
+                    checkpoint_sequence: commit.checkpoint_sequence,
+                    checkpoint_sha256: commit.checkpoint_sha256.clone(),
+                });
             }
         }
         incomplete_seen = unresolved.is_some() || reconcile.is_some();
@@ -1038,6 +1078,7 @@ fn scan_journal(
     Ok(JournalScan {
         journal_bytes,
         committed_requests,
+        last_committed_request,
         next_request_index,
         last_committed_epoch_milliseconds: last_committed,
         unresolved_request: unresolved,
