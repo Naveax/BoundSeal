@@ -97,6 +97,7 @@ fn runner_manifest(plan: &UnifiedOperatorPlan) -> RunnerManifest {
     .expect("runner manifest")
 }
 
+
 fn launch_bundle(plan: &UnifiedOperatorPlan, manifest: &RunnerManifest) -> LiveRunLaunchBundle {
     let mut bundle = LiveRunLaunchBundle {
         version: LIVE_RUN_LAUNCH_BUNDLE_VERSION,
@@ -472,6 +473,7 @@ fn signature_tamper_is_rejected() {
         .expect_err("tampered signature");
     assert!(matches!(error, RunClosureError::InvalidSignature));
 }
+
 
 #[test]
 fn teardown_hash_mismatch_is_rejected() {
