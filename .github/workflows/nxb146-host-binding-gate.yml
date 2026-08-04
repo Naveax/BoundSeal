@@ -1,0 +1,50 @@
+name: NXB-146 live-host binding gate
+
+on:
+  push:
+    branches:
+      - nxb-146-signed-run-closure
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb146-host-binding
+  cancel-in-progress: true
+
+jobs:
+  materialize:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout product branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-146-signed-run-closure
+          fetch-depth: 0
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - name: Apply NXB-145 terminal-host binding
+        shell: pwsh
+        run: python .github/nxb146_host_binding.py
+      - name: Canonicalize and validate
+        shell: pwsh
+        run: |
+          cargo generate-lockfile
+          cargo fmt --all
+          cargo check -p nxb-run-closure -p nxb-live-run-host --all-features --locked
+          cargo clippy -p nxb-run-closure -p nxb-live-run-host --all-targets --all-features --locked -- -D warnings
+          cargo test -p nxb-run-closure -p nxb-live-run-host --all-features --locked -- --test-threads=1
+      - name: Commit validated product changes
+        shell: pwsh
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add Cargo.lock crates/nxb-run-closure
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { exit 0 }
+          git commit -m "NXB-146: bind closure to NXB-145 terminal host"
+          git push origin HEAD:nxb-146-signed-run-closure
