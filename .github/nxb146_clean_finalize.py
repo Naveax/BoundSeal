@@ -91,10 +91,14 @@ def post() -> None:
         &export,
         input,
 '''
-    tests_path.write_text(
-        replace_exact(tests, old, new, "metadata adversarial call"),
-        encoding="utf-8",
+    tests = replace_exact(tests, old, new, "metadata adversarial call")
+    tests = replace_exact(
+        tests,
+        "assert!(matches!(error, RunClosureError::TerminalStateMismatch));",
+        "assert!(matches!(error, RunClosureError::TeardownOutcomeMismatch));",
+        "terminal teardown mismatch expectation",
     )
+    tests_path.write_text(tests, encoding="utf-8")
 
 
 def main() -> None:
