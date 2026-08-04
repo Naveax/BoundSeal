@@ -13,6 +13,7 @@ use nxb_executor::{
 };
 use nxb_http1::{Http1Codec, Http1Limits};
 use nxb_stream::{BoundedByteStream, StreamControl, StreamLimits};
+use nxb_tls::LibraryVerifiedTlsBinder;
 use nxb_transport::{TransportPermit, TransportScheme};
 use rcgen::{generate_simple_self_signed, CertifiedKey};
 use rustls::{
@@ -257,7 +258,11 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
         )
         .unwrap();
     assert_eq!(execution.outcome, ExecutionOutcome::Completed);
-    let observation = executor.backend().last_observation().unwrap();
+    let observation = executor
+        .backend()
+        .last_observation()
+        .cloned()
+        .unwrap();
     assert!(matches!(
         observation.protocol_version.as_str(),
         "tls_1_2" | "tls_1_3"
@@ -282,7 +287,17 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
         tls_stream,
     )
     .unwrap();
-    let mut codec = Http1Codec::new(stream, Http1Limits::conservative_default()).unwrap();
+    let verified_observation = observation
+        .library_verified("nxb-live-local-tls:rustls-webpki")
+        .unwrap();
+    let mut tls_binder = LibraryVerifiedTlsBinder::new();
+    let tls_grant = tls_binder.bind(&stream, &verified_observation).unwrap();
+    let mut codec = Http1Codec::new_verified_tls(
+        stream,
+        &tls_grant,
+        Http1Limits::conservative_default(),
+    )
+    .unwrap();
     let exchange = codec
         .exchange(
             &LivePassiveRequest::new(PassiveMethod::Get, "/health")
@@ -295,6 +310,8 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
     assert_eq!(exchange.response.body, b"OK");
     assert_eq!(exchange.response.headers.len(), 3);
     codec.audit().verify().unwrap();
+    codec.channel_audit().verify().unwrap();
+    tls_binder.audit().verify().unwrap();
     server.join().unwrap();
 }
 
