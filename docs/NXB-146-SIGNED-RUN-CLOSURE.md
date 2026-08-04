@@ -24,6 +24,8 @@ Closure construction consumes the real runner checkpoint and runtime recovery ob
 
 The NXB-145 teardown outcome must carry the same provider-teardown, runtime-checkpoint and runner-checkpoint hashes used by the closure manifest. A caller-provided synthetic terminal snapshot is not accepted.
 
+The closure API is intentionally terminal-host-bound: callers cannot construct a successful closure from a synthetic checkpoint tuple while bypassing the NXB-145 teardown outcome.
+
 ## Dispositions
 
 A run is `complete` only when the runner and runtime are both completed, the pending queue is empty and no untested scope remains.
