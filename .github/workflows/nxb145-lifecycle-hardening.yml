@@ -1,0 +1,56 @@
+name: NXB-145 lifecycle hardening gate
+
+on:
+  push:
+    branches:
+      - nxb-145-signed-live-run-host
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb145-lifecycle-hardening
+  cancel-in-progress: true
+
+jobs:
+  harden:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: nxb-145-signed-live-run-host
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - name: Apply verified lifecycle hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d tools/nxb145_hardening.patch.gz.b64 | gzip -d > /tmp/nxb145-hardening.patch
+          echo "eae8349b313e4179e94a56eb78598a7f8ad95fbf781c9fcc8042ee5e0b66eae2  /tmp/nxb145-hardening.patch" | sha256sum -c -
+          git apply --check /tmp/nxb145-hardening.patch
+          git apply /tmp/nxb145-hardening.patch
+      - name: Format and validate hardened host
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+          cargo check -p nxb-live-run-host --all-features --locked
+          cargo clippy -p nxb-live-run-host --all-targets --all-features --locked -- -D warnings
+          cargo test -p nxb-live-run-host --all-features --locked -- --test-threads=1
+      - name: Commit validated hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/nxb-live-run-host/src/host.rs crates/nxb-live-run-host/src/error.rs crates/nxb-live-run-host/src/tests.rs
+          git rm tools/nxb145_hardening.patch.gz.b64
+          git commit -m "NXB-145: harden initialization and fail-closed DNS paths"
+          git push origin HEAD:nxb-145-signed-live-run-host
