@@ -23,7 +23,7 @@ concurrency:
 jobs:
   harden:
     if: ${{ github.actor != 'github-actions[bot]' }}
-    runs-on: ubuntu-slim
+    runs-on: windows-latest
     timeout-minutes: 45
     steps:
       - name: Checkout product branch
@@ -36,19 +36,18 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Apply deterministic lifecycle hardening
-        run: python3 .github/nxb145_lifecycle_harden.py
+        shell: pwsh
+        run: python .github/nxb145_lifecycle_harden.py
       - name: Format and validate hardened host
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
           cargo fmt --all
           cargo check -p nxb-live-run-host --all-features --locked
           cargo clippy -p nxb-live-run-host --all-targets --all-features --locked -- -D warnings
           cargo test -p nxb-live-run-host --all-features --locked -- --test-threads=1
       - name: Commit validated hardening
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add crates/nxb-live-run-host/src/host.rs crates/nxb-live-run-host/src/error.rs crates/nxb-live-run-host/src/tests.rs
