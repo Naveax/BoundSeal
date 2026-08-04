@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "release_version": "0.1.0",
+  "release_tag": "v0.1.0-contract-complete",
+  "release_kind": "contract_complete_checkpoint",
+  "source_ref_policy": "tag_must_point_to_merged_release_commit",
+  "workspace_publish_policy": "all_workspace_packages_publish_false",
+  "execution_boundary": "signed_bounded_https_get_head_only",
+  "submission_boundary": "operator_reviewed_manual_handoff_only",
+  "automatic_submission": false,
+  "browser_credential_access": false,
+  "credential_discovery": false,
+  "required_evidence": [
+    "canonical_cargo_lock",
+    "full_workspace_format_check_clippy_tests",
+    "synthetic_system_demo",
+    "ubuntu_windows_contract_regressions",
+    "rustsec_audit",
+    "cargo_deny_policy",
+    "release_binary",
+    "cyclonedx_sbom",
+    "source_sha256_manifest",
+    "binary_and_evidence_sha256_checksums",
+    "secret_material_scan"
+  ]
+}
