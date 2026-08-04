@@ -14,6 +14,7 @@ impl ManualSubmissionHandoffCertificate {
         export_manifest: &ExportManifest,
         public_key: &[u8],
     ) -> Result<(), ManualHandoffError> {
+        closure.verify(plan, public_key)?;
         self.manifest
             .verify(plan, closure, report, export_manifest)?;
         if public_key.len() != 32
