@@ -1,0 +1,225 @@
+name: Contract-complete release candidate
+
+on:
+  push:
+    branches:
+      - release-v0.1.0-contract-complete
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "release/v0.1.0-contract-complete.json"
+      - "docs/RELEASE-v0.1.0-contract-complete.md"
+      - "CHANGELOG.md"
+      - ".github/workflows/contract-complete-release-candidate.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: contract-complete-release-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: Release contract and workspace
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+      - name: Verify release contract and package policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target
+          cargo metadata --locked --format-version 1 > target/release-candidate-metadata.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          contract = json.loads(Path("release/v0.1.0-contract-complete.json").read_text())
+          if contract["release_version"] != "0.1.0":
+              raise SystemExit("release version mismatch")
+          if contract["release_tag"] != "v0.1.0-contract-complete":
+              raise SystemExit("release tag mismatch")
+          if contract["automatic_submission"] is not False:
+              raise SystemExit("automatic submission must remain disabled")
+          if contract["browser_credential_access"] is not False:
+              raise SystemExit("browser credential access must remain disabled")
+          if contract["credential_discovery"] is not False:
+              raise SystemExit("credential discovery must remain disabled")
+
+          metadata = json.loads(Path("target/release-candidate-metadata.json").read_text())
+          workspace_members = set(metadata["workspace_members"])
+          packages = {package["id"]: package for package in metadata["packages"]}
+          for package_id in sorted(workspace_members):
+              package = packages[package_id]
+              if package["version"] != "0.1.0":
+                  raise SystemExit(f"workspace version mismatch: {package['name']}")
+              if package.get("publish") != []:
+                  raise SystemExit(f"workspace package is publishable: {package['name']}")
+          PY
+      - name: Require canonical lockfile
+        shell: bash
+        run: |
+          cargo generate-lockfile
+          git diff --exit-code -- Cargo.lock
+      - name: Full workspace contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo check --workspace --all-features --locked
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test --workspace --all-features --locked -- --test-threads=1
+          cargo run -p nxb-core --locked -- demo --output target/contract-complete-demo.json
+          cargo run -p nxb-core --locked -- verify-demo --input target/contract-complete-demo.json
+
+  supply-chain:
+    name: RustSec and cargo-deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: RustSec audit
+        run: cargo audit
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+      - name: Dependency policy
+        run: cargo deny check advisories bans licenses sources
+
+  evidence:
+    name: Binary, SBOM, source manifest and checksums
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+      - name: Build release binary
+        run: cargo build -p nxb-core --release --locked
+      - name: Generate dependency metadata
+        run: |
+          mkdir -p target
+          cargo metadata --locked --format-version 1 > target/cargo-metadata.json
+      - name: Generate deterministic CycloneDX SBOM
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          metadata = json.loads(Path("target/cargo-metadata.json").read_text())
+          components = []
+          for package in sorted(
+              metadata["packages"], key=lambda item: (item["name"], item["version"], item["id"])
+          ):
+              source = package.get("source") or "workspace"
+              component = {
+                  "type": "library",
+                  "bom-ref": package["id"],
+                  "name": package["name"],
+                  "version": package["version"],
+                  "purl": f"pkg:cargo/{package['name']}@{package['version']}",
+                  "properties": [
+                      {"name": "nxb:source", "value": source},
+                      {"name": "nxb:manifest_path", "value": package["manifest_path"]},
+                  ],
+              }
+              license_value = package.get("license")
+              if license_value:
+                  component["licenses"] = [{"expression": license_value}]
+              components.append(component)
+
+          serial_material = "\n".join(
+              f"{item['name']}\0{item['version']}\0{item['bom-ref']}" for item in components
+          ).encode()
+          serial = hashlib.sha256(serial_material).hexdigest()
+          sbom = {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "serialNumber": f"urn:uuid:{serial[:8]}-{serial[8:12]}-{serial[12:16]}-{serial[16:20]}-{serial[20:32]}",
+              "version": 1,
+              "metadata": {
+                  "component": {
+                      "type": "application",
+                      "name": "nxb",
+                      "version": "0.1.0",
+                  },
+                  "properties": [
+                      {"name": "nxb:release_tag", "value": "v0.1.0-contract-complete"},
+                      {"name": "nxb:source_sha", "value": "${{ github.sha }}"},
+                      {"name": "nxb:automatic_submission", "value": "disabled"},
+                  ],
+              },
+              "components": components,
+          }
+          output = Path("target/contract-complete-evidence")
+          output.mkdir(parents=True, exist_ok=True)
+          (output / "nxb.cdx.json").write_text(
+              json.dumps(sbom, indent=2, sort_keys=True) + "\n"
+          )
+          PY
+      - name: Generate deterministic source manifest
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import subprocess
+          from pathlib import Path
+
+          paths = [
+              item.decode("utf-8")
+              for item in subprocess.check_output(["git", "ls-files", "-z"]).split(b"\0")
+              if item
+          ]
+          output = Path("target/contract-complete-evidence")
+          output.mkdir(parents=True, exist_ok=True)
+          with (output / "SOURCE-SHA256SUMS").open("w", encoding="utf-8", newline="\n") as handle:
+              for path in sorted(paths):
+                  digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+                  handle.write(f"{digest}  {path}\n")
+          PY
+      - name: Collect release evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          output=target/contract-complete-evidence
+          cp target/release/nxb "$output/nxb-linux-x86_64"
+          cp Cargo.lock "$output/Cargo.lock"
+          cp CHANGELOG.md "$output/CHANGELOG.md"
+          cp release/v0.1.0-contract-complete.json "$output/release-contract.json"
+          cp docs/RELEASE-v0.1.0-contract-complete.md "$output/RELEASE-NOTES.md"
+          printf '%s\n' '${{ github.sha }}' > "$output/SOURCE-COMMIT"
+          cd "$output"
+          sha256sum \
+            nxb-linux-x86_64 \
+            nxb.cdx.json \
+            SOURCE-SHA256SUMS \
+            Cargo.lock \
+            CHANGELOG.md \
+            release-contract.json \
+            RELEASE-NOTES.md \
+            SOURCE-COMMIT \
+            | LC_ALL=C sort > SHA256SUMS
+          sha256sum SHA256SUMS > SHA256SUMS.sha256
+      - name: Reject accidental secret material
+        shell: bash
+        run: |
+          ! grep -RIE 'authorization:|proxy-authorization:|set-cookie:|bearer |password=|token=|client_secret=|access_token=|refresh_token=|api_key=|private_key=' target/contract-complete-evidence
+      - name: Upload immutable release candidate evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nxb-v0.1.0-contract-complete-${{ github.run_id }}
+          path: target/contract-complete-evidence
+          retention-days: 30
