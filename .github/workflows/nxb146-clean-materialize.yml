@@ -113,7 +113,19 @@ jobs:
           new = 'failure_sha256: lower_hex(&Sha256::digest(failure.as_bytes())),'
           if text.count(old) != 1:
               raise SystemExit(f'NXB-146 failure hash anchor mismatch: {text.count(old)}')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          text = text.replace(old, new, 1)
+          for signature in [
+              '    pub fn build(\n',
+              '    pub fn verify_components(\n',
+          ]:
+              if text.count(signature) != 1:
+                  raise SystemExit(f'NXB-146 bounded API anchor mismatch: {signature!r}')
+              text = text.replace(
+                  signature,
+                  '    #[allow(clippy::too_many_arguments)]\n' + signature,
+                  1,
+              )
+          path.write_text(text, encoding='utf-8')
           PY
       - name: Canonicalize and validate product tree
         shell: bash
