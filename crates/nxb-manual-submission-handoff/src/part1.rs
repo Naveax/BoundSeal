@@ -134,6 +134,8 @@ impl ManualSubmissionHandoffManifest {
             return Err(ManualHandoffError::InvalidFindingCount);
         }
         let finding_set_sha256 = calculate_finding_set_sha256(&report.document)?;
+        let closure_signature = decode_hex(&closure.signature_hex)
+            .map_err(|_| ManualHandoffError::InvalidClosureSignatureEncoding)?;
         let mut manifest = Self {
             version: MANUAL_HANDOFF_VERSION,
             handoff_id: String::new(),
@@ -141,10 +143,7 @@ impl ManualSubmissionHandoffManifest {
             program_handle,
             closure_id: closure.manifest.closure_id.clone(),
             closure_manifest_sha256: closure.manifest.manifest_sha256.clone(),
-            closure_signature_sha256: hash_bytes(
-                &decode_hex(&closure.signature_hex)
-                    .map_err(|_| ManualHandoffError::InvalidClosureSignatureEncoding)?,
-            ),
+            closure_signature_sha256: hash_bytes(&closure_signature),
             plan_sha256: closure.manifest.plan_sha256.clone(),
             policy_snapshot_sha256: closure.manifest.policy_snapshot_sha256.clone(),
             report_id: report.document.report_id.clone(),
@@ -172,11 +171,14 @@ impl ManualSubmissionHandoffManifest {
         report: &ReportBundle,
         export_manifest: &ExportManifest,
     ) -> Result<(), ManualHandoffError> {
+        let closure_signature = decode_hex(&closure.signature_hex)
+            .map_err(|_| ManualHandoffError::InvalidClosureSignatureEncoding)?;
         if self.version != MANUAL_HANDOFF_VERSION
             || self.plan_sha256 != plan.plan_sha256
             || self.policy_snapshot_sha256 != plan.binding.policy_sha256
             || self.closure_id != closure.manifest.closure_id
             || self.closure_manifest_sha256 != closure.manifest.manifest_sha256
+            || self.closure_signature_sha256 != hash_bytes(&closure_signature)
             || self.generated_at_epoch_seconds <= 0
         {
             return Err(ManualHandoffError::ComponentMismatch);
