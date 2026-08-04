@@ -18,7 +18,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: nxb146-host-binding
+  group: nxb146-host-binding-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -48,6 +48,7 @@ jobs:
           cargo clippy -p nxb-run-closure -p nxb-live-run-host --all-targets --all-features --locked -- -D warnings
           cargo test -p nxb-run-closure -p nxb-live-run-host --all-features --locked -- --test-threads=1
       - name: Commit validated product changes
+        if: ${{ github.event_name == 'push' }}
         shell: pwsh
         run: |
           git config user.name github-actions[bot]
