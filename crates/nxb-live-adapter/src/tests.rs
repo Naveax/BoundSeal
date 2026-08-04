@@ -243,11 +243,7 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
         backend,
     )
     .unwrap();
-    let permit = permit(
-        IpAddr::V4(Ipv4Addr::LOCALHOST),
-        443,
-        "fixture.example.com",
-    );
+    let permit = permit(IpAddr::V4(Ipv4Addr::LOCALHOST), 443, "fixture.example.com");
     let execution = executor
         .execute(
             &permit,
