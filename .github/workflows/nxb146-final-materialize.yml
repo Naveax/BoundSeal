@@ -4,13 +4,19 @@ on:
   push:
     branches:
       - nxb-146-signed-run-closure-final
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/nxb146-final-materialize.yml"
+      - ".github/.nxb146-final-trigger"
 
 permissions:
   contents: write
 
 concurrency:
-  group: nxb146-final-materialization
-  cancel-in-progress: false
+  group: nxb146-final-materialization-${{ github.event_name }}
+  cancel-in-progress: true
 
 jobs:
   materialize:
@@ -146,6 +152,7 @@ jobs:
           cargo clippy -p nxb-run-closure -p nxb-live-run-host --all-targets --all-features --locked -- -D warnings
           cargo test -p nxb-run-closure -p nxb-live-run-host --all-features --locked -- --test-threads=1
       - name: Commit validated product files
+        if: ${{ github.event_name == 'push' }}
         shell: bash
         run: |
           set -euo pipefail
