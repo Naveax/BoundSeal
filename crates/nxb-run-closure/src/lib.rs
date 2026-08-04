@@ -4,8 +4,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use nxb_knowledge_reporting::ExportManifest;
 use nxb_operator_runtime::RuntimeRecovery;
-use nxb_operator_state::OperatorRunStatus;
-use nxb_resumable_runner::{RunnerCheckpoint, RunnerManifest, RunnerStatus, RunnerStopReason};
+use nxb_operator_state::{OperatorRunStatus, OPERATOR_CHECKPOINT_VERSION};
+use nxb_resumable_runner::{
+    RunnerCheckpoint, RunnerManifest, RunnerStatus, RunnerStopReason, RESUMABLE_RUNNER_VERSION,
+};
 use nxb_unified_operator::UnifiedOperatorPlan;
 use ring::signature::{UnparsedPublicKey, ED25519};
 use serde::{Deserialize, Serialize};
@@ -65,9 +67,31 @@ pub struct RunCoverageSummary {
 }
 
 impl RunCoverageSummary {
+    fn from_snapshot(plan: &UnifiedOperatorPlan, snapshot: &TerminalRunSnapshot) -> Self {
+        Self {
+            maximum_requests: plan.binding.maximum_requests,
+            completed_requests: snapshot.completed_requests,
+            visited_targets: snapshot.visited_targets,
+            pending_targets: snapshot.pending_targets,
+            rejected_candidates: snapshot.rejected_candidates,
+            recovery_gap_count: snapshot.recovery_gap_count,
+            maximum_depth_observed: snapshot.maximum_depth_observed,
+            total_response_bytes: snapshot.total_response_bytes,
+            evidence_bytes: snapshot.evidence_bytes,
+            request_budget_basis_points: snapshot
+                .completed_requests
+                .saturating_mul(10_000)
+                .checked_div(plan.binding.maximum_requests)
+                .unwrap_or(0) as u16,
+        }
+    }
+
     fn validate(&self) -> Result<(), RunClosureError> {
         if self.maximum_requests == 0
             || self.completed_requests > self.maximum_requests
+            || self.completed_requests > self.visited_targets
+            || self.pending_targets > self.visited_targets
+            || self.recovery_gap_count > self.completed_requests
             || self.request_budget_basis_points > 10_000
         {
             return Err(RunClosureError::InvalidCoverage);
@@ -146,14 +170,46 @@ pub struct TerminalRunSnapshot {
 
 impl TerminalRunSnapshot {
     pub fn from_components(
+        plan: &UnifiedOperatorPlan,
         runner_manifest: &RunnerManifest,
         runner_checkpoint: &RunnerCheckpoint,
         runtime: &RuntimeRecovery,
     ) -> Result<Self, RunClosureError> {
+        plan.validate()?;
+        runner_manifest.validate_binding(plan)?;
+        if runner_checkpoint.version != RESUMABLE_RUNNER_VERSION
+            || runner_checkpoint.manifest_sha256 != runner_manifest.manifest_sha256
+            || runner_checkpoint.completed_requests != runtime.committed_requests
+            || runner_checkpoint.completed_requests
+                != runtime.state.latest.counters.requests_completed
+            || runtime.unresolved_request.is_some()
+            || runtime.continuation_allowed
+            || runtime.state.continuation_allowed
+        {
+            return Err(RunClosureError::ComponentMismatch);
+        }
+        let mut runner_material = runner_checkpoint.clone();
+        runner_material.checkpoint_sha256.clear();
+        if runner_checkpoint.checkpoint_sha256 != hash_serializable(&runner_material)? {
+            return Err(RunClosureError::ComponentDigestMismatch);
+        }
+        let runtime_checkpoint = &runtime.state.latest;
+        if runtime_checkpoint.version != OPERATOR_CHECKPOINT_VERSION
+            || runtime_checkpoint.identity.operator_id != plan.operator_id
+            || runtime_checkpoint.identity.plan_sha256 != plan.plan_sha256
+            || runtime_checkpoint.identity.binding_sha256 != plan.binding_sha256
+        {
+            return Err(RunClosureError::ComponentMismatch);
+        }
+        let mut runtime_material = runtime_checkpoint.clone();
+        runtime_material.checkpoint_sha256.clear();
+        if runtime_checkpoint.checkpoint_sha256 != hash_serializable(&runtime_material)? {
+            return Err(RunClosureError::ComponentDigestMismatch);
+        }
         let reason = runner_checkpoint
             .stop_reason
             .ok_or(RunClosureError::MissingStopReason)?;
-        Ok(Self {
+        let snapshot = Self {
             runner_manifest_sha256: runner_manifest.manifest_sha256.clone(),
             runner_checkpoint_sha256: runner_checkpoint.checkpoint_sha256.clone(),
             runner_status: runner_checkpoint.status,
@@ -163,19 +219,17 @@ impl TerminalRunSnapshot {
             pending_targets: runner_checkpoint.pending_queue.len() as u64,
             rejected_candidates: runner_checkpoint.rejected_candidates,
             recovery_gap_count: runner_checkpoint.recovery_gap_count,
-            runtime_checkpoint_sha256: runtime.state.latest.checkpoint_sha256.clone(),
-            runtime_status: runtime.state.latest.status,
-            maximum_depth_observed: runtime.state.latest.counters.maximum_depth_observed,
-            total_response_bytes: runtime.state.latest.counters.total_response_bytes,
-            evidence_bytes: runtime.state.latest.counters.evidence_bytes,
-        })
+            runtime_checkpoint_sha256: runtime_checkpoint.checkpoint_sha256.clone(),
+            runtime_status: runtime_checkpoint.status,
+            maximum_depth_observed: runtime_checkpoint.counters.maximum_depth_observed,
+            total_response_bytes: runtime_checkpoint.counters.total_response_bytes,
+            evidence_bytes: runtime_checkpoint.counters.evidence_bytes,
+        };
+        snapshot.validate_binding(plan, runner_manifest)?;
+        Ok(snapshot)
     }
 
-    fn validate(
-        &self,
-        plan: &UnifiedOperatorPlan,
-        runner_manifest: &RunnerManifest,
-    ) -> Result<(), RunClosureError> {
+    fn validate_shape(&self, plan: &UnifiedOperatorPlan) -> Result<(), RunClosureError> {
         for value in [
             &self.runner_manifest_sha256,
             &self.runner_checkpoint_sha256,
@@ -183,20 +237,40 @@ impl TerminalRunSnapshot {
         ] {
             validate_sha256(value)?;
         }
-        if self.runner_manifest_sha256 != runner_manifest.manifest_sha256
-            || self.completed_requests > plan.binding.maximum_requests
+        if self.completed_requests > plan.binding.maximum_requests
+            || self.completed_requests > self.visited_targets
+            || self.pending_targets > self.visited_targets
+            || self.recovery_gap_count > self.completed_requests
             || self.maximum_depth_observed > plan.binding.maximum_depth
             || self.total_response_bytes > plan.binding.maximum_total_response_bytes
         {
             return Err(RunClosureError::ComponentMismatch);
         }
-        if !self.runner_status.is_terminal() || !self.runtime_status.is_terminal() {
-            return Err(RunClosureError::NonTerminalState);
-        }
-        match (self.runner_status, self.runtime_status) {
-            (RunnerStatus::Completed, OperatorRunStatus::Completed)
-            | (RunnerStatus::Aborted, OperatorRunStatus::Aborted) => {}
+        match (
+            self.runner_status,
+            self.runtime_status,
+            self.runner_stop_reason,
+        ) {
+            (
+                RunnerStatus::Completed,
+                OperatorRunStatus::Completed,
+                ClosureReason::RuntimeCompleted,
+            )
+            | (RunnerStatus::Aborted, OperatorRunStatus::Aborted, ClosureReason::RuntimeAborted) => {
+            }
             _ => return Err(RunClosureError::TerminalStateMismatch),
+        }
+        Ok(())
+    }
+
+    fn validate_binding(
+        &self,
+        plan: &UnifiedOperatorPlan,
+        runner_manifest: &RunnerManifest,
+    ) -> Result<(), RunClosureError> {
+        self.validate_shape(plan)?;
+        if self.runner_manifest_sha256 != runner_manifest.manifest_sha256 {
+            return Err(RunClosureError::ComponentMismatch);
         }
         Ok(())
     }
@@ -205,7 +279,6 @@ impl TerminalRunSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct RunClosureInput {
-    pub snapshot: TerminalRunSnapshot,
     pub artifacts: RunClosureArtifacts,
     pub untested_scope_sha256: BTreeSet<String>,
     pub metadata: BTreeMap<String, String>,
@@ -221,6 +294,7 @@ pub struct RunClosureManifest {
     pub plan_sha256: String,
     pub binding_sha256: String,
     pub policy_snapshot_sha256: String,
+    pub terminal: TerminalRunSnapshot,
     pub disposition: ClosureDisposition,
     pub reason: ClosureReason,
     pub coverage: RunCoverageSummary,
@@ -235,60 +309,33 @@ impl RunClosureManifest {
     pub fn build(
         plan: &UnifiedOperatorPlan,
         runner_manifest: &RunnerManifest,
+        runner_checkpoint: &RunnerCheckpoint,
+        runtime: &RuntimeRecovery,
         export_manifest: &ExportManifest,
         input: RunClosureInput,
     ) -> Result<Self, RunClosureError> {
         plan.validate()?;
         runner_manifest.validate_binding(plan)?;
         export_manifest.verify()?;
-        input.snapshot.validate(plan, runner_manifest)?;
+        let terminal = TerminalRunSnapshot::from_components(
+            plan,
+            runner_manifest,
+            runner_checkpoint,
+            runtime,
+        )?;
         input.artifacts.validate()?;
         if input.artifacts.evidence_export_root_sha256 != export_manifest.root_sha256
-            || input.artifacts.runner_checkpoint_sha256 != input.snapshot.runner_checkpoint_sha256
-            || input.artifacts.runtime_checkpoint_sha256 != input.snapshot.runtime_checkpoint_sha256
+            || input.artifacts.runner_checkpoint_sha256 != terminal.runner_checkpoint_sha256
+            || input.artifacts.runtime_checkpoint_sha256 != terminal.runtime_checkpoint_sha256
             || export_manifest.policy_snapshot_sha256 != plan.binding.policy_sha256
             || input.generated_at_epoch_seconds < runner_manifest.created_at_epoch_seconds
         {
             return Err(RunClosureError::ComponentMismatch);
         }
         validate_untrusted_metadata(&input.metadata)?;
-        if input.untested_scope_sha256.len() > MAX_UNTESTED_SCOPE_ENTRIES {
-            return Err(RunClosureError::UntestedScopeLimit);
-        }
-        for digest in &input.untested_scope_sha256 {
-            validate_sha256(digest)?;
-        }
-        let disposition = match input.snapshot.runner_status {
-            RunnerStatus::Aborted => ClosureDisposition::Aborted,
-            RunnerStatus::Completed
-                if input.snapshot.pending_targets == 0
-                    && input.untested_scope_sha256.is_empty() =>
-            {
-                ClosureDisposition::Complete
-            }
-            RunnerStatus::Completed => ClosureDisposition::Partial,
-            _ => return Err(RunClosureError::NonTerminalState),
-        };
-        if disposition != ClosureDisposition::Complete && input.untested_scope_sha256.is_empty() {
-            return Err(RunClosureError::MissingUntestedScope);
-        }
-        let coverage = RunCoverageSummary {
-            maximum_requests: plan.binding.maximum_requests,
-            completed_requests: input.snapshot.completed_requests,
-            visited_targets: input.snapshot.visited_targets,
-            pending_targets: input.snapshot.pending_targets,
-            rejected_candidates: input.snapshot.rejected_candidates,
-            recovery_gap_count: input.snapshot.recovery_gap_count,
-            maximum_depth_observed: input.snapshot.maximum_depth_observed,
-            total_response_bytes: input.snapshot.total_response_bytes,
-            evidence_bytes: input.snapshot.evidence_bytes,
-            request_budget_basis_points: input
-                .snapshot
-                .completed_requests
-                .saturating_mul(10_000)
-                .checked_div(plan.binding.maximum_requests)
-                .unwrap_or(0) as u16,
-        };
+        Self::validate_untested_scope(&input.untested_scope_sha256)?;
+        let disposition = Self::expected_disposition(&terminal, &input.untested_scope_sha256)?;
+        let coverage = RunCoverageSummary::from_snapshot(plan, &terminal);
         coverage.validate()?;
         let mut manifest = Self {
             version: RUN_CLOSURE_VERSION,
@@ -297,8 +344,9 @@ impl RunClosureManifest {
             plan_sha256: plan.plan_sha256.clone(),
             binding_sha256: plan.binding_sha256.clone(),
             policy_snapshot_sha256: plan.binding.policy_sha256.clone(),
+            terminal: terminal.clone(),
             disposition,
-            reason: input.snapshot.runner_stop_reason,
+            reason: terminal.runner_stop_reason,
             coverage,
             artifacts: input.artifacts,
             untested_scope_sha256: input.untested_scope_sha256,
@@ -306,14 +354,14 @@ impl RunClosureManifest {
             generated_at_epoch_seconds: input.generated_at_epoch_seconds,
             manifest_sha256: String::new(),
         };
-        let body_sha256 = manifest.calculate_sha256()?;
-        manifest.closure_id = format!("closure-{}", &body_sha256[..24]);
+        manifest.closure_id = manifest.calculate_closure_id()?;
         manifest.manifest_sha256 = manifest.calculate_sha256()?;
         manifest.verify(plan)?;
         Ok(manifest)
     }
 
     pub fn verify(&self, plan: &UnifiedOperatorPlan) -> Result<(), RunClosureError> {
+        plan.validate()?;
         if self.version != RUN_CLOSURE_VERSION
             || self.operator_id != plan.operator_id
             || self.plan_sha256 != plan.plan_sha256
@@ -323,23 +371,56 @@ impl RunClosureManifest {
         {
             return Err(RunClosureError::ComponentMismatch);
         }
+        self.terminal.validate_shape(plan)?;
         validate_identifier(&self.closure_id)?;
         validate_sha256(&self.manifest_sha256)?;
         self.coverage.validate()?;
         self.artifacts.validate()?;
         validate_untrusted_metadata(&self.metadata)?;
-        for digest in &self.untested_scope_sha256 {
-            validate_sha256(digest)?;
+        Self::validate_untested_scope(&self.untested_scope_sha256)?;
+        if self.artifacts.runner_checkpoint_sha256 != self.terminal.runner_checkpoint_sha256
+            || self.artifacts.runtime_checkpoint_sha256 != self.terminal.runtime_checkpoint_sha256
+            || self.reason != self.terminal.runner_stop_reason
+            || self.coverage != RunCoverageSummary::from_snapshot(plan, &self.terminal)
+        {
+            return Err(RunClosureError::ComponentMismatch);
+        }
+        let expected_disposition =
+            Self::expected_disposition(&self.terminal, &self.untested_scope_sha256)?;
+        if self.disposition != expected_disposition {
+            return Err(RunClosureError::DispositionMismatch);
+        }
+        if self.closure_id != self.calculate_closure_id()? {
+            return Err(RunClosureError::ClosureIdMismatch);
         }
         if self.manifest_sha256 != self.calculate_sha256()? {
             return Err(RunClosureError::ManifestDigestMismatch);
         }
-        match self.disposition {
-            ClosureDisposition::Complete
-                if self.coverage.pending_targets == 0 && self.untested_scope_sha256.is_empty() => {}
-            ClosureDisposition::Partial | ClosureDisposition::Aborted
-                if !self.untested_scope_sha256.is_empty() => {}
-            _ => return Err(RunClosureError::DispositionMismatch),
+        Ok(())
+    }
+
+    pub fn verify_components(
+        &self,
+        plan: &UnifiedOperatorPlan,
+        runner_manifest: &RunnerManifest,
+        runner_checkpoint: &RunnerCheckpoint,
+        runtime: &RuntimeRecovery,
+        export_manifest: &ExportManifest,
+    ) -> Result<(), RunClosureError> {
+        self.verify(plan)?;
+        runner_manifest.validate_binding(plan)?;
+        export_manifest.verify()?;
+        let terminal = TerminalRunSnapshot::from_components(
+            plan,
+            runner_manifest,
+            runner_checkpoint,
+            runtime,
+        )?;
+        if terminal != self.terminal
+            || export_manifest.policy_snapshot_sha256 != self.policy_snapshot_sha256
+            || export_manifest.root_sha256 != self.artifacts.evidence_export_root_sha256
+        {
+            return Err(RunClosureError::ComponentMismatch);
         }
         Ok(())
     }
@@ -352,10 +433,65 @@ impl RunClosureManifest {
     fn verify_shape_only(&self) -> Result<(), RunClosureError> {
         validate_identifier(&self.closure_id)?;
         validate_sha256(&self.manifest_sha256)?;
+        for value in [
+            &self.terminal.runner_manifest_sha256,
+            &self.terminal.runner_checkpoint_sha256,
+            &self.terminal.runtime_checkpoint_sha256,
+        ] {
+            validate_sha256(value)?;
+        }
         self.coverage.validate()?;
         self.artifacts.validate()?;
         validate_untrusted_metadata(&self.metadata)?;
+        Self::validate_untested_scope(&self.untested_scope_sha256)?;
+        if self.closure_id != self.calculate_closure_id()? {
+            return Err(RunClosureError::ClosureIdMismatch);
+        }
+        if self.manifest_sha256 != self.calculate_sha256()? {
+            return Err(RunClosureError::ManifestDigestMismatch);
+        }
         Ok(())
+    }
+
+    fn expected_disposition(
+        terminal: &TerminalRunSnapshot,
+        untested_scope_sha256: &BTreeSet<String>,
+    ) -> Result<ClosureDisposition, RunClosureError> {
+        match terminal.runner_status {
+            RunnerStatus::Completed
+                if terminal.pending_targets == 0 && untested_scope_sha256.is_empty() =>
+            {
+                Ok(ClosureDisposition::Complete)
+            }
+            RunnerStatus::Completed if !untested_scope_sha256.is_empty() => {
+                Ok(ClosureDisposition::Partial)
+            }
+            RunnerStatus::Aborted if !untested_scope_sha256.is_empty() => {
+                Ok(ClosureDisposition::Aborted)
+            }
+            RunnerStatus::Completed | RunnerStatus::Aborted => {
+                Err(RunClosureError::MissingUntestedScope)
+            }
+            _ => Err(RunClosureError::NonTerminalState),
+        }
+    }
+
+    fn validate_untested_scope(values: &BTreeSet<String>) -> Result<(), RunClosureError> {
+        if values.len() > MAX_UNTESTED_SCOPE_ENTRIES {
+            return Err(RunClosureError::UntestedScopeLimit);
+        }
+        for digest in values {
+            validate_sha256(digest)?;
+        }
+        Ok(())
+    }
+
+    fn calculate_closure_id(&self) -> Result<String, RunClosureError> {
+        let mut material = self.clone();
+        material.closure_id.clear();
+        material.manifest_sha256.clear();
+        let digest = hash_serializable(&material)?;
+        Ok(format!("closure-{}", &digest[..24]))
     }
 
     fn calculate_sha256(&self) -> Result<String, RunClosureError> {
@@ -521,6 +657,10 @@ pub enum RunClosureError {
     InvalidSha256,
     #[error("closure manifest digest mismatch")]
     ManifestDigestMismatch,
+    #[error("closure identifier does not match canonical manifest content")]
+    ClosureIdMismatch,
+    #[error("terminal component checkpoint digest mismatch")]
+    ComponentDigestMismatch,
     #[error("closure public key does not match the signed plan")]
     PublicKeyMismatch,
     #[error("closure signature is invalid")]
