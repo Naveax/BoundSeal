@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - nxb-145-signed-live-run-host
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
