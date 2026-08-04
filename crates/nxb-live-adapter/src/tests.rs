@@ -191,7 +191,7 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
     };
 
     let CertifiedKey { cert, signing_key } =
-        generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        generate_simple_self_signed(vec!["fixture.example.com".into()]).unwrap();
     let certificate = cert.der().clone();
     let private_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(signing_key.serialize_der()));
     let provider = Arc::new(rustls::crypto::ring::default_provider());
@@ -225,7 +225,7 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
         }
         let request_text = String::from_utf8_lossy(&request);
         assert!(request_text.starts_with("GET /health HTTP/1.1\r\n"));
-        assert!(request_text.contains("\r\nHost: localhost\r\n"));
+        assert!(request_text.contains("\r\nHost: fixture.example.com\r\n"));
         assert!(request_text.contains("\r\nAccept-Encoding: identity\r\n"));
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nOK")
@@ -243,7 +243,11 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
         backend,
     )
     .unwrap();
-    let permit = permit(IpAddr::V4(Ipv4Addr::LOCALHOST), 443, "localhost");
+    let permit = permit(
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        443,
+        "fixture.example.com",
+    );
     let execution = executor
         .execute(
             &permit,
