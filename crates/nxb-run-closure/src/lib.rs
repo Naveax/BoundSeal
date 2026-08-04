@@ -244,10 +244,8 @@ impl RunClosureManifest {
         input.snapshot.validate(plan, runner_manifest)?;
         input.artifacts.validate()?;
         if input.artifacts.evidence_export_root_sha256 != export_manifest.root_sha256
-            || input.artifacts.runner_checkpoint_sha256
-                != input.snapshot.runner_checkpoint_sha256
-            || input.artifacts.runtime_checkpoint_sha256
-                != input.snapshot.runtime_checkpoint_sha256
+            || input.artifacts.runner_checkpoint_sha256 != input.snapshot.runner_checkpoint_sha256
+            || input.artifacts.runtime_checkpoint_sha256 != input.snapshot.runtime_checkpoint_sha256
             || export_manifest.policy_snapshot_sha256 != plan.binding.policy_sha256
             || input.generated_at_epoch_seconds < runner_manifest.created_at_epoch_seconds
         {
@@ -271,9 +269,7 @@ impl RunClosureManifest {
             RunnerStatus::Completed => ClosureDisposition::Partial,
             _ => return Err(RunClosureError::NonTerminalState),
         };
-        if disposition != ClosureDisposition::Complete
-            && input.untested_scope_sha256.is_empty()
-        {
+        if disposition != ClosureDisposition::Complete && input.untested_scope_sha256.is_empty() {
             return Err(RunClosureError::MissingUntestedScope);
         }
         let coverage = RunCoverageSummary {
@@ -340,8 +336,7 @@ impl RunClosureManifest {
         }
         match self.disposition {
             ClosureDisposition::Complete
-                if self.coverage.pending_targets == 0
-                    && self.untested_scope_sha256.is_empty() => {}
+                if self.coverage.pending_targets == 0 && self.untested_scope_sha256.is_empty() => {}
             ClosureDisposition::Partial | ClosureDisposition::Aborted
                 if !self.untested_scope_sha256.is_empty() => {}
             _ => return Err(RunClosureError::DispositionMismatch),
@@ -384,7 +379,9 @@ impl RunClosureCertificate {
         public_key: &[u8],
     ) -> Result<(), RunClosureError> {
         self.manifest.verify(plan)?;
-        if public_key != plan.activation_public_key.as_slice() {
+        if public_key.len() != 32
+            || lower_hex(&Sha256::digest(public_key)) != plan.activation_key_id_sha256
+        {
             return Err(RunClosureError::PublicKeyMismatch);
         }
         let signature = decode_hex(&self.signature_hex)?;
