@@ -16,4 +16,16 @@ if text.count(old_budget) != 1:
     raise SystemExit("unexpected NXB-144 test workspace fixture anchor")
 text = text.replace(old_budget, new_budget, 1)
 
+old_terminal = '''        let runtime_state = runtime
+            .complete_teardown(&sha('9'), clock(1_104))
+            .expect("complete teardown");
+'''
+new_terminal = '''        let _runtime_state = runtime
+            .complete_teardown(&sha('9'), clock(1_104))
+            .expect("complete teardown");
+'''
+if text.count(old_terminal) != 1:
+    raise SystemExit("unexpected NXB-144 terminal test anchor")
+text = text.replace(old_terminal, new_terminal, 1)
+
 path.write_text(text, encoding="utf-8", newline="\n")
