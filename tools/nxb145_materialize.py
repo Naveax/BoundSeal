@@ -22,8 +22,13 @@ def materialize() -> None:
     with tarfile.open(fileobj=gzip.GzipFile(fileobj=io.BytesIO(archive)), mode="r:") as bundle:
         for member in bundle.getmembers():
             target = (ROOT / member.name).resolve()
-            if not member.isfile() or ROOT.resolve() not in target.parents:
-                raise SystemExit("unsafe NXB-145 payload member")
+            if ROOT.resolve() not in target.parents:
+                raise SystemExit("unsafe NXB-145 payload path")
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            if not member.isfile():
+                raise SystemExit("unsafe NXB-145 payload member type")
             source = bundle.extractfile(member)
             if source is None:
                 raise SystemExit("missing NXB-145 payload content")
@@ -40,5 +45,4 @@ def materialize() -> None:
 
 
 if __name__ == "__main__":
-    # Second push intentionally triggers the pre-existing one-shot workflow.
     materialize()
