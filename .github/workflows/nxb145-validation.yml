@@ -1,6 +1,10 @@
-name: NXB-145 signed closure validation
+name: NXB-145 signed closure hardening
 
 on:
+  push:
+    branches:
+      - main
+      - nxb-145-signed-run-closure
   pull_request:
     paths:
       - "crates/nxb-run-closure/**"
@@ -13,41 +17,45 @@ permissions:
   contents: read
 
 concurrency:
-  group: nxb145-validation-${{ github.event.pull_request.number }}
+  group: nxb145-closure-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   closure-contract:
+    name: Closure contract, Clippy and adversarial tests
     runs-on: ubuntu-slim
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.97.1
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
-      - name: Apply key-id binding fix
+      - name: Canonical lockfile and formatting
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path("crates/nxb-run-closure/src/lib.rs")
-          text = path.read_text(encoding="utf-8")
-          old = "public_key != plan.activation_public_key.as_slice()"
-          new = "public_key.len() != 32\n            || lower_hex(&Sha256::digest(public_key)) != plan.activation_key_id_sha256"
-          if text.count(old) != 1:
-              raise SystemExit("NXB-145 public-key expression mismatch")
-          path.write_text(text.replace(old, new), encoding="utf-8")
-          PY
-      - name: Materialize canonical workspace
-        shell: bash
-        run: |
-          set -euo pipefail
+          cp Cargo.lock /tmp/Cargo.lock.expected
           cargo generate-lockfile
-          cargo fmt --all
-      - name: Check
+          cmp Cargo.lock /tmp/Cargo.lock.expected
+          cargo fmt --all -- --check
+      - name: Closure check
         run: cargo check -p nxb-run-closure --all-features --locked
-      - name: Clippy
+      - name: Closure Clippy
         run: cargo clippy -p nxb-run-closure --all-targets --all-features --locked -- -D warnings
-      - name: Tests
-        run: cargo test -p nxb-run-closure --all-features --locked
+      - name: Closure tests
+        run: cargo test -p nxb-run-closure --all-features --locked -- --test-threads=1
+
+  closure-windows:
+    name: Closure tests (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+      - name: Closure tests
+        shell: pwsh
+        run: cargo test -p nxb-run-closure --all-features --locked -- --test-threads=1
