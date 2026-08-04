@@ -20,6 +20,7 @@ members = [
     "crates/nxb-live-adapter",
     "crates/nxb-live-run-host",
     "crates/nxb-local-executor",
+    "crates/nxb-manual-submission-handoff",
     "crates/nxb-operator",
     "crates/nxb-operator-runtime",
     "crates/nxb-resumable-runner",
