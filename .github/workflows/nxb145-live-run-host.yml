@@ -34,12 +34,23 @@ jobs:
         uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
-      - name: Canonical lockfile and formatting
+      - name: Generate canonical lockfile
         shell: bash
         run: |
           set -euo pipefail
           cp Cargo.lock /tmp/Cargo.lock.expected
           cargo generate-lockfile
+      - name: Upload canonical lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: nxb146-canonical-lockfile
+          path: Cargo.lock
+          if-no-files-found: error
+          retention-days: 1
+      - name: Verify lockfile and formatting
+        shell: bash
+        run: |
+          set -euo pipefail
           cmp Cargo.lock /tmp/Cargo.lock.expected
           cargo fmt --all -- --check
       - name: Host and upstream check
