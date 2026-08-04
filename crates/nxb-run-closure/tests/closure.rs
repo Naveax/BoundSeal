@@ -97,7 +97,6 @@ fn runner_manifest(plan: &UnifiedOperatorPlan) -> RunnerManifest {
     .expect("runner manifest")
 }
 
-
 fn launch_bundle(plan: &UnifiedOperatorPlan, manifest: &RunnerManifest) -> LiveRunLaunchBundle {
     let mut bundle = LiveRunLaunchBundle {
         version: LIVE_RUN_LAUNCH_BUNDLE_VERSION,
@@ -403,7 +402,7 @@ fn terminal_state_mismatch_is_rejected() {
         complete_input(&export, &runner_checkpoint, &runtime, sha('d')),
     )
     .expect_err("terminal mismatch");
-    assert!(matches!(error, RunClosureError::TerminalStateMismatch));
+    assert!(matches!(error, RunClosureError::TeardownOutcomeMismatch));
 }
 
 #[test]
@@ -473,7 +472,6 @@ fn signature_tamper_is_rejected() {
         .expect_err("tampered signature");
     assert!(matches!(error, RunClosureError::InvalidSignature));
 }
-
 
 #[test]
 fn teardown_hash_mismatch_is_rejected() {
