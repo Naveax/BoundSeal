@@ -18,25 +18,35 @@ permissions:
   contents: read
 
 concurrency:
-  group: nxb147-handoff-${{ github.event_name }}
+  group: nxb147-handoff-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  ubuntu:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+  handoff-contract:
+    name: handoff-contract (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
-      - name: Canonicalize lockfile in validation tree
-        run: cargo generate-lockfile
+      - name: Require canonical committed lockfile
+        shell: bash
+        run: |
+          cargo generate-lockfile
+          git diff --exit-code -- Cargo.lock
       - name: Rustfmt
         run: cargo fmt --all -- --check
       - name: Check handoff contract
         run: cargo check -p nxb-manual-submission-handoff --all-features --locked
       - name: Clippy handoff contract
         run: cargo clippy -p nxb-manual-submission-handoff --all-targets --all-features --locked -- -D warnings
-      - name: Test terminal-chain handoff contract
+      - name: Test adversarial handoff contract
         run: cargo test -p nxb-manual-submission-handoff --all-features --locked -- --test-threads=1
