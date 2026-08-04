@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   materialize:
-    if: ${{ github.actor != 'github-actions[bot]' }}
+    if: ${{ !contains(github.event.head_commit.message, '[skip nxb146]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -156,7 +156,7 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add Cargo.toml Cargo.lock crates/nxb-run-closure docs/NXB-146-SIGNED-RUN-CLOSURE.md
-          git commit -m "NXB-146: bind signed closure to terminal live host"
+          git commit -m "NXB-146: bind signed closure to terminal live host [skip nxb146]"
           git push origin HEAD:nxb-146-signed-run-closure-final
       - name: Publish bounded failure diagnostic
         if: ${{ failure() }}
@@ -176,5 +176,5 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add .github/.nxb146-final-diagnostic
-          git commit -m "NXB-146: publish isolated validation diagnostic"
+          git commit -m "NXB-146: publish isolated validation diagnostic [skip nxb146]"
           git push origin HEAD:nxb-146-signed-run-closure-final
