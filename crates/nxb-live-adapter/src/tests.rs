@@ -13,6 +13,7 @@ use nxb_executor::{
 };
 use nxb_http1::{Http1Codec, Http1Limits};
 use nxb_stream::{BoundedByteStream, StreamControl, StreamLimits};
+use nxb_tls::LibraryVerifiedTlsBinder;
 use nxb_transport::{TransportPermit, TransportScheme};
 use rcgen::{generate_simple_self_signed, CertifiedKey};
 use rustls::{
@@ -190,7 +191,7 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
     };
 
     let CertifiedKey { cert, signing_key } =
-        generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        generate_simple_self_signed(vec!["fixture.example.com".into()]).unwrap();
     let certificate = cert.der().clone();
     let private_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(signing_key.serialize_der()));
     let provider = Arc::new(rustls::crypto::ring::default_provider());
@@ -223,9 +224,10 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
             assert!(request.len() < 32 * 1024);
         }
         let request_text = String::from_utf8_lossy(&request);
+        let request_text_lower = request_text.to_ascii_lowercase();
         assert!(request_text.starts_with("GET /health HTTP/1.1\r\n"));
-        assert!(request_text.contains("\r\nHost: localhost\r\n"));
-        assert!(request_text.contains("\r\nAccept-Encoding: identity\r\n"));
+        assert!(request_text_lower.contains("\r\nhost: fixture.example.com\r\n"));
+        assert!(request_text_lower.contains("\r\naccept-encoding: identity\r\n"));
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nOK")
             .unwrap();
@@ -242,7 +244,7 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
         backend,
     )
     .unwrap();
-    let permit = permit(IpAddr::V4(Ipv4Addr::LOCALHOST), 443, "localhost");
+    let permit = permit(IpAddr::V4(Ipv4Addr::LOCALHOST), 443, "fixture.example.com");
     let execution = executor
         .execute(
             &permit,
@@ -257,7 +259,7 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
         )
         .unwrap();
     assert_eq!(execution.outcome, ExecutionOutcome::Completed);
-    let observation = executor.backend().last_observation().unwrap();
+    let observation = executor.backend().last_observation().cloned().unwrap();
     assert!(matches!(
         observation.protocol_version.as_str(),
         "tls_1_2" | "tls_1_3"
@@ -282,7 +284,14 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
         tls_stream,
     )
     .unwrap();
-    let mut codec = Http1Codec::new(stream, Http1Limits::conservative_default()).unwrap();
+    let verified_observation = observation
+        .library_verified("nxb-live-local-tls:rustls-webpki")
+        .unwrap();
+    let mut tls_binder = LibraryVerifiedTlsBinder::new();
+    let tls_grant = tls_binder.bind(&stream, &verified_observation).unwrap();
+    let mut codec =
+        Http1Codec::new_verified_tls(stream, &tls_grant, Http1Limits::conservative_default())
+            .unwrap();
     let exchange = codec
         .exchange(
             &LivePassiveRequest::new(PassiveMethod::Get, "/health")
@@ -295,6 +304,8 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
     assert_eq!(exchange.response.body, b"OK");
     assert_eq!(exchange.response.headers.len(), 3);
     codec.audit().verify().unwrap();
+    codec.channel_audit().verify().unwrap();
+    tls_binder.audit().verify().unwrap();
     server.join().unwrap();
 }
 
