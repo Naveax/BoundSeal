@@ -1,0 +1,46 @@
+name: NXB-145 closure bootstrap
+
+on:
+  push:
+    branches:
+      - nxb-145-signed-run-closure
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb145-bootstrap-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  materialize:
+    runs-on: ubuntu-slim
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: nxb-145-signed-run-closure
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - name: Canonicalize and validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          cargo fmt --all
+          cargo check -p nxb-run-closure --all-features --locked
+          cargo clippy -p nxb-run-closure --all-targets --all-features --locked -- -D warnings
+          cargo test -p nxb-run-closure --all-features --locked
+      - name: Commit canonical output
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock Cargo.toml crates/nxb-run-closure
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "NXB-145: canonicalize signed run closure"
+          git push origin HEAD:nxb-145-signed-run-closure
