@@ -87,8 +87,8 @@ jobs:
           cargo check --workspace --all-features --locked
           cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
           cargo test --workspace --all-features --locked -- --test-threads=1
-          cargo run -p nxb-core --locked -- demo --output target/contract-complete-demo.json
-          cargo run -p nxb-core --locked -- verify-demo --input target/contract-complete-demo.json
+          cargo run -p nxb-core --bin nxb --locked -- demo-run --output target/contract-complete-demo.json
+          cargo run -p nxb-core --bin nxb --locked -- verify-demo target/contract-complete-demo.json
 
   windows-contract:
     name: Windows release contract
@@ -123,11 +123,11 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       - name: RustSec audit
-        run: cargo audit
+        run: cargo audit --deny warnings
       - name: Install cargo-deny
-        run: cargo install cargo-deny --locked
+        run: cargo install cargo-deny --locked --version 0.19.7
       - name: Dependency policy
-        run: cargo deny check advisories bans licenses sources
+        run: cargo deny check
 
   evidence:
     name: Binary, SBOM, source manifest and checksums
