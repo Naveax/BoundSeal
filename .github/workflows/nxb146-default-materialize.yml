@@ -1,0 +1,62 @@
+name: NXB-146 default-branch materializer
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb146-default-materializer-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  materialize:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'nxb-146-signed-run-closure-clean'
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact NXB-146 branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-146-signed-run-closure-clean
+          fetch-depth: 0
+      - name: Materialize terminal-host-bound closure
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          {
+            git fetch origin nxb-146-signed-run-closure
+            mkdir -p crates/nxb-run-closure/src crates/nxb-run-closure/tests docs
+            git show origin/nxb-146-signed-run-closure:crates/nxb-run-closure/Cargo.toml > crates/nxb-run-closure/Cargo.toml
+            git show origin/nxb-146-signed-run-closure:crates/nxb-run-closure/src/lib.rs > crates/nxb-run-closure/src/lib.rs
+            git show origin/nxb-146-signed-run-closure:crates/nxb-run-closure/tests/closure.rs > crates/nxb-run-closure/tests/closure.rs
+            git show origin/nxb-146-signed-run-closure:docs/NXB-146-SIGNED-RUN-CLOSURE.md > docs/NXB-146-SIGNED-RUN-CLOSURE.md
+            git show origin/nxb-146-signed-run-closure:.github/nxb146_host_binding.py > /tmp/nxb146_host_binding.py
+            python3 .github/nxb146_clean_finalize.py pre
+            python3 /tmp/nxb146_host_binding.py
+            python3 .github/nxb146_clean_finalize.py post
+          } 2>&1 | tee /tmp/nxb146-materialize.log
+          status=${PIPESTATUS[0]}
+          {
+            echo "source_head=$(git rev-parse HEAD)"
+            echo "materialization_exit=${status}"
+            echo "--- materialization tail ---"
+            tail -n 200 /tmp/nxb146-materialize.log
+          } > .github/nxb146-product-materialize-result.txt
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/nxb146-product-materialize-result.txt
+          if [[ "$status" == "0" ]]; then
+            git add Cargo.toml crates/nxb-run-closure docs/NXB-146-SIGNED-RUN-CLOSURE.md
+            message="NXB-146: materialize terminal-host-bound closure"
+          else
+            message="NXB-146: record product materialization failure"
+          fi
+          git commit -m "$message"
+          git push origin HEAD:nxb-146-signed-run-closure-clean
+          exit "$status"
