@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 nxb-knowledge-reporting = { path = "../nxb-knowledge-reporting" }
+nxb-live-run-host = { path = "../nxb-live-run-host" }
 nxb-operator-runtime = { path = "../nxb-operator-runtime" }
 nxb-operator-state = { path = "../nxb-operator-state" }
 nxb-resumable-runner = { path = "../nxb-resumable-runner" }
