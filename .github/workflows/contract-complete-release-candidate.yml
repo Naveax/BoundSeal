@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - release-v0.1.0-contract-complete
+    tags:
+      - "v0.1.0-contract-complete"
   pull_request:
     branches:
       - main
@@ -30,6 +32,12 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+      - name: Verify tagged source identity
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          test "${GITHUB_REF_NAME}" = "v0.1.0-contract-complete"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
       - name: Install pinned Rust
         uses: dtolnay/rust-toolchain@1.97.1
         with:
