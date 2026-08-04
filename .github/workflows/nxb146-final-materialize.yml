@@ -4,18 +4,12 @@ on:
   push:
     branches:
       - nxb-146-signed-run-closure-final
-  pull_request:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/nxb146-final-materialize.yml"
-      - ".github/.nxb146-final-trigger"
 
 permissions:
   contents: write
 
 concurrency:
-  group: nxb146-final-materialization-${{ github.event_name }}
+  group: nxb146-final-materialization
   cancel-in-progress: true
 
 jobs:
@@ -145,14 +139,17 @@ jobs:
       - name: Canonicalize and validate product tree
         shell: bash
         run: |
-          set -euo pipefail
-          cargo generate-lockfile
-          cargo fmt --all
-          cargo check -p nxb-run-closure -p nxb-live-run-host --all-features --locked
-          cargo clippy -p nxb-run-closure -p nxb-live-run-host --all-targets --all-features --locked -- -D warnings
-          cargo test -p nxb-run-closure -p nxb-live-run-host --all-features --locked -- --test-threads=1
+          set -o pipefail
+          {
+            set -euo pipefail
+            cargo generate-lockfile
+            cargo fmt --all
+            cargo check -p nxb-run-closure -p nxb-live-run-host --all-features --locked
+            cargo clippy -p nxb-run-closure -p nxb-live-run-host --all-targets --all-features --locked -- -D warnings
+            cargo test -p nxb-run-closure -p nxb-live-run-host --all-features --locked -- --test-threads=1
+          } 2>&1 | tee /tmp/nxb146-validation.log
       - name: Commit validated product files
-        if: ${{ github.event_name == 'push' }}
+        if: ${{ success() }}
         shell: bash
         run: |
           set -euo pipefail
@@ -160,4 +157,24 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add Cargo.toml Cargo.lock crates/nxb-run-closure docs/NXB-146-SIGNED-RUN-CLOSURE.md
           git commit -m "NXB-146: bind signed closure to terminal live host"
+          git push origin HEAD:nxb-146-signed-run-closure-final
+      - name: Publish bounded failure diagnostic
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "NXB-146 isolated materialization failed"
+            echo "head=${GITHUB_SHA}"
+            echo
+            if [[ -f /tmp/nxb146-validation.log ]]; then
+              tail -n 240 /tmp/nxb146-validation.log
+            else
+              echo "validation log unavailable; failure occurred before Rust validation"
+            fi
+          } > .github/.nxb146-final-diagnostic
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/.nxb146-final-diagnostic
+          git commit -m "NXB-146: publish isolated validation diagnostic"
           git push origin HEAD:nxb-146-signed-run-closure-final
