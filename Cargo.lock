@@ -1078,6 +1078,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxb-run-closure"
+version = "0.1.0"
+dependencies = [
+ "nxb-knowledge-reporting",
+ "nxb-live-run-host",
+ "nxb-operator-runtime",
+ "nxb-operator-state",
+ "nxb-resumable-runner",
+ "nxb-unified-operator",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "nxb-session"
 version = "0.1.0"
 dependencies = [
