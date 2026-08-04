@@ -1,0 +1,48 @@
+name: NXB-145 one-shot product materializer
+
+on:
+  push:
+    branches:
+      - nxb-145-signed-live-run-host
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb145-product-materializer
+  cancel-in-progress: true
+
+jobs:
+  materialize:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: nxb-145-signed-live-run-host
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - name: Materialize bounded product payload
+        run: python3 tools/nxb145_materialize.py
+      - name: Canonicalize and validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          cargo fmt --all
+          cargo check -p nxb-live-run-host --all-features --locked
+          cargo clippy -p nxb-live-run-host --all-targets --all-features --locked -- -D warnings
+          cargo test -p nxb-live-run-host --all-features --locked -- --test-threads=1
+      - name: Commit validated product tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add Cargo.toml Cargo.lock crates/nxb-live-run-host docs/NXB-145-SIGNED-LIVE-RUN-HOST.md
+          git rm tools/nxb145_materialize.py tools/nxb145_payload_00.txt tools/nxb145_payload_01.txt tools/nxb145_payload_02.txt tools/nxb145_payload_03.txt
+          git commit -m "NXB-145: materialize signed live-run host"
+          git push origin HEAD:nxb-145-signed-live-run-host
