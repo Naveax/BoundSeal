@@ -1,0 +1,115 @@
+name: NXB-146 clean materialization
+
+on:
+  push:
+    branches:
+      - nxb-146-signed-run-closure-clean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb146-clean-materialize
+  cancel-in-progress: true
+
+jobs:
+  materialize:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 45
+    steps:
+      - name: Checkout clean product branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-146-signed-run-closure-clean
+          fetch-depth: 0
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - name: Copy closure sources from superseded branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin nxb-146-signed-run-closure
+          mkdir -p crates/nxb-run-closure/src crates/nxb-run-closure/tests docs
+          git show origin/nxb-146-signed-run-closure:crates/nxb-run-closure/Cargo.toml > crates/nxb-run-closure/Cargo.toml
+          git show origin/nxb-146-signed-run-closure:crates/nxb-run-closure/src/lib.rs > crates/nxb-run-closure/src/lib.rs
+          git show origin/nxb-146-signed-run-closure:crates/nxb-run-closure/tests/closure.rs > crates/nxb-run-closure/tests/closure.rs
+          git show origin/nxb-146-signed-run-closure:docs/NXB-146-SIGNED-RUN-CLOSURE.md > docs/NXB-146-SIGNED-RUN-CLOSURE.md
+          git show origin/nxb-146-signed-run-closure:.github/nxb146_host_binding.py > /tmp/nxb146_host_binding.py
+      - name: Register workspace and normalize materializer
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          cargo = Path('Cargo.toml')
+          text = cargo.read_text(encoding='utf-8')
+          member = '    "crates/nxb-run-closure",\n'
+          if member not in text:
+              anchor = '    "crates/nxb-resumable-runner",\n'
+              if text.count(anchor) != 1:
+                  raise SystemExit('NXB-146 workspace anchor mismatch')
+              text = text.replace(anchor, anchor + member, 1)
+              cargo.write_text(text, encoding='utf-8')
+
+          path = Path('/tmp/nxb146_host_binding.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''tests = replace_once(
+              tests,
+              \'''        &runner_checkpoint,
+                  &runtime,
+                  &export,
+                  complete_input(&export, &runner_checkpoint, &runtime),
+          \''',
+              \'''        &runner_checkpoint,
+                  &runtime,
+                  &bundle,
+                  &teardown,
+                  &export,
+                  complete_input(&export, &runner_checkpoint, &runtime, sha('d')),
+          \''',
+              "complete build call",
+          )
+          '''
+          new = '''old_complete_build_call = \'''        &runner_checkpoint,
+                  &runtime,
+                  &export,
+                  complete_input(&export, &runner_checkpoint, &runtime),
+          \'''
+          new_complete_build_call = \'''        &runner_checkpoint,
+                  &runtime,
+                  &bundle,
+                  &teardown,
+                  &export,
+                  complete_input(&export, &runner_checkpoint, &runtime, sha('d')),
+          \'''
+          if old_complete_build_call not in tests:
+              raise SystemExit("NXB-146 complete build call anchor missing")
+          tests = tests.replace(old_complete_build_call, new_complete_build_call, 1)
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f'NXB-146 materializer normalization mismatch: {text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Apply exact NXB-145 host binding
+        run: python3 /tmp/nxb146_host_binding.py
+      - name: Canonicalize and validate product tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          cargo fmt --all
+          cargo check -p nxb-run-closure -p nxb-live-run-host --all-features --locked
+          cargo clippy -p nxb-run-closure -p nxb-live-run-host --all-targets --all-features --locked -- -D warnings
+          cargo test -p nxb-run-closure -p nxb-live-run-host --all-features --locked -- --test-threads=1
+      - name: Commit validated product files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add Cargo.toml Cargo.lock crates/nxb-run-closure docs/NXB-146-SIGNED-RUN-CLOSURE.md
+          git commit -m "NXB-146: bind signed closure to terminal live host"
+          git push origin HEAD:nxb-146-signed-run-closure-clean
