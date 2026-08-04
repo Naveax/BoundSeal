@@ -43,6 +43,7 @@ jobs:
           cargo generate-lockfile
           git diff --exit-code -- Cargo.lock
       - name: Rustfmt
+        if: matrix.os == 'ubuntu-latest'
         run: cargo fmt --all -- --check
       - name: Check handoff contract
         run: cargo check -p nxb-manual-submission-handoff --all-features --locked
