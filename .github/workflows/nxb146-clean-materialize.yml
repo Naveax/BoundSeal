@@ -166,7 +166,7 @@ jobs:
           echo "status=${status}" >> "$GITHUB_OUTPUT"
           exit "$status"
       - name: Commit validation result
-        if: ${{ always() && github.event_name == 'push' }}
+        if: ${{ always() }}
         shell: bash
         run: |
           set -euo pipefail
