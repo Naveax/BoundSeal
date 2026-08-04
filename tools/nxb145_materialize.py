@@ -59,6 +59,39 @@ def materialize() -> None:
     };
 """,
     )
+    replace_once(
+        ROOT / "crates/nxb-live-run-host/src/contract.rs",
+        """        bundle.validate()?;
+        bundle.verify_artifacts(
+            plan,
+            runner,
+            external_plan,
+            bootstrap,
+            injection,
+            policy,
+            operator,
+            adapter,
+            parameters.created_at_epoch_seconds,
+        )?;
+        bundle.bundle_sha256 = bundle.calculate_sha256()?;
+        Ok(bundle)
+""",
+        """        bundle.validate()?;
+        bundle.bundle_sha256 = bundle.calculate_sha256()?;
+        bundle.verify_artifacts(
+            plan,
+            runner,
+            external_plan,
+            bootstrap,
+            injection,
+            policy,
+            operator,
+            adapter,
+            parameters.created_at_epoch_seconds,
+        )?;
+        Ok(bundle)
+""",
+    )
 
     cargo = ROOT / "Cargo.toml"
     text = cargo.read_text(encoding="utf-8")
