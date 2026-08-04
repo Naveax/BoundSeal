@@ -23,6 +23,7 @@ members = [
     "crates/nxb-operator",
     "crates/nxb-operator-runtime",
     "crates/nxb-resumable-runner",
+    "crates/nxb-run-closure",
     "crates/nxb-operator-state",
     "crates/nxb-passive-analyzers",
     "crates/nxb-pinned-transport",

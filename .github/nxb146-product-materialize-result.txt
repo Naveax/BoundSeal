@@ -1,0 +1,5 @@
+source_head=445c3c6f57260d4cbda843b2bbb4bc1d804be84c
+materialization_exit=0
+--- materialization tail ---
+From https://github.com/Naveax/bugbounty
+ * branch            nxb-146-signed-run-closure -> FETCH_HEAD
