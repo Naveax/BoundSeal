@@ -1,0 +1,40 @@
+[package]
+name = "nxb-live-run-host"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "nxb-live-run-host"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+nxb-executor = { path = "../nxb-executor" }
+nxb-gateway = { path = "../nxb-gateway" }
+nxb-live-adapter = { path = "../nxb-live-adapter" }
+nxb-operator = { path = "../nxb-operator" }
+nxb-operator-runtime = { path = "../nxb-operator-runtime" }
+nxb-operator-state = { path = "../nxb-operator-state" }
+nxb-pinned-transport = { path = "../nxb-pinned-transport" }
+nxb-policy = { path = "../nxb-policy" }
+nxb-resumable-runner = { path = "../nxb-resumable-runner" }
+nxb-session = { path = "../nxb-session" }
+nxb-session-injection = { path = "../nxb-session-injection" }
+nxb-stream = { path = "../nxb-stream" }
+nxb-transport = { path = "../nxb-transport" }
+nxb-unified-operator = { path = "../nxb-unified-operator" }
+nxb-vault = { path = "../nxb-vault" }
+nxb-vault-provider = { path = "../nxb-vault-provider" }
+ring = "0.17"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+toml.workspace = true
