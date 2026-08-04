@@ -144,21 +144,43 @@ jobs:
           tests_path.write_text(tests.replace(old_call, new_call, 1), encoding='utf-8')
           PY
       - name: Canonicalize and validate product tree
+        id: validate
         shell: bash
         run: |
-          set -euo pipefail
-          cargo generate-lockfile
-          cargo fmt --all
-          cargo check -p nxb-run-closure -p nxb-live-run-host --all-features --locked
-          cargo clippy -p nxb-run-closure -p nxb-live-run-host --all-targets --all-features --locked -- -D warnings
-          cargo test -p nxb-run-closure -p nxb-live-run-host --all-features --locked -- --test-threads=1
-      - name: Commit validated product files
-        if: ${{ github.event_name == 'push' }}
+          set +e
+          set -o pipefail
+          {
+            cargo generate-lockfile
+            cargo fmt --all
+            cargo check -p nxb-run-closure -p nxb-live-run-host --all-features --locked
+            cargo clippy -p nxb-run-closure -p nxb-live-run-host --all-targets --all-features --locked -- -D warnings
+            cargo test -p nxb-run-closure -p nxb-live-run-host --all-features --locked -- --test-threads=1
+          } 2>&1 | tee /tmp/nxb146-validation.log
+          status=${PIPESTATUS[0]}
+          {
+            echo "source_head=${GITHUB_SHA}"
+            echo "validation_exit=${status}"
+            echo "--- validation tail ---"
+            tail -n 180 /tmp/nxb146-validation.log
+          } > .github/nxb146-validation-result.txt
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+          exit "$status"
+      - name: Commit validation result
+        if: ${{ always() && github.event_name == 'push' }}
         shell: bash
         run: |
           set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add Cargo.toml Cargo.lock crates/nxb-run-closure docs/NXB-146-SIGNED-RUN-CLOSURE.md
-          git commit -m "NXB-146: bind signed closure to terminal live host"
+          git add .github/nxb146-validation-result.txt
+          if [[ "${{ steps.validate.outputs.status }}" == "0" ]]; then
+            git add Cargo.toml Cargo.lock crates/nxb-run-closure docs/NXB-146-SIGNED-RUN-CLOSURE.md
+            message="NXB-146: bind signed closure to terminal live host"
+          else
+            message="NXB-146: record clean validation failure"
+          fi
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "$message"
           git push origin HEAD:nxb-146-signed-run-closure-clean
