@@ -101,6 +101,20 @@ jobs:
           PY
       - name: Apply exact NXB-145 host binding
         run: python3 /tmp/nxb146_host_binding.py
+      - name: Normalize generated closure source
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('crates/nxb-run-closure/src/lib.rs')
+          text = path.read_text(encoding='utf-8')
+          old = 'failure_sha256: hash_bytes(failure.as_bytes()),'
+          new = 'failure_sha256: lower_hex(&Sha256::digest(failure.as_bytes())),'
+          if text.count(old) != 1:
+              raise SystemExit(f'NXB-146 failure hash anchor mismatch: {text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
       - name: Canonicalize and validate product tree
         shell: bash
         run: |
