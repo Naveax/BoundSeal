@@ -18,6 +18,7 @@ members = [
     "crates/nxb-knowledge-reporting",
     "crates/nxb-lifecycle-governance",
     "crates/nxb-live-adapter",
+    "crates/nxb-live-run-host",
     "crates/nxb-local-executor",
     "crates/nxb-operator",
     "crates/nxb-operator-runtime",

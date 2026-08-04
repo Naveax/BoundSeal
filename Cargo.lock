@@ -845,6 +845,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxb-live-run-host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "nxb-executor",
+ "nxb-gateway",
+ "nxb-live-adapter",
+ "nxb-operator",
+ "nxb-operator-runtime",
+ "nxb-operator-state",
+ "nxb-pinned-transport",
+ "nxb-policy",
+ "nxb-resumable-runner",
+ "nxb-session",
+ "nxb-session-injection",
+ "nxb-stream",
+ "nxb-transport",
+ "nxb-unified-operator",
+ "nxb-vault",
+ "nxb-vault-provider",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "toml",
+ "url",
+]
+
+[[package]]
 name = "nxb-local-executor"
 version = "0.1.0"
 dependencies = [
