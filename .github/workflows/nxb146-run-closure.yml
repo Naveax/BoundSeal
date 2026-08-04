@@ -1,0 +1,63 @@
+name: NXB-146 signed run closure
+
+on:
+  pull_request:
+    paths:
+      - "crates/nxb-run-closure/**"
+      - "crates/nxb-live-run-host/**"
+      - "crates/nxb-operator-runtime/**"
+      - "crates/nxb-resumable-runner/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "docs/NXB-146-SIGNED-RUN-CLOSURE.md"
+      - ".github/workflows/nxb146-run-closure.yml"
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nxb146-closure-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  closure-ubuntu:
+    name: Terminal closure contract and adversarial tests (Ubuntu)
+    runs-on: ubuntu-slim
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - name: Canonical lockfile and formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp Cargo.lock /tmp/Cargo.lock.expected
+          cargo generate-lockfile
+          cmp Cargo.lock /tmp/Cargo.lock.expected
+          cargo fmt --all -- --check
+      - name: Closure and live-host check
+        run: cargo check -p nxb-run-closure -p nxb-live-run-host --all-features --locked
+      - name: Closure and live-host Clippy
+        run: cargo clippy -p nxb-run-closure -p nxb-live-run-host --all-targets --all-features --locked -- -D warnings
+      - name: Closure and live-host tests
+        run: cargo test -p nxb-run-closure -p nxb-live-run-host --all-features --locked -- --test-threads=1
+
+  closure-windows:
+    name: Terminal closure and live-host tests (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+      - name: Closure and live-host tests
+        shell: pwsh
+        run: cargo test -p nxb-run-closure -p nxb-live-run-host --all-features --locked -- --test-threads=1
