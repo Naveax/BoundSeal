@@ -10,14 +10,13 @@ on:
       - "crates/nxb-live-run-host/**"
       - "crates/nxb-resumable-runner/**"
       - "crates/nxb-operator-runtime/**"
-      - "crates/nxb-run-closure/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "docs/NXB-145-SIGNED-LIVE-RUN-HOST.md"
       - ".github/workflows/nxb145-live-run-host.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: nxb145-host-${{ github.workflow }}-${{ github.ref }}
@@ -29,39 +28,26 @@ jobs:
     runs-on: ubuntu-slim
     timeout-minutes: 35
     steps:
-      - name: Checkout product branch
+      - name: Checkout
         uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
       - name: Install pinned Rust
         uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
-      - name: Canonicalize lockfile and Rust sources
+      - name: Canonical lockfile and formatting
         shell: bash
         run: |
           set -euo pipefail
+          cp Cargo.lock /tmp/Cargo.lock.expected
           cargo generate-lockfile
-          cargo fmt --all
-      - name: Commit canonical product files
-        shell: bash
-        run: |
-          set -euo pipefail
-          git add Cargo.lock crates/nxb-run-closure
-          if git diff --cached --quiet; then
-            exit 0
-          fi
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git commit -m "NXB-146: canonicalize closure sources"
-          git push origin HEAD:nxb-146-signed-run-closure-final
-      - name: Closure, host and upstream check
-        run: cargo check -p nxb-run-closure -p nxb-live-run-host -p nxb-resumable-runner -p nxb-operator-runtime --all-features --locked
-      - name: Closure, host and upstream Clippy
-        run: cargo clippy -p nxb-run-closure -p nxb-live-run-host -p nxb-resumable-runner -p nxb-operator-runtime --all-targets --all-features --locked -- -D warnings
-      - name: Closure, host and upstream tests
-        run: cargo test -p nxb-run-closure -p nxb-live-run-host -p nxb-resumable-runner -p nxb-operator-runtime --all-features --locked -- --test-threads=1
+          cmp Cargo.lock /tmp/Cargo.lock.expected
+          cargo fmt --all -- --check
+      - name: Host and upstream check
+        run: cargo check -p nxb-live-run-host -p nxb-resumable-runner -p nxb-operator-runtime --all-features --locked
+      - name: Host and upstream Clippy
+        run: cargo clippy -p nxb-live-run-host -p nxb-resumable-runner -p nxb-operator-runtime --all-targets --all-features --locked -- -D warnings
+      - name: Host and upstream tests
+        run: cargo test -p nxb-live-run-host -p nxb-resumable-runner -p nxb-operator-runtime --all-features --locked -- --test-threads=1
 
   host-windows:
     name: Launch and lifecycle tests (Windows)
