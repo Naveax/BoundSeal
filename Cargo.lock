@@ -1019,6 +1019,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxb-resumable-runner"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "nxb-executor",
+ "nxb-live-adapter",
+ "nxb-operator",
+ "nxb-operator-runtime",
+ "nxb-operator-state",
+ "nxb-policy",
+ "nxb-session",
+ "nxb-session-injection",
+ "nxb-stream",
+ "nxb-transport",
+ "nxb-unified-operator",
+ "nxb-vault",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "url",
+]
+
+[[package]]
 name = "nxb-session"
 version = "0.1.0"
 dependencies = [

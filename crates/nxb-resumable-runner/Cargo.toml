@@ -1,0 +1,35 @@
+[package]
+name = "nxb-resumable-runner"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "nxb-resumable-runner"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+nxb-executor = { path = "../nxb-executor" }
+nxb-live-adapter = { path = "../nxb-live-adapter" }
+nxb-operator = { path = "../nxb-operator" }
+nxb-operator-runtime = { path = "../nxb-operator-runtime" }
+nxb-operator-state = { path = "../nxb-operator-state" }
+nxb-policy = { path = "../nxb-policy" }
+nxb-session = { path = "../nxb-session" }
+nxb-session-injection = { path = "../nxb-session-injection" }
+nxb-stream = { path = "../nxb-stream" }
+nxb-transport = { path = "../nxb-transport" }
+nxb-unified-operator = { path = "../nxb-unified-operator" }
+nxb-vault = { path = "../nxb-vault" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+ring = "0.17"
