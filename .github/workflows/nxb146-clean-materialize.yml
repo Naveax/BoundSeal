@@ -101,7 +101,7 @@ jobs:
           PY
       - name: Apply exact NXB-145 host binding
         run: python3 /tmp/nxb146_host_binding.py
-      - name: Normalize generated closure source
+      - name: Normalize generated closure source and tests
         shell: bash
         run: |
           python3 - <<'PY'
@@ -126,6 +126,22 @@ jobs:
                   1,
               )
           path.write_text(text, encoding='utf-8')
+
+          tests_path = Path('crates/nxb-run-closure/tests/closure.rs')
+          tests = tests_path.read_text(encoding='utf-8')
+          old_call = '''        &runtime,
+        &export,
+        input,
+'''
+          new_call = '''        &runtime,
+        &bundle,
+        &teardown,
+        &export,
+        input,
+'''
+          if tests.count(old_call) != 1:
+              raise SystemExit(f'NXB-146 remaining build call mismatch: {tests.count(old_call)}')
+          tests_path.write_text(tests.replace(old_call, new_call, 1), encoding='utf-8')
           PY
       - name: Canonicalize and validate product tree
         shell: bash
