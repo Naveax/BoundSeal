@@ -224,9 +224,10 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
             assert!(request.len() < 32 * 1024);
         }
         let request_text = String::from_utf8_lossy(&request);
+        let request_text_lower = request_text.to_ascii_lowercase();
         assert!(request_text.starts_with("GET /health HTTP/1.1\r\n"));
-        assert!(request_text.contains("\r\nHost: fixture.example.com\r\n"));
-        assert!(request_text.contains("\r\nAccept-Encoding: identity\r\n"));
+        assert!(request_text_lower.contains("\r\nhost: fixture.example.com\r\n"));
+        assert!(request_text_lower.contains("\r\naccept-encoding: identity\r\n"));
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nOK")
             .unwrap();
