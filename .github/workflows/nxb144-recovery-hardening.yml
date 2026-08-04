@@ -6,12 +6,14 @@ on:
       - nxb-144-resumable-bounded-live-runner
     paths:
       - ".github/nxb144_recovery_hardening.py"
+      - ".github/nxb144_recovery_order_fix.py"
       - ".github/workflows/nxb144-recovery-hardening.yml"
   pull_request:
     branches:
       - main
     paths:
       - ".github/nxb144_recovery_hardening.py"
+      - ".github/nxb144_recovery_order_fix.py"
       - ".github/workflows/nxb144-recovery-hardening.yml"
 
 permissions:
@@ -34,7 +36,11 @@ jobs:
           ref: nxb-144-resumable-bounded-live-runner
           fetch-depth: 0
       - name: Apply recovery hardening
-        run: python3 .github/nxb144_recovery_hardening.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/nxb144_recovery_hardening.py
+          python3 .github/nxb144_recovery_order_fix.py
       - name: Install pinned Rust
         uses: dtolnay/rust-toolchain@1.97.1
         with:
@@ -56,7 +62,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/nxb144_recovery_hardening.py
+          git rm .github/nxb144_recovery_hardening.py .github/nxb144_recovery_order_fix.py
           git add crates/nxb-resumable-runner/src/lib.rs
           git commit -m "NXB-144: harden checkpoint recovery invariants"
           git push origin HEAD:nxb-144-resumable-bounded-live-runner
