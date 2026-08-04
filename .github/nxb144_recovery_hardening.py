@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# One-shot deterministic source hardening. Removed after the validated commit.
 ROOT = Path(__file__).resolve().parents[1]
 path = ROOT / "crates/nxb-resumable-runner/src/lib.rs"
 text = path.read_text(encoding="utf-8")
