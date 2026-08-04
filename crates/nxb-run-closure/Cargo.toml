@@ -1,0 +1,18 @@
+[package]
+name = "nxb-run-closure"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+nxb-knowledge-reporting = { path = "../nxb-knowledge-reporting" }
+nxb-operator-runtime = { path = "../nxb-operator-runtime" }
+nxb-operator-state = { path = "../nxb-operator-state" }
+nxb-resumable-runner = { path = "../nxb-resumable-runner" }
+nxb-unified-operator = { path = "../nxb-unified-operator" }
+ring = "0.17"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
