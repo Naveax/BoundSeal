@@ -34,4 +34,4 @@ This release candidate records completion of the NXB-0 through NXB-147 contract 
 - Credential discovery, destructive methods or unrestricted exploitation.
 - Production encrypted evidence sealing.
 
-The release remains private and non-publishable. It is intended as a verifiable source and artifact checkpoint for continued controlled development.
+The workspace packages remain non-publishable. This public repository release is intended as a verifiable source and artifact checkpoint for continued controlled development.
