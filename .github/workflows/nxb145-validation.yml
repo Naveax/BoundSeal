@@ -33,18 +33,10 @@ jobs:
           from pathlib import Path
           path = Path("crates/nxb-run-closure/src/lib.rs")
           text = path.read_text(encoding="utf-8")
-          old = """        if public_key != plan.activation_public_key.as_slice() {
-              return Err(RunClosureError::PublicKeyMismatch);
-          }
-          """
-          new = """        if public_key.len() != 32
-              || lower_hex(&Sha256::digest(public_key)) != plan.activation_key_id_sha256
-          {
-              return Err(RunClosureError::PublicKeyMismatch);
-          }
-          """
+          old = "public_key != plan.activation_public_key.as_slice()"
+          new = "public_key.len() != 32\n            || lower_hex(&Sha256::digest(public_key)) != plan.activation_key_id_sha256"
           if text.count(old) != 1:
-              raise SystemExit("NXB-145 public-key anchor mismatch")
+              raise SystemExit("NXB-145 public-key expression mismatch")
           path.write_text(text.replace(old, new), encoding="utf-8")
           PY
       - name: Materialize canonical workspace
