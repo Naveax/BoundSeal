@@ -82,6 +82,28 @@ jobs:
           cargo run -p nxb-core --locked -- demo --output target/contract-complete-demo.json
           cargo run -p nxb-core --locked -- verify-demo --input target/contract-complete-demo.json
 
+  windows-contract:
+    name: Windows release contract
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: clippy
+      - name: Require canonical lockfile
+        shell: bash
+        run: |
+          cargo generate-lockfile
+          git diff --exit-code -- Cargo.lock
+      - name: Check Windows workspace
+        run: cargo check --workspace --all-features --locked
+      - name: Clippy Windows workspace
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Test Windows workspace
+        run: cargo test --workspace --all-features --locked -- --test-threads=1
+
   supply-chain:
     name: RustSec and cargo-deny
     runs-on: ubuntu-slim
