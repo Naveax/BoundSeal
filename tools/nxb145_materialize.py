@@ -11,6 +11,13 @@ ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_SHA256 = "b11381ffb74eb956a44bba725947830d4602f143f96962515156cff8ed4c48a6"
 
 
+def replace_once(path: Path, old: str, new: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    if text.count(old) != 1:
+        raise SystemExit(f"NXB-145 deterministic patch anchor mismatch: {path}")
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
 def materialize() -> None:
     encoded = "".join(
         (ROOT / f"tools/nxb145_payload_{index:02d}.txt").read_text(encoding="utf-8").strip()
@@ -34,6 +41,25 @@ def materialize() -> None:
                 raise SystemExit("missing NXB-145 payload content")
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(source.read())
+
+    replace_once(
+        ROOT / "crates/nxb-live-run-host/src/tests.rs",
+        """    let mut operator_config = OperatorConfig::default();
+    operator_config.maximum_depth = 2;
+    operator_config.maximum_endpoints = 16;
+    operator_config.maximum_requests = 4;
+    operator_config.maximum_body_bytes = 1_024;
+""",
+        """    let operator_config = OperatorConfig {
+        maximum_depth: 2,
+        maximum_endpoints: 16,
+        maximum_requests: 4,
+        maximum_body_bytes: 1_024,
+        ..OperatorConfig::default()
+    };
+""",
+    )
+
     cargo = ROOT / "Cargo.toml"
     text = cargo.read_text(encoding="utf-8")
     member = '    "crates/nxb-live-run-host",\n'
