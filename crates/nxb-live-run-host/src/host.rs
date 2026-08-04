@@ -150,73 +150,115 @@ impl<R: LiveDnsResolver> LiveRunHost<R> {
             clock,
         } = inputs;
         let clock = clock.validate()?;
-        bundle.verify_artifacts(
-            &unified_plan,
-            &runner_manifest,
-            &external_vault_plan,
-            provisioned_session.receipt(),
-            &injection_manifest,
-            &policy,
-            &operator_config,
-            &adapter_config,
-            clock.epoch_seconds,
-        )?;
-        verify_provisioned_session(&bundle, &injection_manifest, &provisioned_session)?;
+        let mut broker = broker;
+        let mut vault = vault;
+        let mut provisioned_session = Some(provisioned_session);
+        let setup_result: Result<_, LiveRunHostError> = (|| {
+            let provisioned = provisioned_session
+                .as_ref()
+                .ok_or(LiveRunHostError::SessionAlreadyConsumed)?;
+            bundle.verify_artifacts(
+                &unified_plan,
+                &runner_manifest,
+                &external_vault_plan,
+                provisioned.receipt(),
+                &injection_manifest,
+                &policy,
+                &operator_config,
+                &adapter_config,
+                clock.epoch_seconds,
+            )?;
+            verify_provisioned_session(&bundle, &injection_manifest, provisioned)?;
 
-        fs::create_dir_all(&workspace).map_err(|error| LiveRunHostError::Io(error.to_string()))?;
-        let launch_consumed = consume_launch_activation_once(
-            &workspace.join("activations/live-run"),
-            &bundle,
-            &launch_activation,
-            &launch_public_key,
-            clock.epoch_seconds,
-        )?;
-        let unified_consumed = consume_unified_activation(
-            &workspace.join("activations/unified"),
-            &unified_plan,
-            &unified_activation,
-            &unified_public_key,
-            clock.epoch_seconds,
-        )?;
-        let injection_consumed = consume_injection_activation(
-            &workspace.join("activations/session-injection"),
-            &injection_manifest,
-            &injection_activation,
-            &injection_public_key,
-            clock.epoch_seconds,
-        )?;
-        let bound = BoundSessionInjection::bind(
-            injection_manifest,
-            injection_consumed,
-            &unified_plan.binding.discovery_plan_sha256,
-            &unified_plan.binding.target_origin_sha256,
-            provisioned_session.session(),
-            &vault,
-            clock.epoch_seconds,
-        )?;
+            fs::create_dir_all(&workspace)
+                .map_err(|error| LiveRunHostError::Io(error.to_string()))?;
+            let launch_consumed = consume_launch_activation_once(
+                &workspace.join("activations/live-run"),
+                &bundle,
+                &launch_activation,
+                &launch_public_key,
+                clock.epoch_seconds,
+            )?;
+            let unified_consumed = consume_unified_activation(
+                &workspace.join("activations/unified"),
+                &unified_plan,
+                &unified_activation,
+                &unified_public_key,
+                clock.epoch_seconds,
+            )?;
+            let injection_consumed = consume_injection_activation(
+                &workspace.join("activations/session-injection"),
+                &injection_manifest,
+                &injection_activation,
+                &injection_public_key,
+                clock.epoch_seconds,
+            )?;
+            let bound = BoundSessionInjection::bind(
+                injection_manifest,
+                injection_consumed,
+                &unified_plan.binding.discovery_plan_sha256,
+                &unified_plan.binding.target_origin_sha256,
+                provisioned.session(),
+                &vault,
+                clock.epoch_seconds,
+            )?;
 
-        let (runtime, runtime_recovery) = CheckpointBoundRuntime::initialize(
-            workspace.join("operator-state"),
-            workspace.join("runtime-journal"),
-            unified_plan.clone(),
-            &unified_consumed,
-            clock,
-        )?;
-        let (runner, runner_recovery) = ResumableBoundedRunner::initialize(
-            workspace.join("runner"),
-            unified_plan,
-            runner_manifest.clone(),
-            runtime_recovery,
-            clock,
-        )?;
-        let gateway = ScopeGateway::new(policy.clone(), 1)?;
-        let pipeline =
-            LivePassivePipeline::new(PinnedTransportCoordinator::new(gateway), adapter_config)?;
+            let (runtime, runtime_recovery) = CheckpointBoundRuntime::initialize(
+                workspace.join("operator-state"),
+                workspace.join("runtime-journal"),
+                unified_plan.clone(),
+                &unified_consumed,
+                clock,
+            )?;
+            let (runner, runner_recovery) = ResumableBoundedRunner::initialize(
+                workspace.join("runner"),
+                unified_plan,
+                runner_manifest.clone(),
+                runtime_recovery,
+                clock,
+            )?;
+            let gateway = ScopeGateway::new(policy.clone(), 1)?;
+            let pipeline =
+                LivePassivePipeline::new(PinnedTransportCoordinator::new(gateway), adapter_config)?;
+            Ok((
+                launch_consumed.marker_path().to_path_buf(),
+                runtime,
+                runner,
+                runner_recovery,
+                pipeline,
+                bound,
+            ))
+        })();
+
+        let (launch_activation_marker, runtime, runner, runner_recovery, pipeline, bound) =
+            match setup_result {
+                Ok(setup) => setup,
+                Err(initialization) => {
+                    let cleanup = provisioned_session.take().map(|provisioned| {
+                        cleanup_failed_initialization(
+                            provisioned,
+                            &mut broker,
+                            &mut vault,
+                            clock.epoch_seconds,
+                        )
+                    });
+                    if let Some(Err(cleanup)) = cleanup {
+                        return Err(LiveRunHostError::InitializationCleanupFailed {
+                            initialization: initialization.to_string(),
+                            cleanup: cleanup.to_string(),
+                        });
+                    }
+                    return Err(initialization);
+                }
+            };
+        let provisioned_session = provisioned_session
+            .take()
+            .ok_or(LiveRunHostError::SessionAlreadyConsumed)?;
         let started_at_epoch_milliseconds = clock.epoch_milliseconds;
         let host = Self {
             workspace,
             bundle,
-            launch_activation_marker: launch_consumed.marker_path().to_path_buf(),
+            launch_activation_marker,
             runner_manifest,
             policy,
             operator_config,
@@ -253,13 +295,24 @@ impl<R: LiveDnsResolver> LiveRunHost<R> {
                 reason: "runner_not_running".into(),
             });
         }
-        let candidate = self
+        let candidate = match self
             .runner
             .latest_checkpoint()
             .pending_queue
             .first()
             .cloned()
-            .ok_or_else(|| LiveRunHostError::GatewayDenied("queue_exhausted".into()))?;
+        {
+            Some(candidate) => candidate,
+            None => {
+                let reason = "queue_exhausted".to_string();
+                self.ensure_runner_and_runtime_teardown(
+                    RunnerStopReason::QueueExhausted,
+                    &reason,
+                    clock,
+                )?;
+                return Ok(LiveRunStepOutcome::TeardownPending { reason });
+            }
+        };
         let request_index = self.runner.latest_checkpoint().completed_requests;
         let context_id = format!(
             "dns-{}-{request_index:020}",
@@ -292,13 +345,23 @@ impl<R: LiveDnsResolver> LiveRunHost<R> {
                 return Err(LiveRunHostError::DnsResolution(failure.code().into()));
             }
         };
-        resolution.validate(&self.bundle, &dns_request)?;
+        if let Err(error) = resolution.validate(&self.bundle, &dns_request) {
+            return self.fail_closed_step("invalid_dns_resolution", error, clock);
+        }
         let elapsed = self.elapsed(clock)?;
-        let url = Url::parse(&format!(
+        let url = match Url::parse(&format!(
             "https://{}{}",
             self.bundle.authority, candidate.target
-        ))
-        .map_err(|error| LiveRunHostError::InvalidDnsResult(error.to_string()))?;
+        )) {
+            Ok(url) => url,
+            Err(error) => {
+                return self.fail_closed_step(
+                    "invalid_request_url",
+                    LiveRunHostError::InvalidDnsResult(error.to_string()),
+                    clock,
+                );
+            }
+        };
         let intent = RequestIntent {
             url,
             method: candidate.method.code().into(),
@@ -308,11 +371,19 @@ impl<R: LiveDnsResolver> LiveRunHost<R> {
             dns_resolver_id: resolution.resolver_id.clone(),
             dns_ttl_seconds: resolution.ttl_seconds,
         };
-        let authorization = self.pipeline.transport_mut().authorize_connection(
+        let authorization = match self.pipeline.transport_mut().authorize_connection(
             &intent,
             resolution.selected_ip,
             elapsed,
-        )?;
+        ) {
+            Ok(authorization) => authorization,
+            Err(error) => {
+                self.pipeline
+                    .transport_mut()
+                    .release_context(&resolution.context_id);
+                return self.fail_closed_step("gateway_authorization_failed", error.into(), clock);
+            }
+        };
         if authorization.decision.outcome != DecisionOutcome::Allow {
             self.pipeline
                 .transport_mut()
@@ -484,6 +555,20 @@ impl<R: LiveDnsResolver> LiveRunHost<R> {
         Ok(Duration::from_millis(milliseconds))
     }
 
+    fn fail_closed_step<T>(
+        &mut self,
+        reason: &str,
+        error: LiveRunHostError,
+        clock: RuntimeClock,
+    ) -> Result<T, LiveRunHostError> {
+        self.ensure_runner_and_runtime_teardown(
+            RunnerStopReason::RuntimeContinuationDenied,
+            reason,
+            clock,
+        )?;
+        Err(error)
+    }
+
     fn ensure_launch_live(&self, now_epoch_seconds: i64) -> Result<(), LiveRunHostError> {
         self.bundle.verify(now_epoch_seconds)?;
         if !self.launch_activation_marker.is_file() {
@@ -537,6 +622,16 @@ impl<R> Drop for LiveRunHost<R> {
             .unwrap_or(1);
         let _ = deprovision_external_session(provisioned, &mut self.broker, &mut self.vault, now);
     }
+}
+
+pub(crate) fn cleanup_failed_initialization(
+    provisioned: ProvisionedExternalSession,
+    broker: &mut SessionBroker,
+    vault: &mut InMemorySecretVault,
+    now_epoch_seconds: i64,
+) -> Result<(), LiveRunHostError> {
+    deprovision_external_session(provisioned, broker, vault, now_epoch_seconds)?;
+    Ok(())
 }
 
 fn verify_provisioned_session(

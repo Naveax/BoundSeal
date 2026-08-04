@@ -12,7 +12,7 @@ use nxb_operator::OperatorConfig;
 use nxb_operator_runtime::{RuntimeClock, RuntimeMethod};
 use nxb_policy::{AuthorizationPolicy, AutomationPolicy, ProgramPolicy, ScopePolicy, TargetPolicy};
 use nxb_resumable_runner::{RunnerCandidate, RunnerManifest};
-use nxb_session::SessionBroker;
+use nxb_session::{SessionBroker, SessionStatus};
 use nxb_session_injection::{
     CsrfBinding, SessionInjectionActivationCertificate, SessionInjectionActivationPayload,
     SessionInjectionManifest, SessionInjectionManifestParameters,
@@ -34,11 +34,31 @@ use nxb_vault_provider::{
 use ring::signature::{Ed25519KeyPair, KeyPair};
 use sha2::{Digest, Sha256};
 
+use crate::host::cleanup_failed_initialization;
 use crate::{
-    LiveRunHost, LiveRunHostInputs, LiveRunLaunchActivationCertificate,
+    DnsResolutionFailure, DnsResolutionRequest, LiveDnsResolution, LiveDnsResolver, LiveRunHost,
+    LiveRunHostError, LiveRunHostInputs, LiveRunLaunchActivationCertificate,
     LiveRunLaunchActivationPayload, LiveRunLaunchBundle, LiveRunLaunchBundleParameters,
     LiveRunStepOutcome, LiveRunTeardownOutcome, StaticDnsResolver,
 };
+
+struct InvalidDnsResolver;
+
+impl LiveDnsResolver for InvalidDnsResolver {
+    fn resolve(
+        &mut self,
+        request: &DnsResolutionRequest,
+    ) -> Result<LiveDnsResolution, DnsResolutionFailure> {
+        let selected_ip = IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34));
+        Ok(LiveDnsResolution {
+            resolver_id: request.resolver_id.clone(),
+            context_id: format!("{}-mismatch", request.context_id),
+            addresses: BTreeSet::from([selected_ip]),
+            selected_ip,
+            ttl_seconds: 30,
+        })
+    }
+}
 
 struct MockProvider {
     identity: ProviderIdentity,
@@ -492,4 +512,70 @@ fn private_dns_result_moves_host_to_ordered_teardown_without_network() {
     assert!(matches!(teardown, LiveRunTeardownOutcome::Completed { .. }));
     assert!(host.is_terminal());
     std::fs::remove_dir_all(fixture.root).expect("cleanup");
+}
+
+#[test]
+fn invalid_dns_result_enters_teardown_before_returning_error() {
+    let fixture = fixture("invalid-dns");
+    let (mut host, _) = LiveRunHost::initialize(LiveRunHostInputs {
+        workspace: fixture.root.join("host"),
+        bundle: fixture.bundle,
+        launch_activation: fixture.launch_activation,
+        launch_public_key: fixture.launch_public_key,
+        unified_plan: fixture.unified_plan,
+        unified_activation: fixture.unified_activation,
+        unified_public_key: fixture.unified_public_key,
+        runner_manifest: fixture.runner_manifest,
+        external_vault_plan: fixture.external_plan,
+        provisioned_session: fixture.provisioned,
+        injection_manifest: fixture.injection_manifest,
+        injection_activation: fixture.injection_activation,
+        injection_public_key: fixture.injection_public_key,
+        policy: fixture.policy,
+        operator_config: fixture.operator_config,
+        adapter_config: fixture.adapter_config,
+        resolver: InvalidDnsResolver,
+        broker: fixture.broker,
+        vault: fixture.vault,
+        clock: clock(1_220),
+    })
+    .expect("host");
+    let error = host
+        .step(
+            clock(1_221),
+            ExecutionControl::default(),
+            StreamControl::default(),
+        )
+        .expect_err("invalid DNS result must fail closed");
+    assert!(matches!(error, LiveRunHostError::InvalidDnsResult(_)));
+    assert_eq!(
+        host.runner().latest_checkpoint().status,
+        nxb_resumable_runner::RunnerStatus::TeardownPending
+    );
+    let teardown = host.teardown(clock(1_222)).expect("teardown");
+    assert!(matches!(teardown, LiveRunTeardownOutcome::Completed { .. }));
+    std::fs::remove_dir_all(fixture.root).expect("cleanup");
+}
+
+#[test]
+fn failed_initialization_cleanup_revokes_session_and_removes_secrets() {
+    let Fixture {
+        root,
+        provisioned,
+        mut broker,
+        mut vault,
+        ..
+    } = fixture("initialization-cleanup");
+    let session_id = provisioned.session().session_id.clone();
+    let handles = provisioned.handles().to_vec();
+    cleanup_failed_initialization(provisioned, &mut broker, &mut vault, 1_220)
+        .expect("initialization cleanup");
+    let metadata = broker
+        .metadata(&session_id)
+        .expect("revoked session metadata");
+    assert_eq!(metadata.status, SessionStatus::Revoked);
+    for handle in handles {
+        assert!(vault.metadata(&handle).is_err());
+    }
+    std::fs::remove_dir_all(root).expect("cleanup");
 }

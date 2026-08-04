@@ -44,6 +44,13 @@ pub enum LiveRunHostError {
     SessionAlreadyConsumed,
     #[error("live-run host teardown failed: {0}")]
     TeardownFailed(String),
+    #[error(
+        "live-run host initialization failed ({initialization}) and external session cleanup failed ({cleanup})"
+    )]
+    InitializationCleanupFailed {
+        initialization: String,
+        cleanup: String,
+    },
     #[error("live-run serialization failed: {0}")]
     Serialization(String),
     #[error("live-run filesystem operation failed: {0}")]
