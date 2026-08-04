@@ -1,4 +1,4 @@
-source_head=79bcc62ca6247751c3002a8c7889e7cbae3fb3f5
+source_head=2402d6ab54ed951c717a9811fae372ba5d92eb7a
 materialization_exit=0
 --- materialization tail ---
 From https://github.com/Naveax/bugbounty
