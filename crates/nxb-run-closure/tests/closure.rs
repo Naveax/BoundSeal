@@ -182,10 +182,7 @@ fn launch_bundle(plan: &UnifiedOperatorPlan, manifest: &RunnerManifest) -> LiveR
             .binding
             .external_vault_bootstrap_receipt_sha256
             .clone(),
-        session_injection_manifest_sha256: plan
-            .binding
-            .session_injection_manifest_sha256
-            .clone(),
+        session_injection_manifest_sha256: plan.binding.session_injection_manifest_sha256.clone(),
         policy_snapshot_sha256: plan.binding.policy_sha256.clone(),
         operator_config_sha256: sha('5'),
         live_adapter_config_sha256: sha('6'),
