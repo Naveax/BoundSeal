@@ -36,6 +36,51 @@ jobs:
         uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
+      - name: Normalize bounded materializer anchor
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/nxb146_host_binding.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''tests = replace_once(
+              tests,
+              \'''        &runner_checkpoint,
+                  &runtime,
+                  &export,
+                  complete_input(&export, &runner_checkpoint, &runtime),
+          \''',
+              \'''        &runner_checkpoint,
+                  &runtime,
+                  &bundle,
+                  &teardown,
+                  &export,
+                  complete_input(&export, &runner_checkpoint, &runtime, sha('d')),
+          \''',
+              "complete build call",
+          )
+          '''
+          new = '''old_complete_build_call = \'''        &runner_checkpoint,
+                  &runtime,
+                  &export,
+                  complete_input(&export, &runner_checkpoint, &runtime),
+          \'''
+          new_complete_build_call = \'''        &runner_checkpoint,
+                  &runtime,
+                  &bundle,
+                  &teardown,
+                  &export,
+                  complete_input(&export, &runner_checkpoint, &runtime, sha('d')),
+          \'''
+          if old_complete_build_call not in tests:
+              raise SystemExit("NXB-146 complete build call anchor missing")
+          tests = tests.replace(old_complete_build_call, new_complete_build_call, 1)
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f'NXB-146 materializer normalization mismatch: {text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
       - name: Apply NXB-145 terminal-host binding
         run: python3 .github/nxb146_host_binding.py
       - name: Canonicalize and validate
