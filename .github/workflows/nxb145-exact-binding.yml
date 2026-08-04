@@ -1,0 +1,50 @@
+name: NXB-145 exact binding gate
+
+on:
+  push:
+    branches:
+      - nxb-145-signed-run-closure
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb145-exact-binding-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  materialize:
+    runs-on: ubuntu-slim
+    timeout-minutes: 35
+    steps:
+      - name: Checkout product branch
+        uses: actions/checkout@v7
+        with:
+          ref: nxb-145-signed-run-closure
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - name: Apply exact component binding patch
+        run: python3 .github/nxb145_exact_binding.py
+      - name: Validate patched product tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          cargo fmt --all
+          cargo check -p nxb-run-closure --all-features --locked
+          cargo clippy -p nxb-run-closure --all-targets --all-features --locked -- -D warnings
+          cargo test -p nxb-run-closure --all-features --locked -- --test-threads=1
+      - name: Commit validated product changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock crates/nxb-run-closure
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "NXB-145: bind closure to exact terminal components"
+          git push origin HEAD:nxb-145-signed-run-closure
