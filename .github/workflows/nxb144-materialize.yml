@@ -51,13 +51,14 @@ jobs:
           cargo clippy -p nxb-operator-runtime -p nxb-resumable-runner --all-targets --all-features --locked -- -D warnings
           cargo test -p nxb-operator-runtime -p nxb-resumable-runner --all-features --locked -- --test-threads=1
           git diff --check
-      - name: Commit validated product tree
+      - name: Commit validated source tree
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/nxb144_materialize.py .github/nxb144_payload_00.txt .github/nxb144_payload_01.txt .github/nxb144_payload_02.txt .github/nxb144_payload_03.txt .github/nxb144_test_fix.py .github/workflows/nxb144-materialize.yml
-          git add Cargo.toml Cargo.lock crates/nxb-operator-runtime crates/nxb-resumable-runner docs/NXB-144-RESUMABLE-BOUNDED-LIVE-RUNNER.md .github/workflows/nxb144-resumable-runner.yml
+          git rm .github/nxb144_materialize.py .github/nxb144_payload_00.txt .github/nxb144_payload_01.txt .github/nxb144_payload_02.txt .github/nxb144_payload_03.txt .github/nxb144_test_fix.py
+          rm .github/workflows/nxb144-resumable-runner.yml
+          git add Cargo.toml Cargo.lock crates/nxb-operator-runtime crates/nxb-resumable-runner docs/NXB-144-RESUMABLE-BOUNDED-LIVE-RUNNER.md
           git commit -m "NXB-144: materialize resumable bounded live runner"
           git push origin HEAD:nxb-144-resumable-bounded-live-runner
