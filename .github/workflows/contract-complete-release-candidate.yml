@@ -31,7 +31,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install pinned Rust
-        run: rustup show active-toolchain
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
       - name: Verify release contract and package policy
         shell: bash
         run: |
@@ -87,7 +89,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install pinned Rust
-        run: rustup show active-toolchain
+        uses: dtolnay/rust-toolchain@1.97.1
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       - name: RustSec audit
@@ -104,7 +106,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install pinned Rust
-        run: rustup show active-toolchain
+        uses: dtolnay/rust-toolchain@1.97.1
       - name: Build release binary
         run: cargo build -p nxb-core --release --locked
       - name: Generate dependency metadata
