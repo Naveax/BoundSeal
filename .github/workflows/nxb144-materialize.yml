@@ -8,6 +8,7 @@ on:
     paths:
       - ".github/nxb144_materialize.py"
       - ".github/nxb144_payload_*.txt"
+      - ".github/nxb144_test_fix.py"
       - ".github/workflows/nxb144-materialize.yml"
 
 permissions:
@@ -30,7 +31,11 @@ jobs:
           ref: nxb-144-resumable-bounded-live-runner
           fetch-depth: 0
       - name: Materialize NXB-144 tree
-        run: python3 .github/nxb144_materialize.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/nxb144_materialize.py
+          python3 .github/nxb144_test_fix.py
       - name: Install pinned Rust
         uses: dtolnay/rust-toolchain@1.97.1
         with:
@@ -52,7 +57,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/nxb144_materialize.py .github/nxb144_payload_00.txt .github/nxb144_payload_01.txt .github/nxb144_payload_02.txt .github/nxb144_payload_03.txt .github/workflows/nxb144-materialize.yml
+          git rm .github/nxb144_materialize.py .github/nxb144_payload_00.txt .github/nxb144_payload_01.txt .github/nxb144_payload_02.txt .github/nxb144_payload_03.txt .github/nxb144_test_fix.py .github/workflows/nxb144-materialize.yml
           git add Cargo.toml Cargo.lock crates/nxb-operator-runtime crates/nxb-resumable-runner docs/NXB-144-RESUMABLE-BOUNDED-LIVE-RUNNER.md .github/workflows/nxb144-resumable-runner.yml
           git commit -m "NXB-144: materialize resumable bounded live runner"
           git push origin HEAD:nxb-144-resumable-bounded-live-runner
