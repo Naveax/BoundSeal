@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - nxb-145-signed-live-run-host
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "crates/nxb-live-run-host/**"
+      - ".github/nxb145_lifecycle_harden.py"
+      - ".github/workflows/nxb145-lifecycle-hardening.yml"
+      - "tools/nxb145_hardening.patch*"
 
 permissions:
   contents: write
