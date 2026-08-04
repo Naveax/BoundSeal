@@ -32,6 +32,13 @@ jobs:
         with:
           ref: nxb-146-signed-run-closure
           fetch-depth: 0
+      - name: Synchronize current main
+        if: ${{ github.event_name == 'push' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git merge --no-edit origin/main
       - name: Install pinned Rust
         uses: dtolnay/rust-toolchain@1.97.1
         with:
@@ -101,6 +108,7 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add Cargo.lock crates/nxb-run-closure
           if git diff --cached --quiet; then
+            git push origin HEAD:nxb-146-signed-run-closure
             exit 0
           fi
           git commit -m "NXB-146: bind closure to NXB-145 terminal host"
