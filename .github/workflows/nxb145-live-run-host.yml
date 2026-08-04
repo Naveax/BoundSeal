@@ -16,7 +16,7 @@ on:
       - ".github/workflows/nxb145-live-run-host.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: nxb145-host-${{ github.workflow }}-${{ github.ref }}
@@ -28,34 +28,20 @@ jobs:
     runs-on: ubuntu-slim
     timeout-minutes: 35
     steps:
-      - name: Checkout product branch
+      - name: Checkout
         uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
       - name: Install pinned Rust
         uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
-      - name: Generate canonical lockfile
+      - name: Canonical lockfile and formatting
         shell: bash
         run: |
           set -euo pipefail
+          cp Cargo.lock /tmp/Cargo.lock.expected
           cargo generate-lockfile
-      - name: Commit canonical lockfile
-        shell: bash
-        run: |
-          set -euo pipefail
-          if git diff --quiet -- Cargo.lock; then
-            exit 0
-          fi
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add Cargo.lock
-          git commit -m "NXB-146: canonical Cargo.lock"
-          git push origin HEAD:nxb-146-signed-run-closure-final
-      - name: Formatting
-        run: cargo fmt --all -- --check
+          cmp Cargo.lock /tmp/Cargo.lock.expected
+          cargo fmt --all -- --check
       - name: Host and upstream check
         run: cargo check -p nxb-live-run-host -p nxb-resumable-runner -p nxb-operator-runtime --all-features --locked
       - name: Host and upstream Clippy
