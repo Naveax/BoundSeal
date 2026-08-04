@@ -134,8 +134,8 @@ jobs:
         input,
 '''
           new_call = '''        &runtime,
-        &bundle,
-        &teardown,
+        &launch_bundle(&plan, &runner_manifest),
+        &completed_teardown(&runner_checkpoint, &runtime),
         &export,
         input,
 '''
