@@ -2,7 +2,7 @@
 
 ## Status
 
-NXB-150 is implemented on draft PR #68 but is not release-complete. Source integration, the real child-process fixture and adversarial tests are committed. Canonical `Cargo.lock` publication and actual pinned-toolchain formatting, check, Clippy and test execution remain mandatory before review or merge.
+NXB-150 is implemented on draft PR #68 but is not release-complete. Source integration, the real child-process fixture, adversarial tests and local exact-head validation harnesses are committed. Canonical `Cargo.lock` publication and actual pinned-toolchain Linux/Windows execution remain mandatory before review or merge.
 
 ## Purpose
 
@@ -87,9 +87,47 @@ The real child-process fixture and integration tests cover:
 
 The test source is present, but these cases are not counted as passed until the pinned Rust toolchain actually compiles and executes them.
 
+## Exact-head validation harnesses
+
+Linux:
+
+```text
+bash scripts/validate-nxb-150-linux.sh
+```
+
+Windows:
+
+```text
+pwsh -NoProfile -File .\scripts\validate-nxb-150-windows.ps1
+```
+
+Both harnesses require:
+
+- a clean, unchanged exact Git head;
+- Rust `1.97.1` with rustfmt and Clippy;
+- installed `cargo-audit` and `cargo-deny` subcommands;
+- committed `Cargo.lock` SHA-256 `f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff`;
+- `cargo generate-lockfile` reproduction with no byte or Git diff;
+- locked Cargo metadata resolution;
+- package format, check, all-target Clippy and serial real-process tests;
+- `nxb-vault-provider` regression tests;
+- full workspace check, all-target/all-feature Clippy and serial tests;
+- RustSec `cargo audit`;
+- cargo-deny advisories, licenses, bans and source checks.
+
+A successful run writes platform-specific JSON under:
+
+```text
+target/nxb-validation/
+```
+
+Evidence binds the exact head, Rust/Cargo and supply-chain tool versions, canonical lockfile SHA-256 and each completed gate. It contains no provider handle, secret material, authorization data or private signing key.
+
+The harnesses restore the original `Cargo.lock` bytes in cleanup. They emit no success document if lockfile generation changes the committed file, the expected SHA-256 differs, the working tree moves, or any package/workspace/supply-chain command fails.
+
 ## Required terminal validation
 
-GitHub-hosted Actions remain disabled. NXB-150 does not add or re-enable a workflow. Validation must run locally or through an external orchestrator:
+The harnesses execute the following mandatory core sequence without enabling GitHub Actions:
 
 ```text
 cargo generate-lockfile
@@ -99,6 +137,11 @@ cargo check -p nxb-evidence-key-provider-process --all-features --locked
 cargo clippy -p nxb-evidence-key-provider-process --all-targets --all-features --locked -- -D warnings
 cargo test -p nxb-evidence-key-provider-process --all-features --locked -- --test-threads=1
 cargo test -p nxb-vault-provider --locked -- --test-threads=1
+cargo check --workspace --all-targets --all-features --locked
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --all-features --locked -- --test-threads=1
+cargo audit
+cargo deny check
 ```
 
 A lockfile candidate was prepared from the last immutable release-candidate lockfile by adding the new path-package stanza. It is not accepted as canonical evidence until published and reproduced by `cargo generate-lockfile` with no diff.
