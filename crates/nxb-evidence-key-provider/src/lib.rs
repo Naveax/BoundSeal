@@ -926,7 +926,7 @@ mod tests {
 
     #[test]
     fn material_bytes_are_zeroizable() {
-        let mut bytes = vec![3_u8; EVIDENCE_SEALING_KEY_BYTES];
+        let mut bytes = [3_u8; EVIDENCE_SEALING_KEY_BYTES];
         bytes.fill(0);
         assert!(bytes.iter().all(|byte| *byte == 0));
     }
