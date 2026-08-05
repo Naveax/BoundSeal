@@ -1,4 +1,4 @@
-name: Temporary NXB-148 lockfile materializer
+name: Temporary NXB-148 canonicalizer
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
-      - "crates/nxb-evidence-sealer/Cargo.toml"
+      - "crates/nxb-evidence-sealer/**"
       - ".github/workflows/nxb148-lockfile-materializer.yml"
 
 permissions:
@@ -27,16 +27,19 @@ jobs:
           ref: nxb-148-production-evidence-sealer
       - name: Install pinned Rust
         uses: dtolnay/rust-toolchain@1.97.1
-      - name: Generate and commit canonical lockfile
+        with:
+          components: rustfmt
+      - name: Generate and commit canonical files
         shell: bash
         run: |
           set -euo pipefail
           cargo generate-lockfile
-          if git diff --quiet -- Cargo.lock; then
+          cargo fmt --all
+          if git diff --quiet -- Cargo.lock crates/nxb-evidence-sealer/src/lib.rs; then
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.lock
-          git commit -m "NXB-148: materialize canonical Cargo.lock"
+          git add Cargo.lock crates/nxb-evidence-sealer/src/lib.rs
+          git commit -m "NXB-148: canonicalize lockfile and Rust sources"
           git push origin HEAD:nxb-148-production-evidence-sealer
