@@ -6,7 +6,7 @@ NXBounty is a private, deterministic and scope-enforced bug bounty research plat
 
 The last fully validated and merged block is **NXB-149 signed evidence key-provider lifecycle**. The active **NXB-150 pinned process evidence-key provider** draft adds the first concrete adapter by binding NXB-149 to the existing NXB-140 absolute-path and SHA-256-pinned process transport. The workspace manifest now contains 49 private Rust crates.
 
-NXB-150 is not release-complete yet. Its implementation, real child-process fixture and adversarial tests are committed on draft PR #68, but canonical lockfile publication and pinned-toolchain `fmt`, `check`, Clippy and test execution remain mandatory before review or merge.
+NXB-150 is not release-complete yet. Its implementation, real child-process fixture, adversarial tests and exact-head Linux/Windows validation harnesses are committed on draft PR #68, but canonical lockfile publication and actual pinned-toolchain execution remain mandatory before review or merge.
 
 This is not an unrestricted scanner. Live execution remains compile-time gated, explicitly acknowledged, signed, same-origin, HTTPS/443, GET/HEAD-only, sequential and resource bounded. NXB-147 remains a networkless manual handoff, NXB-148 persists only previously validated and redacted evidence records, NXB-149 acquires only the exact plan-bound sealing key through a one-fetch provider lifecycle, and NXB-150 does not bundle a provider-specific secret-store helper. None of these blocks calls HackerOne, accesses browser credentials or submits reports automatically.
 
@@ -27,8 +27,8 @@ This is not an unrestricted scanner. Live execution remains compile-time gated, 
 - exact provider identity, one-fetch key acquisition and mandatory completed/aborted teardown;
 - metadata-only content-addressed evidence-key acquisition receipts;
 - an NXB-150 draft adapter that reuses the pinned, shell-free process-provider transport;
-- capability binding for executable digest, process identity, store/key mapping and provider-handle digest;
-- real process-fixture coverage for success, mismatch, short-key, logical-failure, timeout and one-fetch paths;
+- capability binding for executable digest, process identity, store/key mapping, provider-handle digest, version policy, session expiry and exact nanosecond timeout;
+- real process-fixture coverage for success, mismatch, short-key, logical-failure, timeout, sub-millisecond capability separation and one-fetch paths;
 - exact acknowledgement of untested scope for partial closures;
 - deterministic content analysis, passive findings, validation, evidence and reporting contracts;
 - append-only metadata-only audit chains.
@@ -54,7 +54,23 @@ cargo build --workspace --locked
 cargo test --workspace --all-features --locked
 ```
 
-GitHub-hosted Actions are disabled for this repository. NXB-150 must be verified locally or through an external orchestrator without adding a workflow:
+GitHub-hosted Actions are disabled for this repository. NXB-150 validation is exposed through exact-head local harnesses:
+
+Linux:
+
+```bash
+bash scripts/validate-nxb-150-linux.sh
+```
+
+Windows:
+
+```powershell
+pwsh -NoProfile -File .\scripts\validate-nxb-150-windows.ps1
+```
+
+Both require Rust `1.97.1`, the fixed canonical `Cargo.lock` SHA-256, no `cargo generate-lockfile` diff, package and workspace format/check/Clippy/tests, RustSec and cargo-deny. Successful evidence is written only after all gates complete on one unchanged clean head.
+
+Core commands executed by the harnesses:
 
 ```bash
 cargo generate-lockfile
@@ -64,6 +80,11 @@ cargo check -p nxb-evidence-key-provider-process --all-features --locked
 cargo clippy -p nxb-evidence-key-provider-process --all-targets --all-features --locked -- -D warnings
 cargo test -p nxb-evidence-key-provider-process --all-features --locked -- --test-threads=1
 cargo test -p nxb-vault-provider --locked -- --test-threads=1
+cargo check --workspace --all-targets --all-features --locked
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --all-features --locked -- --test-threads=1
+cargo audit
+cargo deny check
 ```
 
 ## CLI
