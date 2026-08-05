@@ -292,7 +292,7 @@ impl ProviderKeyMaterial {
         key_id: impl Into<String>,
         version_id: impl Into<String>,
         expires_at_epoch_seconds: i64,
-        bytes: Vec<u8>,
+        mut bytes: Vec<u8>,
     ) -> Result<Self, EvidenceKeyProviderError> {
         let key_id = key_id.into();
         let version_id = version_id.into();
