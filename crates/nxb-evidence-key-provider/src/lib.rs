@@ -7,7 +7,7 @@ use ring::signature::{UnparsedPublicKey, ED25519};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 pub const EVIDENCE_KEY_PLAN_VERSION: u32 = 1;
 pub const EVIDENCE_KEY_ACTIVATION_VERSION: u32 = 1;
@@ -299,6 +299,7 @@ impl ProviderKeyMaterial {
         validate_identifier(&key_id, "key_id")?;
         validate_identifier(&version_id, "version_id")?;
         if bytes.len() != EVIDENCE_SEALING_KEY_BYTES {
+            bytes.fill(0);
             return Err(EvidenceKeyProviderError::InvalidKeyMaterial);
         }
         Ok(Self {
@@ -788,10 +789,10 @@ mod tests {
         let (plan, activation, _) = signed_plan(now);
         let mut provider = provider(now);
         provider.identity.provider_id = "other-provider".into();
-        assert_eq!(
+        assert!(matches!(
             acquire_evidence_sealer(plan, activation, &mut provider, now),
             Err(EvidenceKeyProviderError::ProviderIdentityMismatch)
-        );
+        ));
         assert_eq!(provider.begin_count, 0);
     }
 
@@ -799,12 +800,17 @@ mod tests {
     fn invalid_signature_is_rejected_before_begin() {
         let now = 2_000_000_000;
         let (plan, mut activation, _) = signed_plan(now);
-        activation.signature_hex.replace_range(0..2, "00");
+        let replacement = if &activation.signature_hex[..2] == "00" {
+            "01"
+        } else {
+            "00"
+        };
+        activation.signature_hex.replace_range(0..2, replacement);
         let mut provider = provider(now);
-        assert_eq!(
+        assert!(matches!(
             acquire_evidence_sealer(plan, activation, &mut provider, now),
             Err(EvidenceKeyProviderError::ActivationSignatureInvalid)
-        );
+        ));
         assert_eq!(provider.begin_count, 0);
     }
 
@@ -860,12 +866,11 @@ mod tests {
         let (plan, activation, _) = signed_plan(now);
         let mut provider = provider(now);
         provider.fetch_failure = Some(ProviderFailure::new("backend_failure").expect("failure"));
-        assert_eq!(
+        assert!(matches!(
             acquire_evidence_sealer(plan, activation, &mut provider, now),
-            Err(EvidenceKeyProviderError::ProviderFetchFailure(
-                "backend_failure".into()
-            ))
-        );
+            Err(EvidenceKeyProviderError::ProviderFetchFailure(code))
+                if code == "backend_failure"
+        ));
         assert_eq!(provider.outcomes.len(), 1);
         assert_eq!(
             provider.outcomes[0].failure_code.as_deref(),
@@ -879,12 +884,11 @@ mod tests {
         let (plan, activation, _) = signed_plan(now);
         let mut provider = provider(now);
         provider.finish_failure = Some(ProviderFailure::new("teardown_failed").expect("failure"));
-        assert_eq!(
+        assert!(matches!(
             acquire_evidence_sealer(plan, activation, &mut provider, now),
-            Err(EvidenceKeyProviderError::ProviderTeardownFailure(
-                "teardown_failed".into()
-            ))
-        );
+            Err(EvidenceKeyProviderError::ProviderTeardownFailure(code))
+                if code == "teardown_failed"
+        ));
     }
 
     #[test]
@@ -914,16 +918,16 @@ mod tests {
         let (mut plan, activation, _) = signed_plan(now);
         plan.store_id = "different-store".into();
         let mut provider = provider(now);
-        assert_eq!(
+        assert!(matches!(
             acquire_evidence_sealer(plan, activation, &mut provider, now),
             Err(EvidenceKeyProviderError::PlanDigestMismatch)
-        );
+        ));
     }
 
     #[test]
     fn material_bytes_are_zeroizable() {
         let mut bytes = vec![3_u8; EVIDENCE_SEALING_KEY_BYTES];
-        bytes.zeroize();
+        bytes.fill(0);
         assert!(bytes.iter().all(|byte| *byte == 0));
     }
 }
