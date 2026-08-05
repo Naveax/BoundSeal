@@ -69,10 +69,10 @@ record_gate cargo_fmt cargo fmt --all -- --check
 record_gate cargo_check cargo check -p nxb-core --all-targets --all-features --locked
 record_gate cargo_clippy cargo clippy -p nxb-core --all-targets --all-features --locked -- -D warnings
 record_gate cargo_test cargo test -p nxb-core --all-features --locked -- --test-threads=1
-record_gate cargo_build_product cargo build -p nxb-core --bin nxb-product --all-features --locked
+record_gate cargo_build_nxb cargo build -p nxb-core --bin nxb --all-features --locked
 
-binary="$repo_root/target/debug/nxb-product"
-[[ -x "$binary" ]] || { printf 'product binary is missing: %s\n' "$binary" >&2; exit 1; }
+binary="$repo_root/target/debug/nxb"
+[[ -x "$binary" ]] || { printf 'nxb binary is missing: %s\n' "$binary" >&2; exit 1; }
 
 workspace="$(mktemp -d -t nxb-151-XXXXXX)"
 rmdir -- "$workspace"
@@ -80,16 +80,16 @@ nonempty_workspace="$(mktemp -d -t nxb-151-nonempty-XXXXXX)"
 broken_workspace="$(mktemp -d -t nxb-151-broken-XXXXXX)"
 rmdir -- "$broken_workspace"
 
-record_gate product_init "$binary" init --workspace "$workspace" --name 'Linux Acceptance' --json
-record_gate product_doctor "$binary" doctor --workspace "$workspace" --json
-record_gate product_status "$binary" status --workspace "$workspace" --json
+record_gate workspace_init "$binary" workspace init --workspace "$workspace" --name 'Linux Acceptance' --json
+record_gate workspace_doctor "$binary" workspace doctor --workspace "$workspace" --json
+record_gate workspace_status "$binary" workspace status --workspace "$workspace" --json
 
 printf 'occupied' > "$nonempty_workspace/existing.txt"
-record_expected_failure init_rejects_nonempty 10 "$binary" init --workspace "$nonempty_workspace" --json
+record_expected_failure init_rejects_nonempty 10 "$binary" workspace init --workspace "$nonempty_workspace" --json
 
 cp -a -- "$workspace" "$broken_workspace"
 rm -rf -- "$broken_workspace/evidence"
-record_expected_failure doctor_detects_missing_directory 20 "$binary" doctor --workspace "$broken_workspace" --json
+record_expected_failure doctor_detects_missing_directory 20 "$binary" workspace doctor --workspace "$broken_workspace" --json
 
 binary_sha256="$(sha256sum "$binary" | awk '{print $1}')"
 evidence_directory="$repo_root/target/nxb-validation"
@@ -130,7 +130,7 @@ evidence = {
         'rustfmt': rustfmt,
         'clippy': clippy,
     },
-    'product_binary_sha256': binary_sha,
+    'nxb_binary_sha256': binary_sha,
     'results': results,
 }
 with open(output_path, 'w', encoding='utf-8', newline='\n') as handle:
@@ -138,6 +138,6 @@ with open(output_path, 'w', encoding='utf-8', newline='\n') as handle:
     handle.write('\n')
 PY
 
-printf 'NXB-151 Linux validation passed.\n'
+printf 'NXB-151 single-binary Linux workspace validation passed.\n'
 printf 'HEAD: %s\n' "$head_sha"
 printf 'Evidence: %s\n' "$evidence_path"
