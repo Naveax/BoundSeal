@@ -78,7 +78,7 @@ pub(crate) fn ensure_state_layout(root: &Path) -> Result<MigrationPaths> {
 pub(crate) fn transient_state(paths: &MigrationPaths) -> Result<usize> {
     [safe_exists(&paths.active)?, safe_exists(&paths.backup)?, safe_exists(&paths.applied)?]
         .into_iter()
-        .try_fold(0_usize, |count, present| count.checked_add(usize::from(present)).ok_or_else(|| anyhow::anyhow!("transient count overflow")))
+        .try_fold(0_usize, |count, present| count.checked_add(if present { 1 } else { 0 }).ok_or_else(|| anyhow::anyhow!("transient count overflow")))
 }
 
 pub(crate) fn receipt_count(paths: &MigrationPaths) -> Result<usize> {
@@ -231,26 +231,26 @@ fn is_reparse_point(metadata: &fs::Metadata) -> bool { windows_security::is_repa
 fn is_reparse_point(_metadata: &fs::Metadata) -> bool { false }
 
 #[cfg(unix)]
-fn set_private_directory_permissions(path: &Path) -> Result<()> {
+pub(crate) fn set_private_directory_permissions(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
     Ok(())
 }
 #[cfg(windows)]
-fn set_private_directory_permissions(path: &Path) -> Result<()> { windows_security::set_private_directory_permissions(path) }
+pub(crate) fn set_private_directory_permissions(path: &Path) -> Result<()> { windows_security::set_private_directory_permissions(path) }
 #[cfg(not(any(unix, windows)))]
-fn set_private_directory_permissions(_path: &Path) -> Result<()> { Ok(()) }
+pub(crate) fn set_private_directory_permissions(_path: &Path) -> Result<()> { Ok(()) }
 
 #[cfg(unix)]
-fn set_private_file_permissions(path: &Path) -> Result<()> {
+pub(crate) fn set_private_file_permissions(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     Ok(())
 }
 #[cfg(windows)]
-fn set_private_file_permissions(path: &Path) -> Result<()> { windows_security::set_private_file_permissions(path) }
+pub(crate) fn set_private_file_permissions(path: &Path) -> Result<()> { windows_security::set_private_file_permissions(path) }
 #[cfg(not(any(unix, windows)))]
-fn set_private_file_permissions(_path: &Path) -> Result<()> { Ok(()) }
+pub(crate) fn set_private_file_permissions(_path: &Path) -> Result<()> { Ok(()) }
 
 #[cfg(unix)]
 fn validate_private_permissions(path: &Path, directory: bool) -> Result<()> {
