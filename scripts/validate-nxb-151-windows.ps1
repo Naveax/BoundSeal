@@ -181,13 +181,13 @@ try {
     Invoke-Gate -Name "cargo_test" -FilePath "cargo" -Arguments @(
         "test", "-p", "nxb-core", "--all-features", "--locked", "--", "--test-threads=1"
     )
-    Invoke-Gate -Name "cargo_build_product" -FilePath "cargo" -Arguments @(
-        "build", "-p", "nxb-core", "--bin", "nxb-product", "--all-features", "--locked"
+    Invoke-Gate -Name "cargo_build_nxb" -FilePath "cargo" -Arguments @(
+        "build", "-p", "nxb-core", "--bin", "nxb", "--all-features", "--locked"
     )
 
-    $binary = Join-Path $RepoRoot "target\debug\nxb-product.exe"
+    $binary = Join-Path $RepoRoot "target\debug\nxb.exe"
     if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
-        throw "Product binary was not created at '$binary'."
+        throw "NXB binary was not created at '$binary'."
     }
 
     $nonce = [Guid]::NewGuid().ToString("N")
@@ -199,14 +199,15 @@ try {
     $junctionTarget = Join-Path $temp "nxb-151-junction-target-$nonce"
     $aclWorkspace = Join-Path $temp "nxb-151-acl-$nonce"
 
-    Invoke-Gate -Name "product_init" -FilePath $binary -Arguments @(
-        "init", "--workspace", $workspace, "--name", "Windows Acceptance", "--json"
+    Invoke-Gate -Name "workspace_init" -FilePath $binary -Arguments @(
+        "workspace", "init", "--workspace", $workspace,
+        "--name", "Windows Acceptance", "--json"
     )
-    Invoke-Gate -Name "product_doctor" -FilePath $binary -Arguments @(
-        "doctor", "--workspace", $workspace, "--json"
+    Invoke-Gate -Name "workspace_doctor" -FilePath $binary -Arguments @(
+        "workspace", "doctor", "--workspace", $workspace, "--json"
     )
-    Invoke-Gate -Name "product_status" -FilePath $binary -Arguments @(
-        "status", "--workspace", $workspace, "--json"
+    Invoke-Gate -Name "workspace_status" -FilePath $binary -Arguments @(
+        "workspace", "status", "--workspace", $workspace, "--json"
     )
 
     Assert-PrivateAcl -Path $workspace -Name "acl_workspace_root"
@@ -218,30 +219,33 @@ try {
     New-Item -ItemType Directory -Path $nonEmptyWorkspace | Out-Null
     Set-Content -LiteralPath (Join-Path $nonEmptyWorkspace "existing.txt") -Value "occupied" -NoNewline
     Invoke-ExpectedFailure -Name "init_rejects_nonempty" -FilePath $binary -Arguments @(
-        "init", "--workspace", $nonEmptyWorkspace, "--json"
+        "workspace", "init", "--workspace", $nonEmptyWorkspace, "--json"
     ) -ExpectedExitCode 10
 
     Invoke-Gate -Name "broken_workspace_init" -FilePath $binary -Arguments @(
-        "init", "--workspace", $brokenWorkspace, "--name", "Broken Acceptance", "--json"
+        "workspace", "init", "--workspace", $brokenWorkspace,
+        "--name", "Broken Acceptance", "--json"
     )
     Remove-Item -LiteralPath (Join-Path $brokenWorkspace "evidence") -Recurse -Force
     Invoke-ExpectedFailure -Name "doctor_detects_missing_directory" -FilePath $binary -Arguments @(
-        "doctor", "--workspace", $brokenWorkspace, "--json"
+        "workspace", "doctor", "--workspace", $brokenWorkspace, "--json"
     ) -ExpectedExitCode 20
 
     Invoke-Gate -Name "junction_workspace_init" -FilePath $binary -Arguments @(
-        "init", "--workspace", $junctionWorkspace, "--name", "Junction Acceptance", "--json"
+        "workspace", "init", "--workspace", $junctionWorkspace,
+        "--name", "Junction Acceptance", "--json"
     )
     New-Item -ItemType Directory -Path $junctionTarget | Out-Null
     $junctionPath = Join-Path $junctionWorkspace "targets"
     Remove-Item -LiteralPath $junctionPath -Recurse -Force
     New-Item -ItemType Junction -Path $junctionPath -Target $junctionTarget | Out-Null
     Invoke-ExpectedFailure -Name "doctor_rejects_junction" -FilePath $binary -Arguments @(
-        "doctor", "--workspace", $junctionWorkspace, "--json"
+        "workspace", "doctor", "--workspace", $junctionWorkspace, "--json"
     ) -ExpectedExitCode 20
 
     Invoke-Gate -Name "acl_workspace_init" -FilePath $binary -Arguments @(
-        "init", "--workspace", $aclWorkspace, "--name", "ACL Acceptance", "--json"
+        "workspace", "init", "--workspace", $aclWorkspace,
+        "--name", "ACL Acceptance", "--json"
     )
     $icacls = Join-Path $env:SystemRoot "System32\icacls.exe"
     & $icacls $aclWorkspace /grant '*S-1-1-0:(OI)(CI)RX' /q | Out-Null
@@ -249,7 +253,7 @@ try {
         throw "Could not tamper the ACL fixture."
     }
     Invoke-ExpectedFailure -Name "doctor_rejects_broad_acl" -FilePath $binary -Arguments @(
-        "doctor", "--workspace", $aclWorkspace, "--json"
+        "workspace", "doctor", "--workspace", $aclWorkspace, "--json"
     ) -ExpectedExitCode 20
 
     $evidenceDirectory = Join-Path $RepoRoot "target\nxb-validation"
@@ -267,18 +271,22 @@ try {
             rustfmt = $rustfmtVersion
             clippy = $clippyVersion
         }
-        product_binary_sha256 = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+        nxb_binary_sha256 = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
         security_checks = @(
-            "protected_current-user ACL on root, canonical directories and manifest",
+            "protected current-user ACL on root, canonical directories and manifest",
             "junction/reparse-point rejection",
             "broad Everyone allow-ACE rejection"
         )
         results = $results
     }
     $json = $evidence | ConvertTo-Json -Depth 8
-    [IO.File]::WriteAllText($evidencePath, $json + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText(
+        $evidencePath,
+        $json + [Environment]::NewLine,
+        [Text.UTF8Encoding]::new($false)
+    )
 
-    Write-Host "NXB-151 Windows validation passed."
+    Write-Host "NXB-151 single-binary Windows workspace validation passed."
     Write-Host "HEAD: $head"
     Write-Host "Evidence: $evidencePath"
 }
