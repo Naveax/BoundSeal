@@ -46,7 +46,7 @@ Provider identity mismatch fails before `begin`. After a successful `begin`, eve
 - expiry time;
 - exactly 32 key bytes held in a `Zeroizing<Vec<u8>>`.
 
-The key bytes are never serializable and are redacted from `Debug`. Invalid-length input is zeroized before rejection. Valid material must match the plan key ID and remain valid through the complete plan lifetime.
+The key bytes are never serializable and are redacted from `Debug`. Invalid-length input is overwritten before rejection. Valid material must match the plan key ID and remain valid through the complete plan lifetime.
 
 The host copies the exact 32 bytes into `EvidenceSealingKey`, constructs `ProductionEvidenceSealer`, and relies on the NXB-148 source-key zeroization boundary during construction.
 
@@ -76,6 +76,18 @@ NXB-149 rejects:
 - keys shorter or longer than 32 bytes;
 - keys that expire before the plan;
 - sealer-construction failure.
+
+## Validation contract
+
+The permanent NXB-149 workflow runs on Ubuntu and Windows and requires:
+
+- canonical committed `Cargo.lock`;
+- Rust formatting on Ubuntu;
+- package check with all features;
+- all-target Clippy with warnings denied;
+- deterministic, single-threaded adversarial tests.
+
+The test fixture verifies successful acquisition, exact provider identity, invalid activation signatures, wrong key IDs, insufficient key lifetime, provider fetch failure, mandatory aborted teardown, teardown failure overriding success, redacted key diagnostics, invalid key sizes and plan-digest tampering.
 
 ## Explicit exclusions
 
