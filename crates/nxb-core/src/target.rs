@@ -12,7 +12,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::{Host, Url};
 
-use crate::workspace;
+use crate::{
+    diagnostic::{self, DiagnosticSpec},
+    workspace,
+};
 
 const PROFILE_SCHEMA_VERSION: u32 = 1;
 const DISABLE_RECEIPT_VERSION: u32 = 1;
@@ -24,6 +27,31 @@ const MAX_TARGET_PROFILES: usize = 1_024;
 const MAX_PATH_RULES: usize = 64;
 const MAX_PATH_BYTES: usize = 512;
 const ALLOWED_METHODS: &[&str] = &["GET", "HEAD", "OPTIONS"];
+
+const CREATE_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
+    code: "NXB151-TARGET-CREATE-REJECTED",
+    domain: "target",
+    operation: "create",
+    text_prefix: "NXB-TARGET-50",
+};
+const LIST_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
+    code: "NXB151-TARGET-LIST-INVALID",
+    domain: "target",
+    operation: "list",
+    text_prefix: "NXB-TARGET-51",
+};
+const SHOW_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
+    code: "NXB151-TARGET-SHOW-INVALID",
+    domain: "target",
+    operation: "show",
+    text_prefix: "NXB-TARGET-52",
+};
+const DISABLE_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
+    code: "NXB151-TARGET-DISABLE-REJECTED",
+    domain: "target",
+    operation: "disable",
+    text_prefix: "NXB-TARGET-53",
+};
 
 #[derive(Debug, Args)]
 pub(crate) struct TargetArgs {
@@ -138,7 +166,7 @@ struct TargetList {
 }
 
 pub(crate) fn run(args: TargetArgs) -> ExitCode {
-    let (failure_code, result) = match args.command {
+    let (failure_code, diagnostic_spec, json_output, result) = match args.command {
         TargetCommand::Create {
             workspace,
             id,
@@ -149,6 +177,8 @@ pub(crate) fn run(args: TargetArgs) -> ExitCode {
             json,
         } => (
             CREATE_EXIT_CODE,
+            CREATE_DIAGNOSTIC,
+            json,
             create_value(
                 &workspace,
                 &id,
@@ -165,6 +195,8 @@ pub(crate) fn run(args: TargetArgs) -> ExitCode {
             json,
         } => (
             LIST_EXIT_CODE,
+            LIST_DIAGNOSTIC,
+            json,
             list_value(&workspace, include_disabled).and_then(|value| emit_value(&value, json)),
         ),
         TargetCommand::Show {
@@ -173,6 +205,8 @@ pub(crate) fn run(args: TargetArgs) -> ExitCode {
             json,
         } => (
             SHOW_EXIT_CODE,
+            SHOW_DIAGNOSTIC,
+            json,
             show_value(&workspace, &id).and_then(|value| emit_value(&value, json)),
         ),
         TargetCommand::Disable {
@@ -182,6 +216,8 @@ pub(crate) fn run(args: TargetArgs) -> ExitCode {
             json,
         } => (
             DISABLE_EXIT_CODE,
+            DISABLE_DIAGNOSTIC,
+            json,
             disable_value(&workspace, &id, reason).and_then(|value| emit_value(&value, json)),
         ),
     };
@@ -189,7 +225,7 @@ pub(crate) fn run(args: TargetArgs) -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("NXB-TARGET-{failure_code}: {error:#}");
+            diagnostic::emit_failure(diagnostic_spec, failure_code, json_output, &error);
             ExitCode::from(failure_code)
         }
     }
