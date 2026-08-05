@@ -83,14 +83,6 @@ impl ProviderSecretMaterial {
         })
     }
 
-    pub fn version_id(&self) -> &str {
-        &self.version_id
-    }
-
-    pub fn expires_at_epoch_seconds(&self) -> i64 {
-        self.expires_at_epoch_seconds
-    }
-
     pub fn into_parts(mut self) -> (String, Zeroizing<Vec<u8>>, i64) {
         let value = Zeroizing::new(std::mem::take(&mut *self.value));
         (self.version_id, value, self.expires_at_epoch_seconds)
