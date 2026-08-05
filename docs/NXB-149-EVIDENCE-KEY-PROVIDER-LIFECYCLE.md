@@ -93,17 +93,30 @@ NXB-149 rejects:
 - keys that expire before the plan;
 - sealer-construction failure.
 
-## Validation contract
+## Validation record
 
-The permanent NXB-149 workflow runs on Ubuntu and Windows and requires:
+GitHub-hosted Actions are disabled for the repository, so NXB-149 does not leave a workflow enabled after merge.
 
-- canonical committed `Cargo.lock`;
-- Rust formatting on Ubuntu;
+Before the temporary workflow was removed, GitHub Actions run `30991875053` (`NXB-149 evidence key-provider lifecycle`, run number 50) validated the implementation against the updated `main` base. Both Ubuntu and Windows completed successfully with:
+
+- canonical committed `Cargo.lock` verification;
+- Rust formatting verification on Ubuntu;
 - package check with all features;
 - all-target Clippy with warnings denied;
 - deterministic, single-threaded adversarial tests.
 
-The test fixture verifies successful acquisition, exact provider identity, invalid activation signatures, wrong key IDs, insufficient key lifetime, provider fetch failure, mandatory aborted teardown, teardown failure overriding success, redacted key diagnostics, invalid key sizes and plan-digest tampering.
+The fixture verifies successful acquisition, exact provider identity, invalid activation signatures, wrong key IDs, insufficient key lifetime, provider fetch failure, mandatory aborted teardown, teardown failure overriding success, redacted key diagnostics, invalid key sizes and plan-digest tampering.
+
+The crate can be reproduced locally or through an external orchestrator with:
+
+```text
+cargo generate-lockfile
+git diff --exit-code -- Cargo.lock
+cargo fmt --all -- --check
+cargo check -p nxb-evidence-key-provider --all-features --locked
+cargo clippy -p nxb-evidence-key-provider --all-targets --all-features --locked -- -D warnings
+cargo test -p nxb-evidence-key-provider --all-features --locked -- --test-threads=1
+```
 
 ## Explicit exclusions
 
