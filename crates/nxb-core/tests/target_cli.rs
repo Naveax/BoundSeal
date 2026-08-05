@@ -44,6 +44,36 @@ fn run_json(arguments: &[&str]) -> Value {
     serde_json::from_slice(&output.stdout).expect("command returned invalid JSON")
 }
 
+fn assert_diagnostic(
+    output: &Output,
+    expected_exit: i32,
+    expected_code: &str,
+    expected_operation: &str,
+) {
+    assert_eq!(output.status.code(), Some(expected_exit));
+    assert!(output.stdout.is_empty(), "failed JSON command wrote stdout");
+    let value: Value =
+        serde_json::from_slice(&output.stderr).expect("failure stderr is not diagnostic JSON");
+    assert_eq!(value.get("schema_version").and_then(Value::as_u64), Some(1));
+    assert_eq!(value.get("status").and_then(Value::as_str), Some("error"));
+    assert_eq!(value.get("code").and_then(Value::as_str), Some(expected_code));
+    assert_eq!(value.get("domain").and_then(Value::as_str), Some("target"));
+    assert_eq!(
+        value.get("operation").and_then(Value::as_str),
+        Some(expected_operation)
+    );
+    assert_eq!(
+        value.get("exit_code").and_then(Value::as_i64),
+        Some(i64::from(expected_exit))
+    );
+    let message = value
+        .get("message")
+        .and_then(Value::as_str)
+        .expect("diagnostic message is missing");
+    assert!(!message.is_empty());
+    assert!(!message.contains(['\n', '\r', '\0']));
+}
+
 fn initialize(root: &Path) {
     let root = root.to_str().expect("temporary path is not UTF-8");
     let value = run_json(&[
@@ -86,6 +116,10 @@ fn target_cli_create_list_show_and_disable_lifecycle() {
 
     let created = create_target(&root);
     assert_eq!(created.get("status").and_then(Value::as_str), Some("active"));
+    assert_eq!(
+        created.get("network_activity").and_then(Value::as_str),
+        Some("none")
+    );
 
     let root_text = root.to_str().unwrap();
     let listed = run_json(&["target", "list", "--workspace", root_text, "--json"]);
@@ -164,12 +198,22 @@ fn target_cli_rejects_unsafe_origins_and_pending_migration() {
             origin,
             "--json",
         ]);
-        assert_eq!(output.status.code(), Some(CREATE_EXIT_CODE));
+        assert_diagnostic(
+            &output,
+            CREATE_EXIT_CODE,
+            "NXB151-TARGET-CREATE-REJECTED",
+            "create",
+        );
     }
 
     fs::write(root.join("state").join("migration-active.json"), b"{}\n").unwrap();
     let output = run(&["target", "list", "--workspace", root_text, "--json"]);
-    assert_eq!(output.status.code(), Some(LIST_EXIT_CODE));
+    assert_diagnostic(
+        &output,
+        LIST_EXIT_CODE,
+        "NXB151-TARGET-LIST-INVALID",
+        "list",
+    );
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -195,7 +239,12 @@ fn target_cli_rejects_profile_and_receipt_tampering() {
         "example-app",
         "--json",
     ]);
-    assert_eq!(output.status.code(), Some(SHOW_EXIT_CODE));
+    assert_diagnostic(
+        &output,
+        SHOW_EXIT_CODE,
+        "NXB151-TARGET-SHOW-INVALID",
+        "show",
+    );
 
     fs::write(&profile_path, original).unwrap();
     run_json(&[
@@ -222,7 +271,12 @@ fn target_cli_rejects_profile_and_receipt_tampering() {
         "example-app",
         "--json",
     ]);
-    assert_eq!(output.status.code(), Some(SHOW_EXIT_CODE));
+    assert_diagnostic(
+        &output,
+        SHOW_EXIT_CODE,
+        "NXB151-TARGET-SHOW-INVALID",
+        "show",
+    );
 
     fs::remove_dir_all(root).unwrap();
 }
