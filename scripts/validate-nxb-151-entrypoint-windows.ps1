@@ -60,16 +60,28 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "cargo clippy failed." }
     & cargo test -p nxb-core --all-features --locked -- --test-threads=1
     if ($LASTEXITCODE -ne 0) { throw "cargo test failed." }
-    & cargo build -p nxb-core --bins --all-features --locked
-    if ($LASTEXITCODE -ne 0) { throw "cargo build --bins failed." }
+    & cargo build -p nxb-core --bin nxb --all-features --locked
+    if ($LASTEXITCODE -ne 0) { throw "cargo build --bin nxb failed." }
 
     $nxb = Join-Path $RepoRoot "target\debug\nxb.exe"
-    $product = Join-Path $RepoRoot "target\debug\nxb-product.exe"
-    $migrate = Join-Path $RepoRoot "target\debug\nxb-workspace-migrate.exe"
-    foreach ($binary in @($nxb, $product, $migrate)) {
-        if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
-            throw "Required binary is missing: $binary"
-        }
+    if (-not (Test-Path -LiteralPath $nxb -PathType Leaf)) {
+        throw "Required binary is missing: $nxb"
+    }
+
+    $metadataPath = Join-Path $RepoRoot "target\nxb-151-metadata.json"
+    & cargo metadata --no-deps --format-version 1 | Set-Content -LiteralPath $metadataPath -Encoding utf8NoBOM
+    if ($LASTEXITCODE -ne 0) { throw "cargo metadata failed." }
+    $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json -Depth 64
+    $package = @($metadata.packages | Where-Object name -eq "nxb-core")
+    if ($package.Count -ne 1) { throw "Could not resolve the nxb-core package target set." }
+    $binaryTargets = @(
+        $package[0].targets |
+        Where-Object { $_.kind -contains "bin" } |
+        ForEach-Object name |
+        Sort-Object
+    )
+    if ($binaryTargets.Count -ne 1 -or $binaryTargets[0] -ne "nxb") {
+        throw "Expected exactly one nxb binary target; found '$($binaryTargets -join ',')'."
     }
 
     $nonce = [Guid]::NewGuid().ToString("N")
@@ -145,16 +157,16 @@ try {
     $evidence = [ordered]@{
         schema_version = 1
         milestone = "NXB-151"
-        gate = "unified_entrypoint"
+        gate = "linked_single_binary_entrypoint"
         platform = "windows"
         head_sha = $head
         rustc = $rustcVersion
-        binaries = [ordered]@{
-            nxb = (Get-FileHash -LiteralPath $nxb -Algorithm SHA256).Hash.ToLowerInvariant()
-            nxb_product = (Get-FileHash -LiteralPath $product -Algorithm SHA256).Hash.ToLowerInvariant()
-            nxb_workspace_migrate = (Get-FileHash -LiteralPath $migrate -Algorithm SHA256).Hash.ToLowerInvariant()
+        binary = [ordered]@{
+            name = "nxb.exe"
+            sha256 = (Get-FileHash -LiteralPath $nxb -Algorithm SHA256).Hash.ToLowerInvariant()
         }
         checks = [ordered]@{
+            single_cargo_binary_target = "passed"
             workspace_init = "passed"
             combined_doctor = "passed"
             combined_status = "passed"
@@ -169,7 +181,7 @@ try {
         [Text.UTF8Encoding]::new($false)
     )
 
-    Write-Host "NXB-151 unified Windows entrypoint validation passed."
+    Write-Host "NXB-151 linked single-binary Windows validation passed."
     Write-Host "HEAD: $head"
     Write-Host "Evidence: $evidencePath"
 }
