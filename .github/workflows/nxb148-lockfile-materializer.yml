@@ -1,0 +1,42 @@
+name: Temporary NXB-148 lockfile materializer
+
+on:
+  push:
+    branches:
+      - nxb-148-production-evidence-sealer
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/nxb-evidence-sealer/Cargo.toml"
+      - ".github/workflows/nxb148-lockfile-materializer.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb148-lockfile-materializer
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    runs-on: ubuntu-slim
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: nxb-148-production-evidence-sealer
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+      - name: Generate and commit canonical lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          if git diff --quiet -- Cargo.lock; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock
+          git commit -m "NXB-148: materialize canonical Cargo.lock"
+          git push origin HEAD:nxb-148-production-evidence-sealer
