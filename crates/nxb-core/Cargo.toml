@@ -36,7 +36,7 @@ chrono.workspace = true
 clap.workspace = true
 nxb-events = { path = "../nxb-events" }
 nxb-executor = { path = "../nxb-executor", optional = true }
-nxb-gateway = { path = "../nxb-gateway" }
+nxb-gateway = { path = "../nxb-gateway", optional = true }
 nxb-live-adapter = { path = "../nxb-live-adapter", optional = true }
 nxb-operator = { path = "../nxb-operator" }
 nxb-passive-analyzers = { path = "../nxb-passive-analyzers", optional = true }
