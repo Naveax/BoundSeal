@@ -1,13 +1,21 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:NxbInstallerSchemaVersion = 1
+$script:NxbInstallerSchemaVersion = 2
 $script:NxbPackageFileNames = @(
     'nxb.exe',
     'nxb.cdx.json',
     'SHA256SUMS',
     'nxb-release-manifest.json',
     'release-public-key.hex'
+)
+$script:NxbInstalledFileNames = @(
+    'nxb.exe',
+    'nxb.cdx.json',
+    'SHA256SUMS',
+    'nxb-release-manifest.json',
+    'release-public-key.hex',
+    'install-state.json'
 )
 
 function Get-NxbCanonicalPath {
@@ -30,10 +38,11 @@ function Test-NxbPathWithin {
 
     $candidatePath = (Get-NxbCanonicalPath $Candidate).TrimEnd('\')
     $parentPath = (Get-NxbCanonicalPath $Parent).TrimEnd('\')
-    return $candidatePath.StartsWith(
-        $parentPath + '\',
-        [StringComparison]::OrdinalIgnoreCase
-    )
+    return $candidatePath.Equals($parentPath, [StringComparison]::OrdinalIgnoreCase) -or
+        $candidatePath.StartsWith(
+            $parentPath + '\',
+            [StringComparison]::OrdinalIgnoreCase
+        )
 }
 
 function Assert-NxbNoReparseChain {
@@ -72,14 +81,13 @@ function Assert-NxbManagedRoot {
     )
 
     $fullPath = Get-NxbCanonicalPath $Path
-    $driveRoot = [IO.Path]::GetPathRoot($fullPath).TrimEnd('\')
+    $driveRoot = ([IO.Path]::GetPathRoot($fullPath)).TrimEnd('\')
     if ($fullPath.TrimEnd('\').Equals($driveRoot, [StringComparison]::OrdinalIgnoreCase)) {
         throw "$Label must not be a drive root."
     }
-    $windowsRoot = [Environment]::GetFolderPath('Windows').TrimEnd('\')
+    $windowsRoot = ([Environment]::GetFolderPath('Windows')).TrimEnd('\')
     if (-not [string]::IsNullOrWhiteSpace($windowsRoot) -and
-        ($fullPath.TrimEnd('\').Equals($windowsRoot, [StringComparison]::OrdinalIgnoreCase) -or
-         (Test-NxbPathWithin $fullPath $windowsRoot))) {
+        (Test-NxbPathWithin $fullPath $windowsRoot)) {
         throw "$Label must not be inside the Windows directory."
     }
     Assert-NxbNoReparseChain $fullPath $Label
@@ -98,8 +106,34 @@ function Assert-NxbRegularFile {
         throw "$Label is missing or is not a regular file: $Path"
     }
     $item = Get-Item -LiteralPath $Path -Force
-    if ($item.Length -le 0 -or $item.Length -gt $MaximumBytes) {
-        throw "$Label size is outside the supported boundary."
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        $item.Length -le 0 -or
+        $item.Length -gt $MaximumBytes) {
+        throw "$Label size, type or indirection state is outside the supported boundary."
+    }
+}
+
+function Assert-NxbExactDirectoryEntries {
+    param(
+        [Parameter(Mandatory = $true)][string]$Directory,
+        [Parameter(Mandatory = $true)][string[]]$ExpectedNames,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    Assert-NxbNoReparseChain $Directory $Label
+    if (-not (Test-Path -LiteralPath $Directory -PathType Container)) {
+        throw "$Label is missing: $Directory"
+    }
+    $entries = @(Get-ChildItem -LiteralPath $Directory -Force)
+    if ($entries.Count -ne $ExpectedNames.Count) {
+        throw "$Label contains an unexpected number of entries."
+    }
+    foreach ($entry in $entries) {
+        if ($entry.PSIsContainer -or
+            ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            -not ($ExpectedNames -contains $entry.Name)) {
+            throw "$Label contains an unsupported entry: $($entry.Name)"
+        }
     }
 }
 
@@ -107,22 +141,7 @@ function Get-NxbPackagePaths {
     param([Parameter(Mandatory = $true)][string]$PackageDirectory)
 
     $root = Get-NxbCanonicalPath $PackageDirectory
-    Assert-NxbNoReparseChain $root 'package directory'
-    if (-not (Test-Path -LiteralPath $root -PathType Container)) {
-        throw "Package directory is missing: $root"
-    }
-    $entries = @(Get-ChildItem -LiteralPath $root -Force)
-    if ($entries.Count -ne $script:NxbPackageFileNames.Count) {
-        throw 'Package directory must contain exactly the five supported release files.'
-    }
-    foreach ($entry in $entries) {
-        if ($entry.PSIsContainer -or
-            ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
-            -not ($script:NxbPackageFileNames -contains $entry.Name)) {
-            throw "Package directory contains an unsupported entry: $($entry.Name)"
-        }
-    }
-
+    Assert-NxbExactDirectoryEntries $root $script:NxbPackageFileNames 'package directory'
     $paths = [pscustomobject]@{
         Root = $root
         Binary = Join-Path $root 'nxb.exe'
@@ -151,6 +170,24 @@ function Normalize-NxbHex {
         throw "$Label must contain exactly $Length hexadecimal characters."
     }
     return $normalized
+}
+
+function Assert-NxbReleaseSequence {
+    param(
+        [Parameter(Mandatory = $true)]$Value,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    try {
+        $sequence = [uint64]$Value
+    }
+    catch {
+        throw "$Label must be an unsigned integer."
+    }
+    if ($sequence -eq 0 -or $sequence -gt [uint64][int64]::MaxValue) {
+        throw "$Label must be between 1 and 9223372036854775807."
+    }
+    return $sequence
 }
 
 function Assert-NxbAuthenticode {
@@ -198,18 +235,20 @@ function Invoke-NxbReleaseVerification {
 
     $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ('nxb-verify-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
+    Protect-NxbDirectoryAcl $temporaryRoot
     $stdoutPath = Join-Path $temporaryRoot 'stdout.json'
     $stderrPath = Join-Path $temporaryRoot 'stderr.json'
+    $arguments = @(
+        'release', 'verify-manifest',
+        '--document', $ManifestPath,
+        '--public-key', $PublicKeyPath,
+        '--binary', $BinaryPath,
+        '--sbom', $SbomPath,
+        '--checksums', $ChecksumsPath,
+        '--json'
+    )
     try {
-        & $BinaryPath @(
-            'release', 'verify-manifest',
-            '--document', $ManifestPath,
-            '--public-key', $PublicKeyPath,
-            '--binary', $BinaryPath,
-            '--sbom', $SbomPath,
-            '--checksums', $ChecksumsPath,
-            '--json'
-        ) 1>$stdoutPath 2>$stderrPath
+        & $BinaryPath @arguments 1>$stdoutPath 2>$stderrPath
         $exitCode = $LASTEXITCODE
         if ($exitCode -ne 0) {
             $errorText = if (Test-Path -LiteralPath $stderrPath) {
@@ -220,7 +259,9 @@ function Invoke-NxbReleaseVerification {
             throw "Signed release verification failed with exit code $exitCode. $errorText"
         }
         $value = [IO.File]::ReadAllText($stdoutPath) | ConvertFrom-Json
-        if ($value.status -ne 'valid' -or $value.network_activity -ne 'none') {
+        if ($value.status -ne 'valid' -or
+            $value.network_activity -ne 'none' -or
+            (Assert-NxbReleaseSequence $value.release_sequence 'verified release sequence') -ne [uint64]$value.release_sequence) {
             throw 'Signed release verifier returned an invalid success document.'
         }
         return $value
@@ -235,13 +276,14 @@ function Get-NxbManifestDocument {
 
     $value = [IO.File]::ReadAllText($ManifestPath) | ConvertFrom-Json
     if ($null -eq $value.manifest -or
-        $value.manifest.manifest_version -ne 1 -or
+        $value.manifest.manifest_version -ne 2 -or
         $value.manifest.product -ne 'NXBounty' -or
         $value.manifest.platform -ne 'windows' -or
         $value.manifest.architecture -ne 'x86_64' -or
         $value.manifest.binary.file_name -ne 'nxb.exe') {
         throw 'Signed release manifest is not a supported Windows x86_64 package.'
     }
+    [void](Assert-NxbReleaseSequence $value.manifest.release_sequence 'manifest release sequence')
     return $value
 }
 
@@ -263,6 +305,25 @@ function Compare-NxbVersion {
         if ($leftValue -lt $rightValue) { return -1 }
         if ($leftValue -gt $rightValue) { return 1 }
     }
+    return 0
+}
+
+function Compare-NxbReleaseOrder {
+    param(
+        [Parameter(Mandatory = $true)][string]$LeftVersion,
+        [Parameter(Mandatory = $true)]$LeftSequence,
+        [Parameter(Mandatory = $true)][string]$RightVersion,
+        [Parameter(Mandatory = $true)]$RightSequence
+    )
+
+    $versionComparison = Compare-NxbVersion $LeftVersion $RightVersion
+    if ($versionComparison -ne 0) {
+        return $versionComparison
+    }
+    $left = Assert-NxbReleaseSequence $LeftSequence 'left release sequence'
+    $right = Assert-NxbReleaseSequence $RightSequence 'right release sequence'
+    if ($left -lt $right) { return -1 }
+    if ($left -gt $right) { return 1 }
     return 0
 }
 
@@ -395,9 +456,7 @@ function Assert-NxbInstalledRoot {
 
     $paths = Get-NxbInstalledPaths $InstallRoot
     $paths.Root = Assert-NxbManagedRoot $paths.Root 'installed NXBounty root'
-    if (-not (Test-Path -LiteralPath $paths.Root -PathType Container)) {
-        throw "Installed NXBounty root is missing: $($paths.Root)"
-    }
+    Assert-NxbExactDirectoryEntries $paths.Root $script:NxbInstalledFileNames 'installed NXBounty root'
     foreach ($name in @('Binary', 'Sbom', 'Checksums', 'Manifest', 'PublicKey', 'State')) {
         Assert-NxbRegularFile $paths.$name "installed $name"
     }
@@ -411,9 +470,11 @@ function Assert-NxbInstalledRoot {
         $state.install_root -ne $paths.Root -or
         $state.manifest_sha256 -ne $verification.manifest_sha256 -or
         $state.source_commit -ne $verification.source_commit -or
-        $state.version -ne $verification.version) {
+        $state.version -ne $verification.version -or
+        [uint64]$state.release_sequence -ne [uint64]$verification.release_sequence) {
         throw 'Installed state does not match the verified release package.'
     }
+    [void](Assert-NxbReleaseSequence $state.release_sequence 'installed release sequence')
     return [pscustomobject]@{
         Paths = $paths
         State = $state
