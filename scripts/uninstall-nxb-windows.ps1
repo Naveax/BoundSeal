@@ -31,6 +31,7 @@ function Set-NxbUninstallEntryForRestore {
         [Parameter(Mandatory = $true)][string]$Root,
         [Parameter(Mandatory = $true)][string]$Data,
         [Parameter(Mandatory = $true)][string]$Version,
+        [Parameter(Mandatory = $true)][uint64]$ReleaseSequence,
         [Parameter(Mandatory = $true)][string]$PublisherThumbprint,
         [Parameter(Mandatory = $true)][string]$ReleasePublicKeySha256
     )
@@ -42,6 +43,7 @@ function Set-NxbUninstallEntryForRestore {
         $uninstaller, $Root, $Data, $PublisherThumbprint, $ReleasePublicKeySha256
     New-ItemProperty -Path $keyPath -Name DisplayName -Value 'NXBounty' -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name DisplayVersion -Value $Version -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $keyPath -Name ReleaseSequence -Value ([string]$ReleaseSequence) -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name Publisher -Value 'Naveax' -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name InstallLocation -Value $Root -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name DisplayIcon -Value (Join-Path $Root 'nxb.exe') -PropertyType String -Force | Out-Null
@@ -65,6 +67,7 @@ $lock = Open-NxbInstallerLock $installRootPath
 $currentMoved = $false
 $previousMoved = $false
 $integrationsRemoved = $false
+$current = $null
 try {
     $current = Assert-NxbInstalledRoot `
         $installRootPath $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
@@ -99,9 +102,10 @@ try {
     }
 
     $receipt = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         status = 'uninstalled'
         version = $current.Verification.version
+        release_sequence = [uint64]$current.Verification.release_sequence
         source_commit = $current.Verification.source_commit
         manifest_sha256 = $current.Verification.manifest_sha256
         binary_sha256 = $current.State.binary_sha256
@@ -148,6 +152,7 @@ catch {
             }
             Set-NxbUninstallEntryForRestore `
                 $installRootPath $dataRootPath $current.Verification.version `
+                ([uint64]$current.Verification.release_sequence) `
                 $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
         }
     }
