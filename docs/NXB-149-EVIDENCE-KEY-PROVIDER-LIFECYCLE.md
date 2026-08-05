@@ -37,6 +37,22 @@ An `EvidenceKeyProvider` implements four operations:
 
 Provider identity mismatch fails before `begin`. After a successful `begin`, every fetch, validation or sealer-construction failure produces an aborted outcome and requires `finish`. A teardown failure overrides an otherwise successful acquisition.
 
+## Acquisition sequencing
+
+`acquire_evidence_sealer` applies the lifecycle in a fixed order:
+
+1. validate the canonical plan and active time window;
+2. verify the exact Ed25519 activation;
+3. compare the provider's reported identity with the plan;
+4. begin the provider session;
+5. issue one exact key request;
+6. validate key ID, size and expiry;
+7. build the metadata-only receipt and production sealer;
+8. finish with a completed or aborted outcome;
+9. return the sealer only after successful teardown.
+
+No provider method is invoked before activation and identity validation. No second fetch path exists inside one acquisition call.
+
 ## Key material
 
 `ProviderKeyMaterial` contains:
