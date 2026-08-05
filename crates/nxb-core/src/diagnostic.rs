@@ -22,7 +22,7 @@ struct DiagnosticDocument<'a> {
     domain: &'a str,
     operation: &'a str,
     exit_code: u8,
-    message: String,
+    message: &'a str,
 }
 
 pub(crate) fn emit_failure(
@@ -40,7 +40,7 @@ pub(crate) fn emit_failure(
             domain: spec.domain,
             operation: spec.operation,
             exit_code,
-            message,
+            message: &message,
         };
         let mut stderr = io::stderr().lock();
         if serde_json::to_writer(&mut stderr, &document).is_ok() {
