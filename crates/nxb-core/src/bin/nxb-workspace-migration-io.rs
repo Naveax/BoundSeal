@@ -62,10 +62,7 @@ pub(crate) fn validate_workspace_root(workspace: &Path) -> Result<PathBuf> {
 
 pub(crate) fn ensure_state_layout(root: &Path) -> Result<MigrationPaths> {
     let value = paths(root);
-    reject_path_indirections(&value.state, "migration state directory")?;
-    let metadata = fs::metadata(&value.state).context("migration state directory is missing")?;
-    if !metadata.is_dir() { bail!("migration state path is not a directory"); }
-    validate_private_permissions(&value.state, true)?;
+    validate_state_directory(&value)?;
     if !value.receipts.exists() {
         fs::create_dir(&value.receipts)?;
         set_private_directory_permissions(&value.receipts)?;
@@ -75,13 +72,22 @@ pub(crate) fn ensure_state_layout(root: &Path) -> Result<MigrationPaths> {
     Ok(value)
 }
 
+fn validate_state_directory(paths: &MigrationPaths) -> Result<()> {
+    reject_path_indirections(&paths.state, "migration state directory")?;
+    let metadata = fs::metadata(&paths.state).context("migration state directory is missing")?;
+    if !metadata.is_dir() { bail!("migration state path is not a directory"); }
+    validate_private_permissions(&paths.state, true)
+}
+
 pub(crate) fn transient_state(paths: &MigrationPaths) -> Result<usize> {
+    validate_state_directory(paths)?;
     [safe_exists(&paths.active)?, safe_exists(&paths.backup)?, safe_exists(&paths.applied)?]
         .into_iter()
         .try_fold(0_usize, |count, present| count.checked_add(if present { 1 } else { 0 }).ok_or_else(|| anyhow::anyhow!("transient count overflow")))
 }
 
 pub(crate) fn receipt_count(paths: &MigrationPaths) -> Result<usize> {
+    validate_state_directory(paths)?;
     if !paths.receipts.exists() { return Ok(0); }
     reject_path_indirections(&paths.receipts, "migration receipts directory")?;
     validate_private_permissions(&paths.receipts, true)?;
@@ -187,6 +193,7 @@ pub(crate) fn remove_regular(path: &Path) -> Result<()> {
 }
 
 pub(crate) fn safe_exists(path: &Path) -> Result<bool> {
+    reject_path_indirections(path, "migration path")?;
     match fs::symlink_metadata(path) {
         Ok(metadata) => {
             if metadata.file_type().is_symlink() || is_reparse_point(&metadata) { bail!("path indirection is not allowed: {}", path.display()); }
