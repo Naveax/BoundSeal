@@ -143,13 +143,14 @@ expires_at = 2099-01-01T00:00:00Z
         "--authorization-document", $authorization,
         "--policy", $policy
     )
-    $created = Invoke-NativeJson -FilePath $nxb -Name "create" -Arguments @(
+    $createArguments = @(
         "target", "create", "--workspace", $workspace,
         "--id", "example-app", "--name", "Example App",
         "--origin", "https://example.org",
         "--include-path", "/api",
         "--exclude-path", "/api/logout"
     ) + $bindingArguments + @("--json")
+    $created = Invoke-NativeJson -FilePath $nxb -Name "create" -Arguments $createArguments
     if ($created.status -ne "active" -or
         $created.origin -ne "https://example.org" -or
         $created.program.platform -ne "hackerone" -or
@@ -210,18 +211,20 @@ expires_at = 2099-01-01T00:00:00Z
         "https://*.example.org"
     )
     for ($index = 0; $index -lt $invalidOrigins.Count; $index++) {
-        Assert-NativeExit -Expected 50 -FilePath $nxb -Name "invalid-origin-$index" -Arguments @(
+        $invalidOriginArguments = @(
             "target", "create", "--workspace", $workspace,
             "--id", "invalid-$index", "--name", "Invalid Origin",
             "--origin", $invalidOrigins[$index]
         ) + $bindingArguments + @("--json")
+        Assert-NativeExit -Expected 50 -FilePath $nxb -Name "invalid-origin-$index" -Arguments $invalidOriginArguments
     }
-    Assert-NativeExit -Expected 50 -FilePath $nxb -Name "invalid-path" -Arguments @(
+    $invalidPathArguments = @(
         "target", "create", "--workspace", $workspace,
         "--id", "invalid-path", "--name", "Invalid Path",
         "--origin", "https://example.org",
         "--include-path", "/api%2fadmin"
     ) + $bindingArguments + @("--json")
+    Assert-NativeExit -Expected 50 -FilePath $nxb -Name "invalid-path" -Arguments $invalidPathArguments
     Assert-NativeExit -Expected 50 -FilePath $nxb -Name "invalid-reference" -Arguments @(
         "target", "create", "--workspace", $workspace,
         "--id", "invalid-reference", "--name", "Invalid Reference",
