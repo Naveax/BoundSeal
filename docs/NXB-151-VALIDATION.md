@@ -102,6 +102,8 @@ They verify:
 - release diagnostics `60` and `61`;
 - networkless verification.
 
+The unit fixture must use valid CycloneDX JSON directly; parser failure is not accepted as a signing-path test.
+
 ## Machine-readable diagnostics
 
 Mandatory integration tests:
@@ -141,19 +143,26 @@ The harness must verify:
 - current head passes Rust format, check, Clippy and tests;
 - current head and previous exact ancestor build with locked Rust 1.97.1;
 - both `nxb.exe` files receive valid Authenticode signatures from one pinned temporary publisher certificate;
-- both packages use one pinned external Ed25519 release key;
+- all packages use one pinned external Ed25519 release key;
 - manifest schema `2` binds sequence `1` to the previous source and sequence `2` to the final head;
 - exact five-file package layout;
 - clean sequence-1 installation;
-- idempotent sequence-1 reinstall;
+- atomic idempotent sequence-1 reinstall;
 - signed sequence-1 → sequence-2 upgrade;
 - sequence-1 downgrade/replay rejection while sequence 2 is installed;
+- failed upgrade after previous-slot backup restores active sequence 2 and previous sequence 1;
+- failed rollback after the complete slot swap restores active sequence 2 and previous sequence 1;
 - signed sequence-2 → sequence-1 rollback;
 - sequence-1 → sequence-2 upgrade after rollback;
+- failed uninstall after active deactivation restores active sequence 2 and previous sequence 1;
 - Authenticode-tampered package rejection before execution;
 - active and rollback installation verification before uninstall;
 - data-preserving uninstall;
+- final `cleanup_complete=true` and empty cleanup warnings;
+- no stage, backup, rollback, restore or uninstall transaction residue;
 - networkless behavior and exact two-source evidence.
+
+The three recovery tests use readable file handles without `FileShare.Delete`. Verification therefore completes, but the intended rename fails at the exact transaction boundary. Merely failing before validation does not satisfy a recovery gate.
 
 The previous source must be a distinct ancestor of the final head and must contain manifest-v2 support. Same package SemVer is intentional; the signed release sequence provides the revision order. Merely parsing scripts or running a single package is insufficient.
 
@@ -171,7 +180,11 @@ Evidence contains milestone, platform, exact final head, pinned toolchain, expli
 - sequence-1 and sequence-2 source commits;
 - both binary and manifest SHA-256 values;
 - publisher thumbprint;
-- release-public-key file SHA-256.
+- release-public-key file SHA-256;
+- failed-upgrade state restoration;
+- failed-rollback slot restoration;
+- failed-uninstall deactivation restoration;
+- transaction-residue cleanup.
 
 Evidence must contain no workspace contents, credentials, tokens, source authorization bytes or private signing keys.
 
@@ -189,6 +202,7 @@ NXB-151 can move out of draft only when:
 - diagnostic tests pass;
 - full synthetic product flow passes on both platforms;
 - two-revision install, upgrade, replay rejection, rollback, re-upgrade, tamper rejection and uninstall pass on Windows;
+- all three forced transaction failures restore exact active/previous/integration state;
 - generated evidence is reviewed and recorded in the PR;
 - no GitHub Actions workflow is added or re-enabled.
 
