@@ -40,6 +40,8 @@ enum Command {
     Workspace(workspace_facade::WorkspaceArgs),
     /// Create, validate, inspect and disable authorization-bound target profiles.
     Target(target::TargetArgs),
+    /// Build and verify externally signed single-binary release manifests.
+    Release(release_manifest::ReleaseArgs),
     /// Build a bounded networkless scan plan and optional passive snapshot report.
     Scan(ScanArgs),
     /// Parse and compile a target policy without making network requests.
@@ -166,6 +168,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Command::Workspace(args) => return workspace_facade::run(args),
         Command::Target(args) => return target::run(args),
+        Command::Release(args) => return release_manifest::run(args),
         Command::Scan(args) => scan::run(args),
         Command::ValidatePolicy { path, now } => validate_policy(path, now),
         Command::ValidateEvent { path } => validate_event(path),
