@@ -5,6 +5,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
+    process::ExitCode,
 };
 
 use anyhow::{bail, Context, Result};
@@ -17,6 +18,10 @@ use sha2::{Digest, Sha256};
 const PRODUCT_NAME: &str = "NXBounty";
 const WORKSPACE_SCHEMA_VERSION: u32 = 1;
 const MANIFEST_FILE: &str = "workspace.json";
+const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
+const INIT_EXIT_CODE: u8 = 10;
+const DOCTOR_EXIT_CODE: u8 = 20;
+const STATUS_EXIT_CODE: u8 = 30;
 const CANONICAL_DIRECTORIES: &[&str] = &[
     "config",
     "targets",
@@ -43,31 +48,24 @@ struct Cli {
 enum Command {
     /// Initialize a new local NXBounty workspace.
     Init {
-        /// Workspace directory to create.
         #[arg(long)]
         workspace: PathBuf,
-        /// Human-readable local workspace name.
         #[arg(long, default_value = "Default Workspace")]
         name: String,
-        /// Emit a machine-readable JSON result.
         #[arg(long)]
         json: bool,
     },
     /// Validate workspace structure and local write safety without network access.
     Doctor {
-        /// Existing workspace directory.
         #[arg(long)]
         workspace: PathBuf,
-        /// Emit a machine-readable JSON result.
         #[arg(long)]
         json: bool,
     },
     /// Print a redacted workspace summary.
     Status {
-        /// Existing workspace directory.
         #[arg(long)]
         workspace: PathBuf,
-        /// Emit a machine-readable JSON result.
         #[arg(long)]
         json: bool,
     },
@@ -84,7 +82,7 @@ struct WorkspaceManifest {
     secret_storage: SecretStorageBoundary,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 enum SecretStorageBoundary {
     ExternalProviderOnly,
@@ -133,16 +131,27 @@ struct StatusResult {
     records: BTreeMap<String, u64>,
 }
 
-fn main() -> Result<()> {
-    let cli = Cli::parse();
-    match cli.command {
+fn main() -> ExitCode {
+    let command = Cli::parse().command;
+    let (exit_code, result) = match command {
         Command::Init {
             workspace,
             name,
             json,
-        } => initialize_workspace(&workspace, &name, json),
-        Command::Doctor { workspace, json } => doctor_workspace(&workspace, json),
-        Command::Status { workspace, json } => status_workspace(&workspace, json),
+        } => (INIT_EXIT_CODE, initialize_workspace(&workspace, &name, json)),
+        Command::Doctor { workspace, json } => {
+            (DOCTOR_EXIT_CODE, doctor_workspace(&workspace, json))
+        }
+        Command::Status { workspace, json } => {
+            (STATUS_EXIT_CODE, status_workspace(&workspace, json))
+        }
+    };
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("NXB-PRODUCT-{exit_code}: {error:#}");
+            ExitCode::from(exit_code)
+        }
     }
 }
 
@@ -150,20 +159,31 @@ fn initialize_workspace(workspace: &Path, name: &str, json: bool) -> Result<()> 
     validate_workspace_name(name)?;
     reject_symlink(workspace, "workspace root")?;
 
-    if workspace.exists() {
+    let root_created = !workspace.exists();
+    if root_created {
+        fs::create_dir_all(workspace)
+            .with_context(|| format!("could not create workspace {}", workspace.display()))?;
+    } else {
+        let metadata = fs::metadata(workspace)
+            .with_context(|| format!("could not inspect workspace {}", workspace.display()))?;
+        if !metadata.is_dir() {
+            bail!("workspace root is not a directory: {}", workspace.display());
+        }
         let mut entries = fs::read_dir(workspace)
             .with_context(|| format!("could not inspect workspace {}", workspace.display()))?;
         if entries.next().transpose()?.is_some() {
-            bail!(
-                "workspace directory is not empty: {}",
-                workspace.display()
-            );
+            bail!("workspace directory is not empty: {}", workspace.display());
         }
-    } else {
-        fs::create_dir_all(workspace)
-            .with_context(|| format!("could not create workspace {}", workspace.display()))?;
     }
 
+    let result = initialize_workspace_inner(workspace, name, json);
+    if result.is_err() {
+        cleanup_partial_workspace(workspace, root_created);
+    }
+    result
+}
+
+fn initialize_workspace_inner(workspace: &Path, name: &str, json: bool) -> Result<()> {
     let canonical_root = fs::canonicalize(workspace)
         .with_context(|| format!("could not canonicalize workspace {}", workspace.display()))?;
     reject_symlink(&canonical_root, "canonical workspace root")?;
@@ -186,14 +206,16 @@ fn initialize_workspace(workspace: &Path, name: &str, json: bool) -> Result<()> 
     };
     atomic_write_json(&canonical_root.join(MANIFEST_FILE), &manifest)?;
 
-    let result = InitResult {
-        status: "initialized",
-        workspace: canonical_root.display().to_string(),
-        workspace_id: manifest.workspace_id,
-        schema_version: manifest.schema_version,
-        directories_created: CANONICAL_DIRECTORIES.len(),
-    };
-    print_result(&result, json)
+    print_result(
+        &InitResult {
+            status: "initialized",
+            workspace: canonical_root.display().to_string(),
+            workspace_id: manifest.workspace_id,
+            schema_version: manifest.schema_version,
+            directories_created: CANONICAL_DIRECTORIES.len(),
+        },
+        json,
+    )
 }
 
 fn doctor_workspace(workspace: &Path, json: bool) -> Result<()> {
@@ -255,14 +277,16 @@ fn doctor_workspace(workspace: &Path, json: bool) -> Result<()> {
         .iter()
         .filter(|check| check.status == CheckStatus::Fail)
         .count();
-    let result = DoctorResult {
-        status: if errors == 0 { "healthy" } else { "unhealthy" },
-        workspace: workspace.display().to_string(),
-        workspace_id,
-        checks,
-        errors,
-    };
-    print_result(&result, json)?;
+    print_result(
+        &DoctorResult {
+            status: if errors == 0 { "healthy" } else { "unhealthy" },
+            workspace: workspace.display().to_string(),
+            workspace_id,
+            checks,
+            errors,
+        },
+        json,
+    )?;
     if errors > 0 {
         bail!("workspace doctor found {errors} failing check(s)");
     }
@@ -279,16 +303,18 @@ fn status_workspace(workspace: &Path, json: bool) -> Result<()> {
             count_regular_files(&canonical_root.join(directory))?,
         );
     }
-    let result = StatusResult {
-        status: "ready",
-        workspace: canonical_root.display().to_string(),
-        workspace_id: manifest.workspace_id,
-        name: manifest.name,
-        schema_version: manifest.schema_version,
-        created_at: manifest.created_at,
-        records,
-    };
-    print_result(&result, json)
+    print_result(
+        &StatusResult {
+            status: "ready",
+            workspace: canonical_root.display().to_string(),
+            workspace_id: manifest.workspace_id,
+            name: manifest.name,
+            schema_version: manifest.schema_version,
+            created_at: manifest.created_at,
+            records,
+        },
+        json,
+    )
 }
 
 fn validate_workspace_root(workspace: &Path) -> Result<PathBuf> {
@@ -298,10 +324,9 @@ fn validate_workspace_root(workspace: &Path) -> Result<PathBuf> {
     if !metadata.is_dir() {
         bail!("workspace root is not a directory: {}", workspace.display());
     }
-    let canonical = fs::canonicalize(workspace)
-        .with_context(|| format!("could not canonicalize workspace {}", workspace.display()))?;
-    reject_symlink(&canonical, "canonical workspace root")?;
-    Ok(canonical)
+    validate_private_permissions(workspace, true)?;
+    fs::canonicalize(workspace)
+        .with_context(|| format!("could not canonicalize workspace {}", workspace.display()))
 }
 
 fn read_manifest(workspace: &Path) -> Result<WorkspaceManifest> {
@@ -312,7 +337,11 @@ fn read_manifest(workspace: &Path) -> Result<WorkspaceManifest> {
     if !metadata.is_file() {
         bail!("workspace manifest is not a regular file: {}", path.display());
     }
-    let mut input = String::new();
+    if metadata.len() == 0 || metadata.len() > MAX_MANIFEST_BYTES {
+        bail!("workspace manifest size is invalid: {}", path.display());
+    }
+    validate_private_permissions(&path, false)?;
+    let mut input = String::with_capacity(metadata.len() as usize);
     File::open(&path)
         .with_context(|| format!("could not open workspace manifest {}", path.display()))?
         .read_to_string(&mut input)
@@ -335,8 +364,10 @@ fn validate_manifest(manifest: &WorkspaceManifest) -> Result<()> {
     }
     validate_identifier(&manifest.workspace_id, "workspace_id")?;
     validate_workspace_name(&manifest.name)?;
-    if manifest.created_at.parse::<chrono::DateTime<Utc>>().is_err() {
-        bail!("workspace created_at is not valid RFC3339 UTC time");
+    let created_at = chrono::DateTime::parse_from_rfc3339(&manifest.created_at)
+        .context("workspace created_at is not valid RFC3339 time")?;
+    if created_at.offset().local_minus_utc() != 0 {
+        bail!("workspace created_at must use UTC");
     }
     if manifest.secret_storage != SecretStorageBoundary::ExternalProviderOnly {
         bail!("workspace secret-storage boundary is unsupported");
@@ -351,7 +382,7 @@ fn validate_private_directory(path: &Path) -> Result<()> {
     if !metadata.is_dir() {
         bail!("workspace path is not a directory: {}", path.display());
     }
-    Ok(())
+    validate_private_permissions(path, true)
 }
 
 fn reject_symlink(path: &Path, field: &str) -> Result<()> {
@@ -374,7 +405,12 @@ fn generate_workspace_id(workspace: &Path) -> Result<String> {
     digest.update(b"nxb-product-workspace-v1");
     digest.update(random);
     digest.update(workspace.as_os_str().to_string_lossy().as_bytes());
-    digest.update(Utc::now().timestamp_nanos_opt().unwrap_or_default().to_le_bytes());
+    digest.update(
+        Utc::now()
+            .timestamp_nanos_opt()
+            .unwrap_or_default()
+            .to_le_bytes(),
+    );
     random.fill(0);
     Ok(format!("nxb-workspace-{}", &lower_hex(&digest.finalize())[..32]))
 }
@@ -387,41 +423,55 @@ fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
         .file_name()
         .and_then(|value| value.to_str())
         .ok_or_else(|| anyhow::anyhow!("output file name is not valid UTF-8"))?;
-    let temporary = parent.join(format!(".{file_name}.tmp"));
-    let mut output = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temporary)
-        .with_context(|| format!("could not create temporary file {}", temporary.display()))?;
-    set_private_file_permissions(&temporary)?;
-    let mut bytes = serde_json::to_vec_pretty(value)?;
-    bytes.push(b'\n');
-    output.write_all(&bytes)?;
-    output.sync_all()?;
-    drop(output);
-    fs::rename(&temporary, path).with_context(|| {
-        format!(
-            "could not publish {} as {}",
-            temporary.display(),
-            path.display()
-        )
-    })?;
-    Ok(())
+    let temporary = parent.join(format!(".{file_name}.{}.tmp", random_hex(12)?));
+    let result = (|| {
+        let mut output = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .with_context(|| format!("could not create temporary file {}", temporary.display()))?;
+        set_private_file_permissions(&temporary)?;
+        let mut bytes = serde_json::to_vec_pretty(value)?;
+        bytes.push(b'\n');
+        output.write_all(&bytes)?;
+        output.sync_all()?;
+        drop(output);
+        fs::rename(&temporary, path).with_context(|| {
+            format!(
+                "could not publish {} as {}",
+                temporary.display(),
+                path.display()
+            )
+        })?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
 }
 
 fn write_probe(workspace: &Path) -> Result<()> {
-    let path = workspace.join("tmp").join("doctor-write-probe.tmp");
-    let mut output = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
-        .with_context(|| format!("could not create write probe {}", path.display()))?;
-    output.write_all(b"nxb-doctor-probe\n")?;
-    output.sync_all()?;
-    drop(output);
-    fs::remove_file(&path)
-        .with_context(|| format!("could not remove write probe {}", path.display()))?;
-    Ok(())
+    let path = workspace
+        .join("tmp")
+        .join(format!("doctor-write-probe-{}.tmp", random_hex(12)?));
+    let result = (|| {
+        let mut output = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .with_context(|| format!("could not create write probe {}", path.display()))?;
+        output.write_all(b"nxb-doctor-probe\n")?;
+        output.sync_all()?;
+        drop(output);
+        fs::remove_file(&path)
+            .with_context(|| format!("could not remove write probe {}", path.display()))?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&path);
+    }
+    result
 }
 
 fn count_regular_files(path: &Path) -> Result<u64> {
@@ -429,7 +479,10 @@ fn count_regular_files(path: &Path) -> Result<u64> {
     let mut count = 0_u64;
     for entry in fs::read_dir(path)? {
         let entry = entry?;
-        let metadata = entry.metadata()?;
+        let metadata = fs::symlink_metadata(entry.path())?;
+        if metadata.file_type().is_symlink() {
+            bail!("record directory contains a symbolic link: {}", entry.path().display());
+        }
         if metadata.is_file() {
             count = count
                 .checked_add(1)
@@ -439,10 +492,32 @@ fn count_regular_files(path: &Path) -> Result<u64> {
     Ok(count)
 }
 
+fn cleanup_partial_workspace(workspace: &Path, root_created: bool) {
+    let _ = fs::remove_file(workspace.join(MANIFEST_FILE));
+    if let Ok(entries) = fs::read_dir(workspace) {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name();
+            if file_name.to_string_lossy().starts_with(".workspace.json.") {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+    for directory in CANONICAL_DIRECTORIES.iter().rev() {
+        let _ = fs::remove_dir_all(workspace.join(directory));
+    }
+    if root_created {
+        let _ = fs::remove_dir(workspace);
+    }
+}
+
 fn validate_workspace_name(value: &str) -> Result<()> {
     let trimmed = value.trim();
-    if trimmed.is_empty() || trimmed.len() > 96 || trimmed.chars().any(char::is_control) {
-        bail!("workspace name must contain 1-96 printable characters");
+    if trimmed != value
+        || trimmed.is_empty()
+        || trimmed.len() > 96
+        || trimmed.chars().any(char::is_control)
+    {
+        bail!("workspace name must contain 1-96 printable characters without edge whitespace");
     }
     Ok(())
 }
@@ -457,6 +532,16 @@ fn validate_identifier(value: &str, field: &str) -> Result<()> {
         bail!("invalid {field}");
     }
     Ok(())
+}
+
+fn random_hex(bytes: usize) -> Result<String> {
+    let mut value = vec![0_u8; bytes];
+    SystemRandom::new()
+        .fill(&mut value)
+        .map_err(|_| anyhow::anyhow!("operating-system randomness is unavailable"))?;
+    let encoded = lower_hex(&value);
+    value.fill(0);
+    Ok(encoded)
 }
 
 fn pass_check(name: impl Into<String>, detail: impl Into<String>) -> DoctorCheck {
@@ -478,17 +563,17 @@ fn fail_check(name: impl Into<String>, detail: impl Into<String>) -> DoctorCheck
 fn print_result<T: Serialize>(value: &T, json: bool) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(value)?);
-    } else {
-        let object = serde_json::to_value(value)?;
-        if let Some(map) = object.as_object() {
-            for (key, value) in map {
-                if value.is_array() || value.is_object() {
-                    println!("{key}: {}", serde_json::to_string(value)?);
-                } else if let Some(value) = value.as_str() {
-                    println!("{key}: {value}");
-                } else {
-                    println!("{key}: {value}");
-                }
+        return Ok(());
+    }
+    let object = serde_json::to_value(value)?;
+    if let Some(map) = object.as_object() {
+        for (key, value) in map {
+            if value.is_array() || value.is_object() {
+                println!("{key}: {}", serde_json::to_string(value)?);
+            } else if let Some(text) = value.as_str() {
+                println!("{key}: {text}");
+            } else {
+                println!("{key}: {value}");
             }
         }
     }
@@ -529,17 +614,34 @@ fn set_private_file_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
+fn validate_private_permissions(path: &Path, directory: bool) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = fs::metadata(path)?.permissions().mode();
+    if mode & 0o077 != 0 {
+        bail!("workspace path permissions are too broad: {}", path.display());
+    }
+    let required = if directory { 0o700 } else { 0o600 };
+    if mode & required != required {
+        bail!("workspace path permissions are incomplete: {}", path.display());
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn validate_private_permissions(_path: &Path, _directory: bool) -> Result<()> {
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn temporary_path(test_name: &str) -> PathBuf {
-        let mut random = [0_u8; 16];
-        SystemRandom::new().fill(&mut random).unwrap();
         std::env::temp_dir().join(format!(
             "nxb-product-{test_name}-{}-{}",
             std::process::id(),
-            lower_hex(&random)
+            random_hex(16).unwrap()
         ))
     }
 
@@ -550,7 +652,10 @@ mod tests {
         let root = validate_workspace_root(&path).unwrap();
         let manifest = read_manifest(&root).unwrap();
         assert_eq!(manifest.schema_version, WORKSPACE_SCHEMA_VERSION);
-        assert_eq!(manifest.secret_storage, SecretStorageBoundary::ExternalProviderOnly);
+        assert_eq!(
+            manifest.secret_storage,
+            SecretStorageBoundary::ExternalProviderOnly
+        );
         for directory in CANONICAL_DIRECTORIES {
             assert!(root.join(directory).is_dir());
         }
@@ -586,5 +691,12 @@ mod tests {
         let root = validate_workspace_root(&path).unwrap();
         assert_eq!(count_regular_files(&root.join("targets")).unwrap(), 1);
         fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn invalid_name_does_not_leave_workspace() {
+        let path = temporary_path("invalid-name");
+        assert!(initialize_workspace(&path, " bad ", true).is_err());
+        assert!(!path.exists());
     }
 }
