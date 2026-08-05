@@ -32,6 +32,7 @@ const SYNTHETIC_ORIGIN: &[u8] = b"https://evidence-key-provider.invalid:443";
 const ADAPTER_WORKER_ID: &str = "evidence-key-process";
 const ADAPTER_TENANT_ID: &str = "evidence-key-store";
 const ADAPTER_ROLE_ID: &str = "sealing-key";
+const FALLBACK_FAILURE_CODE: &str = "process_adapter_failure";
 
 #[derive(Clone)]
 pub struct ProcessEvidenceKeyProviderConfig {
@@ -262,11 +263,14 @@ impl EvidenceKeyProvider for ProcessEvidenceKeyProvider {
         if self.finished || self.fetched {
             return Err(local_failure("process_adapter_invalid_state"));
         }
-        let binding = self
-            .binding
-            .as_ref()
-            .ok_or_else(|| local_failure("process_adapter_invalid_state"))?;
-        if !self.request_matches_binding(request, binding) {
+        let request_matches = {
+            let binding = self
+                .binding
+                .as_ref()
+                .ok_or_else(|| local_failure("process_adapter_invalid_state"))?;
+            self.request_matches_binding(request, binding)
+        };
+        if !request_matches {
             return Err(local_failure("process_request_mismatch"));
         }
         let session = self
@@ -287,9 +291,11 @@ impl EvidenceKeyProvider for ProcessEvidenceKeyProvider {
             )
             .map_err(map_vault_failure)?;
         let (version_id, mut value, expires_at_epoch_seconds) = material.into_parts();
-        if self.required_version_sha256.as_ref().is_some_and(|expected| {
-            sha256_hex(version_id.as_bytes()) != *expected
-        }) {
+        if self
+            .required_version_sha256
+            .as_ref()
+            .is_some_and(|expected| sha256_hex(version_id.as_bytes()) != *expected)
+        {
             value.zeroize();
             return Err(local_failure("process_version_mismatch"));
         }
@@ -386,13 +392,9 @@ fn validate_config(
             "executable_sha256",
         ));
     }
-    config
-        .process
-        .expected_identity
-        .validate()
-        .map_err(|_| {
-            ProcessEvidenceKeyProviderError::InvalidConfiguration("expected_identity")
-        })?;
+    config.process.expected_identity.validate().map_err(|_| {
+        ProcessEvidenceKeyProviderError::InvalidConfiguration("expected_identity")
+    })?;
     if config.process.expected_identity.provider_instance_sha256
         != config.process.executable_sha256
     {
@@ -424,8 +426,9 @@ fn map_vault_failure(failure: VaultProviderFailure) -> EvidenceProviderFailure {
 }
 
 fn local_failure(code: &str) -> EvidenceProviderFailure {
-    EvidenceProviderFailure::new(code.to_string()).unwrap_or_else(|_| EvidenceProviderFailure {
-        code: "process_adapter_failure".into(),
+    EvidenceProviderFailure::new(code.to_string()).unwrap_or_else(|_| {
+        EvidenceProviderFailure::new(FALLBACK_FAILURE_CODE)
+            .expect("internal fallback provider failure code is valid")
     })
 }
 
