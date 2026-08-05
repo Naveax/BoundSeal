@@ -8,67 +8,72 @@ Validation must start from a clean working tree. Each harness records the exact 
 
 The required toolchain is defined by `rust-toolchain.toml` and currently requires Rust `1.97.1` with rustfmt and Clippy.
 
-## Windows
+## Product workspace validation
 
-Run from PowerShell:
+Windows:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\validate-nxb-151-windows.ps1
 ```
 
-The harness performs:
-
-1. clean-tree and exact-head checks;
-2. pinned rustc, Cargo, rustfmt and Clippy discovery;
-3. formatting;
-4. all-target/all-feature `nxb-core` check;
-5. all-target/all-feature Clippy with warnings denied;
-6. serial all-feature `nxb-core` tests;
-7. explicit `nxb-product` build;
-8. clean workspace initialization;
-9. healthy doctor result;
-10. redacted status result;
-11. non-empty destination rejection with exit code `10`;
-12. missing canonical directory detection with exit code `20`;
-13. product binary SHA-256 calculation;
-14. JSON evidence publication under `target/nxb-validation/`.
-
-## Linux
-
-Run:
+Linux:
 
 ```bash
 bash scripts/validate-nxb-151-linux.sh
 ```
 
-The Linux harness applies the same gates and additionally exercises the Unix private-permission contract enforced by the product shell. Python 3 is used only to serialize the final local evidence document; it is not part of the product runtime.
+These harnesses perform clean-tree and exact-head checks, pinned tool discovery, formatting, all-target/all-feature check, Clippy with warnings denied, serial tests and an explicit build of only:
+
+```text
+cargo build -p nxb-core --bin nxb --all-features --locked
+```
+
+They then exercise initialization, doctor, status, non-empty rejection and missing-directory detection. Windows additionally verifies protected ACLs, junction/reparse rejection and broad-ACE rejection. Linux exercises private permission and durable publication behavior.
+
+## Migration validation
+
+```text
+bash scripts/validate-nxb-151-migration-linux.sh
+pwsh -NoProfile -File .\scripts\validate-nxb-151-migration-windows.ps1
+```
+
+These harnesses invoke migration only through:
+
+```text
+nxb workspace migrate ...
+```
+
+They verify schema `0 → 1`, one immutable receipt, transient cleanup and orphan-backup recovery.
+
+## Linked single-binary entry-point validation
+
+```text
+bash scripts/validate-nxb-151-entrypoint-linux.sh
+pwsh -NoProfile -File .\scripts\validate-nxb-151-entrypoint-windows.ps1
+```
+
+These harnesses additionally inspect Cargo metadata and require exactly one binary target named `nxb`. They verify migration-aware doctor/status behavior and pending-migration exit codes `20` and `30` using only the single executable.
 
 ## Evidence files
 
-Successful runs create one local file:
+Successful runs create local files under:
 
 ```text
-target/nxb-validation/nxb-151-<platform>-<head-sha>.json
+target/nxb-validation/
 ```
 
-The document contains:
-
-- schema version;
-- milestone and platform;
-- exact head SHA;
-- UTC generation time;
-- exact Rust tool versions;
-- product binary SHA-256;
-- gate names, commands, timestamps and exit codes.
-
-It contains no workspace record contents, credentials, cookies, tokens, provider handles or evidence bodies.
+Each document contains milestone, platform, exact head, toolchain details where applicable, gate results and the single `nxb` executable SHA-256. It contains no workspace contents, credentials, cookies, tokens, provider handles or evidence bodies.
 
 ## Acceptance rule
 
-A Linux result alone is insufficient. A Windows result alone is insufficient. NXB-151 can move out of draft only when:
+NXB-151 can move out of draft only when:
 
 - NXB-150 has validated and merged;
-- both platform harnesses pass on the same final NXB-151 head;
-- Windows ACL and reparse-point checks are implemented and pass;
-- the generated evidence documents are reviewed and their exact command results are recorded in the PR description;
+- all required Linux and Windows harnesses pass on the same final NXB-151 head;
+- Cargo metadata confirms exactly one binary target;
+- Windows ACL and reparse checks pass;
+- Linux permission and parent-sync checks pass;
+- generated evidence is reviewed and recorded in the PR;
 - no GitHub Actions workflow has been added or re-enabled.
+
+A source implementation or one-platform result alone is insufficient.
