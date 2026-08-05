@@ -9,6 +9,14 @@ on:
       - "Cargo.lock"
       - "crates/nxb-evidence-sealer/**"
       - ".github/workflows/nxb148-lockfile-materializer.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/nxb-evidence-sealer/**"
+      - ".github/workflows/nxb148-lockfile-materializer.yml"
 
 permissions:
   contents: write
@@ -19,6 +27,7 @@ concurrency:
 
 jobs:
   materialize:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
