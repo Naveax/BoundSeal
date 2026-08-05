@@ -77,6 +77,44 @@ function Restore-NxbUninstallIntegration {
         $PublisherThumbprint $ReleasePublicKeySha256
 }
 
+function Publish-NxbUninstallReceipt {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]$Value,
+        [Parameter(Mandatory = $true)][string]$Nonce
+    )
+
+    $pending = $Path + '.pending.' + $Nonce
+    $backup = $Path + '.backup.' + $Nonce
+    $backedUp = $false
+    $published = $false
+    try {
+        Write-NxbJsonFile $pending $Value
+        if (Test-Path -LiteralPath $Path -PathType Leaf) {
+            Assert-NxbRegularFile $Path 'previous uninstall receipt' 1048576
+            Move-Item -LiteralPath $Path -Destination $backup
+            $backedUp = $true
+        }
+        Move-Item -LiteralPath $pending -Destination $Path
+        $published = $true
+    }
+    catch {
+        if ($published -and (Test-Path -LiteralPath $Path)) {
+            Remove-Item -LiteralPath $Path -Force
+        }
+        if ($backedUp -and (Test-Path -LiteralPath $backup -PathType Leaf)) {
+            Move-Item -LiteralPath $backup -Destination $Path
+        }
+        Remove-Item -LiteralPath $pending -Force -ErrorAction SilentlyContinue
+        throw
+    }
+    finally {
+        if ($published) {
+            Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 $installRootPath = Assert-NxbManagedRoot $InstallRoot 'install root'
 $dataRootPath = Assert-NxbManagedRoot $DataRoot 'data root'
 if ((Test-NxbPathWithin $installRootPath $dataRootPath) -or
@@ -91,7 +129,6 @@ $previousTombstone = $previousRoot + '.uninstall.' + $nonce
 $lock = Open-NxbInstallerLock $installRootPath
 $current = $null
 $previous = $null
-$transactionCommitted = $false
 $receipt = $null
 $cleanupWarnings = [Collections.Generic.List[string]]::new()
 try {
@@ -132,10 +169,6 @@ try {
             uninstalled_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffffffZ')
             network_activity = 'none'
         }
-
-        # This is the irreversible commit point: active paths and Windows integrations
-        # are gone, while verified bytes remain recoverable in private tombstones.
-        $transactionCommitted = $true
     }
     catch {
         $failure = $_
@@ -167,8 +200,8 @@ try {
         throw $failure
     }
 
-    # Post-commit cleanup is deliberately non-transactional. A cleanup failure must
-    # never recreate integrations that point at missing binaries.
+    # Active paths and Windows integrations are now gone. Cleanup failures below
+    # must never recreate integrations that point to missing binaries.
     foreach ($entry in @(
         [pscustomobject]@{ Path = $currentTombstone; Label = 'active uninstall tombstone' },
         [pscustomobject]@{ Path = $previousTombstone; Label = 'rollback uninstall tombstone' }
@@ -184,6 +217,7 @@ try {
         }
     }
 
+    $installerStateRoot = Join-Path $dataRootPath 'installer'
     if ($PurgeData) {
         if (Test-Path -LiteralPath $dataRootPath) {
             try {
@@ -196,16 +230,13 @@ try {
         }
     } else {
         try {
-            $installerStateRoot = Join-Path $dataRootPath 'installer'
             New-Item -ItemType Directory -Path $installerStateRoot -Force | Out-Null
             Protect-NxbDirectoryAcl $installerStateRoot
             Remove-Item -LiteralPath (Join-Path $installerStateRoot 'current-install.json') `
                 -Force -ErrorAction SilentlyContinue
-            Write-NxbJsonFile `
-                (Join-Path $installerStateRoot 'last-uninstall.json') $receipt
         }
         catch {
-            $cleanupWarnings.Add("uninstall receipt: $($_.Exception.Message)")
+            $cleanupWarnings.Add("installer state cleanup: $($_.Exception.Message)")
         }
     }
 
@@ -215,6 +246,20 @@ try {
     if (-not $receipt.cleanup_complete) {
         $receipt.status = 'uninstalled_cleanup_incomplete'
     }
+
+    if (-not $PurgeData -and (Test-Path -LiteralPath $installerStateRoot -PathType Container)) {
+        try {
+            Publish-NxbUninstallReceipt `
+                (Join-Path $installerStateRoot 'last-uninstall.json') $receipt $nonce
+        }
+        catch {
+            $cleanupWarnings.Add("uninstall receipt: $($_.Exception.Message)")
+            $receipt.cleanup_complete = $false
+            $receipt.cleanup_warnings = @($cleanupWarnings)
+            $receipt.status = 'uninstalled_cleanup_incomplete'
+        }
+    }
+
     $receipt | ConvertTo-Json -Depth 8
 }
 finally {
