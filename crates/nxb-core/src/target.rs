@@ -1,13 +1,16 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
+    fs::{self, File},
+    io::Read,
     net::IpAddr,
     path::{Path, PathBuf},
     process::ExitCode,
 };
 
 use anyhow::{bail, Context, Result};
+use chrono::Utc;
 use clap::{Args, Subcommand, ValueEnum};
+use nxb_policy::{CompiledPolicy, TargetPolicy};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::{Host, Url};
@@ -17,16 +20,19 @@ use crate::{
     workspace,
 };
 
-const PROFILE_SCHEMA_VERSION: u32 = 1;
+const PROFILE_SCHEMA_VERSION: u32 = 2;
 const DISABLE_RECEIPT_VERSION: u32 = 1;
 const CREATE_EXIT_CODE: u8 = 50;
 const LIST_EXIT_CODE: u8 = 51;
 const SHOW_EXIT_CODE: u8 = 52;
 const DISABLE_EXIT_CODE: u8 = 53;
+const VALIDATE_EXIT_CODE: u8 = 54;
 const MAX_TARGET_PROFILES: usize = 1_024;
 const MAX_PATH_RULES: usize = 64;
 const MAX_PATH_BYTES: usize = 512;
-const ALLOWED_METHODS: &[&str] = &["GET", "HEAD", "OPTIONS"];
+const MAX_POLICY_BYTES: u64 = 1024 * 1024;
+const MAX_AUTHORIZATION_BYTES: u64 = 8 * 1024 * 1024;
+const READ_ONLY_METHODS: &[&str] = &["GET", "HEAD", "OPTIONS"];
 
 const CREATE_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
     code: "NXB151-TARGET-CREATE-REJECTED",
@@ -52,6 +58,12 @@ const DISABLE_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
     operation: "disable",
     text_prefix: "NXB-TARGET-53",
 };
+const VALIDATE_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
+    code: "NXB151-TARGET-VALIDATE-INVALID",
+    domain: "target",
+    operation: "validate",
+    text_prefix: "NXB-TARGET-54",
+};
 
 #[derive(Debug, Args)]
 pub(crate) struct TargetArgs {
@@ -61,7 +73,7 @@ pub(crate) struct TargetArgs {
 
 #[derive(Debug, Subcommand)]
 enum TargetCommand {
-    /// Create one immutable networkless target profile.
+    /// Create one immutable, authorization-bound, networkless target profile.
     Create {
         #[arg(long)]
         workspace: PathBuf,
@@ -75,6 +87,12 @@ enum TargetCommand {
         include_paths: Vec<String>,
         #[arg(long = "exclude-path")]
         exclude_paths: Vec<String>,
+        #[arg(long)]
+        authorization_reference: String,
+        #[arg(long)]
+        authorization_document: PathBuf,
+        #[arg(long)]
+        policy: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -107,6 +125,19 @@ enum TargetCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Revalidate one profile against exact policy and authorization source bytes.
+    Validate {
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        authorization_document: PathBuf,
+        #[arg(long)]
+        policy: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
@@ -128,7 +159,41 @@ struct TargetProfile {
     include_paths: Vec<String>,
     exclude_paths: Vec<String>,
     allowed_methods: Vec<String>,
+    program: ProgramMetadata,
+    authorization: AuthorizationBinding,
+    policy_sha256: String,
+    identity_sha256: String,
     created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct ProgramMetadata {
+    name: String,
+    platform: String,
+    reference: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct AuthorizationBinding {
+    reference: String,
+    document_sha256: String,
+}
+
+#[derive(Serialize)]
+struct ProfileIdentity<'a> {
+    schema_version: u32,
+    target_id: &'a str,
+    name: &'a str,
+    origin: &'a str,
+    include_paths: &'a [String],
+    exclude_paths: &'a [String],
+    allowed_methods: &'a [String],
+    program: &'a ProgramMetadata,
+    authorization: &'a AuthorizationBinding,
+    policy_sha256: &'a str,
+    created_at: &'a str,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -149,6 +214,11 @@ struct EffectiveTarget {
     include_paths: Vec<String>,
     exclude_paths: Vec<String>,
     allowed_methods: Vec<String>,
+    program: ProgramMetadata,
+    authorization_reference: String,
+    authorization_sha256: String,
+    policy_sha256: String,
+    identity_sha256: String,
     created_at: String,
     status: &'static str,
     disabled_reason: Option<DisableReason>,
@@ -174,6 +244,9 @@ pub(crate) fn run(args: TargetArgs) -> ExitCode {
             origin,
             include_paths,
             exclude_paths,
+            authorization_reference,
+            authorization_document,
+            policy,
             json,
         } => (
             CREATE_EXIT_CODE,
@@ -186,6 +259,9 @@ pub(crate) fn run(args: TargetArgs) -> ExitCode {
                 &origin,
                 include_paths,
                 exclude_paths,
+                &authorization_reference,
+                &authorization_document,
+                &policy,
             )
             .and_then(|value| emit_value(&value, json)),
         ),
@@ -220,6 +296,19 @@ pub(crate) fn run(args: TargetArgs) -> ExitCode {
             json,
             disable_value(&workspace, &id, reason).and_then(|value| emit_value(&value, json)),
         ),
+        TargetCommand::Validate {
+            workspace,
+            id,
+            authorization_document,
+            policy,
+            json,
+        } => (
+            VALIDATE_EXIT_CODE,
+            VALIDATE_DIAGNOSTIC,
+            json,
+            validate_value(&workspace, &id, &authorization_document, &policy)
+                .and_then(|value| emit_value(&value, json)),
+        ),
     };
 
     match result {
@@ -231,6 +320,7 @@ pub(crate) fn run(args: TargetArgs) -> ExitCode {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn create_value(
     workspace_path: &Path,
     id: &str,
@@ -238,30 +328,51 @@ fn create_value(
     origin: &str,
     include_paths: Vec<String>,
     exclude_paths: Vec<String>,
+    authorization_reference: &str,
+    authorization_document: &Path,
+    policy_path: &Path,
 ) -> Result<Value> {
     let root = ready_workspace(workspace_path)?;
     let targets = targets_directory(&root)?;
     validate_target_id(id)?;
     validate_target_name(name)?;
+    validate_safe_reference(authorization_reference, "authorization reference")?;
     let origin = canonical_origin(origin)?;
     let include_paths = canonical_paths(include_paths, true)?;
     let exclude_paths = canonical_paths(exclude_paths, false)?;
     validate_path_relationships(&include_paths, &exclude_paths)?;
 
-    let profile = TargetProfile {
+    let policy_bytes = read_bounded_source(policy_path, "target policy", MAX_POLICY_BYTES)?;
+    let authorization_bytes = read_bounded_source(
+        authorization_document,
+        "authorization document",
+        MAX_AUTHORIZATION_BYTES,
+    )?;
+    let policy = parse_policy(&policy_bytes)?;
+    let compiled = policy.clone().compile(Utc::now())?;
+    let program = program_metadata(&policy)?;
+    let allowed_methods = validate_policy_binding(&compiled, &origin)?;
+
+    let mut profile = TargetProfile {
         schema_version: PROFILE_SCHEMA_VERSION,
         target_id: id.to_owned(),
         name: name.to_owned(),
         origin,
         include_paths,
         exclude_paths,
-        allowed_methods: ALLOWED_METHODS
-            .iter()
-            .map(|value| (*value).to_owned())
-            .collect(),
+        allowed_methods,
+        program,
+        authorization: AuthorizationBinding {
+            reference: authorization_reference.to_owned(),
+            document_sha256: workspace::sha256(&authorization_bytes),
+        },
+        policy_sha256: workspace::sha256(&policy_bytes),
+        identity_sha256: String::new(),
         created_at: workspace::now(),
     };
+    profile.identity_sha256 = profile_identity_sha256(&profile)?;
     validate_profile(&profile)?;
+
     let path = profile_path(&targets, id);
     if workspace::safe_exists(&disable_path(&targets, id))? {
         bail!("target disable receipt already exists without a creatable profile");
@@ -336,8 +447,56 @@ fn disable_value(workspace_path: &Path, id: &str, reason: DisableReason) -> Resu
         .context("could not serialize disabled target")
 }
 
+fn validate_value(
+    workspace_path: &Path,
+    id: &str,
+    authorization_document: &Path,
+    policy_path: &Path,
+) -> Result<Value> {
+    let root = ready_workspace(workspace_path)?;
+    let targets = targets_directory(&root)?;
+    validate_target_id(id)?;
+    let profile = read_profile(&profile_path(&targets, id))?;
+    let receipt = read_optional_receipt(&disable_path(&targets, id), &profile)?;
+
+    let policy_bytes = read_bounded_source(policy_path, "target policy", MAX_POLICY_BYTES)?;
+    let authorization_bytes = read_bounded_source(
+        authorization_document,
+        "authorization document",
+        MAX_AUTHORIZATION_BYTES,
+    )?;
+    if workspace::sha256(&policy_bytes) != profile.policy_sha256 {
+        bail!("target policy digest does not match the immutable profile");
+    }
+    if workspace::sha256(&authorization_bytes) != profile.authorization.document_sha256 {
+        bail!("authorization document digest does not match the immutable profile");
+    }
+
+    let policy = parse_policy(&policy_bytes)?;
+    let compiled = policy.clone().compile(Utc::now())?;
+    if program_metadata(&policy)? != profile.program {
+        bail!("program metadata does not match the supplied target policy");
+    }
+    if validate_policy_binding(&compiled, &profile.origin)? != profile.allowed_methods {
+        bail!("target method boundary does not match the supplied policy");
+    }
+
+    let mut value = serde_json::to_value(effective_target(profile, receipt))
+        .context("could not serialize validated target")?;
+    value["validation"] = serde_json::json!({
+        "policy_sha256": workspace::sha256(&policy_bytes),
+        "authorization_sha256": workspace::sha256(&authorization_bytes),
+        "status": "valid",
+    });
+    Ok(value)
+}
+
 fn ready_workspace(workspace_path: &Path) -> Result<PathBuf> {
     let root = workspace::validate_workspace_root(workspace_path, true)?;
+    let status = workspace::status_value(&root)?;
+    if status.get("status").and_then(Value::as_str) != Some("ready") {
+        bail!("workspace is not ready for target operations");
+    }
     let migration = workspace::migration::status_value(&root)?;
     if migration.get("status").and_then(Value::as_str) != Some("stable") {
         bail!("workspace migration recovery is required before target operations");
@@ -467,16 +626,23 @@ fn validate_profile(profile: &TargetProfile) -> Result<()> {
         bail!("target path rules are not canonical");
     }
     validate_path_relationships(&includes, &excludes)?;
-    if profile.allowed_methods.len() != ALLOWED_METHODS.len()
-        || !profile
-            .allowed_methods
-            .iter()
-            .zip(ALLOWED_METHODS.iter())
-            .all(|(actual, expected)| actual.as_str() == *expected)
-    {
-        bail!("target profile methods exceed the read-only product boundary");
+    validate_allowed_methods(&profile.allowed_methods)?;
+    validate_program_metadata(&profile.program)?;
+    validate_safe_reference(
+        &profile.authorization.reference,
+        "authorization reference",
+    )?;
+    workspace::validate_sha(
+        &profile.authorization.document_sha256,
+        "authorization document SHA-256",
+    )?;
+    workspace::validate_sha(&profile.policy_sha256, "target policy SHA-256")?;
+    workspace::validate_sha(&profile.identity_sha256, "target identity SHA-256")?;
+    validate_time(&profile.created_at, "created_at")?;
+    if profile_identity_sha256(profile)? != profile.identity_sha256 {
+        bail!("target profile identity digest does not match its content");
     }
-    validate_time(&profile.created_at, "created_at")
+    Ok(())
 }
 
 fn validate_receipt(
@@ -492,6 +658,89 @@ fn validate_receipt(
     }
     workspace::validate_sha(&receipt.profile_sha256, "profile_sha256")?;
     validate_time(&receipt.disabled_at, "disabled_at")
+}
+
+fn parse_policy(bytes: &[u8]) -> Result<TargetPolicy> {
+    let text = std::str::from_utf8(bytes).context("target policy must be UTF-8 TOML")?;
+    TargetPolicy::from_toml(text).map_err(Into::into)
+}
+
+fn program_metadata(policy: &TargetPolicy) -> Result<ProgramMetadata> {
+    let metadata = ProgramMetadata {
+        name: policy.program.name.clone(),
+        platform: policy.program.platform.clone(),
+        reference: policy.program.policy_url.clone(),
+    };
+    validate_program_metadata(&metadata)?;
+    Ok(metadata)
+}
+
+fn validate_program_metadata(metadata: &ProgramMetadata) -> Result<()> {
+    validate_target_name(&metadata.name)?;
+    if metadata.platform.is_empty()
+        || metadata.platform.len() > 64
+        || metadata.platform.to_ascii_lowercase() != metadata.platform
+        || !metadata
+            .platform
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        bail!("program platform must be a lowercase ASCII identifier");
+    }
+    if let Some(reference) = &metadata.reference {
+        validate_safe_reference(reference, "program reference")?;
+    }
+    Ok(())
+}
+
+fn validate_policy_binding(compiled: &CompiledPolicy, origin: &str) -> Result<Vec<String>> {
+    let url = Url::parse(origin).context("canonical target origin is invalid")?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("canonical target origin has no host"))?;
+    if !compiled.allows_host(host) {
+        bail!("target origin host is not permitted by the supplied policy");
+    }
+    let allowed = READ_ONLY_METHODS
+        .iter()
+        .filter(|method| compiled.allows_request(&url, method))
+        .map(|method| (*method).to_owned())
+        .collect::<Vec<_>>();
+    if !allowed.iter().any(|method| matches!(method.as_str(), "GET" | "HEAD")) {
+        bail!("target policy does not permit GET or HEAD for the exact origin");
+    }
+    validate_allowed_methods(&allowed)?;
+    Ok(allowed)
+}
+
+fn validate_allowed_methods(methods: &[String]) -> Result<()> {
+    if methods.is_empty()
+        || methods.len() > READ_ONLY_METHODS.len()
+        || methods.windows(2).any(|pair| pair[0] >= pair[1])
+        || methods
+            .iter()
+            .any(|method| !READ_ONLY_METHODS.contains(&method.as_str()))
+    {
+        bail!("target methods exceed the read-only product boundary or are not canonical");
+    }
+    Ok(())
+}
+
+fn profile_identity_sha256(profile: &TargetProfile) -> Result<String> {
+    let identity = ProfileIdentity {
+        schema_version: profile.schema_version,
+        target_id: &profile.target_id,
+        name: &profile.name,
+        origin: &profile.origin,
+        include_paths: &profile.include_paths,
+        exclude_paths: &profile.exclude_paths,
+        allowed_methods: &profile.allowed_methods,
+        program: &profile.program,
+        authorization: &profile.authorization,
+        policy_sha256: &profile.policy_sha256,
+        created_at: &profile.created_at,
+    };
+    Ok(workspace::sha256(&serde_json::to_vec(&identity)?))
 }
 
 fn canonical_origin(input: &str) -> Result<String> {
@@ -664,6 +913,30 @@ fn validate_target_name(value: &str) -> Result<()> {
     Ok(())
 }
 
+fn validate_safe_reference(value: &str, field: &str) -> Result<()> {
+    if value.is_empty()
+        || value.len() > 256
+        || value.trim() != value
+        || !value.is_ascii()
+        || !value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':' | b'/' | b'#')
+        })
+    {
+        bail!("{field} must be a bounded non-secret reference without query, credentials or whitespace");
+    }
+    if value.starts_with("https://") {
+        let url = Url::parse(value).with_context(|| format!("{field} is not a valid HTTPS URL"))?;
+        if !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+        {
+            bail!("{field} URL must not contain credentials, query or fragment");
+        }
+    }
+    Ok(())
+}
+
 fn validate_time(value: &str, field: &str) -> Result<()> {
     let parsed = chrono::DateTime::parse_from_rfc3339(value)
         .with_context(|| format!("{field} is invalid"))?;
@@ -671,6 +944,23 @@ fn validate_time(value: &str, field: &str) -> Result<()> {
         bail!("{field} must use UTC");
     }
     Ok(())
+}
+
+fn read_bounded_source(path: &Path, label: &str, maximum: u64) -> Result<Vec<u8>> {
+    workspace::reject_path_indirections(path, label)?;
+    let metadata = fs::metadata(path)
+        .with_context(|| format!("{label} is missing: {}", path.display()))?;
+    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > maximum {
+        bail!("{label} size or type is invalid");
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    File::open(path)?
+        .take(maximum + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > maximum {
+        bail!("{label} exceeds the supported size limit");
+    }
+    Ok(bytes)
 }
 
 fn profile_path(targets: &Path, id: &str) -> PathBuf {
@@ -695,6 +985,11 @@ fn effective_target(profile: TargetProfile, receipt: Option<DisableReceipt>) -> 
         include_paths: profile.include_paths,
         exclude_paths: profile.exclude_paths,
         allowed_methods: profile.allowed_methods,
+        program: profile.program,
+        authorization_reference: profile.authorization.reference,
+        authorization_sha256: profile.authorization.document_sha256,
+        policy_sha256: profile.policy_sha256,
+        identity_sha256: profile.identity_sha256,
         created_at: profile.created_at,
         status: if receipt.is_some() {
             "disabled"
@@ -730,99 +1025,224 @@ fn emit_value(value: &Value, json_output: bool) -> Result<()> {
 mod tests {
     use super::*;
 
-    fn workspace_path(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "nxb-target-{name}-{}-{}",
-            std::process::id(),
-            workspace::random_hex(8).unwrap()
-        ))
+    struct Fixture {
+        root: PathBuf,
+        policy: PathBuf,
+        authorization: PathBuf,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "nxb-target-v2-{}-{}",
+                std::process::id(),
+                workspace::random_hex(8).unwrap()
+            ));
+            workspace::initialize_value(&root, "Target Test").unwrap();
+            let policy = root.join("tmp").join("policy.toml");
+            let authorization = root.join("tmp").join("authorization.txt");
+            let policy_text = r#"schema_version = 1
+
+[program]
+name = "Example Program"
+platform = "hackerone"
+policy_url = "https://hackerone.com/example"
+
+[scope]
+include_hosts = ["example.org"]
+exclude_hosts = []
+allowed_schemes = ["https"]
+allowed_methods = ["GET", "HEAD", "OPTIONS"]
+allow_subdomains = false
+
+[automation]
+active_testing = false
+credential_bruteforce = false
+destructive_testing = false
+oob_callbacks = false
+max_requests_per_second = 1.0
+max_concurrency = 1
+max_total_requests = 10
+
+[authorization]
+confirmed = true
+researcher = "test-researcher"
+policy_snapshot_sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+expires_at = 2099-01-01T00:00:00Z
+"#;
+            workspace::create_document(&policy, policy_text.as_bytes()).unwrap();
+            workspace::create_document(
+                &authorization,
+                b"Bearer secret-that-must-never-be-persisted\n",
+            )
+            .unwrap();
+            Self {
+                root,
+                policy,
+                authorization,
+            }
+        }
+
+        fn create(&self) -> Value {
+            create_value(
+                &self.root,
+                "example-app",
+                "Example App",
+                "https://example.org",
+                vec!["/api".into()],
+                vec!["/api/logout".into()],
+                "hackerone/program/example#scope-2026",
+                &self.authorization,
+                &self.policy,
+            )
+            .unwrap()
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
     }
 
     #[test]
-    fn creates_lists_shows_and_disables_target() {
-        let root = workspace_path("lifecycle");
-        workspace::initialize_value(&root, "Target Test").unwrap();
-        let created = create_value(
-            &root,
-            "example-app",
-            "Example App",
+    fn creates_validates_lists_shows_and_disables_target() {
+        let fixture = Fixture::new();
+        let created = fixture.create();
+        assert_eq!(created.get("status").and_then(Value::as_str), Some("active"));
+        assert_eq!(
+            validate_value(
+                &fixture.root,
+                "example-app",
+                &fixture.authorization,
+                &fixture.policy,
+            )
+            .unwrap()
+            .pointer("/validation/status")
+            .and_then(Value::as_str),
+            Some("valid")
+        );
+        assert_eq!(
+            list_value(&fixture.root, false)
+                .unwrap()
+                .get("count")
+                .and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            show_value(&fixture.root, "example-app")
+                .unwrap()
+                .get("policy_sha256")
+                .and_then(Value::as_str)
+                .map(str::len),
+            Some(64)
+        );
+        let disabled =
+            disable_value(&fixture.root, "example-app", DisableReason::OperatorHold).unwrap();
+        assert_eq!(disabled.get("status").and_then(Value::as_str), Some("disabled"));
+    }
+
+    #[test]
+    fn secret_source_bytes_and_paths_are_not_persisted() {
+        let fixture = Fixture::new();
+        fixture.create();
+        let text = fs::read_to_string(fixture.root.join("targets").join("example-app.json"))
+            .unwrap();
+        assert!(!text.contains("Bearer"));
+        assert!(!text.contains("secret-that-must-never-be-persisted"));
+        assert!(!text.contains(fixture.policy.to_string_lossy().as_ref()));
+        assert!(!text.contains(fixture.authorization.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn rejects_unsafe_origin_path_reference_and_policy_scope() {
+        let fixture = Fixture::new();
+        assert!(create_value(
+            &fixture.root,
+            "unsafe-origin",
+            "Unsafe",
+            "https://user@example.org",
+            vec!["/".into()],
+            Vec::new(),
+            "hackerone/program/example#scope-2026",
+            &fixture.authorization,
+            &fixture.policy,
+        )
+        .is_err());
+        assert!(create_value(
+            &fixture.root,
+            "unsafe-path",
+            "Unsafe",
             "https://example.org",
-            vec!["/api".into()],
-            vec!["/api/logout".into()],
+            vec!["/api%2fadmin".into()],
+            Vec::new(),
+            "hackerone/program/example#scope-2026",
+            &fixture.authorization,
+            &fixture.policy,
+        )
+        .is_err());
+        assert!(create_value(
+            &fixture.root,
+            "unsafe-reference",
+            "Unsafe",
+            "https://example.org",
+            vec!["/".into()],
+            Vec::new(),
+            "https://example.org/scope?token=secret",
+            &fixture.authorization,
+            &fixture.policy,
+        )
+        .is_err());
+        assert!(create_value(
+            &fixture.root,
+            "outside-policy",
+            "Unsafe",
+            "https://other.example.org",
+            vec!["/".into()],
+            Vec::new(),
+            "hackerone/program/example#scope-2026",
+            &fixture.authorization,
+            &fixture.policy,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn active_profile_tamper_is_rejected_by_identity_digest() {
+        let fixture = Fixture::new();
+        fixture.create();
+        let path = fixture.root.join("targets").join("example-app.json");
+        let mut value: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        value["name"] = Value::String("Tampered Name".into());
+        let mut bytes = serde_json::to_vec_pretty(&value).unwrap();
+        bytes.push(b'\n');
+        workspace::replace_document(&path, &bytes).unwrap();
+        assert!(show_value(&fixture.root, "example-app").is_err());
+    }
+
+    #[test]
+    fn source_digest_drift_is_rejected() {
+        let fixture = Fixture::new();
+        fixture.create();
+        workspace::replace_document(&fixture.authorization, b"different authorization\n")
+            .unwrap();
+        assert!(validate_value(
+            &fixture.root,
+            "example-app",
+            &fixture.authorization,
+            &fixture.policy,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn pending_migration_blocks_target_operations() {
+        let fixture = Fixture::new();
+        workspace::create_document(
+            &fixture.root.join("state").join("migration-active.json"),
+            b"{}\n",
         )
         .unwrap();
-        assert_eq!(
-            created.get("status").and_then(Value::as_str),
-            Some("active")
-        );
-        assert_eq!(
-            created.get("network_activity").and_then(Value::as_str),
-            Some("none")
-        );
-        assert_eq!(
-            list_value(&root, false)
-                .unwrap()
-                .get("count")
-                .and_then(Value::as_u64),
-            Some(1)
-        );
-        let disabled = disable_value(&root, "example-app", DisableReason::OperatorHold).unwrap();
-        assert_eq!(
-            disabled.get("status").and_then(Value::as_str),
-            Some("disabled")
-        );
-        assert_eq!(
-            list_value(&root, false)
-                .unwrap()
-                .get("count")
-                .and_then(Value::as_u64),
-            Some(0)
-        );
-        assert_eq!(
-            list_value(&root, true)
-                .unwrap()
-                .get("count")
-                .and_then(Value::as_u64),
-            Some(1)
-        );
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn rejects_non_https_credentials_ip_and_reserved_hosts() {
-        for origin in [
-            "http://example.org",
-            "https://user@example.org",
-            "https://127.0.0.1",
-            "https://service.internal",
-            "https://*.example.org",
-        ] {
-            assert!(canonical_origin(origin).is_err(), "origin accepted: {origin}");
-        }
-    }
-
-    #[test]
-    fn rejects_ambiguous_or_out_of_scope_paths() {
-        for path in [
-            "api",
-            "//api",
-            "/api/../admin",
-            "/api%2fadmin",
-            "/api?x=1",
-        ] {
-            assert!(validate_scope_path(path).is_err(), "path accepted: {path}");
-        }
-        assert!(validate_path_relationships(&["/api".into()], &["/admin".into()]).is_err());
-    }
-
-    #[test]
-    fn target_operations_require_stable_migration_state() {
-        let root = workspace_path("migration");
-        workspace::initialize_value(&root, "Target Test").unwrap();
-        let active = root.join("state").join("migration-active.json");
-        fs::write(&active, b"{}\n").unwrap();
-        workspace::set_private_file_permissions(&active).unwrap();
-        assert!(list_value(&root, false).is_err());
-        fs::remove_dir_all(root).unwrap();
+        assert!(list_value(&fixture.root, false).is_err());
     }
 }
