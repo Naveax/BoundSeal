@@ -29,7 +29,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt
-      - name: Apply deterministic source repairs
+      - name: Apply deterministic source hardening
         shell: bash
         run: |
           set -euo pipefail
@@ -40,22 +40,110 @@ jobs:
           text = path.read_text(encoding="utf-8")
           replacements = [
               (
-                  "self.ciphertext_hex.len() % 2 != 0",
-                  "!self.ciphertext_hex.len().is_multiple_of(2)",
+                  '''        let plaintext = canonical_json(record)?;
+        let envelope = self
+            .sealer
+            .seal(SealedEvidenceBinding::from_record(record), &plaintext)?;''',
+                  '''        let mut plaintext = canonical_json(record)?;
+        let envelope_result = self
+            .sealer
+            .seal(SealedEvidenceBinding::from_record(record), &plaintext);
+        plaintext.zeroize();
+        let envelope = envelope_result?;''',
               ),
               (
-                  "if value.len() % 2 != 0 {",
-                  "if !value.len().is_multiple_of(2) {",
+                  '''        let plaintext = self.sealer.open(envelope)?;
+        let record: EvidenceRecord = serde_json::from_slice(&plaintext)
+            .map_err(|error| EvidenceSealerError::Serialization(error.to_string()))?;
+        if plaintext != canonical_json(&record)? {
+            return Err(EvidenceSealerError::NonCanonicalPlaintext);
+        }
+        validate_record(&record)?;
+        if SealedEvidenceBinding::from_record(&record) != envelope.binding {
+            return Err(EvidenceSealerError::BindingMismatch);
+        }
+        Ok(record)''',
+                  '''        let mut plaintext = self.sealer.open(envelope)?;
+        let result = (|| -> Result<EvidenceRecord, EvidenceSealerError> {
+            let record: EvidenceRecord = serde_json::from_slice(&plaintext)
+                .map_err(|error| EvidenceSealerError::Serialization(error.to_string()))?;
+            let mut canonical_plaintext = canonical_json(&record)?;
+            let canonical_matches = plaintext == canonical_plaintext;
+            canonical_plaintext.zeroize();
+            if !canonical_matches {
+                return Err(EvidenceSealerError::NonCanonicalPlaintext);
+            }
+            validate_record(&record)?;
+            if SealedEvidenceBinding::from_record(&record) != envelope.binding {
+                return Err(EvidenceSealerError::BindingMismatch);
+            }
+            Ok(record)
+        })();
+        plaintext.zeroize();
+        result''',
               ),
               (
-                  'envelope.ciphertext_hex.replace_range(0..2, "00");',
-                  'let replacement = if &envelope.ciphertext_hex[..2] == "00" { "01" } else { "00" };\n        envelope.ciphertext_hex.replace_range(0..2, replacement);',
+                  '''    let input_bytes = serde_json::to_vec(&input)
+        .map_err(|error| EvidenceSealerError::Serialization(error.to_string()))?;
+    if input_bytes.len() != record.serialized_bytes
+        || hash_bytes(&input_bytes) != record.content_sha256
+        || record.evidence_id != format!("evidence-{}", &record.content_sha256[..24])
+    {
+        return Err(EvidenceSealerError::EvidenceContentDigestMismatch);
+    }''',
+                  '''    let mut input_bytes = serde_json::to_vec(&input)
+        .map_err(|error| EvidenceSealerError::Serialization(error.to_string()))?;
+    let input_matches = input_bytes.len() == record.serialized_bytes
+        && hash_bytes(&input_bytes) == record.content_sha256;
+    input_bytes.zeroize();
+    if !input_matches
+        || record.evidence_id != format!("evidence-{}", &record.content_sha256[..24])
+    {
+        return Err(EvidenceSealerError::EvidenceContentDigestMismatch);
+    }''',
+              ),
+              (
+                  '''    validate_identifier(evidence_id, "evidence_id")?;
+    if !evidence_id.starts_with("evidence-") {
+        return Err(EvidenceSealerError::UnexpectedStoreEntry);
+    }
+    Ok(evidence_id.into())''',
+                  '''    validate_identifier(evidence_id, "evidence_id")?;
+    let digest = evidence_id
+        .strip_prefix("evidence-")
+        .ok_or(EvidenceSealerError::UnexpectedStoreEntry)?;
+    if digest.len() != 24
+        || !digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(EvidenceSealerError::UnexpectedStoreEntry);
+    }
+    Ok(evidence_id.into())''',
+              ),
+              (
+                  '''    #[test]
+    fn key_debug_output_is_redacted() {''',
+                  '''    #[test]
+    fn malformed_content_addressed_file_name_is_rejected() {
+        assert!(matches!(
+            parse_sealed_file_name("evidence-gggggggggggggggggggggggg.nxbseal"),
+            Err(EvidenceSealerError::UnexpectedStoreEntry)
+        ));
+        assert!(matches!(
+            parse_sealed_file_name("evidence-0123456789abcdef.nxbseal"),
+            Err(EvidenceSealerError::UnexpectedStoreEntry)
+        ));
+    }
+
+    #[test]
+    fn key_debug_output_is_redacted() {''',
               ),
           ]
           for old, new in replacements:
               count = text.count(old)
               if count != 1:
-                  raise SystemExit(f"expected exactly one occurrence of {old!r}, found {count}")
+                  raise SystemExit(f"expected exactly one occurrence of source block, found {count}: {old[:80]!r}")
               text = text.replace(old, new, 1)
           path.write_text(text, encoding="utf-8", newline="\n")
           PY
@@ -67,5 +155,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Cargo.lock crates/nxb-evidence-sealer/src/lib.rs
-          git commit -m "NXB-148: fix Clippy and deterministic tamper fixture"
+          git commit -m "NXB-148: zeroize plaintext and tighten file identities"
           git push origin HEAD:nxb-148-production-evidence-sealer
