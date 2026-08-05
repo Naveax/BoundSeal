@@ -9,25 +9,25 @@ nxb.exe   # Windows
 nxb       # Linux
 ```
 
-The commands below describe the intended exact-head acceptance flow. They are not a release claim until the pinned Rust 1.97.1, Windows and Linux gates pass and PRs #68 and #70 are merged.
+The commands below describe the intended exact-head acceptance flow. They are not a release claim until pinned Rust 1.97.1, Windows, Linux and installer gates pass and PRs #68 and #70 merge.
 
 ## Safety model
 
 Before using NXB on a real program:
 
 - read the current program policy;
-- confirm that automated testing is allowed;
-- preserve the exact policy bytes reviewed by the operator;
+- confirm automated testing is allowed;
+- preserve the exact policy bytes reviewed;
 - preserve a separate authorization document or approval export;
-- use only accounts, tenants and assets that you are authorized to test;
+- use only accounts, tenants and assets you are authorized to test;
 - keep automatic submission disabled;
-- do not place cookies, tokens, passwords or API keys in workspace JSON files.
+- do not place cookies, tokens, passwords or API keys in workspace JSON.
 
-A local target profile narrows product behavior and binds source digests. It does **not** prove that an authorization document is genuine or sufficient.
+A local target profile narrows product behavior and binds source digests. It does not prove that an authorization document is genuine or sufficient.
 
 ## 1. Create a private workspace
 
-Windows PowerShell:
+Windows:
 
 ```powershell
 .\nxb.exe workspace init `
@@ -45,8 +45,6 @@ Linux:
   --json
 ```
 
-The product creates a fixed schema-versioned layout and stores no secret values.
-
 ## 2. Check workspace health
 
 ```text
@@ -54,35 +52,22 @@ nxb workspace doctor --workspace <workspace> --json
 nxb workspace status --workspace <workspace> --json
 ```
 
-Expected healthy state:
-
-```json
-{
-  "status": "healthy",
-  "migration": {
-    "status": "stable"
-  }
-}
-```
-
-A pending migration blocks target and later product operations. Recover it explicitly:
+A pending migration blocks target and later operations:
 
 ```text
 nxb workspace migrate recover --workspace <workspace> --json
 ```
 
-## 3. Prepare and validate source documents
+## 3. Prepare source documents
 
-NXB target profiles require two local source files:
+Target profiles require:
 
 ```text
 <program-policy.toml>
 <authorization-document>
 ```
 
-The policy is parsed and compiled. The authorization document is treated as opaque bytes and is only represented in the profile by SHA-256 plus a safe external reference.
-
-Validate the policy without network access:
+The policy is compiled. The authorization document is treated as opaque bytes and represented only by SHA-256 plus a safe external reference.
 
 ```text
 nxb validate-policy \
@@ -90,16 +75,14 @@ nxb validate-policy \
   --now <current-rfc3339-time>
 ```
 
-The repository contains synthetic fixtures for acceptance only:
+Synthetic acceptance fixtures are not authorization for real systems:
 
 ```text
 fixtures/nxb-151/synthetic-policy.toml
 fixtures/nxb-151/synthetic-authorization.txt
 ```
 
-They are not authorization to test any real asset.
-
-## 4. Create and validate one narrow target profile
+## 4. Create and validate one target
 
 ```text
 nxb target create \
@@ -109,15 +92,11 @@ nxb target create \
   --origin https://example.org \
   --include-path /api \
   --exclude-path /api/logout \
-  --authorization-reference <safe-program-or-approval-reference> \
+  --authorization-reference <safe-reference> \
   --authorization-document <authorization-document> \
   --policy <program-policy.toml> \
   --json
 ```
-
-The profile is networkless, immutable and contains only safe metadata and source digests. Raw policy bytes, authorization bytes and local source paths are not persisted.
-
-Re-read the current source files and verify that their SHA-256 values, policy scope, program metadata and method intersection still match:
 
 ```text
 nxb target validate \
@@ -128,22 +107,12 @@ nxb target validate \
   --json
 ```
 
-Review the stored profile:
-
 ```text
 nxb target show --workspace <workspace> --id example-app --json
 nxb target list --workspace <workspace> --json
 ```
 
-The stored method set is the intersection of the supplied policy and the product maximum:
-
-```text
-GET
-HEAD
-OPTIONS
-```
-
-Disable the target without modifying the original profile:
+Disable without modifying the profile:
 
 ```text
 nxb target disable \
@@ -153,9 +122,7 @@ nxb target disable \
   --json
 ```
 
-Disabling publishes a separate SHA-256-bound receipt. NXB-151 does not support reactivation.
-
-## 5. Produce a networkless scan and report bundle
+## 5. Produce a networkless scan/report bundle
 
 ```text
 nxb scan \
@@ -170,8 +137,6 @@ nxb scan \
   --now <current-rfc3339-time>
 ```
 
-This command does not contact the target. Without a supplied local response snapshot, it produces a bounded plan and explicitly records untested areas.
-
 Expected artifacts:
 
 ```text
@@ -182,16 +147,72 @@ hackerone-draft.md
 manifest.json
 ```
 
-The HackerOne document is a manual-review draft only. NXB does not submit it.
+The HackerOne document is manual-review only. NXB does not submit it.
 
-## 6. Generate and verify the architecture receipt
+## 6. Generate and verify architecture receipt
 
 ```text
 nxb demo-run --output <workspace>/reports/demo-receipt.json
 nxb verify-demo <workspace>/reports/demo-receipt.json
 ```
 
-## 7. Confirm final local state
+## 7. Create a signed release template
+
+Release manifest schema `2` requires a positive monotonic revision sequence:
+
+```text
+nxb release manifest-template \
+  --release-id v0.1.0-r1 \
+  --release-sequence 1 \
+  --source-commit <exact-40-character-commit> \
+  --platform <windows|linux> \
+  --architecture x86-64 \
+  --binary <nxb.exe|nxb> \
+  --sbom <nxb.cdx.json> \
+  --checksums <SHA256SUMS> \
+  --generated-at <utc-rfc3339> \
+  --output <nxb-release-manifest.json> \
+  --json
+```
+
+Sign the exact decoded `signing_payload_hex` externally with Ed25519, insert the lowercase signature into `signature_hex`, then verify:
+
+```text
+nxb release verify-manifest \
+  --document <nxb-release-manifest.json> \
+  --public-key <release-public-key.hex> \
+  --binary <nxb.exe|nxb> \
+  --sbom <nxb.cdx.json> \
+  --checksums <SHA256SUMS> \
+  --json
+```
+
+Release ordering is `(SemVer, release_sequence)`. Never reuse a sequence for a different source commit or manifest.
+
+## 8. Windows install, rollback and uninstall
+
+```powershell
+.\scripts\install-nxb-windows.ps1 `
+  -PackageDirectory C:\path\to\five-file-package `
+  -ExpectedPublisherThumbprint <publisher-thumbprint> `
+  -ExpectedReleasePublicKeySha256 <release-key-file-sha256>
+```
+
+```powershell
+.\scripts\rollback-nxb-windows.ps1 `
+  -ExpectedPublisherThumbprint <publisher-thumbprint> `
+  -ExpectedReleasePublicKeySha256 <release-key-file-sha256>
+```
+
+```powershell
+.\scripts\uninstall-nxb-windows.ps1 `
+  -ExpectedPublisherThumbprint <publisher-thumbprint> `
+  -ExpectedReleasePublicKeySha256 <release-key-file-sha256>
+```
+
+Uninstall preserves workspace/data by default. Data deletion requires `-PurgeData`.
+
+## 9. Confirm final local state
 
 ```text
 nxb workspace doctor --workspace <workspace> --json
@@ -201,42 +222,19 @@ nxb system-status
 
 ## Machine-readable failures
 
-Product commands invoked with `--json` emit a versioned diagnostic JSON document on stderr and preserve operation-specific exit codes.
+Commands with `--json` emit versioned diagnostic JSON on stderr and preserve operation-specific exit codes. Automation must use `code` and `exit_code`, not parse message text.
 
-Example:
-
-```json
-{
-  "schema_version": 1,
-  "status": "error",
-  "code": "NXB151-TARGET-CREATE-REJECTED",
-  "domain": "target",
-  "operation": "create",
-  "exit_code": 50,
-  "message": "..."
-}
-```
-
-Automation must use `code` and `exit_code`, not parse the message. `target validate` failures use exit code `54` and diagnostic code `NXB151-TARGET-VALIDATE-INVALID`.
-
-## Full synthetic acceptance
-
-Linux:
+## Acceptance harnesses
 
 ```bash
 bash scripts/validate-nxb-151-synthetic-linux.sh
 ```
 
-Windows:
-
 ```powershell
 pwsh -NoProfile -File .\scripts\validate-nxb-151-synthetic-windows.ps1
+pwsh -NoProfile -File .\scripts\validate-nxb-151-installer-windows.ps1
 ```
 
-These harnesses execute the full sequence using the pinned toolchain, a clean exact head and the single `nxb` executable. They generate local evidence under:
+The installer harness builds a previous exact ancestor and the final exact head, creates signed sequences `1` and `2`, then exercises install, upgrade, replay rejection, rollback, re-upgrade, tamper rejection and data-preserving uninstall.
 
-```text
-target/nxb-validation/
-```
-
-No successful acceptance result is claimed until those files are generated and reviewed on the same final head.
+No successful acceptance result is claimed until evidence is generated and reviewed on the same final head.
