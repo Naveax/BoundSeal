@@ -31,7 +31,7 @@ function Invoke-NativeJson {
         }
         throw "Command '$FilePath $($Arguments -join ' ')' returned $exitCode. $errorText"
     }
-    return ($raw | ConvertFrom-Json -Depth 32)
+    return ($raw | ConvertFrom-Json -Depth 64)
 }
 
 function Assert-NativeExit {
@@ -93,25 +93,88 @@ try {
     $outputDirectory = Join-Path ([IO.Path]::GetTempPath()) "nxb-151-target-output-$nonce"
     New-Item -ItemType Directory -Path $outputDirectory | Out-Null
 
+    $policy = Join-Path $outputDirectory "target-policy.toml"
+    $authorization = Join-Path $outputDirectory "authorization.txt"
+    $policyText = @'
+schema_version = 1
+
+[program]
+name = "Example Program"
+platform = "hackerone"
+policy_url = "https://hackerone.com/example"
+
+[scope]
+include_hosts = ["example.org"]
+exclude_hosts = []
+allowed_schemes = ["https"]
+allowed_methods = ["GET", "HEAD", "OPTIONS"]
+allow_subdomains = false
+
+[automation]
+active_testing = false
+credential_bruteforce = false
+destructive_testing = false
+oob_callbacks = false
+max_requests_per_second = 1.0
+max_concurrency = 1
+max_total_requests = 10
+
+[authorization]
+confirmed = true
+researcher = "acceptance-researcher"
+policy_snapshot_sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+expires_at = 2099-01-01T00:00:00Z
+'@
+    [IO.File]::WriteAllText($policy, $policyText + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText(
+        $authorization,
+        "Bearer secret-that-must-never-be-persisted" + [Environment]::NewLine,
+        [Text.UTF8Encoding]::new($false)
+    )
+
     $initialized = Invoke-NativeJson -FilePath $nxb -Name "init" -Arguments @(
         "workspace", "init", "--workspace", $workspace,
         "--name", "Target Windows Acceptance", "--json"
     )
     if ($initialized.status -ne "initialized") { throw "Workspace initialization failed." }
 
+    $bindingArguments = @(
+        "--authorization-reference", "hackerone/program/example#scope-2026",
+        "--authorization-document", $authorization,
+        "--policy", $policy
+    )
     $created = Invoke-NativeJson -FilePath $nxb -Name "create" -Arguments @(
         "target", "create", "--workspace", $workspace,
         "--id", "example-app", "--name", "Example App",
         "--origin", "https://example.org",
         "--include-path", "/api",
-        "--exclude-path", "/api/logout",
+        "--exclude-path", "/api/logout"
+    ) + $bindingArguments + @("--json")
+    if ($created.status -ne "active" -or
+        $created.origin -ne "https://example.org" -or
+        $created.program.platform -ne "hackerone" -or
+        $created.authorization_reference -ne "hackerone/program/example#scope-2026" -or
+        $created.network_activity -ne "none") {
+        throw "Created authorization-bound target output is invalid."
+    }
+    if (($created.allowed_methods -join ',') -ne "GET,HEAD,OPTIONS" -or
+        $created.authorization_sha256.Length -ne 64 -or
+        $created.policy_sha256.Length -ne 64 -or
+        $created.identity_sha256.Length -ne 64) {
+        throw "Created target digests or read-only methods are invalid."
+    }
+
+    $validated = Invoke-NativeJson -FilePath $nxb -Name "validate" -Arguments @(
+        "target", "validate", "--workspace", $workspace,
+        "--id", "example-app",
+        "--authorization-document", $authorization,
+        "--policy", $policy,
         "--json"
     )
-    if ($created.status -ne "active" -or $created.origin -ne "https://example.org") {
-        throw "Created target output is invalid."
-    }
-    if (($created.allowed_methods -join ',') -ne "GET,HEAD,OPTIONS") {
-        throw "Created target methods exceed or differ from the read-only boundary."
+    if ($validated.validation.status -ne "valid" -or
+        $validated.validation.authorization_sha256 -ne $created.authorization_sha256 -or
+        $validated.validation.policy_sha256 -ne $created.policy_sha256) {
+        throw "Target source validation output is invalid."
     }
 
     $listed = Invoke-NativeJson -FilePath $nxb -Name "list" -Arguments @(
@@ -131,6 +194,14 @@ try {
         throw "Target show output is invalid."
     }
 
+    $profile = Join-Path $workspace "targets\example-app.json"
+    $profileText = Get-Content -LiteralPath $profile -Raw
+    if ($profileText.Contains("secret-that-must-never-be-persisted") -or
+        $profileText.Contains($policy) -or
+        $profileText.Contains($authorization)) {
+        throw "Target profile persisted source secret bytes or local source paths."
+    }
+
     $invalidOrigins = @(
         "http://example.org",
         "https://user@example.org",
@@ -142,24 +213,32 @@ try {
         Assert-NativeExit -Expected 50 -FilePath $nxb -Name "invalid-origin-$index" -Arguments @(
             "target", "create", "--workspace", $workspace,
             "--id", "invalid-$index", "--name", "Invalid Origin",
-            "--origin", $invalidOrigins[$index], "--json"
-        )
+            "--origin", $invalidOrigins[$index]
+        ) + $bindingArguments + @("--json")
     }
     Assert-NativeExit -Expected 50 -FilePath $nxb -Name "invalid-path" -Arguments @(
         "target", "create", "--workspace", $workspace,
         "--id", "invalid-path", "--name", "Invalid Path",
         "--origin", "https://example.org",
-        "--include-path", "/api%2fadmin", "--json"
+        "--include-path", "/api%2fadmin"
+    ) + $bindingArguments + @("--json")
+    Assert-NativeExit -Expected 50 -FilePath $nxb -Name "invalid-reference" -Arguments @(
+        "target", "create", "--workspace", $workspace,
+        "--id", "invalid-reference", "--name", "Invalid Reference",
+        "--origin", "https://example.org",
+        "--authorization-reference", "https://example.org/scope?token=secret",
+        "--authorization-document", $authorization,
+        "--policy", $policy,
+        "--json"
     )
 
-    $profile = Join-Path $workspace "targets\example-app.json"
     $profileBackup = Join-Path $outputDirectory "profile.original"
     [IO.File]::WriteAllBytes($profileBackup, [IO.File]::ReadAllBytes($profile))
-    $profileValue = Get-Content -LiteralPath $profile -Raw | ConvertFrom-Json -Depth 32
-    $profileValue.origin = "https://attacker.invalid"
+    $profileValue = Get-Content -LiteralPath $profile -Raw | ConvertFrom-Json -Depth 64
+    $profileValue.name = "Tampered Target"
     [IO.File]::WriteAllText(
         $profile,
-        ($profileValue | ConvertTo-Json -Depth 32) + [Environment]::NewLine,
+        ($profileValue | ConvertTo-Json -Depth 64) + [Environment]::NewLine,
         [Text.UTF8Encoding]::new($false)
     )
     Assert-NativeExit -Expected 52 -FilePath $nxb -Name "profile-tamper" -Arguments @(
@@ -167,6 +246,22 @@ try {
         "--id", "example-app", "--json"
     )
     [IO.File]::WriteAllBytes($profile, [IO.File]::ReadAllBytes($profileBackup))
+
+    $authorizationBackup = Join-Path $outputDirectory "authorization.original"
+    [IO.File]::WriteAllBytes($authorizationBackup, [IO.File]::ReadAllBytes($authorization))
+    [IO.File]::WriteAllText(
+        $authorization,
+        "different authorization" + [Environment]::NewLine,
+        [Text.UTF8Encoding]::new($false)
+    )
+    Assert-NativeExit -Expected 54 -FilePath $nxb -Name "authorization-drift" -Arguments @(
+        "target", "validate", "--workspace", $workspace,
+        "--id", "example-app",
+        "--authorization-document", $authorization,
+        "--policy", $policy,
+        "--json"
+    )
+    [IO.File]::WriteAllBytes($authorization, [IO.File]::ReadAllBytes($authorizationBackup))
 
     $disabled = Invoke-NativeJson -FilePath $nxb -Name "disable" -Arguments @(
         "target", "disable", "--workspace", $workspace,
@@ -189,11 +284,11 @@ try {
     $receipt = Join-Path $workspace "targets\example-app.disabled.json"
     $receiptBackup = Join-Path $outputDirectory "receipt.original"
     [IO.File]::WriteAllBytes($receiptBackup, [IO.File]::ReadAllBytes($receipt))
-    $receiptValue = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json -Depth 32
-    $receiptValue.profile_sha256 = "0" * 64
+    $receiptValue = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json -Depth 64
+    $receiptValue.profile_sha256 = [string]::new([char]'0', 64)
     [IO.File]::WriteAllText(
         $receipt,
-        ($receiptValue | ConvertTo-Json -Depth 32) + [Environment]::NewLine,
+        ($receiptValue | ConvertTo-Json -Depth 64) + [Environment]::NewLine,
         [Text.UTF8Encoding]::new($false)
     )
     Assert-NativeExit -Expected 52 -FilePath $nxb -Name "receipt-tamper" -Arguments @(
@@ -222,8 +317,11 @@ try {
     )
     Remove-Item -LiteralPath $migrationActive -Force
     [void](Invoke-NativeJson -FilePath $nxb -Name "restored" -Arguments @(
-        "target", "show", "--workspace", $workspace,
-        "--id", "example-app", "--json"
+        "target", "validate", "--workspace", $workspace,
+        "--id", "example-app",
+        "--authorization-document", $authorization,
+        "--policy", $policy,
+        "--json"
     ))
 
     $validationDirectory = Join-Path $RepoRoot "target\nxb-validation"
@@ -232,15 +330,18 @@ try {
     $evidence = [ordered]@{
         schema_version = 1
         milestone = "NXB-151"
-        gate = "target_profiles"
+        gate = "authorization_bound_target_profiles"
         platform = "windows"
         head_sha = $head
         rustc = $rustcVersion
         binary_sha256 = (Get-FileHash -LiteralPath $nxb -Algorithm SHA256).Hash.ToLowerInvariant()
         checks = [ordered]@{
-            create_list_show_disable = "passed"
-            origin_and_path_rejection = "passed"
-            profile_tamper_rejection = "passed"
+            create_validate_list_show_disable = "passed"
+            authorization_and_policy_binding = "passed"
+            secret_and_source_path_non_persistence = "passed"
+            origin_path_and_reference_rejection = "passed"
+            identity_tamper_rejection = "passed"
+            source_digest_drift_exit_54 = "passed"
             receipt_tamper_rejection = "passed"
             broad_acl_rejection = "passed"
             pending_migration_exit_51 = "passed"
@@ -249,11 +350,11 @@ try {
     }
     [IO.File]::WriteAllText(
         $evidencePath,
-        ($evidence | ConvertTo-Json -Depth 8) + [Environment]::NewLine,
+        ($evidence | ConvertTo-Json -Depth 12) + [Environment]::NewLine,
         [Text.UTF8Encoding]::new($false)
     )
 
-    Write-Host "NXB-151 target Windows validation passed."
+    Write-Host "NXB-151 authorization-bound target Windows validation passed."
     Write-Host "HEAD: $head"
     Write-Host "Evidence: $evidencePath"
 }
