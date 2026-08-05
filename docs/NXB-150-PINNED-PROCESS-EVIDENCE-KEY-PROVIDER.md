@@ -26,7 +26,9 @@ The adapter preserves the NXB-140 process controls:
 - bounded operation timeout;
 - fail-closed child termination and clean-exit enforcement.
 
-The underlying `ProcessVaultProvider` Drop implementation terminates every child that did not reach `Finished`. Therefore store mismatch, begin failure, caller abandonment and incomplete teardown cannot leave an unmanaged helper process running.
+Adapter construction is side-effect free. `ProcessEvidenceKeyProvider::new` validates configuration and derives the capability identity without opening a process. The NXB-149 host first validates the plan, Ed25519 activation and exact provider identity. Only the subsequent provider `begin` call consumes the stored process configuration, validates the pinned executable and performs the process handshake.
+
+The underlying `ProcessVaultProvider` Drop implementation terminates every child that did not reach `Finished`. Therefore begin failure, caller abandonment and incomplete teardown cannot leave an unmanaged helper process running. Store mismatch is rejected before process creation.
 
 ## Capability identity
 
@@ -51,16 +53,17 @@ The configured transport session expiry is a capability-bound compatibility enve
 
 The adapter maps one NXB-149 acquisition to one NXB-140 process session:
 
-1. connect and complete the pinned process handshake;
-2. report the derived NXB-149 identity;
-3. validate the exact store-bound begin request before process-session begin;
-4. open one process-provider session;
-5. validate the exact plan/store/key-bound fetch request before child fetch;
-6. issue one process secret fetch with a 32-byte maximum;
-7. validate optional provider-version pinning locally even if the helper ignores the requested pin;
-8. transfer the zeroizing process secret into `ProviderKeyMaterial`;
-9. map completed or aborted NXB-149 teardown to committed or aborted process teardown;
-10. return success only after the process exits cleanly.
+1. validate adapter configuration and derive the content-bound NXB-149 provider identity without spawning;
+2. let NXB-149 validate the exact plan, active time window, Ed25519 activation and provider identity;
+3. validate the exact store-bound begin request before process creation;
+4. consume the process configuration, validate the executable and complete the nonce-bound process handshake;
+5. open one process-provider session;
+6. validate the exact plan/store/key-bound fetch request before child fetch;
+7. issue one process secret fetch with a 32-byte maximum;
+8. validate optional provider-version pinning locally even if the helper ignores the requested pin;
+9. transfer the zeroizing process secret into `ProviderKeyMaterial`;
+10. map completed or aborted NXB-149 teardown to committed or aborted process teardown;
+11. return success only after the process exits cleanly.
 
 The process provider handle is required by the child protocol but is never included in adapter `Debug` output, receipts or capability plaintext. Only its SHA-256 is capability-bound. Invalid-length key material is zeroized by the NXB-149 material constructor before rejection.
 
@@ -69,8 +72,9 @@ The process provider handle is required by the child protocol but is never inclu
 The real child-process fixture and integration tests cover:
 
 - successful 32-byte acquisition and clean process teardown;
-- executable digest mismatch before use;
-- store mismatch before provider-session begin;
+- invalid activation rejection before process spawn;
+- executable digest mismatch during the signed begin phase;
+- store mismatch before provider-session begin and process creation;
 - exact fetch-request mismatch before child fetch;
 - returned key length rejection;
 - provider-version mismatch followed by aborted teardown;
