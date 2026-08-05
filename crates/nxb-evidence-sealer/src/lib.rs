@@ -142,10 +142,7 @@ impl ProductionEvidenceSealer {
         Ok(envelope)
     }
 
-    fn open(
-        &self,
-        envelope: &SealedEvidenceEnvelope,
-    ) -> Result<Vec<u8>, EvidenceSealerError> {
+    fn open(&self, envelope: &SealedEvidenceEnvelope) -> Result<Vec<u8>, EvidenceSealerError> {
         envelope.validate()?;
         if envelope.key_id != self.key_id {
             return Err(EvidenceSealerError::KeyIdMismatch);
@@ -597,9 +594,7 @@ fn validate_record(record: &EvidenceRecord) -> Result<(), EvidenceSealerError> {
     Ok(())
 }
 
-fn parse_canonical_envelope(
-    bytes: &[u8],
-) -> Result<SealedEvidenceEnvelope, EvidenceSealerError> {
+fn parse_canonical_envelope(bytes: &[u8]) -> Result<SealedEvidenceEnvelope, EvidenceSealerError> {
     let envelope: SealedEvidenceEnvelope = serde_json::from_slice(bytes)
         .map_err(|error| EvidenceSealerError::Serialization(error.to_string()))?;
     if bytes != canonical_json(&envelope)? {
@@ -654,9 +649,9 @@ fn parse_sealed_file_name(file_name: &str) -> Result<String, EvidenceSealerError
 fn validate_identifier(value: &str, field: &str) -> Result<(), EvidenceSealerError> {
     if value.is_empty()
         || value.len() > 192
-        || !value.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':')
-        })
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
     {
         return Err(EvidenceSealerError::InvalidIdentifier(field.into()));
     }
