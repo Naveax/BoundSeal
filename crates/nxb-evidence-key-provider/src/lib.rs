@@ -799,13 +799,12 @@ mod tests {
     #[test]
     fn invalid_signature_is_rejected_before_begin() {
         let now = 2_000_000_000;
-        let (plan, mut activation, _) = signed_plan(now);
-        let replacement = if &activation.signature_hex[..2] == "00" {
-            "01"
-        } else {
-            "00"
-        };
-        activation.signature_hex.replace_range(0..2, replacement);
+        let (plan, activation, _) = signed_plan(now);
+        let mut signature = decode_hex(&activation.signature_hex, "signature").expect("signature");
+        signature[0] ^= 0x01;
+        let activation =
+            EvidenceKeyActivation::from_signature(plan.plan_sha256.clone(), &signature)
+                .expect("tampered activation");
         let mut provider = provider(now);
         assert!(matches!(
             acquire_evidence_sealer(plan, activation, &mut provider, now),
