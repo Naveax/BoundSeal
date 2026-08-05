@@ -1,0 +1,15 @@
+[package]
+name = "nxb-evidence-sealer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+nxb-knowledge-reporting = { path = "../nxb-knowledge-reporting" }
+ring = "0.17"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true

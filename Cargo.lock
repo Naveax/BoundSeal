@@ -743,6 +743,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxb-evidence-sealer"
+version = "0.1.0"
+dependencies = [
+ "nxb-knowledge-reporting",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "zeroize",
+]
+
+[[package]]
 name = "nxb-executor"
 version = "0.1.0"
 dependencies = [
