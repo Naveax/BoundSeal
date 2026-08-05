@@ -617,6 +617,8 @@ mod tests {
     use ring::signature::{Ed25519KeyPair, KeyPair};
 
     const SOURCE_COMMIT: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const CYCLONEDX_FIXTURE: &[u8] =
+        b"{\"bomFormat\":\"CycloneDX\",\"specVersion\":\"1.6\",\"components\":[]}";
 
     struct Fixture {
         root: PathBuf,
@@ -643,23 +645,7 @@ mod tests {
             let public_key = root.join("release-public-key.hex");
 
             fs::write(&binary, b"synthetic-nxb-binary").unwrap();
-            fs::write(
-                &sbom,
-                br#"{"bomFormat":"CycloneDX","specVersion":"1.6","components":[]}"#,
-            )
-            .unwrap();
-
-            // Raw byte strings do not require quote escaping. Rewrite the fixture as
-            // valid CycloneDX JSON so the test exercises signing rather than parser failure.
-            fs::write(
-                &sbom,
-                br#"{"bomFormat":"CycloneDX","specVersion":"1.6","components":[]}"#
-                    .iter()
-                    .copied()
-                    .filter(|byte| *byte != b'\\')
-                    .collect::<Vec<_>>(),
-            )
-            .unwrap();
+            fs::write(&sbom, CYCLONEDX_FIXTURE).unwrap();
 
             let binary_sha = workspace::sha256(&fs::read(&binary).unwrap());
             let sbom_sha = workspace::sha256(&fs::read(&sbom).unwrap());
