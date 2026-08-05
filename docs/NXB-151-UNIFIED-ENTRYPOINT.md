@@ -1,4 +1,4 @@
-# NXB-151 — Unified workspace entry point
+# NXB-151 — Linked single-binary workspace entry point
 
 ## Status
 
@@ -6,7 +6,7 @@ Draft implementation. This contract remains stacked on NXB-150 and is not releas
 
 ## Supported user-facing surface
 
-The supported workspace interface is now rooted at the primary `nxb` executable:
+The supported workspace interface is rooted at the primary `nxb` executable:
 
 ```text
 nxb workspace init --workspace <path> [--name <name>] [--json]
@@ -17,7 +17,40 @@ nxb workspace migrate recover --workspace <path> [--json]
 nxb workspace migrate status --workspace <path> [--json]
 ```
 
-The existing `nxb-product` and `nxb-workspace-migrate` executables are transitional internal helpers. Their command surfaces are not the long-term installation contract. The facade isolates them so their implementation can later be linked into `nxb` without changing the supported user commands.
+Workspace initialization, diagnostics, status and crash-safe migration are linked directly into this executable. No workspace helper executable is discovered, spawned or required.
+
+Existing non-workspace commands and `live-network` feature gating retain their prior behavior.
+
+## Binary target contract
+
+`nxb-core` declares exactly one Cargo binary target:
+
+```text
+nxb
+```
+
+The release installation set for this slice therefore contains one executable:
+
+```text
+nxb[.exe]
+```
+
+The former `nxb-product` and `nxb-workspace-migrate` targets and sources were removed. Cargo automatic binary discovery remains disabled so support modules cannot become unintended executable targets.
+
+## Linked module boundary
+
+The executable links these internal modules directly:
+
+```text
+workspace/mod.rs
+workspace/migration.rs
+workspace/windows.rs   # Windows only
+workspace_facade.rs
+```
+
+The shared workspace module owns manifest validation, canonical layout, bounded I/O, private permissions, path-indirection rejection and cleanup. The migration module owns the deterministic prepare/apply/commit/recovery lifecycle. The Windows module is the single implementation of reparse-point and DACL enforcement.
+
+No child process, shell, CMD script or PowerShell process is used for workspace dispatch. There is no sibling executable resolution, `PATH` lookup, helper environment, helper timeout or helper output parser.
 
 ## Exit-code contract
 
@@ -29,7 +62,6 @@ The existing `nxb-product` and `nxb-workspace-migrate` executables are transitio
 | Migration apply | 40 |
 | Migration recover | 41 |
 | Migration status | 42 |
-| Internal dispatch invariant | 90 |
 
 Legacy non-workspace commands continue to return the primary CLI failure code `1`.
 
@@ -37,46 +69,11 @@ Legacy non-workspace commands continue to return the primary CLI failure code `1
 
 `nxb workspace doctor` combines structural workspace diagnostics with migration state.
 
-A stable workspace adds a `migration_state` passing check. Any pending migration file changes the doctor result to `unhealthy` and returns exit code `20`.
+A stable workspace adds a passing `migration_state` check. Pending, malformed or unavailable migration state changes the doctor result to `unhealthy` and returns exit code `20`.
 
 `nxb workspace status` includes a nested `migration` object. Pending migration state changes the top-level status to `recovery_required` and returns exit code `30`.
 
 This prevents normal product use while a prepare/apply/commit migration transaction is incomplete.
-
-## Transitional helper boundary
-
-The facade does not invoke a shell, CMD script or PowerShell process. It resolves only fixed sibling executable names:
-
-```text
-nxb-product[.exe]
-nxb-workspace-migrate[.exe]
-```
-
-Before execution it requires:
-
-- the primary executable, executable directory and helper path to contain no symbolic link or Windows reparse-point traversal;
-- the helper to be a regular file in the exact primary executable directory;
-- a cleared child environment with only the bounded Windows runtime variables restored;
-- null stdin;
-- separately captured stdout and stderr;
-- a 256 KiB limit for each output stream;
-- a 120-second execution deadline;
-- valid JSON from internal helpers;
-- the expected command-specific helper exit code.
-
-The facade never searches `PATH` and never accepts a caller-selected helper name or helper path.
-
-## Packaging requirement
-
-Until helper logic is linked directly into `nxb`, installation and release packages must place all three binaries in the same protected directory:
-
-```text
-nxb[.exe]
-nxb-product[.exe]
-nxb-workspace-migrate[.exe]
-```
-
-A package containing only `nxb` is incomplete for workspace operations in this transitional slice.
 
 ## Acceptance harnesses
 
@@ -92,10 +89,11 @@ Windows:
 pwsh -NoProfile -File .\scripts\validate-nxb-151-entrypoint-windows.ps1
 ```
 
-Each harness requires a clean exact head and Rust `1.97.1`, then runs formatting, check, Clippy with warnings denied, serial tests and a three-binary build.
+Each harness requires a clean exact head and Rust `1.97.1`, then runs formatting, check, Clippy with warnings denied, serial tests and a build of only `--bin nxb`.
 
 The harnesses verify:
 
+- Cargo metadata exposes exactly one binary target named `nxb`;
 - unified initialization;
 - migration-aware doctor output;
 - migration-aware status output;
@@ -103,15 +101,15 @@ The harnesses verify:
 - fail-closed doctor exit code `20` during pending migration;
 - fail-closed status exit code `30` during pending migration;
 - restoration after transient state removal;
-- SHA-256 values for all three binaries;
+- the single executable SHA-256;
 - exact-head-bound local JSON evidence.
 
-## Remaining consolidation work
+## Remaining NXB-151 work
 
-- Replace sibling helper execution with linked shared modules while preserving the exact `nxb workspace` contract.
-- Remove the transitional helper binaries from the required installation set.
-- Add signed release-manifest binding for the final single-binary package.
+- Run and repair the pinned Rust, Linux and Windows acceptance gates.
 - Add the first fail-closed `target` command group.
-- Add machine-readable diagnostic subcodes and a full quick-start flow.
+- Add machine-readable diagnostic subcodes.
+- Add full synthetic product acceptance and quick-start documentation.
+- Bind the single executable into the final signed release manifest and installer flow.
 
 No compiler, Clippy, test or platform acceptance success is claimed by this document alone.
