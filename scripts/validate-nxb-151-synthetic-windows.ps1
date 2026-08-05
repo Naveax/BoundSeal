@@ -69,8 +69,10 @@ try {
 
     $nxb = Join-Path $RepoRoot "target\debug\nxb.exe"
     $policy = Join-Path $RepoRoot "fixtures\nxb-151\synthetic-policy.toml"
+    $authorization = Join-Path $RepoRoot "fixtures\nxb-151\synthetic-authorization.txt"
     if (-not (Test-Path -LiteralPath $nxb -PathType Leaf) -or
-        -not (Test-Path -LiteralPath $policy -PathType Leaf)) {
+        -not (Test-Path -LiteralPath $policy -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $authorization -PathType Leaf)) {
         throw "Synthetic acceptance inputs are missing."
     }
 
@@ -93,7 +95,18 @@ try {
         "target", "create", "--workspace", $workspace,
         "--id", "synthetic-example", "--name", "Synthetic Example",
         "--origin", "https://example.org",
-        "--include-path", "/", "--exclude-path", "/logout", "--json"
+        "--include-path", "/", "--exclude-path", "/logout",
+        "--authorization-reference", "local_fixture/nxb-151#synthetic",
+        "--authorization-document", $authorization,
+        "--policy", $policy,
+        "--json"
+    )
+    $targetValidation = Invoke-NativeJson -FilePath $nxb -Name "target-validate" -Arguments @(
+        "target", "validate", "--workspace", $workspace,
+        "--id", "synthetic-example",
+        "--authorization-document", $authorization,
+        "--policy", $policy,
+        "--json"
     )
     $targetList = Invoke-NativeJson -FilePath $nxb -Name "target-list" -Arguments @(
         "target", "list", "--workspace", $workspace, "--json"
@@ -128,12 +141,14 @@ try {
         "system-status"
     )
 
+    $targetProfile = Join-Path $workspace "targets\synthetic-example.json"
     $planPath = Join-Path $scanOutput "scan-plan.json"
     $reportPath = Join-Path $scanOutput "report.json"
     $reportMarkdown = Join-Path $scanOutput "report.md"
     $hackerOneDraft = Join-Path $scanOutput "hackerone-draft.md"
     $manifestPath = Join-Path $scanOutput "manifest.json"
     foreach ($path in @(
+        $targetProfile,
         $planPath,
         $reportPath,
         $reportMarkdown,
@@ -146,6 +161,14 @@ try {
         }
     }
 
+    $profileText = Get-Content -LiteralPath $targetProfile -Raw
+    if ($profileText.Contains((Get-Content -LiteralPath $authorization -Raw)) -or
+        $profileText.Contains((Get-Content -LiteralPath $policy -Raw)) -or
+        $profileText.Contains($authorization) -or
+        $profileText.Contains($policy)) {
+        throw "Synthetic target profile persisted source bytes or local source paths."
+    }
+
     $plan = Get-Content -LiteralPath $planPath -Raw | ConvertFrom-Json -Depth 64
     $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json -Depth 64
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json -Depth 64
@@ -155,9 +178,17 @@ try {
         $target.status -ne "active" -or
         $target.origin -ne "https://example.org" -or
         $target.network_activity -ne "none" -or
+        $target.program.platform -ne "local_fixture" -or
+        $target.authorization_reference -ne "local_fixture/nxb-151#synthetic" -or
+        $target.authorization_sha256.Length -ne 64 -or
+        $target.policy_sha256.Length -ne 64 -or
+        $target.identity_sha256.Length -ne 64 -or
+        $targetValidation.validation.status -ne "valid" -or
+        $targetValidation.validation.authorization_sha256 -ne $target.authorization_sha256 -or
+        $targetValidation.validation.policy_sha256 -ne $target.policy_sha256 -or
         $targetList.count -ne 1 -or
         $targetList.network_activity -ne "none") {
-        throw "Workspace or target synthetic state is invalid."
+        throw "Workspace or authorization-bound target synthetic state is invalid."
     }
     if ($plan.version -ne 1 -or
         $plan.run_id -ne "synthetic-run-001" -or
@@ -205,6 +236,7 @@ try {
         rustc = $rustcVersion
         binary_sha256 = (Get-FileHash -LiteralPath $nxb -Algorithm SHA256).Hash.ToLowerInvariant()
         artifacts = [ordered]@{
+            target_profile_sha256 = (Get-FileHash -LiteralPath $targetProfile -Algorithm SHA256).Hash.ToLowerInvariant()
             scan_plan_sha256 = (Get-FileHash -LiteralPath $planPath -Algorithm SHA256).Hash.ToLowerInvariant()
             report_sha256 = (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant()
             manifest_sha256 = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -212,7 +244,8 @@ try {
         }
         checks = [ordered]@{
             workspace = "passed"
-            target_profile = "passed"
+            authorization_bound_target_profile = "passed"
+            target_source_validation = "passed"
             policy_validation = "passed"
             networkless_scan = "passed"
             manual_report_bundle = "passed"
