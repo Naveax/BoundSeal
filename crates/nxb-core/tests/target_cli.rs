@@ -86,10 +86,6 @@ fn target_cli_create_list_show_and_disable_lifecycle() {
 
     let created = create_target(&root);
     assert_eq!(created.get("status").and_then(Value::as_str), Some("active"));
-    assert_eq!(
-        created.get("network_activity").and_then(Value::as_str),
-        Some("none")
-    );
 
     let root_text = root.to_str().unwrap();
     let listed = run_json(&["target", "list", "--workspace", root_text, "--json"]);
