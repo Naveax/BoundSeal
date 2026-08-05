@@ -17,12 +17,13 @@ Before using NXB on a real program:
 
 - read the current program policy;
 - confirm that automated testing is allowed;
-- record a current authorization policy snapshot;
+- preserve the exact policy bytes reviewed by the operator;
+- preserve a separate authorization document or approval export;
 - use only accounts, tenants and assets that you are authorized to test;
 - keep automatic submission disabled;
 - do not place cookies, tokens, passwords or API keys in workspace JSON files.
 
-A local target profile narrows product behavior. It does **not** prove ownership, permission or program scope.
+A local target profile narrows product behavior and binds source digests. It does **not** prove that an authorization document is genuine or sufficient.
 
 ## 1. Create a private workspace
 
@@ -70,7 +71,35 @@ A pending migration blocks target and later product operations. Recover it expli
 nxb workspace migrate recover --workspace <workspace> --json
 ```
 
-## 3. Create one narrow target profile
+## 3. Prepare and validate source documents
+
+NXB target profiles require two local source files:
+
+```text
+<program-policy.toml>
+<authorization-document>
+```
+
+The policy is parsed and compiled. The authorization document is treated as opaque bytes and is only represented in the profile by SHA-256 plus a safe external reference.
+
+Validate the policy without network access:
+
+```text
+nxb validate-policy \
+  --path <program-policy.toml> \
+  --now <current-rfc3339-time>
+```
+
+The repository contains synthetic fixtures for acceptance only:
+
+```text
+fixtures/nxb-151/synthetic-policy.toml
+fixtures/nxb-151/synthetic-authorization.txt
+```
+
+They are not authorization to test any real asset.
+
+## 4. Create and validate one narrow target profile
 
 ```text
 nxb target create \
@@ -80,10 +109,33 @@ nxb target create \
   --origin https://example.org \
   --include-path /api \
   --exclude-path /api/logout \
+  --authorization-reference <safe-program-or-approval-reference> \
+  --authorization-document <authorization-document> \
+  --policy <program-policy.toml> \
   --json
 ```
 
-The profile is networkless and immutable. It fixes the later method boundary to:
+The profile is networkless, immutable and contains only safe metadata and source digests. Raw policy bytes, authorization bytes and local source paths are not persisted.
+
+Re-read the current source files and verify that their SHA-256 values, policy scope, program metadata and method intersection still match:
+
+```text
+nxb target validate \
+  --workspace <workspace> \
+  --id example-app \
+  --authorization-document <authorization-document> \
+  --policy <program-policy.toml> \
+  --json
+```
+
+Review the stored profile:
+
+```text
+nxb target show --workspace <workspace> --id example-app --json
+nxb target list --workspace <workspace> --json
+```
+
+The stored method set is the intersection of the supplied policy and the product maximum:
 
 ```text
 GET
@@ -91,14 +143,7 @@ HEAD
 OPTIONS
 ```
 
-Review it:
-
-```text
-nxb target show --workspace <workspace> --id example-app --json
-nxb target list --workspace <workspace> --json
-```
-
-Disable it without modifying the original profile:
+Disable the target without modifying the original profile:
 
 ```text
 nxb target disable \
@@ -110,29 +155,11 @@ nxb target disable \
 
 Disabling publishes a separate SHA-256-bound receipt. NXB-151 does not support reactivation.
 
-## 4. Validate a program policy
-
-NXB requires a separately reviewed TOML program policy. The repository contains a local synthetic fixture for acceptance only:
-
-```text
-fixtures/nxb-151/synthetic-policy.toml
-```
-
-Validate it without network access:
-
-```text
-nxb validate-policy \
-  --path fixtures/nxb-151/synthetic-policy.toml \
-  --now 2026-08-05T12:00:00Z
-```
-
-Do not reuse the synthetic fixture as authorization for any real asset.
-
 ## 5. Produce a networkless scan and report bundle
 
 ```text
 nxb scan \
-  --program fixtures/nxb-151/synthetic-policy.toml \
+  --program <program-policy.toml> \
   --target https://example.org/ \
   --output-directory <workspace>/reports/synthetic-run \
   --run-id synthetic-run-001 \
@@ -140,7 +167,7 @@ nxb scan \
   --maximum-endpoints 16 \
   --maximum-requests 8 \
   --dry-run true \
-  --now 2026-08-05T12:00:00Z
+  --now <current-rfc3339-time>
 ```
 
 This command does not contact the target. Without a supplied local response snapshot, it produces a bounded plan and explicitly records untested areas.
@@ -190,7 +217,7 @@ Example:
 }
 ```
 
-Automation must use `code` and `exit_code`, not parse the message.
+Automation must use `code` and `exit_code`, not parse the message. `target validate` failures use exit code `54` and diagnostic code `NXB151-TARGET-VALIDATE-INVALID`.
 
 ## Full synthetic acceptance
 
