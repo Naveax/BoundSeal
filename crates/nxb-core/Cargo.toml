@@ -8,15 +8,7 @@ autobins = false
 
 [[bin]]
 name = "nxb"
-path = "src/main.rs"
-
-[[bin]]
-name = "nxb-product"
-path = "src/bin/nxb-product.rs"
-
-[[bin]]
-name = "nxb-workspace-migrate"
-path = "src/bin/nxb-workspace-migrate.rs"
+path = "src/nxb.rs"
 
 [features]
 default = []
