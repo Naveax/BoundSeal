@@ -80,6 +80,7 @@ Messages are limited to 2,048 Unicode scalar values. CR, LF and NUL are removed.
 | `NXB151-TARGET-LIST-INVALID` | 51 | `target list` |
 | `NXB151-TARGET-SHOW-INVALID` | 52 | `target show` |
 | `NXB151-TARGET-DISABLE-REJECTED` | 53 | `target disable` |
+| `NXB151-TARGET-VALIDATE-INVALID` | 54 | `target validate` |
 
 ## Stability rules
 
@@ -113,7 +114,7 @@ Unit and integration tests verify:
 - exact code/domain/operation/exit mapping;
 - valid compact JSON on stderr;
 - bounded single-line message behavior;
-- target create/list/show failure codes;
+- target create/list/show/validate failure codes;
 - workspace init/doctor/status failure codes;
 - migration status failure code;
 - preservation of redacted stdout status when an unhealthy state is reported.
