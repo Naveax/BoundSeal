@@ -287,6 +287,25 @@ fn capability_identity_changes_with_provider_mapping() {
     assert_ne!(first.capability_sha256, second.capability_sha256);
 }
 
+#[test]
+fn capability_identity_binds_exact_submillisecond_timeout() {
+    let one_nanosecond = config("fixture/evidence-key", None, Duration::from_nanos(1))
+        .evidence_identity()
+        .unwrap();
+    let nine_hundred_ninety_nine_microseconds = config(
+        "fixture/evidence-key",
+        None,
+        Duration::from_micros(999),
+    )
+    .evidence_identity()
+    .unwrap();
+
+    assert_ne!(
+        one_nanosecond.capability_sha256,
+        nine_hundred_ninety_nine_microseconds.capability_sha256
+    );
+}
+
 fn lower_hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut output = String::with_capacity(bytes.len() * 2);
