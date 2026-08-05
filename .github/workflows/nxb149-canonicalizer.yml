@@ -1,0 +1,46 @@
+name: Temporary NXB-149 canonicalizer
+
+on:
+  push:
+    branches:
+      - nxb-149-evidence-key-provider-lifecycle
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/nxb-evidence-key-provider/**"
+      - ".github/workflows/nxb149-canonicalizer.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb149-canonicalizer
+  cancel-in-progress: true
+
+jobs:
+  canonicalize:
+    runs-on: ubuntu-slim
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: nxb-149-evidence-key-provider-lifecycle
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt
+      - name: Materialize canonical sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          cargo fmt --all
+          git diff --check
+          if git diff --quiet -- Cargo.lock crates/nxb-evidence-key-provider/src/lib.rs; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock crates/nxb-evidence-key-provider/src/lib.rs
+          git commit -m "NXB-149: canonicalize lockfile and Rust sources"
+          git push origin HEAD:nxb-149-evidence-key-provider-lifecycle
