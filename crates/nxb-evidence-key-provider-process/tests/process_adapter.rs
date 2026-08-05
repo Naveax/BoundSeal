@@ -10,12 +10,9 @@ use nxb_evidence_key_provider::{
 };
 use nxb_evidence_key_provider_process::{
     ProcessEvidenceKeyProvider, ProcessEvidenceKeyProviderConfig,
-    ProcessEvidenceKeyProviderError,
 };
 use nxb_vault_provider::ProviderIdentity;
-use nxb_vault_provider_process::{
-    sha256_file, sha256_hex, ProcessVaultProviderConfig, ProcessVaultProviderError,
-};
+use nxb_vault_provider_process::{sha256_file, sha256_hex, ProcessVaultProviderConfig};
 use ring::signature::{Ed25519KeyPair, KeyPair};
 
 const NOW: i64 = 2_000_000_000;
@@ -122,7 +119,7 @@ fn pinned_process_adapter_acquires_key_and_tears_down() {
     let identity = config.evidence_identity().unwrap();
     let executable_display = config.process.executable.display().to_string();
     let (plan, activation) = signed_plan(identity, STORE_ID);
-    let mut provider = ProcessEvidenceKeyProvider::connect(config).unwrap();
+    let mut provider = ProcessEvidenceKeyProvider::new(config).unwrap();
 
     let (sealer, receipt) =
         acquire_evidence_sealer(plan, activation, &mut provider, NOW).unwrap();
@@ -136,19 +133,38 @@ fn pinned_process_adapter_acquires_key_and_tears_down() {
 }
 
 #[test]
-fn executable_digest_mismatch_is_rejected_before_use() {
+fn invalid_activation_is_rejected_before_process_spawn() {
     let mut config = config("fixture/evidence-key", None, Duration::from_secs(5));
     let wrong_digest = "00".repeat(32);
     config.process.executable_sha256 = wrong_digest.clone();
     config.process.expected_identity.provider_instance_sha256 = wrong_digest;
+    let identity = config.evidence_identity().unwrap();
+    let (plan, _) = signed_plan(identity, STORE_ID);
+    let activation =
+        EvidenceKeyActivation::from_signature(plan.plan_sha256.clone(), &[0_u8; 64]).unwrap();
+    let mut provider = ProcessEvidenceKeyProvider::new(config).unwrap();
 
-    let error = ProcessEvidenceKeyProvider::connect(config).unwrap_err();
-    assert_eq!(
-        error,
-        ProcessEvidenceKeyProviderError::Process(
-            ProcessVaultProviderError::ExecutableDigestMismatch
-        )
-    );
+    assert!(matches!(
+        acquire_evidence_sealer(plan, activation, &mut provider, NOW),
+        Err(EvidenceKeyProviderError::ActivationSignatureInvalid)
+    ));
+}
+
+#[test]
+fn executable_digest_mismatch_is_rejected_during_signed_begin() {
+    let mut config = config("fixture/evidence-key", None, Duration::from_secs(5));
+    let wrong_digest = "00".repeat(32);
+    config.process.executable_sha256 = wrong_digest.clone();
+    config.process.expected_identity.provider_instance_sha256 = wrong_digest;
+    let identity = config.evidence_identity().unwrap();
+    let (plan, activation) = signed_plan(identity, STORE_ID);
+    let mut provider = ProcessEvidenceKeyProvider::new(config).unwrap();
+
+    assert!(matches!(
+        acquire_evidence_sealer(plan, activation, &mut provider, NOW),
+        Err(EvidenceKeyProviderError::ProviderBeginFailure(code))
+            if code == "process_executable_digest_mismatch"
+    ));
 }
 
 #[test]
@@ -156,7 +172,7 @@ fn store_mismatch_is_rejected_before_provider_session_begin() {
     let config = config("fixture/evidence-key", None, Duration::from_secs(5));
     let identity = config.evidence_identity().unwrap();
     let (plan, activation) = signed_plan(identity, "different-store");
-    let mut provider = ProcessEvidenceKeyProvider::connect(config).unwrap();
+    let mut provider = ProcessEvidenceKeyProvider::new(config).unwrap();
 
     assert!(matches!(
         acquire_evidence_sealer(plan, activation, &mut provider, NOW),
@@ -174,7 +190,7 @@ fn provider_version_mismatch_aborts_cleanly() {
     );
     let identity = config.evidence_identity().unwrap();
     let (plan, activation) = signed_plan(identity, STORE_ID);
-    let mut provider = ProcessEvidenceKeyProvider::connect(config).unwrap();
+    let mut provider = ProcessEvidenceKeyProvider::new(config).unwrap();
 
     assert!(matches!(
         acquire_evidence_sealer(plan, activation, &mut provider, NOW),
@@ -188,7 +204,7 @@ fn short_key_material_is_rejected_and_aborted() {
     let config = config("fixture/short-key", None, Duration::from_secs(5));
     let identity = config.evidence_identity().unwrap();
     let (plan, activation) = signed_plan(identity, STORE_ID);
-    let mut provider = ProcessEvidenceKeyProvider::connect(config).unwrap();
+    let mut provider = ProcessEvidenceKeyProvider::new(config).unwrap();
 
     assert!(matches!(
         acquire_evidence_sealer(plan, activation, &mut provider, NOW),
@@ -202,7 +218,7 @@ fn logical_child_failure_remains_abortable() {
     let config = config("fixture/failure", None, Duration::from_secs(5));
     let identity = config.evidence_identity().unwrap();
     let (plan, activation) = signed_plan(identity, STORE_ID);
-    let mut provider = ProcessEvidenceKeyProvider::connect(config).unwrap();
+    let mut provider = ProcessEvidenceKeyProvider::new(config).unwrap();
 
     assert!(matches!(
         acquire_evidence_sealer(plan, activation, &mut provider, NOW),
@@ -216,7 +232,7 @@ fn timeout_kills_child_and_allows_abort_completion() {
     let config = config("fixture/stall", None, Duration::from_millis(100));
     let identity = config.evidence_identity().unwrap();
     let (plan, activation) = signed_plan(identity, STORE_ID);
-    let mut provider = ProcessEvidenceKeyProvider::connect(config).unwrap();
+    let mut provider = ProcessEvidenceKeyProvider::new(config).unwrap();
 
     assert!(matches!(
         acquire_evidence_sealer(plan, activation, &mut provider, NOW),
@@ -232,7 +248,7 @@ fn mismatched_fetch_request_is_rejected_before_child_fetch() {
     let (plan, _) = signed_plan(identity, STORE_ID);
     let (session_request, mut key_request) = direct_requests(&plan);
     key_request.key_id = "other-key".into();
-    let mut provider = ProcessEvidenceKeyProvider::connect(config).unwrap();
+    let mut provider = ProcessEvidenceKeyProvider::new(config).unwrap();
 
     provider.begin(&session_request).unwrap();
     let error = provider.fetch_key(&key_request).unwrap_err();
@@ -248,7 +264,7 @@ fn second_fetch_is_rejected_and_session_remains_abortable() {
     let identity = config.evidence_identity().unwrap();
     let (plan, _) = signed_plan(identity, STORE_ID);
     let (session_request, key_request) = direct_requests(&plan);
-    let mut provider = ProcessEvidenceKeyProvider::connect(config).unwrap();
+    let mut provider = ProcessEvidenceKeyProvider::new(config).unwrap();
 
     provider.begin(&session_request).unwrap();
     let material = provider.fetch_key(&key_request).unwrap();
