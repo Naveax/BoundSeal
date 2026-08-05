@@ -4,9 +4,9 @@ NXB-151 validation is external to GitHub Actions. Repository workflows remain di
 
 ## Exact-head requirement
 
-Validation must start from a clean working tree. Every harness records the exact 40-character Git commit and rejects a dirty checkout. The required toolchain is Rust `1.97.1` with rustfmt and Clippy.
+Validation starts from a clean working tree and Rust `1.97.1` with rustfmt and Clippy.
 
-Required Rust gates:
+Required package gates:
 
 ```text
 cargo fmt --all -- --check
@@ -20,13 +20,13 @@ Workspace-level check, Clippy and test regressions remain mandatory before merge
 
 ## Single-binary requirement
 
-Cargo metadata must expose exactly one binary target:
+Cargo metadata must expose exactly:
 
 ```json
 ["nxb"]
 ```
 
-No helper, product, migration or temporary executable target is permitted. Validation evidence records only the SHA-256 of `nxb` or `nxb.exe`.
+No helper, product, migration or temporary executable target is permitted.
 
 ## Product workspace validation
 
@@ -35,7 +35,7 @@ bash scripts/validate-nxb-151-linux.sh
 pwsh -NoProfile -File .\scripts\validate-nxb-151-windows.ps1
 ```
 
-These harnesses verify initialization, doctor, status, non-empty rejection, missing-directory detection, private filesystem permissions and single-binary build behavior. Windows additionally verifies protected ACLs, junction/reparse rejection and broad-ACE rejection. Linux exercises private modes and durable publication behavior.
+These verify initialization, doctor, status, non-empty rejection, missing-directory detection, private permissions and single-binary behavior. Windows additionally covers protected ACLs, junction/reparse rejection and broad-ACE rejection. Linux covers private modes and durable publication.
 
 ## Migration validation
 
@@ -44,7 +44,7 @@ bash scripts/validate-nxb-151-migration-linux.sh
 pwsh -NoProfile -File .\scripts\validate-nxb-151-migration-windows.ps1
 ```
 
-These harnesses invoke migration only through `nxb workspace migrate ...` and verify schema `0 → 1`, immutable receipt publication, transient cleanup and orphan-backup recovery.
+These invoke migration only through `nxb workspace migrate ...` and verify schema `0 → 1`, immutable receipt publication, transient cleanup and recovery.
 
 ## Linked entry-point validation
 
@@ -53,7 +53,7 @@ bash scripts/validate-nxb-151-entrypoint-linux.sh
 pwsh -NoProfile -File .\scripts\validate-nxb-151-entrypoint-windows.ps1
 ```
 
-These harnesses inspect Cargo metadata, require exactly one binary target and verify migration-aware doctor/status behavior with pending-migration exit codes `20` and `30`.
+These require exactly one Cargo binary target and migration-aware doctor/status behavior.
 
 ## Authorization-bound target validation
 
@@ -62,29 +62,26 @@ bash scripts/validate-nxb-151-target-linux.sh
 pwsh -NoProfile -File .\scripts\validate-nxb-151-target-windows.ps1
 ```
 
-These harnesses use only the single `nxb` executable and verify:
+Required checks include:
 
 - create, validate, list, show and disable lifecycle;
-- policy parsing and current-time compilation;
-- exact origin-host scope binding;
-- program metadata derived from the policy;
+- current policy compilation and exact host binding;
+- program metadata derived from policy;
 - read-only method intersection;
-- authorization-document SHA-256 binding;
-- target-policy SHA-256 binding;
-- active-profile identity SHA-256 tamper rejection;
-- raw authorization bytes, policy bytes and local source-path non-persistence;
-- unsafe origin, path and authorization-reference rejection with exit code `50`;
-- pending migration rejection with exit code `51`;
-- profile and disable-receipt tamper rejection with exit code `52`;
-- source-document digest drift rejection with exit code `54`;
-- machine-readable target diagnostic codes;
-- networkless behavior and exact-head evidence.
+- authorization and policy SHA-256 bindings;
+- active-profile identity tamper rejection;
+- raw source bytes and source-path non-persistence;
+- unsafe origin/path/reference rejection;
+- pending migration rejection;
+- source drift and receipt tamper rejection;
+- machine-readable diagnostics;
+- networkless behavior.
 
-Linux additionally verifies private `0600` target-profile and disable-receipt modes. Windows injects a broad Everyone allow ACE into a target profile and requires fail-closed rejection.
+Linux additionally verifies private `0600` modes. Windows injects a broad Everyone allow ACE and requires rejection.
 
 ## Signed release-manifest validation
 
-The following Rust sources are part of the mandatory serial test gate:
+Mandatory Rust sources:
 
 ```text
 crates/nxb-core/src/release_manifest.rs
@@ -93,19 +90,21 @@ crates/nxb-core/tests/release_manifest_cli.rs
 
 They verify:
 
-- canonical release-manifest template construction;
-- exact source commit, version, platform and architecture binding;
-- exact single-binary, CycloneDX SBOM and checksum-manifest binding;
+- canonical manifest schema `2`;
+- exact source commit, package version, platform and architecture;
+- positive signed `release_sequence`;
+- exact binary, CycloneDX SBOM and checksum bindings;
 - external Ed25519 signing and verification;
+- sequence tamper and zero-sequence rejection;
 - binary, signature and checksum tamper rejection;
 - wrong-public-key rejection;
-- single-binary file-name enforcement;
-- release diagnostic exit codes `60` and `61`;
+- single-binary filename enforcement;
+- release diagnostics `60` and `61`;
 - networkless verification.
 
-## Machine-readable diagnostic validation
+## Machine-readable diagnostics
 
-The following integration-test targets are part of the mandatory serial Rust test gate:
+Mandatory integration tests:
 
 ```text
 crates/nxb-core/tests/product_diagnostics.rs
@@ -113,7 +112,7 @@ crates/nxb-core/tests/target_cli.rs
 crates/nxb-core/tests/release_manifest_cli.rs
 ```
 
-They verify the diagnostic schema, exact subcodes, domains, operations, process exit codes, compact JSON stderr and bounded single-line messages for workspace, migration, target and release failures. Message wording is not an acceptance surface; tests bind only to structured fields.
+They bind to structured schema, code, domain, operation and exit-code fields rather than message wording.
 
 ## Full synthetic product validation
 
@@ -122,20 +121,7 @@ bash scripts/validate-nxb-151-synthetic-linux.sh
 pwsh -NoProfile -File .\scripts\validate-nxb-151-synthetic-windows.ps1
 ```
 
-These harnesses execute one complete networkless local product flow using the canonical synthetic policy and authorization fixtures:
-
-1. initialize and diagnose a private workspace;
-2. create an authorization-bound target profile;
-3. revalidate exact policy and authorization source digests;
-4. verify that source bytes and local source paths were not persisted;
-5. validate the program policy;
-6. create a bounded dry-run scan plan and manual report bundle;
-7. require zero network requests and automatic submission disabled;
-8. generate and verify the deterministic architecture receipt;
-9. require final healthy/ready workspace state;
-10. bind the single executable and generated artifacts to SHA-256 evidence.
-
-The synthetic authorization fixture explicitly grants no authority over real systems and is accepted only for offline product testing.
+These execute a complete networkless local product flow using synthetic policy and authorization fixtures, including workspace creation, target validation, bounded dry-run planning, manual report bundle, deterministic demo receipt and exact-head evidence.
 
 ## Windows installer validation
 
@@ -143,23 +129,33 @@ The synthetic authorization fixture explicitly grants no authority over real sys
 pwsh -NoProfile -File .\scripts\validate-nxb-151-installer-windows.ps1
 ```
 
-This harness requires Rust 1.97.1 and OpenSSL with Ed25519 support. It must verify:
+Default previous source revision:
 
-- all installer scripts pass the PowerShell language parser;
-- release `nxb.exe` is Authenticode-signed;
-- the exact publisher certificate thumbprint is pinned;
-- the release public-key file SHA-256 is pinned;
-- the external Ed25519 release manifest verifies before installation;
-- the five-file package contract rejects unknown files and reparse points;
-- clean installation publishes only verified release artifacts;
-- an identical signed release is idempotent;
-- a tampered executable is rejected before execution;
-- uninstall verifies the active installation before deletion;
-- PATH, Start Menu and uninstall-registry changes are bounded;
-- uninstall preserves the data/workspace root by default;
-- installer behavior remains networkless.
+```text
+a8aef038449edbe1dbe1ecc6d57e160f82f44c7b
+```
 
-The upgrade and rollback scripts are source-complete, but positive runtime evidence requires two distinct correctly signed NXBounty versions. Upgrade and rollback are not accepted merely because their scripts parse or because one version installs successfully.
+The harness must verify:
+
+- every installer script passes the PowerShell parser;
+- current head passes Rust format, check, Clippy and tests;
+- current head and previous exact ancestor build with locked Rust 1.97.1;
+- both `nxb.exe` files receive valid Authenticode signatures from one pinned temporary publisher certificate;
+- both packages use one pinned external Ed25519 release key;
+- manifest schema `2` binds sequence `1` to the previous source and sequence `2` to the final head;
+- exact five-file package layout;
+- clean sequence-1 installation;
+- idempotent sequence-1 reinstall;
+- signed sequence-1 → sequence-2 upgrade;
+- sequence-1 downgrade/replay rejection while sequence 2 is installed;
+- signed sequence-2 → sequence-1 rollback;
+- sequence-1 → sequence-2 upgrade after rollback;
+- Authenticode-tampered package rejection before execution;
+- active and rollback installation verification before uninstall;
+- data-preserving uninstall;
+- networkless behavior and exact two-source evidence.
+
+The previous source must be a distinct ancestor of the final head and must contain manifest-v2 support. Same package SemVer is intentional; the signed release sequence provides the revision order. Merely parsing scripts or running a single package is insufficient.
 
 ## Evidence files
 
@@ -169,28 +165,34 @@ Successful runs create local files under:
 target/nxb-validation/
 ```
 
-Each document contains milestone, platform, exact head, pinned toolchain, explicit gate results and the single executable SHA-256. Synthetic evidence additionally records SHA-256 values for the target profile, plan, report, manifest and demo receipt. Installer evidence records publisher certificate thumbprint and release-public-key SHA-256. Evidence must contain no workspace contents, credentials, cookies, tokens, provider handles, source policy bytes, authorization bytes, private signing keys or evidence bodies.
+Evidence contains milestone, platform, exact final head, pinned toolchain, explicit checks and single executable hashes. Installer evidence additionally contains:
+
+- previous exact source commit;
+- sequence-1 and sequence-2 source commits;
+- both binary and manifest SHA-256 values;
+- publisher thumbprint;
+- release-public-key file SHA-256.
+
+Evidence must contain no workspace contents, credentials, tokens, source authorization bytes or private signing keys.
 
 ## Acceptance rule
 
 NXB-151 can move out of draft only when:
 
-- NXB-150 has validated and merged;
-- all Linux and Windows harnesses pass on one final NXB-151 head;
-- Cargo metadata confirms exactly one binary target;
+- NXB-150 validates and merges;
+- all Linux and Windows harnesses pass on one final head;
+- Cargo metadata confirms one binary target;
 - full workspace check, Clippy and tests pass;
-- Windows ACL/reparse checks pass;
-- Linux permission/parent-sync checks pass;
-- authorization-bound target and tamper tests pass on both platforms;
-- signed release-manifest tests pass;
-- diagnostic integration tests pass;
+- Windows ACL/reparse and Linux permission/fsync checks pass;
+- authorization-bound target tests pass on both platforms;
+- signed manifest-v2 tests pass;
+- diagnostic tests pass;
 - full synthetic product flow passes on both platforms;
-- clean install, idempotent reinstall, tamper rejection and data-preserving uninstall pass on Windows;
-- upgrade and rollback pass using two distinct signed versions;
+- two-revision install, upgrade, replay rejection, rollback, re-upgrade, tamper rejection and uninstall pass on Windows;
 - generated evidence is reviewed and recorded in the PR;
 - no GitHub Actions workflow is added or re-enabled.
 
-Source implementation, static inspection, a failed remote-job submission, a one-platform result or a single-version installer run is insufficient.
+Source implementation, static inspection, failed remote-job submission, one-platform evidence or single-revision installer execution is insufficient.
 
 ## Current infrastructure limitation
 
