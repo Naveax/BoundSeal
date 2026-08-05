@@ -43,9 +43,9 @@ The NXB-149 `EvidenceKeyProviderIdentity` returned by the adapter uses backend k
 - SHA-256 of the configured provider handle;
 - optional required provider-version SHA-256;
 - transport session expiry;
-- bounded operation timeout in milliseconds.
+- exact bounded operation timeout in nanoseconds.
 
-This prevents a signed NXB-149 plan from being reused with a different executable, provider instance, key mapping, timeout or version policy.
+The timeout is encoded without unit truncation. Distinct sub-millisecond `Duration` values must produce distinct capability SHA-256 identities. This prevents a signed NXB-149 plan from being reused with a different executable, provider instance, key mapping, timeout or version policy.
 
 The configured transport session expiry is a capability-bound compatibility envelope for the process protocol. It is not the authorization source for evidence sealing. NXB-149 validates the signed plan time window and independently requires returned key material to remain valid through that plan.
 
@@ -82,6 +82,7 @@ The real child-process fixture and integration tests cover:
 - process timeout followed by abort completion;
 - debug redaction for executable path, provider handle and key bytes;
 - capability changes when provider mapping changes;
+- exact sub-millisecond timeout capability separation;
 - second-fetch rejection while preserving abortability.
 
 The test source is present, but these cases are not counted as passed until the pinned Rust toolchain actually compiles and executes them.
