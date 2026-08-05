@@ -36,6 +36,7 @@ function Set-NxbUninstallEntry {
         [Parameter(Mandatory = $true)][string]$Root,
         [Parameter(Mandatory = $true)][string]$Data,
         [Parameter(Mandatory = $true)][string]$Version,
+        [Parameter(Mandatory = $true)][uint64]$ReleaseSequence,
         [Parameter(Mandatory = $true)][string]$PublisherThumbprint,
         [Parameter(Mandatory = $true)][string]$ReleasePublicKeySha256
     )
@@ -47,6 +48,7 @@ function Set-NxbUninstallEntry {
         $uninstaller, $Root, $Data, $PublisherThumbprint, $ReleasePublicKeySha256
     New-ItemProperty -Path $keyPath -Name DisplayName -Value 'NXBounty' -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name DisplayVersion -Value $Version -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $keyPath -Name ReleaseSequence -Value ([string]$ReleaseSequence) -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name Publisher -Value 'Naveax' -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name InstallLocation -Value $Root -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name DisplayIcon -Value (Join-Path $Root 'nxb.exe') -PropertyType String -Force | Out-Null
@@ -98,6 +100,7 @@ $verification = Invoke-NxbReleaseVerification `
     $package.Binary $package.Manifest $package.PublicKey $package.Sbom $package.Checksums
 
 if ($verification.version -ne $manifestDocument.manifest.version -or
+    [uint64]$verification.release_sequence -ne [uint64]$manifestDocument.manifest.release_sequence -or
     $verification.source_commit -ne $manifestDocument.manifest.source_commit -or
     $verification.manifest_sha256 -ne $manifestDocument.manifest.manifest_sha256) {
     throw 'Candidate verification result does not match the signed manifest document.'
@@ -122,14 +125,15 @@ try {
     if (Test-Path -LiteralPath $installRootPath) {
         $existing = Assert-NxbInstalledRoot `
             $installRootPath $publisherThumbprint $releaseKeySha256
-        $comparison = Compare-NxbVersion `
-            $verification.version $existing.Verification.version
+        $comparison = Compare-NxbReleaseOrder `
+            $verification.version $verification.release_sequence `
+            $existing.Verification.version $existing.Verification.release_sequence
         if ($comparison -lt 0) {
-            throw "Downgrade is denied: installed=$($existing.Verification.version) candidate=$($verification.version)"
+            throw "Release downgrade or replay is denied: installed=$($existing.Verification.version)+$($existing.Verification.release_sequence) candidate=$($verification.version)+$($verification.release_sequence)"
         }
         if ($comparison -eq 0) {
             if ($verification.manifest_sha256 -ne $existing.Verification.manifest_sha256) {
-                throw 'Same-version replacement with a different signed manifest is denied.'
+                throw 'Same release order with a different signed manifest is denied.'
             }
             if ($AddToUserPath) {
                 [void](Add-NxbUserPath $installRootPath)
@@ -139,11 +143,13 @@ try {
             }
             Set-NxbUninstallEntry `
                 $installRootPath $dataRootPath $verification.version `
+                ([uint64]$verification.release_sequence) `
                 $publisherThumbprint $releaseKeySha256
             $result = [ordered]@{
-                schema_version = 1
+                schema_version = 2
                 status = 'already_installed'
                 version = $verification.version
+                release_sequence = [uint64]$verification.release_sequence
                 source_commit = $verification.source_commit
                 manifest_sha256 = $verification.manifest_sha256
                 binary_sha256 = (Get-FileHash -LiteralPath $package.Binary -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -154,6 +160,9 @@ try {
             }
             $result | ConvertTo-Json -Depth 8
             return
+        }
+        if ($verification.source_commit -eq $existing.Verification.source_commit) {
+            throw 'A higher release order must bind a different exact source commit.'
         }
     }
 
@@ -171,14 +180,16 @@ try {
         $stagePaths.Binary $stagePaths.Manifest $stagePaths.PublicKey `
         $stagePaths.Sbom $stagePaths.Checksums
     if ($stageVerification.manifest_sha256 -ne $verification.manifest_sha256 -or
+        [uint64]$stageVerification.release_sequence -ne [uint64]$verification.release_sequence -or
         $stageVerification.source_commit -ne $verification.source_commit) {
         throw 'Staged package does not match the verified source package.'
     }
 
     $state = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         product = 'NXBounty'
         version = $verification.version
+        release_sequence = [uint64]$verification.release_sequence
         release_id = $manifestDocument.manifest.release_id
         source_commit = $verification.source_commit
         manifest_sha256 = $verification.manifest_sha256
@@ -216,6 +227,7 @@ try {
     }
     Set-NxbUninstallEntry `
         $installRootPath $dataRootPath $verification.version `
+        ([uint64]$verification.release_sequence) `
         $publisherThumbprint $releaseKeySha256
 
     $installed = Assert-NxbInstalledRoot `
@@ -229,9 +241,10 @@ try {
     Write-NxbJsonFile (Join-Path $maintenanceRoot 'current-install.json') $state
 
     $result = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         status = if ($movedExisting) { 'upgraded' } else { 'installed' }
         version = $verification.version
+        release_sequence = [uint64]$verification.release_sequence
         source_commit = $verification.source_commit
         manifest_sha256 = $verification.manifest_sha256
         signature_sha256 = $verification.signature_sha256
@@ -268,6 +281,7 @@ catch {
         if ($movedExisting -and $null -ne $existing) {
             Set-NxbUninstallEntry `
                 $installRootPath $dataRootPath $existing.Verification.version `
+                ([uint64]$existing.Verification.release_sequence) `
                 $publisherThumbprint $releaseKeySha256
         }
     }
