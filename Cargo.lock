@@ -756,6 +756,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxb-evidence-key-provider-process"
+version = "0.1.0"
+dependencies = [
+ "nxb-evidence-key-provider",
+ "nxb-vault",
+ "nxb-vault-provider",
+ "nxb-vault-provider-process",
+ "ring",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "zeroize",
+]
+
+[[package]]
 name = "nxb-evidence-sealer"
 version = "0.1.0"
 dependencies = [
