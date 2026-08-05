@@ -82,6 +82,41 @@ These harnesses use only the single `nxb` executable and verify:
 
 Linux additionally verifies private `0600` target-profile and disable-receipt modes. Windows injects a broad Everyone allow ACE into a target profile and requires fail-closed rejection.
 
+## Machine-readable diagnostic validation
+
+The following integration-test targets are part of the mandatory serial Rust test gate:
+
+```text
+crates/nxb-core/tests/product_diagnostics.rs
+crates/nxb-core/tests/target_cli.rs
+```
+
+They verify the diagnostic schema, exact subcodes, domains, operations, process exit codes, compact JSON stderr and bounded single-line messages for workspace, migration and target failures. Registered target codes include `target validate` exit `54` and `NXB151-TARGET-VALIDATE-INVALID`.
+
+Message wording is not an acceptance surface. Tests bind only to structured fields.
+
+## Full synthetic product validation
+
+```text
+bash scripts/validate-nxb-151-synthetic-linux.sh
+pwsh -NoProfile -File .\scripts\validate-nxb-151-synthetic-windows.ps1
+```
+
+These harnesses execute one complete networkless local product flow using the canonical synthetic policy and authorization fixtures:
+
+1. initialize and diagnose a private workspace;
+2. create an authorization-bound target profile;
+3. revalidate exact policy and authorization source digests;
+4. verify that source bytes and local source paths were not persisted;
+5. validate the program policy;
+6. create a bounded dry-run scan plan and manual report bundle;
+7. require zero network requests and automatic submission disabled;
+8. generate and verify the deterministic architecture receipt;
+9. require final healthy/ready workspace state;
+10. bind the single executable and generated artifacts to SHA-256 evidence.
+
+The synthetic authorization fixture explicitly grants no authority over real systems and is accepted only for offline product testing.
+
 ## Evidence files
 
 Successful runs create local files under:
@@ -90,7 +125,7 @@ Successful runs create local files under:
 target/nxb-validation/
 ```
 
-Each document contains milestone, platform, exact head, pinned toolchain, explicit gate results and the single executable SHA-256. Evidence must contain no workspace contents, credentials, cookies, tokens, provider handles, source policy bytes, authorization bytes or evidence bodies.
+Each document contains milestone, platform, exact head, pinned toolchain, explicit gate results and the single executable SHA-256. Synthetic evidence additionally records SHA-256 values for the target profile, plan, report, manifest and demo receipt. Evidence must contain no workspace contents, credentials, cookies, tokens, provider handles, source policy bytes, authorization bytes or evidence bodies.
 
 ## Acceptance rule
 
@@ -103,6 +138,8 @@ NXB-151 can move out of draft only when:
 - Windows ACL/reparse checks pass;
 - Linux permission/parent-sync checks pass;
 - authorization-bound target and tamper tests pass on both platforms;
+- diagnostic integration tests pass;
+- full synthetic product flow passes on both platforms;
 - generated evidence is reviewed and recorded in the PR;
 - no GitHub Actions workflow is added or re-enabled.
 
