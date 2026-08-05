@@ -1,5 +1,9 @@
 # NXB-150 — Pinned process evidence-key provider
 
+## Status
+
+NXB-150 is implemented on draft PR #68 but is not release-complete. Source integration, the real child-process fixture and adversarial tests are committed. Canonical `Cargo.lock` publication and actual pinned-toolchain formatting, check, Clippy and test execution remain mandatory before review or merge.
+
 ## Purpose
 
 NXB-150 implements the first concrete adapter for the NXB-149 signed evidence-key provider lifecycle. It reuses the existing NXB-140 process-provider transport instead of introducing a second executable protocol.
@@ -8,7 +12,7 @@ The adapter is intended for a small, separately reviewed helper executable that 
 
 ## Security boundary
 
-The adapter must preserve all NXB-140 process controls:
+The adapter preserves the NXB-140 process controls:
 
 - absolute executable path;
 - regular-file and symbolic-link checks;
@@ -22,6 +26,8 @@ The adapter must preserve all NXB-140 process controls:
 - bounded operation timeout;
 - fail-closed child termination and clean-exit enforcement.
 
+The underlying `ProcessVaultProvider` Drop implementation terminates every child that did not reach `Finished`. Therefore store mismatch, begin failure, caller abandonment and incomplete teardown cannot leave an unmanaged helper process running.
+
 ## Capability identity
 
 The NXB-149 `EvidenceKeyProviderIdentity` returned by the adapter uses backend kind `pinned-process`. Its capability SHA-256 binds a canonical descriptor containing:
@@ -34,9 +40,12 @@ The NXB-149 `EvidenceKeyProviderIdentity` returned by the adapter uses backend k
 - exact evidence key ID;
 - SHA-256 of the configured provider handle;
 - optional required provider-version SHA-256;
-- transport session expiry.
+- transport session expiry;
+- bounded operation timeout in milliseconds.
 
-This prevents a signed NXB-149 plan from being reused with a different executable, provider instance, key mapping or version policy.
+This prevents a signed NXB-149 plan from being reused with a different executable, provider instance, key mapping, timeout or version policy.
+
+The configured transport session expiry is a capability-bound compatibility envelope for the process protocol. It is not the authorization source for evidence sealing. NXB-149 validates the signed plan time window and independently requires returned key material to remain valid through that plan.
 
 ## Lifecycle mapping
 
@@ -44,35 +53,52 @@ The adapter maps one NXB-149 acquisition to one NXB-140 process session:
 
 1. connect and complete the pinned process handshake;
 2. report the derived NXB-149 identity;
-3. validate the exact store-bound begin request;
+3. validate the exact store-bound begin request before process-session begin;
 4. open one process-provider session;
-5. validate the exact plan/store/key-bound fetch request;
+5. validate the exact plan/store/key-bound fetch request before child fetch;
 6. issue one process secret fetch with a 32-byte maximum;
-7. validate optional provider-version pinning;
-8. convert the zeroizing process secret into `ProviderKeyMaterial`;
+7. validate optional provider-version pinning locally even if the helper ignores the requested pin;
+8. transfer the zeroizing process secret into `ProviderKeyMaterial`;
 9. map completed or aborted NXB-149 teardown to committed or aborted process teardown;
 10. return success only after the process exits cleanly.
 
-The process provider handle is never included in `Debug` output or receipts. Only its SHA-256 is bound into the adapter capability identity.
+The process provider handle is required by the child protocol but is never included in adapter `Debug` output, receipts or capability plaintext. Only its SHA-256 is capability-bound. Invalid-length key material is zeroized by the NXB-149 material constructor before rejection.
 
-## Validation targets
+## Implemented fixture coverage
 
-The implementation must cover:
+The real child-process fixture and integration tests cover:
 
 - successful 32-byte acquisition and clean process teardown;
-- executable digest mismatch before spawn;
-- handshake identity mismatch;
-- store, plan or key request mismatch before fetch;
+- executable digest mismatch before use;
+- store mismatch before provider-session begin;
+- exact fetch-request mismatch before child fetch;
 - returned key length rejection;
-- provider-version mismatch;
+- provider-version mismatch followed by aborted teardown;
 - logical child failure followed by aborted teardown;
 - process timeout followed by abort completion;
 - debug redaction for executable path, provider handle and key bytes;
-- second-fetch and invalid lifecycle-state rejection.
+- capability changes when provider mapping changes;
+- second-fetch rejection while preserving abortability.
 
-## Repository policy
+The test source is present, but these cases are not counted as passed until the pinned Rust toolchain actually compiles and executes them.
 
-GitHub-hosted Actions remain disabled. NXB-150 must not add or re-enable a workflow. Validation commands and exact results will be recorded in this document and `docs/STATUS.md` after implementation.
+## Required terminal validation
+
+GitHub-hosted Actions remain disabled. NXB-150 does not add or re-enable a workflow. Validation must run locally or through an external orchestrator:
+
+```text
+cargo generate-lockfile
+git diff --exit-code -- Cargo.lock
+cargo fmt --all -- --check
+cargo check -p nxb-evidence-key-provider-process --all-features --locked
+cargo clippy -p nxb-evidence-key-provider-process --all-targets --all-features --locked -- -D warnings
+cargo test -p nxb-evidence-key-provider-process --all-features --locked -- --test-threads=1
+cargo test -p nxb-vault-provider --locked -- --test-threads=1
+```
+
+A lockfile candidate was prepared from the last immutable release-candidate lockfile by adding the new path-package stanza. It is not accepted as canonical evidence until published and reproduced by `cargo generate-lockfile` with no diff.
+
+An external validation attempt through the available Hugging Face Jobs connector failed before execution with `Tool hf_jobs not found`. The local container also lacks both a Rust toolchain and outbound DNS. These infrastructure failures produced no compilation or test result and are not treated as validation.
 
 ## Explicit exclusions
 
