@@ -21,7 +21,7 @@ concurrency:
 jobs:
   canonicalize:
     if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: windows-latest
+    runs-on: ubuntu-slim
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -35,7 +35,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python .github/nxb149_fix.py
+          python3 .github/nxb149_fix.py
           cargo generate-lockfile
           cargo fmt --all
           git diff --check
