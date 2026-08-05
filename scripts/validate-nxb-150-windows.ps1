@@ -1,12 +1,12 @@
 [CmdletBinding()]
 param(
-    [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
-
-    [string]$ExpectedCargoLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
+    [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+$expectedCargoLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
 
 function Invoke-NxbCargo {
     param(
@@ -85,8 +85,8 @@ try {
     }
 
     $lockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($lockSha256 -ne $ExpectedCargoLockSha256.ToLowerInvariant()) {
-        throw "Cargo.lock SHA-256 mismatch: expected $ExpectedCargoLockSha256, found $lockSha256"
+    if ($lockSha256 -ne $expectedCargoLockSha256) {
+        throw "Cargo.lock SHA-256 mismatch: expected $expectedCargoLockSha256, found $lockSha256"
     }
 
     Invoke-NxbCargo `
