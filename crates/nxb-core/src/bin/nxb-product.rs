@@ -8,6 +8,12 @@ use std::{
     process::ExitCode,
 };
 
+#[cfg(windows)]
+use std::{
+    ffi::OsString,
+    process::{Command as ProcessCommand, Output, Stdio},
+};
+
 use anyhow::{bail, Context, Result};
 use chrono::{SecondsFormat, Utc};
 use clap::{Parser, Subcommand};
@@ -32,6 +38,19 @@ const CANONICAL_DIRECTORIES: &[&str] = &[
     "state",
     "tmp",
 ];
+
+#[cfg(windows)]
+const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+#[cfg(windows)]
+const WINDOWS_CURRENT_USER_SID_PREFIX: &str = "S-1-";
+#[cfg(windows)]
+const WINDOWS_SYSTEM_SID: &str = "S-1-5-18";
+#[cfg(windows)]
+const WINDOWS_ADMINISTRATORS_SID: &str = "S-1-5-32-544";
+#[cfg(windows)]
+const WINDOWS_FORBIDDEN_ALLOW_SIDS: &[&str] = &["S-1-1-0", "S-1-5-11", "S-1-5-32-545"];
+#[cfg(windows)]
+const MAX_WINDOWS_ACL_EXPORT_BYTES: u64 = 128 * 1024;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -157,7 +176,7 @@ fn main() -> ExitCode {
 
 fn initialize_workspace(workspace: &Path, name: &str, json: bool) -> Result<()> {
     validate_workspace_name(name)?;
-    reject_symlink(workspace, "workspace root")?;
+    reject_path_indirections(workspace, "workspace root")?;
 
     let root_created = !workspace.exists();
     if root_created {
@@ -184,9 +203,10 @@ fn initialize_workspace(workspace: &Path, name: &str, json: bool) -> Result<()> 
 }
 
 fn initialize_workspace_inner(workspace: &Path, name: &str, json: bool) -> Result<()> {
+    reject_path_indirections(workspace, "workspace root")?;
     let canonical_root = fs::canonicalize(workspace)
         .with_context(|| format!("could not canonicalize workspace {}", workspace.display()))?;
-    reject_symlink(&canonical_root, "canonical workspace root")?;
+    reject_path_indirections(&canonical_root, "canonical workspace root")?;
     set_private_directory_permissions(&canonical_root)?;
 
     for directory in CANONICAL_DIRECTORIES {
@@ -267,7 +287,7 @@ fn doctor_workspace(workspace: &Path, json: bool) -> Result<()> {
         match write_probe(root) {
             Ok(()) => checks.push(pass_check(
                 "atomic_write_probe",
-                "create-new, sync and cleanup succeeded",
+                "create-new, private-permissions, sync and cleanup succeeded",
             )),
             Err(error) => checks.push(fail_check("atomic_write_probe", error.to_string())),
         }
@@ -318,20 +338,22 @@ fn status_workspace(workspace: &Path, json: bool) -> Result<()> {
 }
 
 fn validate_workspace_root(workspace: &Path) -> Result<PathBuf> {
-    reject_symlink(workspace, "workspace root")?;
+    reject_path_indirections(workspace, "workspace root")?;
     let metadata = fs::metadata(workspace)
         .with_context(|| format!("workspace does not exist: {}", workspace.display()))?;
     if !metadata.is_dir() {
         bail!("workspace root is not a directory: {}", workspace.display());
     }
     validate_private_permissions(workspace, true)?;
-    fs::canonicalize(workspace)
-        .with_context(|| format!("could not canonicalize workspace {}", workspace.display()))
+    let canonical = fs::canonicalize(workspace)
+        .with_context(|| format!("could not canonicalize workspace {}", workspace.display()))?;
+    reject_path_indirections(&canonical, "canonical workspace root")?;
+    Ok(canonical)
 }
 
 fn read_manifest(workspace: &Path) -> Result<WorkspaceManifest> {
     let path = workspace.join(MANIFEST_FILE);
-    reject_symlink(&path, "workspace manifest")?;
+    reject_path_indirections(&path, "workspace manifest")?;
     let metadata = fs::metadata(&path)
         .with_context(|| format!("workspace manifest is missing: {}", path.display()))?;
     if !metadata.is_file() {
@@ -344,8 +366,12 @@ fn read_manifest(workspace: &Path) -> Result<WorkspaceManifest> {
     let mut input = String::with_capacity(metadata.len() as usize);
     File::open(&path)
         .with_context(|| format!("could not open workspace manifest {}", path.display()))?
+        .take(MAX_MANIFEST_BYTES + 1)
         .read_to_string(&mut input)
         .with_context(|| format!("could not read workspace manifest {}", path.display()))?;
+    if input.len() as u64 > MAX_MANIFEST_BYTES {
+        bail!("workspace manifest exceeds the read limit: {}", path.display());
+    }
     let manifest: WorkspaceManifest = serde_json::from_str(&input)
         .with_context(|| format!("workspace manifest is invalid: {}", path.display()))?;
     validate_manifest(&manifest)?;
@@ -376,7 +402,7 @@ fn validate_manifest(manifest: &WorkspaceManifest) -> Result<()> {
 }
 
 fn validate_private_directory(path: &Path) -> Result<()> {
-    reject_symlink(path, "workspace directory")?;
+    reject_path_indirections(path, "workspace directory")?;
     let metadata = fs::metadata(path)
         .with_context(|| format!("workspace directory is missing: {}", path.display()))?;
     if !metadata.is_dir() {
@@ -385,14 +411,47 @@ fn validate_private_directory(path: &Path) -> Result<()> {
     validate_private_permissions(path, true)
 }
 
-fn reject_symlink(path: &Path, field: &str) -> Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            bail!("{field} must not be a symbolic link: {}", path.display())
+fn reject_path_indirections(path: &Path, field: &str) -> Result<()> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .context("could not resolve current directory")?
+            .join(path)
+    };
+    let mut current = PathBuf::new();
+    for component in absolute.components() {
+        current.push(component.as_os_str());
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata_is_indirection(&metadata) => {
+                bail!(
+                    "{field} must not traverse a symbolic link or reparse point: {}",
+                    current.display()
+                )
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("could not inspect {}", current.display()))
+            }
         }
-        Ok(_) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error).with_context(|| format!("could not inspect {}", path.display())),
+    }
+    Ok(())
+}
+
+fn metadata_is_indirection(metadata: &fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    {
+        false
     }
 }
 
@@ -419,6 +478,7 @@ fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("output path has no parent"))?;
+    reject_path_indirections(parent, "output parent")?;
     let file_name = path
         .file_name()
         .and_then(|value| value.to_str())
@@ -443,6 +503,7 @@ fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
                 path.display()
             )
         })?;
+        validate_private_permissions(path, false)?;
         Ok(())
     })();
     if result.is_err() {
@@ -461,9 +522,11 @@ fn write_probe(workspace: &Path) -> Result<()> {
             .create_new(true)
             .open(&path)
             .with_context(|| format!("could not create write probe {}", path.display()))?;
+        set_private_file_permissions(&path)?;
         output.write_all(b"nxb-doctor-probe\n")?;
         output.sync_all()?;
         drop(output);
+        validate_private_permissions(&path, false)?;
         fs::remove_file(&path)
             .with_context(|| format!("could not remove write probe {}", path.display()))?;
         Ok(())
@@ -479,9 +542,13 @@ fn count_regular_files(path: &Path) -> Result<u64> {
     let mut count = 0_u64;
     for entry in fs::read_dir(path)? {
         let entry = entry?;
-        let metadata = fs::symlink_metadata(entry.path())?;
-        if metadata.file_type().is_symlink() {
-            bail!("record directory contains a symbolic link: {}", entry.path().display());
+        let entry_path = entry.path();
+        let metadata = fs::symlink_metadata(&entry_path)?;
+        if metadata_is_indirection(&metadata) {
+            bail!(
+                "record directory contains a symbolic link or reparse point: {}",
+                entry_path.display()
+            );
         }
         if metadata.is_file() {
             count = count
@@ -493,20 +560,37 @@ fn count_regular_files(path: &Path) -> Result<u64> {
 }
 
 fn cleanup_partial_workspace(workspace: &Path, root_created: bool) {
-    let _ = fs::remove_file(workspace.join(MANIFEST_FILE));
+    remove_path_without_following(&workspace.join(MANIFEST_FILE));
     if let Ok(entries) = fs::read_dir(workspace) {
         for entry in entries.flatten() {
             let file_name = entry.file_name();
             if file_name.to_string_lossy().starts_with(".workspace.json.") {
-                let _ = fs::remove_file(entry.path());
+                remove_path_without_following(&entry.path());
             }
         }
     }
     for directory in CANONICAL_DIRECTORIES.iter().rev() {
-        let _ = fs::remove_dir_all(workspace.join(directory));
+        remove_path_without_following(&workspace.join(directory));
     }
     if root_created {
         let _ = fs::remove_dir(workspace);
+    }
+}
+
+fn remove_path_without_following(path: &Path) {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return;
+    };
+    if metadata_is_indirection(&metadata) {
+        if metadata.is_dir() {
+            let _ = fs::remove_dir(path);
+        } else {
+            let _ = fs::remove_file(path);
+        }
+    } else if metadata.is_dir() {
+        let _ = fs::remove_dir_all(path);
+    } else {
+        let _ = fs::remove_file(path);
     }
 }
 
@@ -597,7 +681,12 @@ fn set_private_directory_permissions(path: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn set_private_directory_permissions(path: &Path) -> Result<()> {
+    harden_windows_acl(path, true)
+}
+
+#[cfg(all(not(unix), not(windows)))]
 fn set_private_directory_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
@@ -609,7 +698,12 @@ fn set_private_file_permissions(path: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn set_private_file_permissions(path: &Path) -> Result<()> {
+    harden_windows_acl(path, false)
+}
+
+#[cfg(all(not(unix), not(windows)))]
 fn set_private_file_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
@@ -628,9 +722,267 @@ fn validate_private_permissions(path: &Path, directory: bool) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn validate_private_permissions(path: &Path, directory: bool) -> Result<()> {
+    validate_windows_acl(path, directory)
+}
+
+#[cfg(all(not(unix), not(windows)))]
 fn validate_private_permissions(_path: &Path, _directory: bool) -> Result<()> {
     Ok(())
+}
+
+#[cfg(windows)]
+fn harden_windows_acl(path: &Path, directory: bool) -> Result<()> {
+    reject_path_indirections(path, "Windows ACL target")?;
+    let metadata = fs::metadata(path)
+        .with_context(|| format!("Windows ACL target is missing: {}", path.display()))?;
+    if directory != metadata.is_dir() {
+        bail!("Windows ACL target type does not match: {}", path.display());
+    }
+
+    let current_sid = current_windows_user_sid()?;
+    let rights = if directory { "(OI)(CI)F" } else { "F" };
+    run_icacls(
+        path,
+        &[OsString::from("/inheritance:r"), OsString::from("/q")],
+    )?;
+    for sid in [
+        current_sid.as_str(),
+        WINDOWS_SYSTEM_SID,
+        WINDOWS_ADMINISTRATORS_SID,
+    ] {
+        run_icacls(
+            path,
+            &[
+                OsString::from("/grant:r"),
+                OsString::from(format!("*{sid}:{rights}")),
+                OsString::from("/q"),
+            ],
+        )?;
+    }
+    for sid in WINDOWS_FORBIDDEN_ALLOW_SIDS {
+        run_icacls(
+            path,
+            &[
+                OsString::from("/remove:g"),
+                OsString::from(format!("*{sid}")),
+                OsString::from("/q"),
+            ],
+        )?;
+    }
+    validate_windows_acl_with_sid(path, directory, &current_sid)
+}
+
+#[cfg(windows)]
+fn validate_windows_acl(path: &Path, directory: bool) -> Result<()> {
+    let current_sid = current_windows_user_sid()?;
+    validate_windows_acl_with_sid(path, directory, &current_sid)
+}
+
+#[cfg(windows)]
+fn validate_windows_acl_with_sid(path: &Path, directory: bool, current_sid: &str) -> Result<()> {
+    reject_path_indirections(path, "Windows ACL target")?;
+    let metadata = fs::metadata(path)
+        .with_context(|| format!("Windows ACL target is missing: {}", path.display()))?;
+    if directory != metadata.is_dir() {
+        bail!("Windows ACL target type does not match: {}", path.display());
+    }
+
+    run_icacls(
+        path,
+        &[OsString::from("/verify"), OsString::from("/q")],
+    )?;
+    let sddl = export_windows_acl_sddl(path)?;
+    if !sddl.contains("D:P") {
+        bail!("Windows ACL inheritance is not protected: {}", path.display());
+    }
+    if !sddl_has_full_control(&sddl, current_sid)
+        || !(sddl_has_full_control(&sddl, WINDOWS_SYSTEM_SID)
+            || sddl_has_full_control(&sddl, "SY"))
+        || !(sddl_has_full_control(&sddl, WINDOWS_ADMINISTRATORS_SID)
+            || sddl_has_full_control(&sddl, "BA"))
+    {
+        bail!("Windows ACL required full-control entries are missing: {}", path.display());
+    }
+    for principal in [
+        "S-1-1-0",
+        "S-1-5-11",
+        "S-1-5-32-545",
+        "WD",
+        "AU",
+        "BU",
+    ] {
+        if sddl_has_allow_ace(&sddl, principal) {
+            bail!(
+                "Windows ACL contains a broad allow entry for {principal}: {}",
+                path.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn current_windows_user_sid() -> Result<String> {
+    let output = run_windows_system_tool(
+        "whoami.exe",
+        &[
+            OsString::from("/user"),
+            OsString::from("/fo"),
+            OsString::from("csv"),
+            OsString::from("/nh"),
+        ],
+    )?;
+    let text = String::from_utf8(output.stdout).context("whoami output is not UTF-8")?;
+    let sid = text
+        .trim()
+        .rsplit(',')
+        .next()
+        .map(|value| value.trim().trim_matches('"'))
+        .ok_or_else(|| anyhow::anyhow!("whoami did not return a user SID"))?;
+    if !valid_windows_sid(sid) {
+        bail!("whoami returned an invalid user SID");
+    }
+    Ok(sid.to_string())
+}
+
+#[cfg(windows)]
+fn valid_windows_sid(value: &str) -> bool {
+    value.starts_with(WINDOWS_CURRENT_USER_SID_PREFIX)
+        && value.len() <= 184
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte == b'-')
+}
+
+#[cfg(windows)]
+fn run_icacls(path: &Path, arguments: &[OsString]) -> Result<Output> {
+    let mut complete = Vec::with_capacity(arguments.len() + 1);
+    complete.push(path.as_os_str().to_owned());
+    complete.extend_from_slice(arguments);
+    run_windows_system_tool("icacls.exe", &complete)
+}
+
+#[cfg(windows)]
+fn run_windows_system_tool(name: &str, arguments: &[OsString]) -> Result<Output> {
+    let root = windows_system_root()?;
+    let tool = root.join("System32").join(name);
+    if !tool.is_absolute() {
+        bail!("Windows system tool path is not absolute");
+    }
+    reject_path_indirections(&tool, "Windows system tool")?;
+    let metadata = fs::metadata(&tool)
+        .with_context(|| format!("Windows system tool is missing: {}", tool.display()))?;
+    if !metadata.is_file() {
+        bail!("Windows system tool is not a regular file: {}", tool.display());
+    }
+
+    let output = ProcessCommand::new(&tool)
+        .args(arguments)
+        .stdin(Stdio::null())
+        .env_clear()
+        .env("SystemRoot", &root)
+        .env("WINDIR", &root)
+        .output()
+        .with_context(|| format!("could not execute Windows system tool {}", tool.display()))?;
+    if !output.status.success() {
+        let detail = bounded_process_detail(&output.stderr);
+        bail!(
+            "Windows system tool {} failed with status {}: {}",
+            tool.display(),
+            output.status,
+            detail
+        );
+    }
+    Ok(output)
+}
+
+#[cfg(windows)]
+fn windows_system_root() -> Result<PathBuf> {
+    let root = std::env::var_os("SystemRoot")
+        .or_else(|| std::env::var_os("WINDIR"))
+        .map(PathBuf::from)
+        .ok_or_else(|| anyhow::anyhow!("Windows system root is unavailable"))?;
+    if !root.is_absolute() {
+        bail!("Windows system root is not absolute");
+    }
+    reject_path_indirections(&root, "Windows system root")?;
+    fs::canonicalize(&root)
+        .with_context(|| format!("could not canonicalize Windows system root {}", root.display()))
+}
+
+#[cfg(windows)]
+fn bounded_process_detail(bytes: &[u8]) -> String {
+    let detail = String::from_utf8_lossy(bytes);
+    detail.chars().take(512).collect()
+}
+
+#[cfg(windows)]
+fn export_windows_acl_sddl(path: &Path) -> Result<String> {
+    let export = std::env::temp_dir().join(format!("nxb-acl-{}.txt", random_hex(16)?));
+    reject_path_indirections(
+        export
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("ACL export has no parent"))?,
+        "ACL export parent",
+    )?;
+    let result = (|| {
+        run_icacls(
+            path,
+            &[
+                OsString::from("/save"),
+                export.as_os_str().to_owned(),
+                OsString::from("/q"),
+            ],
+        )?;
+        let metadata = fs::metadata(&export)
+            .with_context(|| format!("ACL export is missing: {}", export.display()))?;
+        if metadata.len() == 0 || metadata.len() > MAX_WINDOWS_ACL_EXPORT_BYTES {
+            bail!("ACL export size is invalid");
+        }
+        let bytes = fs::read(&export)
+            .with_context(|| format!("could not read ACL export {}", export.display()))?;
+        decode_windows_text(&bytes)
+    })();
+    let _ = fs::remove_file(&export);
+    result
+}
+
+#[cfg(windows)]
+fn decode_windows_text(bytes: &[u8]) -> Result<String> {
+    if bytes.starts_with(&[0xff, 0xfe]) {
+        if !(bytes.len() - 2).is_multiple_of(2) {
+            bail!("UTF-16 ACL export has an invalid byte length");
+        }
+        let units: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect();
+        return String::from_utf16(&units).context("ACL export is not valid UTF-16");
+    }
+    String::from_utf8(bytes.to_vec()).context("ACL export is not valid UTF-8")
+}
+
+#[cfg(windows)]
+fn sddl_has_full_control(sddl: &str, principal: &str) -> bool {
+    sddl_aces(sddl).any(|fields| {
+        fields[0] == "A" && fields[2].contains("FA") && fields[5] == principal
+    })
+}
+
+#[cfg(windows)]
+fn sddl_has_allow_ace(sddl: &str, principal: &str) -> bool {
+    sddl_aces(sddl).any(|fields| fields[0] == "A" && fields[5] == principal)
+}
+
+#[cfg(windows)]
+fn sddl_aces(sddl: &str) -> impl Iterator<Item = Vec<&str>> {
+    sddl.split('(').filter_map(|segment| {
+        let ace = segment.split_once(')')?.0;
+        let fields: Vec<&str> = ace.split(';').collect();
+        (fields.len() >= 6).then_some(fields)
+    })
 }
 
 #[cfg(test)]
@@ -698,5 +1050,35 @@ mod tests {
         let path = temporary_path("invalid-name");
         assert!(initialize_workspace(&path, " bad ", true).is_err());
         assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_workspace_component() {
+        use std::os::unix::fs::symlink;
+
+        let root = temporary_path("symlink-root");
+        let target = temporary_path("symlink-target");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&target).unwrap();
+        symlink(&target, root.join("linked")).unwrap();
+        let error = reject_path_indirections(&root.join("linked").join("workspace"), "test")
+            .unwrap_err();
+        assert!(error.to_string().contains("symbolic link or reparse point"));
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(target).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn parses_required_and_forbidden_sddl_entries() {
+        let sid = "S-1-5-21-100-200-300-1001";
+        let sddl = format!(
+            "D:P(A;OICI;FA;;;{sid})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;RX;;;WD)"
+        );
+        assert!(sddl_has_full_control(&sddl, sid));
+        assert!(sddl_has_full_control(&sddl, "SY"));
+        assert!(sddl_has_allow_ace(&sddl, "WD"));
+        assert!(!sddl_has_allow_ace(&sddl, "AU"));
     }
 }
