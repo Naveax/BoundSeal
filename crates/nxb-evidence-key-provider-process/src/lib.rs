@@ -326,7 +326,7 @@ impl EvidenceKeyProvider for ProcessEvidenceKeyProvider {
             request.key_id.clone(),
             version_id,
             expires_at_epoch_seconds,
-            value,
+            std::mem::take(&mut *value),
         )
         .map_err(|_| local_failure("process_key_material_invalid"))?;
         self.fetched = true;
