@@ -14,35 +14,33 @@ The initial supported transition is:
 workspace schema 0 → workspace schema 1
 ```
 
-Schema 1 adds the explicit non-secret boundary:
+Schema 1 adds:
 
 ```json
 "secret_storage": "external_provider_only"
 ```
 
-No credential, cookie, token, key material or provider handle is introduced into the workspace manifest or migration journal.
+No credential, cookie, token, key material or provider handle is introduced into the manifest or journal.
 
-## Temporary command surface
+## Command surface
 
-The migration engine is exposed through a dedicated support binary until the final NXB-151 command consolidation:
+The migration engine is linked directly into the single `nxb` executable:
 
 ```text
-nxb-workspace-migrate status  --workspace <absolute-path> [--json]
-nxb-workspace-migrate apply   --workspace <absolute-path> [--json]
-nxb-workspace-migrate recover --workspace <absolute-path> [--json]
+nxb workspace migrate status  --workspace <absolute-path> [--json]
+nxb workspace migrate apply   --workspace <absolute-path> [--json]
+nxb workspace migrate recover --workspace <absolute-path> [--json]
 ```
 
-Command-level failure exit codes are:
-
-| Command | Exit code |
+| Command | Failure code |
 |---|---:|
 | `apply` | 40 |
 | `recover` | 41 |
 | `status` | 42 |
 
-## Journal files
+No migration helper executable, child process or shell is used.
 
-Migration state is stored below the existing private `state` directory:
+## Journal files
 
 ```text
 state/
@@ -53,112 +51,82 @@ state/
     nxb-migration-0-1-<digest>.json
 ```
 
-The files have distinct roles:
-
-- `migration-source.json` is an exact bounded backup of the source manifest.
-- `migration-active.json` is the prepared journal binding source and target SHA-256 values.
-- `migration-applied.json` records that the target manifest was published and verified.
+- `migration-source.json` is the exact bounded source manifest backup.
+- `migration-active.json` binds source and target SHA-256 values.
+- `migration-applied.json` records verified target publication.
 - `migrations/<id>.json` is the immutable commit receipt.
 
-Transient files are deleted only after the immutable receipt exists and the published manifest matches the target digest.
+Transient files are removed only after the receipt exists and the manifest matches the target digest.
 
-## Deterministic migration identity
+## Deterministic identity
 
-The target manifest is derived only from the validated source manifest and the canonical schema transition. The migration identifier binds:
-
-- migration protocol domain;
-- source manifest SHA-256;
-- target manifest SHA-256;
-- exact `0 → 1` transition.
-
-Repeating the plan for identical source bytes produces the same migration ID and target digest.
+The target is derived only from the validated source and canonical transition. The migration ID binds the protocol domain, source SHA-256, target SHA-256 and exact `0 → 1` transition. Identical source bytes produce the same plan ID and target digest.
 
 ## Prepare → apply → commit
 
 ### Prepare
 
-1. Validate the workspace root, `state` directory, permissions and all existing path components.
-2. Reject symlinks, Windows junctions and other reparse points.
+1. Validate root, state directory, permissions and every existing path component.
+2. Reject symlinks, junctions and reparse points.
 3. Parse the exact legacy schema with unknown fields denied.
-4. Produce canonical schema-1 bytes and source/target SHA-256 values.
-5. Publish the exact source backup with create-new semantics.
+4. Generate canonical target bytes and digests.
+5. Publish the source backup with create-new semantics.
 6. Publish the prepared journal with create-new semantics.
-
-A crash after the backup but before the journal creates an orphan-backup state that is deterministically recoverable.
 
 ### Apply
 
-1. Accept only a missing manifest, the exact source digest or the exact target digest.
-2. Reject any third manifest digest as out-of-band tampering.
-3. Publish the canonical target through a private temporary file.
-4. Flush the target before publication.
-5. Re-read and verify the target digest and schema contract.
-6. Publish the applied marker with create-new semantics.
-
-On Unix the manifest replacement uses filesystem rename semantics. On Windows, where replacing an existing path through the standard library is not portable, the prepared journal and source backup make the bounded remove-and-publish interval recoverable.
+1. Accept only a missing manifest, the exact source digest or exact target digest.
+2. Reject any third digest as out-of-band tampering.
+3. Publish the target through a private temporary document.
+4. Flush before publication.
+5. Re-read and verify digest and schema.
+6. Publish the applied marker.
 
 ### Commit
 
-1. Create an immutable receipt containing transition and source/target digests.
-2. Verify an existing receipt rather than replacing it.
-3. Remove applied marker, prepared journal and source backup in bounded order.
-4. Retain the receipt for independent history and status inspection.
+1. Create an immutable digest-bound receipt.
+2. Verify an existing receipt instead of replacing it.
+3. Remove transient state in bounded order.
+4. Retain the receipt for history and status inspection.
 
 ## Recovery matrix
 
-| Observed state | Recovery action |
+| Observed state | Action |
 |---|---|
 | No transient files | No operation |
-| Source backup only | Reconstruct the deterministic journal and continue |
-| Prepared journal + source manifest | Publish target, mark applied and commit |
-| Prepared journal + target manifest | Verify target, mark applied and commit |
-| Prepared journal + immutable receipt | Verify receipt and target, then clean transient files |
-| Manifest missing with valid journal + backup | Re-publish deterministic target |
-| Applied marker without journal or backup | Fail closed |
-| Backup digest differs from journal | Fail closed |
-| Manifest digest is neither source nor target | Fail closed and preserve recovery evidence |
+| Source backup only | Reconstruct deterministic journal and continue |
+| Journal + source manifest | Publish target and commit |
+| Journal + target manifest | Verify target and commit |
+| Journal + receipt | Verify receipt and target, then clean transient files |
+| Missing manifest with valid journal and backup | Re-publish target |
+| Applied marker without prepared state | Fail closed |
+| Backup digest mismatch | Fail closed |
+| Manifest neither exact source nor target | Fail closed and preserve evidence |
 | Future or unknown schema | Fail closed |
 
 ## Filesystem and permission rules
 
-- All document reads are bounded to 64 KiB.
-- All journal documents reject unknown JSON fields.
-- New files use unpredictable temporary names and create-new publication.
-- Unix directories require private permissions and documents require mode `0600`.
-- Windows reuses the NXB-151 protected-DACL and reparse-point security layer.
-- Migration status validates the `state` parent before inspecting child paths.
-- Receipt directories reject symlinks, reparse points and non-file entries.
-- No shell or command script is executed by the migration binary.
+- Documents are bounded to 64 KiB.
+- Journal structures reject unknown fields.
+- New files use unpredictable names and create-new publication.
+- Unix directories and documents enforce private modes and parent sync where supported.
+- Windows uses the shared protected-DACL and reparse-point module.
+- Receipt directories reject indirections and non-file entries.
+- Receipt count is bounded.
+- No workspace helper binary or shell is executed.
 
 ## Source tests
 
-The migration binary includes tests for:
-
-- successful schema-0 to schema-1 migration;
-- immutable receipt creation;
-- recovery from prepared journal with the source still published;
-- recovery after target publication but before applied marker creation;
-- recovery from an orphan source backup created before the prepared journal;
-- fail-closed rejection of manifest tampering during an active migration;
-- rejection of an unsupported future schema.
+The linked migration module tests successful migration, immutable receipt creation, prepared-source recovery, target-published recovery, orphan-backup recovery, manifest-tamper rejection and future-schema rejection.
 
 ## Platform acceptance harnesses
 
-Linux:
-
 ```text
 bash scripts/validate-nxb-151-migration-linux.sh
-```
-
-Windows:
-
-```text
 pwsh -NoProfile -File .\scripts\validate-nxb-151-migration-windows.ps1
 ```
 
-Both harnesses require a clean exact head and Rust 1.97.1. They run formatting, package check, Clippy with warnings denied, serial migration tests, a real schema-0 fixture migration, orphan-backup recovery, receipt verification and transient-file cleanup.
-
-Evidence is written beneath:
+Both harnesses build only `--bin nxb` and exercise migration through `nxb workspace migrate ...`. Evidence is written below:
 
 ```text
 target/nxb-validation/nxb-151-migration-<platform>-<head>.json
@@ -166,10 +134,9 @@ target/nxb-validation/nxb-151-migration-<platform>-<head>.json
 
 ## Remaining acceptance requirements
 
-- Actual `cargo fmt`, `check`, Clippy and tests on the pinned toolchain.
-- Real Windows ACL and reparse-point execution.
-- Real Linux permission and parent-directory sync execution.
-- Consolidation into the final supported `nxb` command surface.
-- Integration of migration status into the main product `doctor` result.
+- Actual format, check, Clippy and tests on Rust 1.97.1.
+- Real Windows ACL and reparse execution.
+- Real Linux permission and parent-sync execution.
+- Exact-head platform acceptance evidence.
 
-The PR remains draft until those gates complete.
+Command consolidation and doctor/status integration are complete at source level. The PR remains draft until execution gates pass.
