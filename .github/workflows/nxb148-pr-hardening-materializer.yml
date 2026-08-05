@@ -19,7 +19,7 @@ concurrency:
 jobs:
   materialize:
     if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: windows-latest
+    runs-on: ubuntu-slim
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -33,7 +33,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python .github/nxb148_harden.py
+          python3 .github/nxb148_harden.py
           cargo generate-lockfile
           cargo fmt --all
           git diff --check
