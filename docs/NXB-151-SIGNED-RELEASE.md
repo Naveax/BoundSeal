@@ -2,9 +2,9 @@
 
 ## Purpose
 
-The signed release manifest binds one exact `nxb` executable, its CycloneDX SBOM, checksum manifest and source Git commit into one externally signed Ed25519 document.
+The signed release manifest binds one exact `nxb` executable, CycloneDX SBOM, checksum manifest, source Git commit and monotonic release sequence into one externally signed Ed25519 document.
 
-The product never generates, imports or stores a release private key. Signing occurs in an external trusted process. `nxb` only creates the canonical signing payload and verifies a supplied signature against an operator-selected public key.
+The product never generates, imports or stores a release private key. Signing occurs in an external trusted process. `nxb` only creates canonical signing bytes and verifies a supplied signature against an operator-selected public key.
 
 ## Commands
 
@@ -13,6 +13,7 @@ Create an unsigned canonical template:
 ```text
 nxb release manifest-template \
   --release-id <lowercase-release-id> \
+  --release-sequence <positive-u64> \
   --source-commit <40-character-git-sha> \
   --platform <windows|linux> \
   --architecture x86-64 \
@@ -26,14 +27,14 @@ nxb release manifest-template \
 
 The generated document contains:
 
-- canonical release manifest;
-- canonical signing payload as lowercase hexadecimal;
+- canonical manifest-v2 payload;
+- signing payload as lowercase hexadecimal;
 - signing-payload SHA-256;
 - an empty `signature_hex` field.
 
-The external signer signs the exact decoded `signing_payload_hex` bytes with Ed25519 and writes the lowercase 64-byte signature into `signature_hex` without changing any other field or formatting.
+The external signer signs the exact decoded `signing_payload_hex` bytes with Ed25519 and writes the lowercase 64-byte signature into `signature_hex` without changing another field or the canonical formatting.
 
-Verify the signed document and bound artifacts:
+Verify the signed document and artifacts:
 
 ```text
 nxb release verify-manifest \
@@ -52,14 +53,15 @@ nxb release verify-manifest \
 | Manifest template | 60 | `NXB151-RELEASE-MANIFEST-TEMPLATE-FAILED` |
 | Manifest verification | 61 | `NXB151-RELEASE-MANIFEST-VERIFY-FAILED` |
 
-JSON failures are emitted only to stderr through the existing bounded diagnostic schema.
+JSON failures are emitted only to stderr through the bounded diagnostic schema.
 
-## Manifest binding
+## Manifest-v2 binding
 
 The manifest binds:
 
-- manifest schema version;
-- release ID;
+- manifest schema version `2`;
+- canonical release ID;
+- positive `release_sequence`;
 - product identity `NXBounty`;
 - exact Cargo package version;
 - exact lowercase 40-character source commit;
@@ -71,6 +73,34 @@ The manifest binds:
 - self-consistent manifest SHA-256.
 
 The Linux binary must be named exactly `nxb`. The Windows binary must be named exactly `nxb.exe`. A helper or second executable cannot be substituted.
+
+## Release sequence
+
+`release_sequence` is an externally governed monotonic revision number in the range:
+
+```text
+1..=9223372036854775807
+```
+
+It does not replace semantic versioning. Release ordering is the tuple:
+
+```text
+(SemVer, release_sequence)
+```
+
+This permits two correctly signed releases from distinct exact source commits to use the same package SemVer while retaining an unambiguous upgrade and rollback order. It avoids changing the workspace-wide Cargo version merely to validate installer transactions.
+
+Security rules:
+
+- zero and values above signed 64-bit maximum are rejected;
+- the sequence is part of the Ed25519 signing payload and manifest SHA-256;
+- modifying it after signing invalidates the document;
+- equal order with a different manifest is a replay/conflict and is rejected;
+- a higher order must bind a different exact source commit;
+- an installer must reject any lower order as downgrade/replay;
+- rollback is allowed only to a strictly lower signed order.
+
+The release authority is responsible for allocating each sequence exactly once for the applicable SemVer line.
 
 ## Artifact limits
 
@@ -103,7 +133,7 @@ The checksum manifest is canonical LF-terminated UTF-8 text. Each line uses:
 <lowercase-sha256><two spaces><file-name>
 ```
 
-File names cannot contain directories. Duplicate names, CRLF, NUL bytes, malformed hashes and overlong lines are rejected. The manifest must include entries matching the exact binary and SBOM SHA-256 values.
+File names cannot contain directories. Duplicate names, CRLF, NUL bytes, malformed hashes and overlong lines are rejected. The manifest must bind the exact binary and SBOM hashes.
 
 ## Signature boundary
 
@@ -112,7 +142,7 @@ Verification requires:
 - a 32-byte Ed25519 public key encoded as lowercase hexadecimal;
 - a 64-byte signature encoded as lowercase hexadecimal;
 - exact signing-payload hex and SHA-256 equality;
-- successful Ed25519 verification over the canonical manifest bytes;
+- successful Ed25519 verification over canonical manifest bytes;
 - canonical pretty JSON with one trailing LF;
 - exact local artifact equality.
 
@@ -120,51 +150,45 @@ The public key is the external trust anchor selected by the installer, release v
 
 ## Installer requirement
 
-The Windows installer must not install or upgrade `nxb.exe` merely because a checksum matches. It must first run the equivalent of `nxb release verify-manifest` against:
+The Windows installer must not install or upgrade merely because a checksum matches. It must verify:
 
-- the candidate `nxb.exe`;
-- candidate CycloneDX SBOM;
-- candidate checksum manifest;
-- signed release document;
-- pinned trusted release public key.
+- candidate Authenticode signature and pinned publisher certificate;
+- pinned release-public-key file SHA-256;
+- Ed25519 manifest signature;
+- exact binary, SBOM and checksum bindings;
+- exact `(SemVer, release_sequence)` order;
+- distinct source commit for an upgrade.
 
-Installer publication, upgrade and rollback evidence must record the verified source commit, manifest SHA-256, signature SHA-256 and executable SHA-256.
+Installer, upgrade, rollback and uninstall evidence records source commit, release sequence, manifest SHA-256, signature SHA-256 and executable SHA-256.
 
 ## Tests
 
-Unit tests cover:
+Unit and CLI integration tests cover:
 
-- canonical template construction;
-- externally signed Ed25519 round trip;
-- binary tamper rejection;
-- signature tamper rejection;
-- checksum-manifest mismatch rejection.
-
-CLI integration tests execute the real `nxb` binary and cover:
-
-- template creation;
-- external signature insertion;
-- signed verification;
-- single-binary filename enforcement;
-- binary tamper rejection;
+- canonical manifest-v2 template construction;
+- external Ed25519 signing round trip;
+- release-sequence output;
+- zero-sequence rejection;
+- sequence tamper rejection;
+- binary and signature tamper rejection;
+- checksum-manifest mismatch rejection;
 - wrong-public-key rejection;
-- machine-readable diagnostics and exit codes 60/61.
+- single-binary filename enforcement;
+- diagnostics and exit codes 60/61.
 
 ## Non-goals
 
 This layer does not:
 
 - generate or persist release private keys;
-- perform code signing or Authenticode signing;
-- upload releases;
-- create Git tags;
-- publish GitHub Releases;
-- install software;
-- download artifacts;
+- allocate sequence numbers automatically;
+- perform Authenticode signing;
+- upload releases or create tags;
+- install or download software;
 - access the network.
 
-Those operations remain external and may proceed only after this manifest verification succeeds.
+Those operations remain external and may proceed only after manifest verification succeeds.
 
 ## Validation status
 
-Source, tests and documentation are present on the NXB-151 draft branch. No compiler, Clippy, Linux or Windows validation pass is claimed until the pinned Rust 1.97.1 matrix completes on one unchanged exact head.
+Source, tests and documentation are present on the NXB-151 draft branch. No compiler, Clippy, Linux, Windows or installer pass is claimed until the pinned matrix completes on one unchanged final head.
