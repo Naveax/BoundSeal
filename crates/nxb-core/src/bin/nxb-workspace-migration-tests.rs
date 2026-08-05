@@ -1,24 +1,18 @@
 use std::{fs, path::PathBuf};
 
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
-
 use crate::{engine, migration_io, LegacyManifestV0, CURRENT_SCHEMA_VERSION, MANIFEST_FILE, PRODUCT_NAME};
 
 fn workspace(name: &str, schema: u32) -> PathBuf {
     let root = std::env::temp_dir().join(format!("nxb-migration-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     fs::create_dir(&root).unwrap();
-    #[cfg(unix)]
-    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    migration_io::set_private_directory_permissions(&root).unwrap();
     let state = root.join("state");
     fs::create_dir(&state).unwrap();
-    #[cfg(unix)]
-    fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap();
+    migration_io::set_private_directory_permissions(&state).unwrap();
     let receipts = state.join("migrations");
     fs::create_dir(&receipts).unwrap();
-    #[cfg(unix)]
-    fs::set_permissions(&receipts, fs::Permissions::from_mode(0o700)).unwrap();
+    migration_io::set_private_directory_permissions(&receipts).unwrap();
     let bytes = if schema == 0 {
         let mut value = serde_json::to_vec_pretty(&LegacyManifestV0 {
             schema_version: 0,
@@ -33,8 +27,7 @@ fn workspace(name: &str, schema: u32) -> PathBuf {
         format!("{{\n  \"schema_version\": {schema},\n  \"product\": \"NXBounty\",\n  \"workspace_id\": \"nxb-workspace-test-0001\",\n  \"name\": \"Migration Test\",\n  \"created_at\": \"2026-08-05T00:00:00Z\"\n}}\n").into_bytes()
     };
     fs::write(root.join(MANIFEST_FILE), bytes).unwrap();
-    #[cfg(unix)]
-    fs::set_permissions(root.join(MANIFEST_FILE), fs::Permissions::from_mode(0o600)).unwrap();
+    migration_io::set_private_file_permissions(&root.join(MANIFEST_FILE)).unwrap();
     root
 }
 
