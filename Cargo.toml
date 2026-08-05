@@ -12,6 +12,7 @@ members = [
     "crates/nxb-dns",
     "crates/nxb-events",
     "crates/nxb-evidence-key-provider",
+    "crates/nxb-evidence-key-provider-process",
     "crates/nxb-evidence-sealer",
     "crates/nxb-executor",
     "crates/nxb-gateway",
