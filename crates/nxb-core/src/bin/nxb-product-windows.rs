@@ -1,5 +1,5 @@
 use std::{
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     fs,
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
@@ -13,6 +13,7 @@ const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
 const WINDOWS_SYSTEM_SID: &str = "S-1-5-18";
 const WINDOWS_ADMINISTRATORS_SID: &str = "S-1-5-32-544";
 const WINDOWS_FORBIDDEN_ALLOW_SIDS: &[&str] = &["S-1-1-0", "S-1-5-11", "S-1-5-32-545"];
+const WINDOWS_FORBIDDEN_ALLOW_ALIASES: &[&str] = &["WD", "AU", "BU"];
 const MAX_WINDOWS_ACL_EXPORT_BYTES: u64 = 128 * 1024;
 
 pub(super) fn is_reparse_point(metadata: &fs::Metadata) -> bool {
@@ -43,18 +44,20 @@ fn harden_windows_acl(path: &Path, directory: bool) -> Result<()> {
 
     let current_sid = current_windows_user_sid()?;
     let rights = if directory { "(OI)(CI)F" } else { "F" };
-    let arguments = vec![
+    let mut arguments = vec![
         OsString::from("/inheritance:r"),
         OsString::from("/grant:r"),
         OsString::from(format!("*{current_sid}:{rights}")),
         OsString::from(format!("*{WINDOWS_SYSTEM_SID}:{rights}")),
         OsString::from(format!("*{WINDOWS_ADMINISTRATORS_SID}:{rights}")),
         OsString::from("/remove:g"),
-        OsString::from("*S-1-1-0"),
-        OsString::from("*S-1-5-11"),
-        OsString::from("*S-1-5-32-545"),
-        OsString::from("/q"),
     ];
+    arguments.extend(
+        WINDOWS_FORBIDDEN_ALLOW_SIDS
+            .iter()
+            .map(|sid| OsString::from(format!("*{sid}"))),
+    );
+    arguments.push(OsString::from("/q"));
     run_icacls(path, &arguments)?;
     validate_windows_acl_with_sid(path, directory, &current_sid)
 }
@@ -86,14 +89,10 @@ fn validate_windows_acl_with_sid(path: &Path, directory: bool, current_sid: &str
             path.display()
         );
     }
-    for principal in [
-        "S-1-1-0",
-        "S-1-5-11",
-        "S-1-5-32-545",
-        "WD",
-        "AU",
-        "BU",
-    ] {
+    for principal in WINDOWS_FORBIDDEN_ALLOW_SIDS
+        .iter()
+        .chain(WINDOWS_FORBIDDEN_ALLOW_ALIASES.iter())
+    {
         if sddl_has_allow_ace(&sddl, principal) {
             bail!(
                 "Windows ACL contains a broad allow entry for {principal}: {}",
@@ -140,7 +139,7 @@ fn valid_windows_sid(value: &str) -> bool {
 
 fn run_icacls(path: &Path, arguments: &[OsString]) -> Result<Output> {
     let mut complete = Vec::with_capacity(arguments.len() + 1);
-    complete.push(path.as_os_str().to_owned());
+    complete.push(windows_cli_path(path));
     complete.extend_from_slice(arguments);
     run_windows_system_tool("icacls.exe", &complete)
 }
@@ -198,6 +197,26 @@ fn windows_system_root() -> Result<PathBuf> {
         .with_context(|| format!("could not canonicalize Windows system root {}", root.display()))
 }
 
+fn windows_cli_path(path: &Path) -> OsString {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+    const VERBATIM_PREFIX: &[u16] = &[92, 92, 63, 92];
+    const VERBATIM_UNC_PREFIX: &[u16] = &[92, 92, 63, 92, 85, 78, 67, 92];
+    const UNC_PREFIX: &[u16] = &[92, 92];
+
+    let encoded: Vec<u16> = path.as_os_str().encode_wide().collect();
+    if encoded.starts_with(VERBATIM_UNC_PREFIX) {
+        let mut normal = Vec::with_capacity(encoded.len() - VERBATIM_UNC_PREFIX.len() + 2);
+        normal.extend_from_slice(UNC_PREFIX);
+        normal.extend_from_slice(&encoded[VERBATIM_UNC_PREFIX.len()..]);
+        return OsString::from_wide(&normal);
+    }
+    if encoded.starts_with(VERBATIM_PREFIX) {
+        return OsString::from_wide(&encoded[VERBATIM_PREFIX.len()..]);
+    }
+    OsStr::new(path.as_os_str()).to_os_string()
+}
+
 fn bounded_process_detail(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).chars().take(512).collect()
 }
@@ -215,7 +234,7 @@ fn export_windows_acl_sddl(path: &Path) -> Result<String> {
             path,
             &[
                 OsString::from("/save"),
-                export.as_os_str().to_owned(),
+                windows_cli_path(&export),
                 OsString::from("/q"),
             ],
         )?;
@@ -289,6 +308,17 @@ mod tests {
         assert!(valid_windows_sid("S-1-5-21-100-200-300-1001"));
         assert!(!valid_windows_sid("1-5-21-100"));
         assert!(!valid_windows_sid("S-1-invalid"));
+    }
+
+    #[test]
+    fn normalizes_verbatim_windows_paths_for_system_tools() {
+        let input = Path::new(r"\\?\C:\NXBounty\workspace.json");
+        assert_eq!(windows_cli_path(input), OsString::from(r"C:\NXBounty\workspace.json"));
+        let unc = Path::new(r"\\?\UNC\server\share\workspace.json");
+        assert_eq!(
+            windows_cli_path(unc),
+            OsString::from(r"\\server\share\workspace.json")
+        );
     }
 
     #[test]
