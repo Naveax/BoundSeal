@@ -70,4 +70,4 @@ thiserror = "2.0"
 toml = "0.8"
 url = { version = "2.5", features = ["serde"] }
 webpki-roots = "1.0.9"
-zeroize = "1.8"}
+zeroize = "1.8"
