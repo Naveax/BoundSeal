@@ -233,7 +233,7 @@ impl SealedEvidenceEnvelope {
         }
         let ciphertext_bytes = self.ciphertext_hex.len() / 2;
         if self.ciphertext_hex.is_empty()
-            || self.ciphertext_hex.len() % 2 != 0
+            || !self.ciphertext_hex.len().is_multiple_of(2)
             || ciphertext_bytes > MAX_SEALED_EVIDENCE_BYTES + GCM_TAG_BYTES
         {
             return Err(EvidenceSealerError::EnvelopeLimit);
@@ -707,7 +707,7 @@ fn decode_fixed_hex<const N: usize>(
 }
 
 fn decode_hex(value: &str, field: &str) -> Result<Vec<u8>, EvidenceSealerError> {
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         return Err(EvidenceSealerError::InvalidHex(field.into()));
     }
     let mut output = Vec::with_capacity(value.len() / 2);
@@ -977,7 +977,12 @@ mod tests {
         let bytes = fs::read(&path).expect("read");
         let mut envelope: SealedEvidenceEnvelope =
             serde_json::from_slice(&bytes).expect("envelope");
-        envelope.ciphertext_hex.replace_range(0..2, "00");
+        let replacement = if &envelope.ciphertext_hex[..2] == "00" {
+            "01"
+        } else {
+            "00"
+        };
+        envelope.ciphertext_hex.replace_range(0..2, replacement);
         fs::write(&path, canonical_json(&envelope).expect("canonical")).expect("tamper");
         assert!(matches!(
             store.open(&record.evidence_id),
