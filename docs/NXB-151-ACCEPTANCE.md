@@ -1,0 +1,27 @@
+# NXB-151 acceptance matrix
+
+This matrix defines the minimum evidence required before NXB-151 can be marked complete.
+
+| Gate | Linux | Windows | Required evidence |
+|---|---:|---:|---|
+| Pinned Rust toolchain | Required | Required | exact `rustc`, Cargo, rustfmt and Clippy versions |
+| Formatting | Required | Required | `cargo fmt --all -- --check` |
+| Package check | Required | Required | `cargo check -p nxb-core --all-targets --all-features --locked` |
+| Clippy | Required | Required | all targets, all features, warnings denied |
+| Unit and acceptance tests | Required | Required | serial `nxb-core` test result |
+| Init absent path | Required | Required | canonical tree and manifest created |
+| Init empty path | Required | Required | canonical tree and manifest created |
+| Init non-empty path | Required | Required | fail closed, pre-existing content unchanged |
+| Partial-init recovery | Required | Required | no manifest or child directories remain |
+| Symlink/reparse-point root | Required | Required | fail closed |
+| Manifest size bound | Required | Required | files over 64 KiB rejected |
+| Unknown manifest fields | Required | Required | rejected |
+| Unsupported schema | Required | Required | rejected |
+| Doctor write probe | Required | Required | create-new, flush and cleanup |
+| Unix permissions | Required | N/A | root/directories `0700`, manifest `0600` |
+| Windows ACL | N/A | Required | current-user and approved system principals only |
+| Status redaction | Required | Required | no file contents, secrets or provider handles |
+| Stable command exit codes | Required | Required | init `10`, doctor `20`, status `30` |
+| Synthetic product flow | Required | Required | init → doctor → status succeeds on clean workspace |
+
+NXB-151 remains draft until every required cell has immutable evidence tied to an exact commit.
