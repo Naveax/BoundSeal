@@ -82,6 +82,27 @@ These harnesses use only the single `nxb` executable and verify:
 
 Linux additionally verifies private `0600` target-profile and disable-receipt modes. Windows injects a broad Everyone allow ACE into a target profile and requires fail-closed rejection.
 
+## Signed release-manifest validation
+
+The following Rust sources are part of the mandatory serial test gate:
+
+```text
+crates/nxb-core/src/release_manifest.rs
+crates/nxb-core/tests/release_manifest_cli.rs
+```
+
+They verify:
+
+- canonical release-manifest template construction;
+- exact source commit, version, platform and architecture binding;
+- exact single-binary, CycloneDX SBOM and checksum-manifest binding;
+- external Ed25519 signing and verification;
+- binary, signature and checksum tamper rejection;
+- wrong-public-key rejection;
+- single-binary file-name enforcement;
+- release diagnostic exit codes `60` and `61`;
+- networkless verification.
+
 ## Machine-readable diagnostic validation
 
 The following integration-test targets are part of the mandatory serial Rust test gate:
@@ -89,11 +110,10 @@ The following integration-test targets are part of the mandatory serial Rust tes
 ```text
 crates/nxb-core/tests/product_diagnostics.rs
 crates/nxb-core/tests/target_cli.rs
+crates/nxb-core/tests/release_manifest_cli.rs
 ```
 
-They verify the diagnostic schema, exact subcodes, domains, operations, process exit codes, compact JSON stderr and bounded single-line messages for workspace, migration and target failures. Registered target codes include `target validate` exit `54` and `NXB151-TARGET-VALIDATE-INVALID`.
-
-Message wording is not an acceptance surface. Tests bind only to structured fields.
+They verify the diagnostic schema, exact subcodes, domains, operations, process exit codes, compact JSON stderr and bounded single-line messages for workspace, migration, target and release failures. Message wording is not an acceptance surface; tests bind only to structured fields.
 
 ## Full synthetic product validation
 
@@ -117,6 +137,30 @@ These harnesses execute one complete networkless local product flow using the ca
 
 The synthetic authorization fixture explicitly grants no authority over real systems and is accepted only for offline product testing.
 
+## Windows installer validation
+
+```text
+pwsh -NoProfile -File .\scripts\validate-nxb-151-installer-windows.ps1
+```
+
+This harness requires Rust 1.97.1 and OpenSSL with Ed25519 support. It must verify:
+
+- all installer scripts pass the PowerShell language parser;
+- release `nxb.exe` is Authenticode-signed;
+- the exact publisher certificate thumbprint is pinned;
+- the release public-key file SHA-256 is pinned;
+- the external Ed25519 release manifest verifies before installation;
+- the five-file package contract rejects unknown files and reparse points;
+- clean installation publishes only verified release artifacts;
+- an identical signed release is idempotent;
+- a tampered executable is rejected before execution;
+- uninstall verifies the active installation before deletion;
+- PATH, Start Menu and uninstall-registry changes are bounded;
+- uninstall preserves the data/workspace root by default;
+- installer behavior remains networkless.
+
+The upgrade and rollback scripts are source-complete, but positive runtime evidence requires two distinct correctly signed NXBounty versions. Upgrade and rollback are not accepted merely because their scripts parse or because one version installs successfully.
+
 ## Evidence files
 
 Successful runs create local files under:
@@ -125,7 +169,7 @@ Successful runs create local files under:
 target/nxb-validation/
 ```
 
-Each document contains milestone, platform, exact head, pinned toolchain, explicit gate results and the single executable SHA-256. Synthetic evidence additionally records SHA-256 values for the target profile, plan, report, manifest and demo receipt. Evidence must contain no workspace contents, credentials, cookies, tokens, provider handles, source policy bytes, authorization bytes or evidence bodies.
+Each document contains milestone, platform, exact head, pinned toolchain, explicit gate results and the single executable SHA-256. Synthetic evidence additionally records SHA-256 values for the target profile, plan, report, manifest and demo receipt. Installer evidence records publisher certificate thumbprint and release-public-key SHA-256. Evidence must contain no workspace contents, credentials, cookies, tokens, provider handles, source policy bytes, authorization bytes, private signing keys or evidence bodies.
 
 ## Acceptance rule
 
@@ -138,13 +182,16 @@ NXB-151 can move out of draft only when:
 - Windows ACL/reparse checks pass;
 - Linux permission/parent-sync checks pass;
 - authorization-bound target and tamper tests pass on both platforms;
+- signed release-manifest tests pass;
 - diagnostic integration tests pass;
 - full synthetic product flow passes on both platforms;
+- clean install, idempotent reinstall, tamper rejection and data-preserving uninstall pass on Windows;
+- upgrade and rollback pass using two distinct signed versions;
 - generated evidence is reviewed and recorded in the PR;
 - no GitHub Actions workflow is added or re-enabled.
 
-Source implementation, static inspection, a failed remote-job submission or a one-platform result is insufficient.
+Source implementation, static inspection, a failed remote-job submission, a one-platform result or a single-version installer run is insufficient.
 
 ## Current infrastructure limitation
 
-The available Hugging Face Jobs integration has failed before job creation with `Tool hf_jobs not found`. Repository GitHub Actions remain disabled. These infrastructure failures are not compiler or platform evidence, so PR #70 remains draft.
+The available Hugging Face Jobs integration has failed before job creation with `Tool hf_jobs not found`. The current local environment has no Rust or Windows execution path. Repository GitHub Actions remain disabled. These infrastructure failures are not compiler or platform evidence, so PR #70 remains draft.
