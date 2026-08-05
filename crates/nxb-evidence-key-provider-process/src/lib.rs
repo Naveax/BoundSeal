@@ -96,8 +96,6 @@ pub enum ProcessEvidenceKeyProviderError {
     InvalidConfiguration(&'static str),
     #[error("process evidence-key provider capability serialization failed")]
     Serialization,
-    #[error(transparent)]
-    Process(#[from] ProcessVaultProviderError),
 }
 
 #[derive(Serialize)]
@@ -124,7 +122,8 @@ struct ActiveBinding {
 
 pub struct ProcessEvidenceKeyProvider {
     identity: EvidenceKeyProviderIdentity,
-    inner: ProcessVaultProvider,
+    process_config: Option<ProcessVaultProviderConfig>,
+    inner: Option<ProcessVaultProvider>,
     configured_store_id: String,
     configured_key_id: String,
     provider_handle: String,
@@ -137,7 +136,7 @@ pub struct ProcessEvidenceKeyProvider {
 }
 
 impl ProcessEvidenceKeyProvider {
-    pub fn connect(
+    pub fn new(
         config: ProcessEvidenceKeyProviderConfig,
     ) -> Result<Self, ProcessEvidenceKeyProviderError> {
         let identity = config.evidence_identity()?;
@@ -149,10 +148,10 @@ impl ProcessEvidenceKeyProvider {
             required_version_sha256,
             session_expires_at_epoch_seconds,
         } = config;
-        let inner = ProcessVaultProvider::connect(process)?;
         Ok(Self {
             identity,
-            inner,
+            process_config: Some(process),
+            inner: None,
             configured_store_id: store_id,
             configured_key_id: key_id,
             provider_handle,
@@ -202,6 +201,7 @@ impl fmt::Debug for ProcessEvidenceKeyProvider {
         formatter
             .debug_struct("ProcessEvidenceKeyProvider")
             .field("identity", &self.identity)
+            .field("process_config", &self.process_config)
             .field("inner", &self.inner)
             .field("configured_store_id", &self.configured_store_id)
             .field("configured_key_id", &self.configured_key_id)
@@ -236,16 +236,35 @@ impl EvidenceKeyProvider for ProcessEvidenceKeyProvider {
         &mut self,
         request: &EvidenceSessionRequest,
     ) -> Result<(), EvidenceProviderFailure> {
-        if self.finished || self.session.is_some() || self.binding.is_some() {
+        if self.finished
+            || self.inner.is_some()
+            || self.session.is_some()
+            || self.binding.is_some()
+        {
             return Err(local_failure("process_adapter_invalid_state"));
         }
         if request.store_id != self.configured_store_id {
             return Err(local_failure("process_store_mismatch"));
         }
-        let session = self
-            .inner
-            .begin(&self.mapped_session_request(request))
-            .map_err(map_vault_failure)?;
+        let process_config = self
+            .process_config
+            .take()
+            .ok_or_else(|| local_failure("process_adapter_invalid_state"))?;
+        let mut inner = match ProcessVaultProvider::connect(process_config) {
+            Ok(inner) => inner,
+            Err(error) => {
+                self.finished = true;
+                return Err(map_process_error(error));
+            }
+        };
+        let mapped_request = self.mapped_session_request(request);
+        let session = match inner.begin(&mapped_request) {
+            Ok(session) => session,
+            Err(error) => {
+                self.finished = true;
+                return Err(map_vault_failure(error));
+            }
+        };
         self.binding = Some(ActiveBinding {
             plan_id: request.plan_id.clone(),
             plan_sha256: request.plan_sha256.clone(),
@@ -253,6 +272,7 @@ impl EvidenceKeyProvider for ProcessEvidenceKeyProvider {
             policy_snapshot_sha256: request.policy_snapshot_sha256.clone(),
         });
         self.session = Some(session);
+        self.inner = Some(inner);
         Ok(())
     }
 
@@ -277,8 +297,11 @@ impl EvidenceKeyProvider for ProcessEvidenceKeyProvider {
             .session
             .as_mut()
             .ok_or_else(|| local_failure("process_adapter_invalid_state"))?;
-        let material = self
+        let inner = self
             .inner
+            .as_mut()
+            .ok_or_else(|| local_failure("process_adapter_invalid_state"))?;
+        let material = inner
             .fetch(
                 session,
                 &ProviderSecretRequest {
@@ -345,9 +368,14 @@ impl EvidenceKeyProvider for ProcessEvidenceKeyProvider {
             .ok_or_else(|| local_failure("process_adapter_invalid_state"))?;
         self.binding.take();
         self.finished = true;
-        self.inner
+        let result = self
+            .inner
+            .as_mut()
+            .ok_or_else(|| local_failure("process_adapter_invalid_state"))?
             .finish(session, vault_outcome)
-            .map_err(map_vault_failure)?;
+            .map_err(map_vault_failure);
+        self.inner.take();
+        result?;
         if !outcome_valid {
             return Err(local_failure("process_outcome_mismatch"));
         }
@@ -419,6 +447,31 @@ fn timeout_milliseconds(
     u64::try_from(timeout.as_millis()).map_err(|_| {
         ProcessEvidenceKeyProviderError::InvalidConfiguration("operation_timeout")
     })
+}
+
+fn map_process_error(error: ProcessVaultProviderError) -> EvidenceProviderFailure {
+    let code = match error {
+        ProcessVaultProviderError::InvalidConfiguration(_) => "process_invalid_configuration",
+        ProcessVaultProviderError::ExecutablePathNotAbsolute
+        | ProcessVaultProviderError::ExecutableSymlinkDenied
+        | ProcessVaultProviderError::ExecutableNotRegularFile
+        | ProcessVaultProviderError::ExecutableTooLarge => "process_executable_invalid",
+        ProcessVaultProviderError::ExecutableDigestMismatch => {
+            "process_executable_digest_mismatch"
+        }
+        ProcessVaultProviderError::SpawnFailed
+        | ProcessVaultProviderError::ReaderSpawnFailed
+        | ProcessVaultProviderError::IoFailure => "process_io_failure",
+        ProcessVaultProviderError::ProcessClosed
+        | ProcessVaultProviderError::ProcessExitFailure => "process_closed",
+        ProcessVaultProviderError::OperationTimeout => "process_timeout",
+        ProcessVaultProviderError::ProtocolViolation => "process_protocol_violation",
+        ProcessVaultProviderError::ProviderIdentityMismatch => "process_identity_mismatch",
+        ProcessVaultProviderError::InvalidState => "process_invalid_state",
+        ProcessVaultProviderError::RandomFailure => "process_random_failure",
+        ProcessVaultProviderError::InvalidSecretMaterial => "process_secret_invalid",
+    };
+    local_failure(code)
 }
 
 fn map_vault_failure(failure: VaultProviderFailure) -> EvidenceProviderFailure {
