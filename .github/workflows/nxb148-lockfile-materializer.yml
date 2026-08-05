@@ -29,10 +29,36 @@ jobs:
         uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt
-      - name: Generate and commit canonical files
+      - name: Apply deterministic source repairs
         shell: bash
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("crates/nxb-evidence-sealer/src/lib.rs")
+          text = path.read_text(encoding="utf-8")
+          replacements = [
+              (
+                  "self.ciphertext_hex.len() % 2 != 0",
+                  "!self.ciphertext_hex.len().is_multiple_of(2)",
+              ),
+              (
+                  "if value.len() % 2 != 0 {",
+                  "if !value.len().is_multiple_of(2) {",
+              ),
+              (
+                  'envelope.ciphertext_hex.replace_range(0..2, "00");',
+                  'let replacement = if &envelope.ciphertext_hex[..2] == "00" { "01" } else { "00" };\n        envelope.ciphertext_hex.replace_range(0..2, replacement);',
+              ),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected exactly one occurrence of {old!r}, found {count}")
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding="utf-8", newline="\n")
+          PY
           cargo generate-lockfile
           cargo fmt --all
           if git diff --quiet -- Cargo.lock crates/nxb-evidence-sealer/src/lib.rs; then
@@ -41,5 +67,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Cargo.lock crates/nxb-evidence-sealer/src/lib.rs
-          git commit -m "NXB-148: canonicalize lockfile and Rust sources"
+          git commit -m "NXB-148: fix Clippy and deterministic tamper fixture"
           git push origin HEAD:nxb-148-production-evidence-sealer
