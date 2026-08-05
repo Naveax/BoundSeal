@@ -2,13 +2,23 @@
 set -euo pipefail
 
 repo_root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-expected_lock_sha256="${NXB150_EXPECTED_LOCK_SHA256:-f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff}"
+expected_lock_sha256="f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff"
 
 cd "$repo_root"
 
 fail() {
     printf 'NXB-150 Linux validation failed: %s\n' "$1" >&2
     exit 1
+}
+
+json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    printf '%s' "$value"
 }
 
 command -v git >/dev/null 2>&1 || fail 'git is unavailable'
@@ -70,6 +80,11 @@ mkdir -p "$validation_directory"
 evidence_path="$validation_directory/nxb-150-linux-$head_sha.json"
 validated_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
+rustc_json="$(json_escape "$rustc_version")"
+cargo_json="$(json_escape "$cargo_version")"
+audit_json="$(json_escape "$audit_version")"
+deny_json="$(json_escape "$deny_version")"
+
 cat > "$evidence_path" <<JSON
 {
   "schema_version": 1,
@@ -77,10 +92,10 @@ cat > "$evidence_path" <<JSON
   "gate": "pinned_process_evidence_key_provider",
   "platform": "linux",
   "head_sha": "$head_sha",
-  "rustc": "$rustc_version",
-  "cargo": "$cargo_version",
-  "cargo_audit": "$audit_version",
-  "cargo_deny": "$deny_version",
+  "rustc": "$rustc_json",
+  "cargo": "$cargo_json",
+  "cargo_audit": "$audit_json",
+  "cargo_deny": "$deny_json",
   "cargo_lock_sha256": "$lock_sha256",
   "lockfile_reproduced_without_diff": true,
   "package_fmt_check_clippy_tests": "passed",
