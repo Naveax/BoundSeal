@@ -54,6 +54,26 @@ pwsh -NoProfile -File .\scripts\validate-nxb-151-entrypoint-windows.ps1
 
 These harnesses additionally inspect Cargo metadata and require exactly one binary target named `nxb`. They verify migration-aware doctor/status behavior and pending-migration exit codes `20` and `30` using only the single executable.
 
+## Target-profile validation
+
+```text
+bash scripts/validate-nxb-151-target-linux.sh
+pwsh -NoProfile -File .\scripts\validate-nxb-151-target-windows.ps1
+```
+
+These harnesses use only the single `nxb` executable and verify:
+
+- immutable target create, list, show and disable lifecycle;
+- fixed read-only methods `GET`, `HEAD` and `OPTIONS`;
+- active-only and include-disabled views;
+- unsafe origin and ambiguous path rejection with exit code `50`;
+- pending migration rejection with exit code `51`;
+- profile tamper and disable-receipt tamper rejection with exit code `52`;
+- networkless status metadata;
+- exact-head and executable SHA-256 evidence.
+
+Linux additionally verifies private `0600` target-profile and disable-receipt modes. Windows additionally injects a broad Everyone allow ACE into a target profile and requires fail-closed rejection.
+
 ## Evidence files
 
 Successful runs create local files under:
@@ -73,6 +93,7 @@ NXB-151 can move out of draft only when:
 - Cargo metadata confirms exactly one binary target;
 - Windows ACL and reparse checks pass;
 - Linux permission and parent-sync checks pass;
+- target profile and disable-receipt tamper tests pass on both platforms;
 - generated evidence is reviewed and recorded in the PR;
 - no GitHub Actions workflow has been added or re-enabled.
 
