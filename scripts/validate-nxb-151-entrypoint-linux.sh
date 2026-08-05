@@ -24,14 +24,25 @@ cargo fmt --all -- --check
 cargo check -p nxb-core --all-targets --all-features --locked
 cargo clippy -p nxb-core --all-targets --all-features --locked -- -D warnings
 cargo test -p nxb-core --all-features --locked -- --test-threads=1
-cargo build -p nxb-core --bins --all-features --locked
+cargo build -p nxb-core --bin nxb --all-features --locked
 
 nxb="$repo_root/target/debug/nxb"
-product="$repo_root/target/debug/nxb-product"
-migrate="$repo_root/target/debug/nxb-workspace-migrate"
-for binary in "$nxb" "$product" "$migrate"; do
-  [[ -x "$binary" ]] || { printf 'required binary is missing: %s\n' "$binary" >&2; exit 1; }
-done
+[[ -x "$nxb" ]] || { printf 'required binary is missing: %s\n' "$nxb" >&2; exit 1; }
+
+cargo metadata --no-deps --format-version 1 > "$repo_root/target/nxb-151-metadata.json"
+python3 - "$repo_root/target/nxb-151-metadata.json" <<'PY'
+import json
+import pathlib
+import sys
+metadata = json.loads(pathlib.Path(sys.argv[1]).read_text())
+package = next(item for item in metadata['packages'] if item['name'] == 'nxb-core')
+binaries = sorted(
+    target['name']
+    for target in package['targets']
+    if 'bin' in target['kind']
+)
+assert binaries == ['nxb'], binaries
+PY
 
 workspace="$(mktemp -d -t nxb-151-entrypoint-XXXXXX)"
 rmdir -- "$workspace"
@@ -87,23 +98,25 @@ rm -f -- "$workspace/state/migration-active.json"
 validation_dir="$repo_root/target/nxb-validation"
 mkdir -p -- "$validation_dir"
 evidence="$validation_dir/nxb-151-entrypoint-linux-$head_sha.json"
-python3 - "$evidence" "$head_sha" "$rustc_version" "$nxb" "$product" "$migrate" <<'PY'
+python3 - "$evidence" "$head_sha" "$rustc_version" "$nxb" <<'PY'
 import hashlib
 import json
 import pathlib
 import sys
-output, head, rustc, *binaries = sys.argv[1:]
-def digest(path):
-    return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
+output, head, rustc, binary = sys.argv[1:]
 value = {
     'schema_version': 1,
     'milestone': 'NXB-151',
-    'gate': 'unified_entrypoint',
+    'gate': 'linked_single_binary_entrypoint',
     'platform': 'linux',
     'head_sha': head,
     'rustc': rustc,
-    'binaries': {pathlib.Path(path).name: digest(path) for path in binaries},
+    'binary': {
+        'name': pathlib.Path(binary).name,
+        'sha256': hashlib.sha256(pathlib.Path(binary).read_bytes()).hexdigest(),
+    },
     'checks': {
+        'single_cargo_binary_target': 'passed',
         'workspace_init': 'passed',
         'combined_doctor': 'passed',
         'combined_status': 'passed',
@@ -115,6 +128,6 @@ value = {
 pathlib.Path(output).write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
 PY
 
-printf 'NXB-151 unified Linux entrypoint validation passed.\n'
+printf 'NXB-151 linked single-binary Linux validation passed.\n'
 printf 'HEAD: %s\n' "$head_sha"
 printf 'Evidence: %s\n' "$evidence"
