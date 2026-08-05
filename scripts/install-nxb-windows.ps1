@@ -162,6 +162,27 @@ function Restore-NxbMaintenanceScripts {
     }
 }
 
+function Restore-NxbIdempotentState {
+    param(
+        [Parameter(Mandatory = $true)][string]$StatePath,
+        [Parameter(Mandatory = $true)][string]$PendingPath,
+        [Parameter(Mandatory = $true)][string]$BackupPath,
+        [Parameter(Mandatory = $true)][bool]$BackedUp,
+        [Parameter(Mandatory = $true)][bool]$Published
+    )
+
+    if ($Published -and (Test-Path -LiteralPath $StatePath)) {
+        Remove-Item -LiteralPath $StatePath -Force
+    }
+    if ($BackedUp -and (Test-Path -LiteralPath $BackupPath -PathType Leaf)) {
+        if (Test-Path -LiteralPath $StatePath) {
+            Remove-Item -LiteralPath $StatePath -Force
+        }
+        Move-Item -LiteralPath $BackupPath -Destination $StatePath
+    }
+    Remove-Item -LiteralPath $PendingPath -Force -ErrorAction SilentlyContinue
+}
+
 $installRootPath = Assert-NxbManagedRoot $InstallRoot 'install root'
 $dataRootPath = Assert-NxbManagedRoot $DataRoot 'data root'
 $package = Get-NxbPackagePaths $PackageDirectory
@@ -199,17 +220,26 @@ $previousRoot = $installRootPath + '.previous'
 $previousBackupRoot = $previousRoot + '.backup.' + $nonce
 $maintenanceRoot = Join-Path $dataRootPath 'installer'
 $maintenanceBackup = $maintenanceRoot + '.backup.' + $nonce
+$idempotentStatePath = Join-Path $installRootPath 'install-state.json'
+$idempotentStatePending = $idempotentStatePath + '.pending.' + $nonce
+$idempotentStateBackup = $idempotentStatePath + '.backup.' + $nonce
 $existing = $null
+$existingPathSetting = $false
+$existingShortcutSetting = $false
 $movedExisting = $false
 $publishedStage = $false
 $previousSlotBackedUp = $false
 $maintenancePublished = $false
+$idempotentStateBackedUp = $false
+$idempotentStatePublished = $false
 $transactionCommitted = $false
 $result = $null
 try {
     if (Test-Path -LiteralPath $installRootPath) {
         $existing = Assert-NxbInstalledRoot `
             $installRootPath $publisherThumbprint $releaseKeySha256
+        $existingPathSetting = [bool]$existing.State.add_to_user_path
+        $existingShortcutSetting = [bool]$existing.State.create_start_menu_shortcut
     } elseif (Test-Path -LiteralPath $previousRoot) {
         throw 'Rollback slot exists without an active installation.'
     }
@@ -238,14 +268,19 @@ try {
     $maintenancePublished = $true
 
     if ($null -ne $existing -and $comparison -eq 0) {
+        $existing.State.add_to_user_path = $AddToUserPath
+        $existing.State.create_start_menu_shortcut = $CreateStartMenuShortcut
+        Write-NxbJsonFile $idempotentStatePending $existing.State
+        Move-Item -LiteralPath $idempotentStatePath -Destination $idempotentStateBackup
+        $idempotentStateBackedUp = $true
+        Move-Item -LiteralPath $idempotentStatePending -Destination $idempotentStatePath
+        $idempotentStatePublished = $true
+
         Set-NxbIntegrationState `
             $installRootPath $dataRootPath $verification.version `
             ([uint64]$verification.release_sequence) `
             $publisherThumbprint $releaseKeySha256 `
             $AddToUserPath $CreateStartMenuShortcut
-        $existing.State.add_to_user_path = $AddToUserPath
-        $existing.State.create_start_menu_shortcut = $CreateStartMenuShortcut
-        Write-NxbJsonFile $existing.Paths.State $existing.State
         Write-NxbJsonFile `
             (Join-Path $maintenanceRoot 'current-install.json') $existing.State
 
@@ -358,6 +393,10 @@ catch {
     $failure = $_
     if (-not $transactionCommitted) {
         try {
+            Restore-NxbIdempotentState `
+                $idempotentStatePath $idempotentStatePending $idempotentStateBackup `
+                $idempotentStateBackedUp $idempotentStatePublished
+
             if ($publishedStage -and (Test-Path -LiteralPath $installRootPath)) {
                 Assert-NxbNoReparseChain $installRootPath 'failed published installation'
                 Remove-Item -LiteralPath $installRootPath -Recurse -Force
@@ -379,8 +418,7 @@ catch {
                     $installRootPath $dataRootPath $existing.Verification.version `
                     ([uint64]$existing.Verification.release_sequence) `
                     $publisherThumbprint $releaseKeySha256 `
-                    ([bool]$existing.State.add_to_user_path) `
-                    ([bool]$existing.State.create_start_menu_shortcut)
+                    $existingPathSetting $existingShortcutSetting
             } else {
                 [void](Remove-NxbUserPath $installRootPath)
                 [void](Remove-NxbStartMenuShortcut)
@@ -404,11 +442,15 @@ finally {
 }
 
 if ($transactionCommitted) {
-    if (Test-Path -LiteralPath $previousBackupRoot) {
-        Remove-Item -LiteralPath $previousBackupRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    if (Test-Path -LiteralPath $maintenanceBackup) {
-        Remove-Item -LiteralPath $maintenanceBackup -Recurse -Force -ErrorAction SilentlyContinue
+    foreach ($path in @(
+        $previousBackupRoot,
+        $maintenanceBackup,
+        $idempotentStateBackup,
+        $idempotentStatePending
+    )) {
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
     $result | ConvertTo-Json -Depth 8
 }
