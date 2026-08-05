@@ -213,9 +213,7 @@ impl EvidenceKeyActivation {
     }
 
     fn verify(&self, plan: &EvidenceKeyPlan) -> Result<(), EvidenceKeyProviderError> {
-        if self.version != EVIDENCE_KEY_ACTIVATION_VERSION
-            || self.plan_sha256 != plan.plan_sha256
-        {
+        if self.version != EVIDENCE_KEY_ACTIVATION_VERSION || self.plan_sha256 != plan.plan_sha256 {
             return Err(EvidenceKeyProviderError::InvalidActivation);
         }
         let signature = decode_hex(&self.signature_hex, "signature")?;
@@ -336,8 +334,10 @@ pub trait EvidenceKeyProvider {
 
     fn begin(&mut self, request: &ProviderSessionRequest) -> Result<(), ProviderFailure>;
 
-    fn fetch_key(&mut self, request: &ProviderKeyRequest)
-        -> Result<ProviderKeyMaterial, ProviderFailure>;
+    fn fetch_key(
+        &mut self,
+        request: &ProviderKeyRequest,
+    ) -> Result<ProviderKeyMaterial, ProviderFailure>;
 
     fn finish(&mut self, outcome: &ProviderSessionOutcome) -> Result<(), ProviderFailure>;
 }
@@ -472,11 +472,9 @@ pub fn acquire_evidence_sealer<P: EvidenceKeyProvider>(
             now_epoch_seconds,
             material.expires_at_epoch_seconds,
         )?;
-        let sealer = ProductionEvidenceSealer::new(
-            plan.key_id.clone(),
-            EvidenceSealingKey::new(key_bytes),
-        )
-        .map_err(|error| EvidenceKeyProviderError::Sealer(error.to_string()))?;
+        let sealer =
+            ProductionEvidenceSealer::new(plan.key_id.clone(), EvidenceSealingKey::new(key_bytes))
+                .map_err(|error| EvidenceKeyProviderError::Sealer(error.to_string()))?;
         Ok((sealer, receipt))
     })();
 
@@ -721,9 +719,7 @@ mod tests {
         }
     }
 
-    fn signed_plan(
-        now: i64,
-    ) -> (EvidenceKeyPlan, EvidenceKeyActivation, Ed25519KeyPair) {
+    fn signed_plan(now: i64) -> (EvidenceKeyPlan, EvidenceKeyActivation, Ed25519KeyPair) {
         let random = SystemRandom::new();
         let pkcs8 = Ed25519KeyPair::generate_pkcs8(&random).expect("pkcs8");
         let key_pair = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).expect("pair");
