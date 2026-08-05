@@ -52,6 +52,31 @@ function Set-NxbUninstallEntryForRestore {
     New-ItemProperty -Path $keyPath -Name NoRepair -Value 1 -PropertyType DWord -Force | Out-Null
 }
 
+function Restore-NxbUninstallIntegration {
+    param(
+        [Parameter(Mandatory = $true)]$Installed,
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$Data,
+        [Parameter(Mandatory = $true)][string]$PublisherThumbprint,
+        [Parameter(Mandatory = $true)][string]$ReleasePublicKeySha256
+    )
+
+    if ([bool]$Installed.State.add_to_user_path) {
+        [void](Add-NxbUserPath $Root)
+    } else {
+        [void](Remove-NxbUserPath $Root)
+    }
+    if ([bool]$Installed.State.create_start_menu_shortcut) {
+        [void](Set-NxbStartMenuShortcut $Root)
+    } else {
+        [void](Remove-NxbStartMenuShortcut)
+    }
+    Set-NxbUninstallEntryForRestore `
+        $Root $Data $Installed.Verification.version `
+        ([uint64]$Installed.Verification.release_sequence) `
+        $PublisherThumbprint $ReleasePublicKeySha256
+}
+
 $installRootPath = Assert-NxbManagedRoot $InstallRoot 'install root'
 $dataRootPath = Assert-NxbManagedRoot $DataRoot 'data root'
 if ((Test-NxbPathWithin $installRootPath $dataRootPath) -or
@@ -64,102 +89,133 @@ $nonce = [Guid]::NewGuid().ToString('N')
 $currentTombstone = $installRootPath + '.uninstall.' + $nonce
 $previousTombstone = $previousRoot + '.uninstall.' + $nonce
 $lock = Open-NxbInstallerLock $installRootPath
-$currentMoved = $false
-$previousMoved = $false
-$integrationsRemoved = $false
 $current = $null
+$previous = $null
+$transactionCommitted = $false
+$receipt = $null
+$cleanupWarnings = [Collections.Generic.List[string]]::new()
 try {
-    $current = Assert-NxbInstalledRoot `
-        $installRootPath $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
-    $previous = $null
-    if (Test-Path -LiteralPath $previousRoot) {
-        $previous = Assert-NxbInstalledRoot `
-            $previousRoot $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
+    try {
+        $current = Assert-NxbInstalledRoot `
+            $installRootPath $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
+        if (Test-Path -LiteralPath $previousRoot) {
+            $previous = Assert-NxbInstalledRoot `
+                $previousRoot $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
+        }
+
+        Move-Item -LiteralPath $installRootPath -Destination $currentTombstone
+        if ($null -ne $previous) {
+            Move-Item -LiteralPath $previousRoot -Destination $previousTombstone
+        }
+
+        [void](Remove-NxbUserPath $installRootPath)
+        [void](Remove-NxbStartMenuShortcut)
+        $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\NXBounty'
+        if (Test-Path -LiteralPath $uninstallKey) {
+            Remove-Item -LiteralPath $uninstallKey -Recurse -Force
+        }
+
+        $receipt = [ordered]@{
+            schema_version = 2
+            status = 'uninstalled'
+            version = $current.Verification.version
+            release_sequence = [uint64]$current.Verification.release_sequence
+            source_commit = $current.Verification.source_commit
+            manifest_sha256 = $current.Verification.manifest_sha256
+            binary_sha256 = $current.State.binary_sha256
+            install_root = $installRootPath
+            data_root = $dataRootPath
+            data_preserved = (-not $PurgeData)
+            rollback_slot_deactivated = ($null -ne $previous)
+            cleanup_complete = $false
+            cleanup_warnings = @()
+            uninstalled_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffffffZ')
+            network_activity = 'none'
+        }
+
+        # This is the irreversible commit point: active paths and Windows integrations
+        # are gone, while verified bytes remain recoverable in private tombstones.
+        $transactionCommitted = $true
+    }
+    catch {
+        $failure = $_
+        try {
+            if (Test-Path -LiteralPath $currentTombstone -PathType Container) {
+                if (Test-Path -LiteralPath $installRootPath) {
+                    throw 'Cannot restore active installation because its root is occupied.'
+                }
+                Move-Item -LiteralPath $currentTombstone -Destination $installRootPath
+            }
+            if (Test-Path -LiteralPath $previousTombstone -PathType Container) {
+                if (Test-Path -LiteralPath $previousRoot) {
+                    throw 'Cannot restore rollback slot because its root is occupied.'
+                }
+                Move-Item -LiteralPath $previousTombstone -Destination $previousRoot
+            }
+            if ($null -ne $current -and
+                (Test-Path -LiteralPath $installRootPath -PathType Container)) {
+                $restored = Assert-NxbInstalledRoot `
+                    $installRootPath $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
+                Restore-NxbUninstallIntegration `
+                    $restored $installRootPath $dataRootPath `
+                    $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
+            }
+        }
+        catch {
+            Write-Error "Uninstall restoration also failed: $($_.Exception.Message)"
+        }
+        throw $failure
     }
 
-    Move-Item -LiteralPath $installRootPath -Destination $currentTombstone
-    $currentMoved = $true
-    if ($null -ne $previous) {
-        Move-Item -LiteralPath $previousRoot -Destination $previousTombstone
-        $previousMoved = $true
-    }
-
-    [void](Remove-NxbUserPath $installRootPath)
-    [void](Remove-NxbStartMenuShortcut)
-    $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\NXBounty'
-    if (Test-Path -LiteralPath $uninstallKey) {
-        Remove-Item -LiteralPath $uninstallKey -Recurse -Force
-    }
-    $integrationsRemoved = $true
-
-    Assert-NxbNoReparseChain $currentTombstone 'uninstall tombstone'
-    Remove-Item -LiteralPath $currentTombstone -Recurse -Force
-    $currentMoved = $false
-    if ($previousMoved) {
-        Assert-NxbNoReparseChain $previousTombstone 'rollback-slot uninstall tombstone'
-        Remove-Item -LiteralPath $previousTombstone -Recurse -Force
-        $previousMoved = $false
-    }
-
-    $receipt = [ordered]@{
-        schema_version = 2
-        status = 'uninstalled'
-        version = $current.Verification.version
-        release_sequence = [uint64]$current.Verification.release_sequence
-        source_commit = $current.Verification.source_commit
-        manifest_sha256 = $current.Verification.manifest_sha256
-        binary_sha256 = $current.State.binary_sha256
-        install_root = $installRootPath
-        data_root = $dataRootPath
-        data_preserved = (-not $PurgeData)
-        rollback_slot_removed = ($null -ne $previous)
-        uninstalled_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffffffZ')
-        network_activity = 'none'
+    # Post-commit cleanup is deliberately non-transactional. A cleanup failure must
+    # never recreate integrations that point at missing binaries.
+    foreach ($entry in @(
+        [pscustomobject]@{ Path = $currentTombstone; Label = 'active uninstall tombstone' },
+        [pscustomobject]@{ Path = $previousTombstone; Label = 'rollback uninstall tombstone' }
+    )) {
+        if (Test-Path -LiteralPath $entry.Path) {
+            try {
+                Assert-NxbNoReparseChain $entry.Path $entry.Label
+                Remove-Item -LiteralPath $entry.Path -Recurse -Force
+            }
+            catch {
+                $cleanupWarnings.Add("$($entry.Label): $($_.Exception.Message)")
+            }
+        }
     }
 
     if ($PurgeData) {
         if (Test-Path -LiteralPath $dataRootPath) {
-            Assert-NxbNoReparseChain $dataRootPath 'data root purge target'
-            Remove-Item -LiteralPath $dataRootPath -Recurse -Force
+            try {
+                Assert-NxbNoReparseChain $dataRootPath 'data root purge target'
+                Remove-Item -LiteralPath $dataRootPath -Recurse -Force
+            }
+            catch {
+                $cleanupWarnings.Add("data root purge: $($_.Exception.Message)")
+            }
         }
     } else {
-        $installerStateRoot = Join-Path $dataRootPath 'installer'
-        New-Item -ItemType Directory -Path $installerStateRoot -Force | Out-Null
-        Protect-NxbDirectoryAcl $installerStateRoot
-        Write-NxbJsonFile `
-            (Join-Path $installerStateRoot 'last-uninstall.json') $receipt
-        Remove-Item -LiteralPath (Join-Path $installerStateRoot 'current-install.json') `
-            -Force -ErrorAction SilentlyContinue
+        try {
+            $installerStateRoot = Join-Path $dataRootPath 'installer'
+            New-Item -ItemType Directory -Path $installerStateRoot -Force | Out-Null
+            Protect-NxbDirectoryAcl $installerStateRoot
+            Remove-Item -LiteralPath (Join-Path $installerStateRoot 'current-install.json') `
+                -Force -ErrorAction SilentlyContinue
+            Write-NxbJsonFile `
+                (Join-Path $installerStateRoot 'last-uninstall.json') $receipt
+        }
+        catch {
+            $cleanupWarnings.Add("uninstall receipt: $($_.Exception.Message)")
+        }
     }
 
+    $receipt.data_preserved = Test-Path -LiteralPath $dataRootPath -PathType Container
+    $receipt.cleanup_complete = ($cleanupWarnings.Count -eq 0)
+    $receipt.cleanup_warnings = @($cleanupWarnings)
+    if (-not $receipt.cleanup_complete) {
+        $receipt.status = 'uninstalled_cleanup_incomplete'
+    }
     $receipt | ConvertTo-Json -Depth 8
-}
-catch {
-    $failure = $_
-    try {
-        if ($currentMoved -and (Test-Path -LiteralPath $currentTombstone)) {
-            Move-Item -LiteralPath $currentTombstone -Destination $installRootPath
-        }
-        if ($previousMoved -and (Test-Path -LiteralPath $previousTombstone)) {
-            Move-Item -LiteralPath $previousTombstone -Destination $previousRoot
-        }
-        if ($integrationsRemoved -and $null -ne $current) {
-            if ($current.State.add_to_user_path) {
-                [void](Add-NxbUserPath $installRootPath)
-            }
-            if ($current.State.create_start_menu_shortcut) {
-                [void](Set-NxbStartMenuShortcut $installRootPath)
-            }
-            Set-NxbUninstallEntryForRestore `
-                $installRootPath $dataRootPath $current.Verification.version `
-                ([uint64]$current.Verification.release_sequence) `
-                $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
-        }
-    }
-    catch {
-        Write-Error "Uninstall restoration also failed: $($_.Exception.Message)"
-    }
-    throw $failure
 }
 finally {
     if ($null -ne $lock) {
