@@ -71,7 +71,9 @@ fn assert_diagnostic(
         .and_then(Value::as_str)
         .expect("diagnostic message is missing");
     assert!(!message.is_empty());
-    assert!(!message.contains(['\n', '\r', '\0']));
+    assert!(!message
+        .chars()
+        .any(|value| matches!(value, '\n' | '\r' | '\0')));
 }
 
 fn initialize(root: &Path) {
