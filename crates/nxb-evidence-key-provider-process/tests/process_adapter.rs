@@ -5,7 +5,8 @@ use std::{path::PathBuf, time::Duration};
 
 use nxb_evidence_key_provider::{
     acquire_evidence_sealer, EvidenceKeyActivation, EvidenceKeyPlan, EvidenceKeyPlanInput,
-    EvidenceKeyProviderError,
+    EvidenceKeyProvider, EvidenceKeyProviderError, ProviderKeyRequest, ProviderSessionDisposition,
+    ProviderSessionOutcome, ProviderSessionRequest,
 };
 use nxb_evidence_key_provider_process::{
     ProcessEvidenceKeyProvider, ProcessEvidenceKeyProviderConfig,
@@ -84,6 +85,33 @@ fn signed_plan(
     (plan, activation)
 }
 
+fn direct_requests(plan: &EvidenceKeyPlan) -> (ProviderSessionRequest, ProviderKeyRequest) {
+    (
+        ProviderSessionRequest {
+            plan_id: plan.plan_id.clone(),
+            plan_sha256: plan.plan_sha256.clone(),
+            store_id: plan.store_id.clone(),
+            policy_snapshot_sha256: plan.policy_snapshot_sha256.clone(),
+        },
+        ProviderKeyRequest {
+            plan_id: plan.plan_id.clone(),
+            plan_sha256: plan.plan_sha256.clone(),
+            key_id: plan.key_id.clone(),
+            store_id: plan.store_id.clone(),
+            policy_snapshot_sha256: plan.policy_snapshot_sha256.clone(),
+        },
+    )
+}
+
+fn aborted_outcome(plan: &EvidenceKeyPlan, failure_code: &str) -> ProviderSessionOutcome {
+    ProviderSessionOutcome {
+        disposition: ProviderSessionDisposition::Aborted,
+        plan_sha256: plan.plan_sha256.clone(),
+        receipt_sha256: None,
+        failure_code: Some(failure_code.into()),
+    }
+}
+
 #[test]
 fn pinned_process_adapter_acquires_key_and_tears_down() {
     let config = config(
@@ -124,7 +152,7 @@ fn executable_digest_mismatch_is_rejected_before_use() {
 }
 
 #[test]
-fn store_mismatch_is_rejected_before_process_begin() {
+fn store_mismatch_is_rejected_before_provider_session_begin() {
     let config = config("fixture/evidence-key", None, Duration::from_secs(5));
     let identity = config.evidence_identity().unwrap();
     let (plan, activation) = signed_plan(identity, "different-store");
@@ -195,6 +223,41 @@ fn timeout_kills_child_and_allows_abort_completion() {
         Err(EvidenceKeyProviderError::ProviderFetchFailure(code))
             if code == "process_timeout"
     ));
+}
+
+#[test]
+fn mismatched_fetch_request_is_rejected_before_child_fetch() {
+    let config = config("fixture/evidence-key", None, Duration::from_secs(5));
+    let identity = config.evidence_identity().unwrap();
+    let (plan, _) = signed_plan(identity, STORE_ID);
+    let (session_request, mut key_request) = direct_requests(&plan);
+    key_request.key_id = "other-key".into();
+    let mut provider = ProcessEvidenceKeyProvider::connect(config).unwrap();
+
+    provider.begin(&session_request).unwrap();
+    let error = provider.fetch_key(&key_request).unwrap_err();
+    assert_eq!(error.code, "process_request_mismatch");
+    provider
+        .finish(&aborted_outcome(&plan, "process_request_mismatch"))
+        .unwrap();
+}
+
+#[test]
+fn second_fetch_is_rejected_and_session_remains_abortable() {
+    let config = config("fixture/evidence-key", None, Duration::from_secs(5));
+    let identity = config.evidence_identity().unwrap();
+    let (plan, _) = signed_plan(identity, STORE_ID);
+    let (session_request, key_request) = direct_requests(&plan);
+    let mut provider = ProcessEvidenceKeyProvider::connect(config).unwrap();
+
+    provider.begin(&session_request).unwrap();
+    let material = provider.fetch_key(&key_request).unwrap();
+    drop(material);
+    let error = provider.fetch_key(&key_request).unwrap_err();
+    assert_eq!(error.code, "process_adapter_invalid_state");
+    provider
+        .finish(&aborted_outcome(&plan, "process_adapter_invalid_state"))
+        .unwrap();
 }
 
 #[test]
