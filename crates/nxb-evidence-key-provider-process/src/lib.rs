@@ -50,7 +50,7 @@ impl ProcessEvidenceKeyProviderConfig {
     ) -> Result<EvidenceKeyProviderIdentity, ProcessEvidenceKeyProviderError> {
         validate_config(self)?;
         let provider_handle_sha256 = sha256_hex(self.provider_handle.as_bytes());
-        let operation_timeout_milliseconds = timeout_milliseconds(self.process.operation_timeout)?;
+        let operation_timeout_nanoseconds = timeout_nanoseconds(self.process.operation_timeout)?;
         let descriptor = CapabilityDescriptor {
             adapter_version: PROCESS_EVIDENCE_KEY_ADAPTER_VERSION,
             process_protocol_version: PROCESS_PROVIDER_PROTOCOL_VERSION,
@@ -61,7 +61,7 @@ impl ProcessEvidenceKeyProviderConfig {
             provider_handle_sha256: &provider_handle_sha256,
             required_version_sha256: &self.required_version_sha256,
             session_expires_at_epoch_seconds: self.session_expires_at_epoch_seconds,
-            operation_timeout_milliseconds,
+            operation_timeout_nanoseconds,
         };
         let bytes = serde_json::to_vec(&descriptor)
             .map_err(|_| ProcessEvidenceKeyProviderError::Serialization)?;
@@ -109,7 +109,7 @@ struct CapabilityDescriptor<'a> {
     provider_handle_sha256: &'a str,
     required_version_sha256: &'a Option<String>,
     session_expires_at_epoch_seconds: i64,
-    operation_timeout_milliseconds: u64,
+    operation_timeout_nanoseconds: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -437,14 +437,12 @@ fn validate_config(
             "operation_timeout",
         ));
     }
-    timeout_milliseconds(config.process.operation_timeout)?;
+    timeout_nanoseconds(config.process.operation_timeout)?;
     Ok(())
 }
 
-fn timeout_milliseconds(
-    timeout: Duration,
-) -> Result<u64, ProcessEvidenceKeyProviderError> {
-    u64::try_from(timeout.as_millis()).map_err(|_| {
+fn timeout_nanoseconds(timeout: Duration) -> Result<u64, ProcessEvidenceKeyProviderError> {
+    u64::try_from(timeout.as_nanos()).map_err(|_| {
         ProcessEvidenceKeyProviderError::InvalidConfiguration("operation_timeout")
     })
 }
