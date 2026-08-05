@@ -1,12 +1,15 @@
 [CmdletBinding()]
 param(
-    [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+    [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
+
+    [string]$PreviousSourceCommit = 'a8aef038449edbe1dbe1ecc6d57e160f82f44c7b'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $temporaryRoot = $null
+$previousWorktree = $null
 $certificate = $null
 $rootStore = $null
 $publisherStore = $null
@@ -35,6 +38,7 @@ function Convert-BytesToHex {
 
 function Convert-HexToBytes {
     param([Parameter(Mandatory = $true)][string]$Hex)
+
     if ($Hex.Length % 2 -ne 0 -or $Hex -notmatch '^[0-9a-f]+$') {
         throw 'Hexadecimal value is invalid.'
     }
@@ -92,16 +96,189 @@ function Expect-InstallerFailure {
     }
 }
 
+function Invoke-Cargo {
+    param(
+        [Parameter(Mandatory = $true)][string]$WorkingDirectory,
+        [Parameter(Mandatory = $true)][string]$TargetDirectory,
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $previousTarget = $env:CARGO_TARGET_DIR
+    try {
+        $env:CARGO_TARGET_DIR = $TargetDirectory
+        Push-Location $WorkingDirectory
+        try {
+            & cargo @Arguments
+            if ($LASTEXITCODE -ne 0) {
+                throw "$Label failed with exit code $LASTEXITCODE."
+            }
+        }
+        finally {
+            Pop-Location
+        }
+    }
+    finally {
+        $env:CARGO_TARGET_DIR = $previousTarget
+    }
+}
+
+function New-SignedReleasePackage {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourceBinary,
+        [Parameter(Mandatory = $true)][string]$SourceCommit,
+        [Parameter(Mandatory = $true)][uint64]$ReleaseSequence,
+        [Parameter(Mandatory = $true)][string]$PackageRoot,
+        [Parameter(Mandatory = $true)]$Certificate,
+        [Parameter(Mandatory = $true)][string]$OpenSsl,
+        [Parameter(Mandatory = $true)][string]$PrivateKey,
+        [Parameter(Mandatory = $true)][string]$RawPublicKeyHex
+    )
+
+    if (Test-Path -LiteralPath $PackageRoot) {
+        Remove-Item -LiteralPath $PackageRoot -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $PackageRoot | Out-Null
+
+    $candidateBinary = Join-Path $PackageRoot 'nxb.exe'
+    Copy-Item -LiteralPath $SourceBinary -Destination $candidateBinary
+    $authenticode = Set-AuthenticodeSignature `
+        -LiteralPath $candidateBinary `
+        -Certificate $Certificate `
+        -HashAlgorithm SHA256
+    if ($authenticode.Status.ToString() -ne 'Valid') {
+        throw "Could not create a valid Authenticode signature: $($authenticode.Status)"
+    }
+
+    $sbomPath = Join-Path $PackageRoot 'nxb.cdx.json'
+    $sbom = [ordered]@{
+        bomFormat = 'CycloneDX'
+        specVersion = '1.6'
+        components = @()
+        metadata = [ordered]@{
+            component = [ordered]@{
+                type = 'application'
+                name = 'NXBounty'
+                version = '0.1.0'
+                properties = @(
+                    [ordered]@{ name = 'nxb:source_commit'; value = $SourceCommit },
+                    [ordered]@{ name = 'nxb:release_sequence'; value = [string]$ReleaseSequence }
+                )
+            }
+        }
+    }
+    [IO.File]::WriteAllText(
+        $sbomPath,
+        ($sbom | ConvertTo-Json -Depth 12 -Compress) + "`n",
+        [Text.UTF8Encoding]::new($false)
+    )
+
+    $checksumsPath = Join-Path $PackageRoot 'SHA256SUMS'
+    $binarySha = (Get-FileHash -LiteralPath $candidateBinary -Algorithm SHA256).Hash.ToLowerInvariant()
+    $sbomSha = (Get-FileHash -LiteralPath $sbomPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText(
+        $checksumsPath,
+        "$binarySha  nxb.exe`n$sbomSha  nxb.cdx.json`n",
+        [Text.UTF8Encoding]::new($false)
+    )
+
+    $publicKeyPath = Join-Path $PackageRoot 'release-public-key.hex'
+    [IO.File]::WriteAllText(
+        $publicKeyPath,
+        $RawPublicKeyHex + "`n",
+        [Text.UTF8Encoding]::new($false)
+    )
+
+    $manifestPath = Join-Path $PackageRoot 'nxb-release-manifest.json'
+    $generatedAt = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+    $sequenceText = [string]$ReleaseSequence
+    & $candidateBinary release manifest-template `
+        --release-id "v0.1.0-r$sequenceText-installer-validation" `
+        --release-sequence $sequenceText `
+        --source-commit $SourceCommit `
+        --platform windows `
+        --architecture x86-64 `
+        --binary $candidateBinary `
+        --sbom $sbomPath `
+        --checksums $checksumsPath `
+        --generated-at $generatedAt `
+        --output $manifestPath `
+        --json | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Release manifest template generation failed for sequence $ReleaseSequence."
+    }
+
+    $manifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
+    if ([uint64]$manifest.manifest.release_sequence -ne $ReleaseSequence -or
+        $manifest.manifest.source_commit -ne $SourceCommit) {
+        throw 'Generated manifest does not bind the requested revision.'
+    }
+    $payloadPath = Join-Path $PackageRoot 'signing-payload.bin'
+    $signaturePath = Join-Path $PackageRoot 'release-signature.bin'
+    [IO.File]::WriteAllBytes(
+        $payloadPath,
+        (Convert-HexToBytes $manifest.signing_payload_hex)
+    )
+    & $OpenSsl pkeyutl -sign -inkey $PrivateKey -rawin -in $payloadPath -out $signaturePath
+    if ($LASTEXITCODE -ne 0) { throw 'OpenSSL Ed25519 signing failed.' }
+    $signatureBytes = [IO.File]::ReadAllBytes($signaturePath)
+    if ($signatureBytes.Length -ne 64) { throw 'Ed25519 signature length is invalid.' }
+
+    $manifestText = [IO.File]::ReadAllText($manifestPath)
+    $manifestText = $manifestText.Replace(
+        '"signature_hex": ""',
+        ('"signature_hex": "' + (Convert-BytesToHex $signatureBytes) + '"')
+    )
+    [IO.File]::WriteAllText(
+        $manifestPath,
+        $manifestText,
+        [Text.UTF8Encoding]::new($false)
+    )
+    Remove-Item -LiteralPath $payloadPath, $signaturePath -Force
+
+    $verifiedRaw = (& $candidateBinary release verify-manifest `
+        --document $manifestPath `
+        --public-key $publicKeyPath `
+        --binary $candidateBinary `
+        --sbom $sbomPath `
+        --checksums $checksumsPath `
+        --json | Out-String)
+    if ($LASTEXITCODE -ne 0) { throw 'Pre-install signed release verification failed.' }
+    $verified = $verifiedRaw | ConvertFrom-Json
+    if ($verified.status -ne 'valid' -or
+        [uint64]$verified.release_sequence -ne $ReleaseSequence -or
+        $verified.source_commit -ne $SourceCommit) {
+        throw 'Pre-install verifier returned an invalid revision binding.'
+    }
+
+    return [pscustomobject]@{
+        Root = $PackageRoot
+        BinarySha256 = $binarySha
+        ManifestSha256 = $verified.manifest_sha256
+        SourceCommit = $SourceCommit
+        ReleaseSequence = $ReleaseSequence
+    }
+}
+
 Push-Location $RepoRoot
 try {
     $head = (git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') {
         throw 'Could not resolve exact Git HEAD.'
     }
+    $previous = (git rev-parse $PreviousSourceCommit).Trim()
+    if ($LASTEXITCODE -ne 0 -or $previous -notmatch '^[0-9a-f]{40}$' -or $previous -eq $head) {
+        throw 'PreviousSourceCommit must resolve to a distinct exact commit.'
+    }
+    git merge-base --is-ancestor $previous $head
+    if ($LASTEXITCODE -ne 0) {
+        throw 'PreviousSourceCommit must be an ancestor of the validation head.'
+    }
     $status = git status --porcelain=v1
     if ($LASTEXITCODE -ne 0 -or $status) {
         throw 'Working tree must be clean before installer validation.'
     }
+
     $rustcVersion = (& rustc --version).Trim()
     if ($LASTEXITCODE -ne 0 -or -not $rustcVersion.StartsWith('rustc 1.97.1 ')) {
         throw "Expected rustc 1.97.1, found '$rustcVersion'."
@@ -118,29 +295,31 @@ try {
         Assert-PowerShellScriptParses $script
     }
 
-    & cargo fmt --all -- --check
-    if ($LASTEXITCODE -ne 0) { throw 'cargo fmt failed.' }
-    & cargo check -p nxb-core --all-targets --all-features --locked
-    if ($LASTEXITCODE -ne 0) { throw 'cargo check failed.' }
-    & cargo clippy -p nxb-core --all-targets --all-features --locked -- -D warnings
-    if ($LASTEXITCODE -ne 0) { throw 'cargo clippy failed.' }
-    & cargo test -p nxb-core --all-features --locked -- --test-threads=1
-    if ($LASTEXITCODE -ne 0) { throw 'cargo test failed.' }
-    & cargo build -p nxb-core --bin nxb --release --all-features --locked
-    if ($LASTEXITCODE -ne 0) { throw 'release build failed.' }
-
-    $sourceBinary = Join-Path $RepoRoot 'target\release\nxb.exe'
-    if (-not (Test-Path -LiteralPath $sourceBinary -PathType Leaf)) {
-        throw 'Release nxb.exe is missing.'
-    }
-    $openssl = Get-OpenSslPath
     $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ('nxb-installer-validation-' + [Guid]::NewGuid().ToString('N'))
-    $packageRoot = Join-Path $temporaryRoot 'package'
-    $tamperedPackageRoot = Join-Path $temporaryRoot 'tampered-package'
-    $installRoot = Join-Path $temporaryRoot 'install\NXBounty'
-    $dataRoot = Join-Path $temporaryRoot 'data\NXBounty'
-    New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
+    $previousWorktree = Join-Path $temporaryRoot 'previous-source'
+    $currentTarget = Join-Path $temporaryRoot 'current-target'
+    $previousTarget = Join-Path $temporaryRoot 'previous-target'
+    New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
 
+    Invoke-Cargo $RepoRoot $currentTarget @('fmt', '--all', '--', '--check') 'cargo fmt'
+    Invoke-Cargo $RepoRoot $currentTarget @('check', '-p', 'nxb-core', '--all-targets', '--all-features', '--locked') 'cargo check'
+    Invoke-Cargo $RepoRoot $currentTarget @('clippy', '-p', 'nxb-core', '--all-targets', '--all-features', '--locked', '--', '-D', 'warnings') 'cargo clippy'
+    Invoke-Cargo $RepoRoot $currentTarget @('test', '-p', 'nxb-core', '--all-features', '--locked', '--', '--test-threads=1') 'cargo test'
+    Invoke-Cargo $RepoRoot $currentTarget @('build', '-p', 'nxb-core', '--bin', 'nxb', '--release', '--all-features', '--locked') 'current release build'
+
+    git worktree add --detach $previousWorktree $previous
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create previous-source worktree.' }
+    Invoke-Cargo $previousWorktree $previousTarget @('build', '-p', 'nxb-core', '--bin', 'nxb', '--release', '--all-features', '--locked') 'previous release build'
+
+    $currentBinary = Join-Path $currentTarget 'release\nxb.exe'
+    $previousBinary = Join-Path $previousTarget 'release\nxb.exe'
+    foreach ($binary in @($currentBinary, $previousBinary)) {
+        if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
+            throw "Release binary is missing: $binary"
+        }
+    }
+
+    $openssl = Get-OpenSslPath
     $certificate = New-SelfSignedCertificate `
         -Type CodeSigningCert `
         -Subject 'CN=NXBounty Installer Validation' `
@@ -154,31 +333,6 @@ try {
     $rootStore.Add($certificate)
     $publisherStore.Add($certificate)
 
-    $candidateBinary = Join-Path $packageRoot 'nxb.exe'
-    Copy-Item -LiteralPath $sourceBinary -Destination $candidateBinary
-    $signature = Set-AuthenticodeSignature `
-        -LiteralPath $candidateBinary `
-        -Certificate $certificate `
-        -HashAlgorithm SHA256
-    if ($signature.Status.ToString() -ne 'Valid') {
-        throw "Could not create a valid Authenticode test signature: $($signature.Status)"
-    }
-
-    $sbomPath = Join-Path $packageRoot 'nxb.cdx.json'
-    [IO.File]::WriteAllText(
-        $sbomPath,
-        '{"bomFormat":"CycloneDX","specVersion":"1.6","components":[]}' + "`n",
-        [Text.UTF8Encoding]::new($false)
-    )
-    $checksumsPath = Join-Path $packageRoot 'SHA256SUMS'
-    $binarySha = (Get-FileHash -LiteralPath $candidateBinary -Algorithm SHA256).Hash.ToLowerInvariant()
-    $sbomSha = (Get-FileHash -LiteralPath $sbomPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    [IO.File]::WriteAllText(
-        $checksumsPath,
-        "$binarySha  nxb.exe`n$sbomSha  nxb.cdx.json`n",
-        [Text.UTF8Encoding]::new($false)
-    )
-
     $privateKey = Join-Path $temporaryRoot 'release-private-key.pem'
     $publicDer = Join-Path $temporaryRoot 'release-public-key.der'
     & $openssl genpkey -algorithm ED25519 -out $privateKey
@@ -189,62 +343,25 @@ try {
     if ($derBytes.Length -lt 32) { throw 'Ed25519 SPKI output is too short.' }
     $rawPublicKey = New-Object byte[] 32
     [Array]::Copy($derBytes, $derBytes.Length - 32, $rawPublicKey, 0, 32)
-    $publicKeyPath = Join-Path $packageRoot 'release-public-key.hex'
-    [IO.File]::WriteAllText(
-        $publicKeyPath,
-        (Convert-BytesToHex $rawPublicKey) + "`n",
-        [Text.UTF8Encoding]::new($false)
-    )
+    $rawPublicKeyHex = Convert-BytesToHex $rawPublicKey
 
-    $manifestPath = Join-Path $packageRoot 'nxb-release-manifest.json'
-    $generatedAt = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
-    & $candidateBinary release manifest-template `
-        --release-id 'v0.1.0-installer-validation' `
-        --source-commit $head `
-        --platform windows `
-        --architecture x86-64 `
-        --binary $candidateBinary `
-        --sbom $sbomPath `
-        --checksums $checksumsPath `
-        --generated-at $generatedAt `
-        --output $manifestPath `
-        --json | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Release manifest template generation failed.' }
-
-    $manifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
-    $payloadBytes = Convert-HexToBytes $manifest.signing_payload_hex
-    $payloadPath = Join-Path $temporaryRoot 'signing-payload.bin'
-    $signaturePath = Join-Path $temporaryRoot 'release-signature.bin'
-    [IO.File]::WriteAllBytes($payloadPath, $payloadBytes)
-    & $openssl pkeyutl -sign -inkey $privateKey -rawin -in $payloadPath -out $signaturePath
-    if ($LASTEXITCODE -ne 0) { throw 'OpenSSL Ed25519 signing failed.' }
-    $signatureBytes = [IO.File]::ReadAllBytes($signaturePath)
-    if ($signatureBytes.Length -ne 64) { throw 'Ed25519 signature length is invalid.' }
-    $manifestText = [IO.File]::ReadAllText($manifestPath)
-    $manifestText = $manifestText.Replace(
-        '"signature_hex": ""',
-        ('"signature_hex": "' + (Convert-BytesToHex $signatureBytes) + '"')
-    )
-    [IO.File]::WriteAllText(
-        $manifestPath,
-        $manifestText,
-        [Text.UTF8Encoding]::new($false)
-    )
-
-    & $candidateBinary release verify-manifest `
-        --document $manifestPath `
-        --public-key $publicKeyPath `
-        --binary $candidateBinary `
-        --sbom $sbomPath `
-        --checksums $checksumsPath `
-        --json | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Pre-install signed release verification failed.' }
+    $previousPackage = New-SignedReleasePackage `
+        $previousBinary $previous 1 `
+        (Join-Path $temporaryRoot 'package-r1') `
+        $certificate $openssl $privateKey $rawPublicKeyHex
+    $currentPackage = New-SignedReleasePackage `
+        $currentBinary $head 2 `
+        (Join-Path $temporaryRoot 'package-r2') `
+        $certificate $openssl $privateKey $rawPublicKeyHex
 
     $publisherThumbprint = $certificate.Thumbprint.ToLowerInvariant()
+    $publicKeyPath = Join-Path $previousPackage.Root 'release-public-key.hex'
     $publicKeySha = (Get-FileHash -LiteralPath $publicKeyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $installRoot = Join-Path $temporaryRoot 'install\NXBounty'
+    $dataRoot = Join-Path $temporaryRoot 'data\NXBounty'
     $installScript = Join-Path $RepoRoot 'scripts\install-nxb-windows.ps1'
-    $installArguments = @{
-        PackageDirectory = $packageRoot
+    $rollbackScript = Join-Path $RepoRoot 'scripts\rollback-nxb-windows.ps1'
+    $baseArguments = @{
         InstallRoot = $installRoot
         DataRoot = $dataRoot
         ExpectedPublisherThumbprint = $publisherThumbprint
@@ -252,27 +369,52 @@ try {
         AddToUserPath = $false
         CreateStartMenuShortcut = $false
     }
-    $installed = Invoke-InstallerJson $installScript $installArguments
-    if ($installed.status -ne 'installed' -or
-        $installed.network_activity -ne 'none' -or
-        -not (Test-Path -LiteralPath (Join-Path $installRoot 'nxb.exe') -PathType Leaf)) {
-        throw 'Clean installation result is invalid.'
+
+    $installPrevious = $baseArguments.Clone()
+    $installPrevious.PackageDirectory = $previousPackage.Root
+    $installed = Invoke-InstallerJson $installScript $installPrevious
+    if ($installed.status -ne 'installed' -or [uint64]$installed.release_sequence -ne 1) {
+        throw 'Previous revision clean installation failed.'
+    }
+    $idempotent = Invoke-InstallerJson $installScript $installPrevious
+    if ($idempotent.status -ne 'already_installed' -or [uint64]$idempotent.release_sequence -ne 1) {
+        throw 'Previous revision idempotent installation failed.'
     }
 
-    $idempotent = Invoke-InstallerJson $installScript $installArguments
-    if ($idempotent.status -ne 'already_installed') {
-        throw 'Idempotent install did not return already_installed.'
+    $installCurrent = $baseArguments.Clone()
+    $installCurrent.PackageDirectory = $currentPackage.Root
+    $upgraded = Invoke-InstallerJson $installScript $installCurrent
+    if ($upgraded.status -ne 'upgraded' -or
+        [uint64]$upgraded.release_sequence -ne 2 -or
+        $upgraded.rollback_available -ne $true) {
+        throw 'Signed revision upgrade failed.'
+    }
+    Expect-InstallerFailure $installScript $installPrevious
+
+    $rolledBack = Invoke-InstallerJson $rollbackScript @{
+        InstallRoot = $installRoot
+        DataRoot = $dataRoot
+        ExpectedPublisherThumbprint = $publisherThumbprint
+        ExpectedReleasePublicKeySha256 = $publicKeySha
+    }
+    if ($rolledBack.status -ne 'rolled_back' -or
+        [uint64]$rolledBack.from_release_sequence -ne 2 -or
+        [uint64]$rolledBack.to_release_sequence -ne 1) {
+        throw 'Signed revision rollback failed.'
     }
 
-    New-Item -ItemType Directory -Path $tamperedPackageRoot | Out-Null
-    foreach ($name in @('nxb.exe', 'nxb.cdx.json', 'SHA256SUMS', 'nxb-release-manifest.json', 'release-public-key.hex')) {
-        Copy-Item -LiteralPath (Join-Path $packageRoot $name) -Destination (Join-Path $tamperedPackageRoot $name)
+    $upgradedAgain = Invoke-InstallerJson $installScript $installCurrent
+    if ($upgradedAgain.status -ne 'upgraded' -or [uint64]$upgradedAgain.release_sequence -ne 2) {
+        throw 'Post-rollback signed revision upgrade failed.'
     }
+
+    $tamperedPackageRoot = Join-Path $temporaryRoot 'tampered-package'
+    Copy-Item -LiteralPath $currentPackage.Root -Destination $tamperedPackageRoot -Recurse
     $tamperedBinary = Join-Path $tamperedPackageRoot 'nxb.exe'
     $tamperedBytes = [IO.File]::ReadAllBytes($tamperedBinary)
     $tamperedBytes[$tamperedBytes.Length - 1] = $tamperedBytes[$tamperedBytes.Length - 1] -bxor 1
     [IO.File]::WriteAllBytes($tamperedBinary, $tamperedBytes)
-    $tamperedArguments = $installArguments.Clone()
+    $tamperedArguments = $baseArguments.Clone()
     $tamperedArguments.PackageDirectory = $tamperedPackageRoot
     Expect-InstallerFailure $installScript $tamperedArguments
 
@@ -296,51 +438,74 @@ try {
     New-Item -ItemType Directory -Path $validationDirectory -Force | Out-Null
     $evidencePath = Join-Path $validationDirectory "nxb-151-installer-windows-$head.json"
     $evidence = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         milestone = 'NXB-151'
         gate = 'windows_installer_lifecycle'
         platform = 'windows'
         head_sha = $head
+        previous_source_commit = $previous
         rustc = $rustcVersion
-        release_binary_sha256 = $binarySha
         publisher_thumbprint = $publisherThumbprint
         release_public_key_sha256 = $publicKeySha
+        releases = @(
+            [ordered]@{
+                source_commit = $previousPackage.SourceCommit
+                release_sequence = $previousPackage.ReleaseSequence
+                binary_sha256 = $previousPackage.BinarySha256
+                manifest_sha256 = $previousPackage.ManifestSha256
+            },
+            [ordered]@{
+                source_commit = $currentPackage.SourceCommit
+                release_sequence = $currentPackage.ReleaseSequence
+                binary_sha256 = $currentPackage.BinarySha256
+                manifest_sha256 = $currentPackage.ManifestSha256
+            }
+        )
         checks = [ordered]@{
             powershell_parser = 'passed'
             authenticode_bootstrap = 'passed'
-            ed25519_manifest_verification = 'passed'
-            clean_install = 'passed'
+            ed25519_manifest_v2 = 'passed'
+            clean_install_sequence_1 = 'passed'
             idempotent_install = 'passed'
+            upgrade_sequence_1_to_2 = 'passed'
+            downgrade_replay_rejection = 'passed'
+            rollback_sequence_2_to_1 = 'passed'
+            post_rollback_upgrade = 'passed'
             tampered_binary_rejection = 'passed'
             data_preserving_uninstall = 'passed'
-            upgrade_transaction_source = 'present'
-            rollback_transaction_source = 'present'
-            version_pair_upgrade_and_rollback = 'pending_distinct_signed_versions'
             network_activity = 'none'
         }
     }
     [IO.File]::WriteAllText(
         $evidencePath,
-        ($evidence | ConvertTo-Json -Depth 8) + [Environment]::NewLine,
+        ($evidence | ConvertTo-Json -Depth 12) + [Environment]::NewLine,
         [Text.UTF8Encoding]::new($false)
     )
 
-    Write-Host 'NXB-151 Windows installer validation passed for clean install and uninstall.'
+    Write-Host 'NXB-151 Windows installer lifecycle validation passed.'
     Write-Host "HEAD: $head"
+    Write-Host "Previous source: $previous"
     Write-Host "Evidence: $evidencePath"
 }
 finally {
     Pop-Location
-    if ($null -ne $publisherStore) {
-        if ($null -ne $certificate) { $publisherStore.Remove($certificate) }
-        $publisherStore.Close()
+    if ($null -ne $publisherStore -and $null -ne $certificate) {
+        try { $publisherStore.Remove($certificate) } catch { }
     }
-    if ($null -ne $rootStore) {
-        if ($null -ne $certificate) { $rootStore.Remove($certificate) }
-        $rootStore.Close()
+    if ($null -ne $rootStore -and $null -ne $certificate) {
+        try { $rootStore.Remove($certificate) } catch { }
     }
+    if ($null -ne $publisherStore) { $publisherStore.Dispose() }
+    if ($null -ne $rootStore) { $rootStore.Dispose() }
     if ($null -ne $certificate) {
-        Remove-Item -LiteralPath ('Cert:\CurrentUser\My\' + $certificate.Thumbprint) -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath ("Cert:\CurrentUser\My\{0}" -f $certificate.Thumbprint) -Force -ErrorAction SilentlyContinue
+    }
+    if ($null -ne $previousWorktree -and (Test-Path -LiteralPath $previousWorktree)) {
+        git -C $RepoRoot worktree remove --force $previousWorktree 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Remove-Item -LiteralPath $previousWorktree -Recurse -Force -ErrorAction SilentlyContinue
+            git -C $RepoRoot worktree prune 2>$null
+        }
     }
     if ($null -ne $temporaryRoot -and (Test-Path -LiteralPath $temporaryRoot)) {
         Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
