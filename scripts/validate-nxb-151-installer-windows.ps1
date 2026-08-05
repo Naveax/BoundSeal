@@ -96,6 +96,61 @@ function Expect-InstallerFailure {
     }
 }
 
+function Open-NxbRenameBlocker {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "Rename blocker target is missing: $Path"
+    }
+    return [IO.File]::Open(
+        $Path,
+        [IO.FileMode]::Open,
+        [IO.FileAccess]::Read,
+        [IO.FileShare]::Read
+    )
+}
+
+function Assert-NxbInstalledRevision {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][uint64]$ExpectedSequence,
+        [Parameter(Mandatory = $true)][string]$ExpectedCommit,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $statePath = Join-Path $Root 'install-state.json'
+    if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
+        throw "$Label state is missing: $statePath"
+    }
+    $state = [IO.File]::ReadAllText($statePath) | ConvertFrom-Json
+    if ([uint64]$state.release_sequence -ne $ExpectedSequence -or
+        $state.source_commit -ne $ExpectedCommit -or
+        -not (Test-Path -LiteralPath (Join-Path $Root 'nxb.exe') -PathType Leaf)) {
+        throw "$Label does not contain the expected signed revision."
+    }
+}
+
+function Assert-NoInstallerResidue {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+
+    $parent = Split-Path -Parent $InstallRoot
+    $leaf = Split-Path -Leaf $InstallRoot
+    $patterns = @(
+        "$leaf.stage.*",
+        "$leaf.previous.backup.*",
+        "$leaf.rollback-failed.*",
+        "$leaf.rollback-restore.*",
+        "$leaf.uninstall.*"
+    )
+    foreach ($pattern in $patterns) {
+        $matches = @(Get-ChildItem -LiteralPath $parent -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like $pattern })
+        if ($matches.Count -ne 0) {
+            throw "Installer left transaction residue matching '$pattern'."
+        }
+    }
+}
+
 function Invoke-Cargo {
     param(
         [Parameter(Mandatory = $true)][string]$WorkingDirectory,
@@ -353,11 +408,16 @@ try {
         $currentBinary $head 2 `
         (Join-Path $temporaryRoot 'package-r2') `
         $certificate $openssl $privateKey $rawPublicKeyHex
+    $recoveryPackage = New-SignedReleasePackage `
+        $previousBinary $previous 3 `
+        (Join-Path $temporaryRoot 'package-r3-recovery') `
+        $certificate $openssl $privateKey $rawPublicKeyHex
 
     $publisherThumbprint = $certificate.Thumbprint.ToLowerInvariant()
     $publicKeyPath = Join-Path $previousPackage.Root 'release-public-key.hex'
     $publicKeySha = (Get-FileHash -LiteralPath $publicKeyPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $installRoot = Join-Path $temporaryRoot 'install\NXBounty'
+    $previousRoot = $installRoot + '.previous'
     $dataRoot = Join-Path $temporaryRoot 'data\NXBounty'
     $installScript = Join-Path $RepoRoot 'scripts\install-nxb-windows.ps1'
     $rollbackScript = Join-Path $RepoRoot 'scripts\rollback-nxb-windows.ps1'
@@ -391,6 +451,39 @@ try {
     }
     Expect-InstallerFailure $installScript $installPrevious
 
+    # Force the upgrade to fail after the existing previous slot has been backed up.
+    # The state file remains readable, but its handle denies delete/rename sharing.
+    $installRecovery = $baseArguments.Clone()
+    $installRecovery.PackageDirectory = $recoveryPackage.Root
+    $blocker = Open-NxbRenameBlocker (Join-Path $installRoot 'install-state.json')
+    try {
+        Expect-InstallerFailure $installScript $installRecovery
+    }
+    finally {
+        $blocker.Dispose()
+    }
+    Assert-NxbInstalledRevision $installRoot 2 $head 'active release after failed upgrade'
+    Assert-NxbInstalledRevision $previousRoot 1 $previous 'previous release after failed upgrade'
+    Assert-NoInstallerResidue $installRoot
+
+    # Force rollback metadata publication to fail after both release slots were swapped.
+    $currentInstallState = Join-Path $dataRoot 'installer\current-install.json'
+    $blocker = Open-NxbRenameBlocker $currentInstallState
+    try {
+        Expect-InstallerFailure $rollbackScript @{
+            InstallRoot = $installRoot
+            DataRoot = $dataRoot
+            ExpectedPublisherThumbprint = $publisherThumbprint
+            ExpectedReleasePublicKeySha256 = $publicKeySha
+        }
+    }
+    finally {
+        $blocker.Dispose()
+    }
+    Assert-NxbInstalledRevision $installRoot 2 $head 'active release after failed rollback'
+    Assert-NxbInstalledRevision $previousRoot 1 $previous 'previous release after failed rollback'
+    Assert-NoInstallerResidue $installRoot
+
     $rolledBack = Invoke-InstallerJson $rollbackScript @{
         InstallRoot = $installRoot
         DataRoot = $dataRoot
@@ -408,6 +501,25 @@ try {
         throw 'Post-rollback signed revision upgrade failed.'
     }
 
+    # Force uninstall to fail after the active root was moved to its tombstone.
+    # Previous-slot validation can read this file, but the slot cannot be renamed.
+    $uninstallScript = Join-Path $dataRoot 'installer\uninstall-nxb-windows.ps1'
+    $blocker = Open-NxbRenameBlocker (Join-Path $previousRoot 'install-state.json')
+    try {
+        Expect-InstallerFailure $uninstallScript @{
+            InstallRoot = $installRoot
+            DataRoot = $dataRoot
+            ExpectedPublisherThumbprint = $publisherThumbprint
+            ExpectedReleasePublicKeySha256 = $publicKeySha
+        }
+    }
+    finally {
+        $blocker.Dispose()
+    }
+    Assert-NxbInstalledRevision $installRoot 2 $head 'active release after failed uninstall'
+    Assert-NxbInstalledRevision $previousRoot 1 $previous 'previous release after failed uninstall'
+    Assert-NoInstallerResidue $installRoot
+
     $tamperedPackageRoot = Join-Path $temporaryRoot 'tampered-package'
     Copy-Item -LiteralPath $currentPackage.Root -Destination $tamperedPackageRoot -Recurse
     $tamperedBinary = Join-Path $tamperedPackageRoot 'nxb.exe'
@@ -420,7 +532,6 @@ try {
 
     $sentinel = Join-Path $dataRoot 'workspace-data-sentinel.txt'
     [IO.File]::WriteAllText($sentinel, 'preserve-me', [Text.UTF8Encoding]::new($false))
-    $uninstallScript = Join-Path $dataRoot 'installer\uninstall-nxb-windows.ps1'
     $uninstalled = Invoke-InstallerJson $uninstallScript @{
         InstallRoot = $installRoot
         DataRoot = $dataRoot
@@ -428,11 +539,16 @@ try {
         ExpectedReleasePublicKeySha256 = $publicKeySha
     }
     if ($uninstalled.status -ne 'uninstalled' -or
+        $uninstalled.cleanup_complete -ne $true -or
+        @($uninstalled.cleanup_warnings).Count -ne 0 -or
+        $uninstalled.rollback_slot_deactivated -ne $true -or
         $uninstalled.data_preserved -ne $true -or
         (Test-Path -LiteralPath $installRoot) -or
+        (Test-Path -LiteralPath $previousRoot) -or
         -not (Test-Path -LiteralPath $sentinel -PathType Leaf)) {
         throw 'Data-preserving uninstall result is invalid.'
     }
+    Assert-NoInstallerResidue $installRoot
 
     $validationDirectory = Join-Path $RepoRoot 'target\nxb-validation'
     New-Item -ItemType Directory -Path $validationDirectory -Force | Out-Null
@@ -469,10 +585,14 @@ try {
             idempotent_install = 'passed'
             upgrade_sequence_1_to_2 = 'passed'
             downgrade_replay_rejection = 'passed'
+            failed_upgrade_state_restoration = 'passed'
+            failed_rollback_slot_restoration = 'passed'
             rollback_sequence_2_to_1 = 'passed'
             post_rollback_upgrade = 'passed'
+            failed_uninstall_deactivation_restoration = 'passed'
             tampered_binary_rejection = 'passed'
             data_preserving_uninstall = 'passed'
+            transaction_residue_cleanup = 'passed'
             network_activity = 'none'
         }
     }
