@@ -1,10 +1,16 @@
-use std::{path::{Path, PathBuf}, process::ExitCode};
+use std::{
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Subcommand};
 use serde_json::{json, Map, Value};
 
-use crate::workspace;
+use crate::{
+    diagnostic::{self, DiagnosticSpec},
+    workspace,
+};
 
 const INIT_EXIT_CODE: u8 = 10;
 const DOCTOR_EXIT_CODE: u8 = 20;
@@ -12,6 +18,43 @@ const STATUS_EXIT_CODE: u8 = 30;
 const MIGRATION_APPLY_EXIT_CODE: u8 = 40;
 const MIGRATION_RECOVER_EXIT_CODE: u8 = 41;
 const MIGRATION_STATUS_EXIT_CODE: u8 = 42;
+
+const INIT_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
+    code: "NXB151-WORKSPACE-INIT-FAILED",
+    domain: "workspace",
+    operation: "init",
+    text_prefix: "NXB-WORKSPACE-10",
+};
+const DOCTOR_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
+    code: "NXB151-WORKSPACE-DOCTOR-UNHEALTHY",
+    domain: "workspace",
+    operation: "doctor",
+    text_prefix: "NXB-WORKSPACE-20",
+};
+const STATUS_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
+    code: "NXB151-WORKSPACE-STATUS-FAILED",
+    domain: "workspace",
+    operation: "status",
+    text_prefix: "NXB-WORKSPACE-30",
+};
+const MIGRATION_APPLY_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
+    code: "NXB151-MIGRATION-APPLY-FAILED",
+    domain: "migration",
+    operation: "apply",
+    text_prefix: "NXB-WORKSPACE-40",
+};
+const MIGRATION_RECOVER_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
+    code: "NXB151-MIGRATION-RECOVER-FAILED",
+    domain: "migration",
+    operation: "recover",
+    text_prefix: "NXB-WORKSPACE-41",
+};
+const MIGRATION_STATUS_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
+    code: "NXB151-MIGRATION-STATUS-FAILED",
+    domain: "migration",
+    operation: "status",
+    text_prefix: "NXB-WORKSPACE-42",
+};
 
 #[derive(Debug, Args)]
 pub(crate) struct WorkspaceArgs {
@@ -74,37 +117,49 @@ enum MigrationCommand {
 }
 
 pub(crate) fn run(args: WorkspaceArgs) -> ExitCode {
-    let (failure_code, result) = match args.command {
+    let (failure_code, diagnostic_spec, json_output, result) = match args.command {
         WorkspaceCommand::Init {
             workspace,
             name,
             json,
         } => (
             INIT_EXIT_CODE,
+            INIT_DIAGNOSTIC,
+            json,
             workspace::initialize_value(&workspace, &name)
                 .and_then(|value| emit_value(&value, json)),
         ),
         WorkspaceCommand::Doctor { workspace, json } => (
             DOCTOR_EXIT_CODE,
+            DOCTOR_DIAGNOSTIC,
+            json,
             run_combined_workspace_view(&workspace, json, ViewKind::Doctor),
         ),
         WorkspaceCommand::Status { workspace, json } => (
             STATUS_EXIT_CODE,
+            STATUS_DIAGNOSTIC,
+            json,
             run_combined_workspace_view(&workspace, json, ViewKind::Status),
         ),
         WorkspaceCommand::Migrate { command } => match command {
             MigrationCommand::Apply { workspace, json } => (
                 MIGRATION_APPLY_EXIT_CODE,
+                MIGRATION_APPLY_DIAGNOSTIC,
+                json,
                 workspace::migration::apply_value(&workspace)
                     .and_then(|value| emit_value(&value, json)),
             ),
             MigrationCommand::Recover { workspace, json } => (
                 MIGRATION_RECOVER_EXIT_CODE,
+                MIGRATION_RECOVER_DIAGNOSTIC,
+                json,
                 workspace::migration::recover_value(&workspace)
                     .and_then(|value| emit_value(&value, json)),
             ),
             MigrationCommand::Status { workspace, json } => (
                 MIGRATION_STATUS_EXIT_CODE,
+                MIGRATION_STATUS_DIAGNOSTIC,
+                json,
                 workspace::migration::status_value(&workspace)
                     .and_then(|value| emit_value(&value, json)),
             ),
@@ -114,7 +169,7 @@ pub(crate) fn run(args: WorkspaceArgs) -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("NXB-WORKSPACE-{failure_code}: {error:#}");
+            diagnostic::emit_failure(diagnostic_spec, failure_code, json_output, &error);
             ExitCode::from(failure_code)
         }
     }
