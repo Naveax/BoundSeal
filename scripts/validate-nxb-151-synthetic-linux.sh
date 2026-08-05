@@ -3,8 +3,10 @@ set -euo pipefail
 
 repo_root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 workspace=""
+output_dir=""
 cleanup() {
   [[ -n "$workspace" ]] && rm -rf -- "$workspace"
+  [[ -n "$output_dir" ]] && rm -rf -- "$output_dir"
 }
 trap cleanup EXIT
 
@@ -30,6 +32,7 @@ policy="$repo_root/fixtures/nxb-151/synthetic-policy.toml"
 
 workspace="$(mktemp -d -t nxb-151-synthetic-XXXXXX)"
 rmdir -- "$workspace"
+output_dir="$(mktemp -d -t nxb-151-synthetic-output-XXXXXX)"
 scan_output="$workspace/reports/synthetic-run"
 demo_receipt="$workspace/reports/demo-receipt.json"
 now='2026-08-05T12:00:00Z'
@@ -37,8 +40,8 @@ now='2026-08-05T12:00:00Z'
 "$nxb" workspace init \
   --workspace "$workspace" \
   --name 'NXB Synthetic Product' \
-  --json > /tmp/nxb-synthetic-init.json
-"$nxb" workspace doctor --workspace "$workspace" --json > /tmp/nxb-synthetic-doctor-before.json
+  --json > "$output_dir/init.json"
+"$nxb" workspace doctor --workspace "$workspace" --json > "$output_dir/doctor-before.json"
 "$nxb" target create \
   --workspace "$workspace" \
   --id synthetic-example \
@@ -46,9 +49,9 @@ now='2026-08-05T12:00:00Z'
   --origin 'https://example.org' \
   --include-path / \
   --exclude-path /logout \
-  --json > /tmp/nxb-synthetic-target.json
-"$nxb" target list --workspace "$workspace" --json > /tmp/nxb-synthetic-target-list.json
-"$nxb" validate-policy --path "$policy" --now "$now" > /tmp/nxb-synthetic-policy.txt
+  --json > "$output_dir/target.json"
+"$nxb" target list --workspace "$workspace" --json > "$output_dir/target-list.json"
+"$nxb" validate-policy --path "$policy" --now "$now" > "$output_dir/policy.txt"
 "$nxb" scan \
   --program "$policy" \
   --target 'https://example.org/' \
@@ -58,12 +61,12 @@ now='2026-08-05T12:00:00Z'
   --maximum-endpoints 16 \
   --maximum-requests 8 \
   --dry-run true \
-  --now "$now" > /tmp/nxb-synthetic-scan.txt
-"$nxb" demo-run --output "$demo_receipt" > /tmp/nxb-synthetic-demo.txt
-"$nxb" verify-demo "$demo_receipt" > /tmp/nxb-synthetic-verify-demo.txt
-"$nxb" workspace doctor --workspace "$workspace" --json > /tmp/nxb-synthetic-doctor-after.json
-"$nxb" workspace status --workspace "$workspace" --json > /tmp/nxb-synthetic-status.json
-"$nxb" system-status > /tmp/nxb-synthetic-system-status.txt
+  --now "$now" > "$output_dir/scan.txt"
+"$nxb" demo-run --output "$demo_receipt" > "$output_dir/demo.txt"
+"$nxb" verify-demo "$demo_receipt" > "$output_dir/verify-demo.txt"
+"$nxb" workspace doctor --workspace "$workspace" --json > "$output_dir/doctor-after.json"
+"$nxb" workspace status --workspace "$workspace" --json > "$output_dir/status.json"
+"$nxb" system-status > "$output_dir/system-status.txt"
 
 for artifact in \
   "$scan_output/scan-plan.json" \
@@ -76,15 +79,15 @@ for artifact in \
 done
 
 python3 - \
-  /tmp/nxb-synthetic-init.json \
-  /tmp/nxb-synthetic-doctor-before.json \
-  /tmp/nxb-synthetic-target.json \
-  /tmp/nxb-synthetic-target-list.json \
+  "$output_dir/init.json" \
+  "$output_dir/doctor-before.json" \
+  "$output_dir/target.json" \
+  "$output_dir/target-list.json" \
   "$scan_output/scan-plan.json" \
   "$scan_output/report.json" \
   "$scan_output/manifest.json" \
-  /tmp/nxb-synthetic-doctor-after.json \
-  /tmp/nxb-synthetic-status.json <<'PY'
+  "$output_dir/doctor-after.json" \
+  "$output_dir/status.json" <<'PY'
 import json, pathlib, sys
 (
     init_path,
@@ -128,11 +131,11 @@ assert doctor_after['status'] == 'healthy'
 assert status['status'] == 'ready'
 PY
 
-grep -q '^network_activity: none$' /tmp/nxb-synthetic-scan.txt
+grep -q '^network_activity: none$' "$output_dir/scan.txt"
 grep -q '^No candidate findings are available for submission\.$' "$scan_output/hackerone-draft.md"
 grep -q 'NXB does not submit reports automatically' "$scan_output/hackerone-draft.md"
-grep -q '^demo_receipt: valid$' /tmp/nxb-synthetic-verify-demo.txt
-grep -q '^status: contract-complete$' /tmp/nxb-synthetic-system-status.txt
+grep -q '^demo_receipt: valid$' "$output_dir/verify-demo.txt"
+grep -q '^status: contract-complete$' "$output_dir/system-status.txt"
 
 validation_dir="$repo_root/target/nxb-validation"
 mkdir -p -- "$validation_dir"
@@ -173,19 +176,6 @@ value = {
 }
 pathlib.Path(output).write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
 PY
-
-rm -f \
-  /tmp/nxb-synthetic-init.json \
-  /tmp/nxb-synthetic-doctor-before.json \
-  /tmp/nxb-synthetic-target.json \
-  /tmp/nxb-synthetic-target-list.json \
-  /tmp/nxb-synthetic-policy.txt \
-  /tmp/nxb-synthetic-scan.txt \
-  /tmp/nxb-synthetic-demo.txt \
-  /tmp/nxb-synthetic-verify-demo.txt \
-  /tmp/nxb-synthetic-doctor-after.json \
-  /tmp/nxb-synthetic-status.json \
-  /tmp/nxb-synthetic-system-status.txt
 
 printf 'NXB-151 synthetic Linux validation passed.\n'
 printf 'HEAD: %s\n' "$head_sha"
