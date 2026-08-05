@@ -32,6 +32,40 @@ nxb="$repo_root/target/debug/nxb"
 workspace="$(mktemp -d -t nxb-151-target-XXXXXX)"
 rmdir -- "$workspace"
 output_dir="$(mktemp -d -t nxb-151-target-output-XXXXXX)"
+policy="$output_dir/target-policy.toml"
+authorization="$output_dir/authorization.txt"
+
+cat >"$policy" <<'EOF'
+schema_version = 1
+
+[program]
+name = "Example Program"
+platform = "hackerone"
+policy_url = "https://hackerone.com/example"
+
+[scope]
+include_hosts = ["example.org"]
+exclude_hosts = []
+allowed_schemes = ["https"]
+allowed_methods = ["GET", "HEAD", "OPTIONS"]
+allow_subdomains = false
+
+[automation]
+active_testing = false
+credential_bruteforce = false
+destructive_testing = false
+oob_callbacks = false
+max_requests_per_second = 1.0
+max_concurrency = 1
+max_total_requests = 10
+
+[authorization]
+confirmed = true
+researcher = "acceptance-researcher"
+policy_snapshot_sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+expires_at = 2099-01-01T00:00:00Z
+EOF
+printf 'Bearer secret-that-must-never-be-persisted\n' >"$authorization"
 
 expect_exit() {
   local expected="$1"
@@ -47,6 +81,12 @@ expect_exit() {
   }
 }
 
+create_args=(
+  --authorization-reference hackerone/program/example#scope-2026
+  --authorization-document "$authorization"
+  --policy "$policy"
+)
+
 "$nxb" workspace init \
   --workspace "$workspace" \
   --name 'Target Linux Acceptance' \
@@ -59,7 +99,14 @@ expect_exit() {
   --origin 'https://example.org' \
   --include-path /api \
   --exclude-path /api/logout \
+  "${create_args[@]}" \
   --json >"$output_dir/create.json"
+"$nxb" target validate \
+  --workspace "$workspace" \
+  --id example-app \
+  --authorization-document "$authorization" \
+  --policy "$policy" \
+  --json >"$output_dir/validate.json"
 "$nxb" target list --workspace "$workspace" --json >"$output_dir/list.json"
 "$nxb" target show --workspace "$workspace" --id example-app --json >"$output_dir/show.json"
 
@@ -67,18 +114,35 @@ python3 - "$output_dir" <<'PY'
 import json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
 created = json.loads((root / 'create.json').read_text())
+validated = json.loads((root / 'validate.json').read_text())
 listed = json.loads((root / 'list.json').read_text())
 shown = json.loads((root / 'show.json').read_text())
 assert created['status'] == 'active'
 assert created['origin'] == 'https://example.org'
 assert created['allowed_methods'] == ['GET', 'HEAD', 'OPTIONS']
+assert created['program']['platform'] == 'hackerone'
+assert len(created['authorization_sha256']) == 64
+assert len(created['policy_sha256']) == 64
+assert len(created['identity_sha256']) == 64
+assert validated['validation']['status'] == 'valid'
 assert listed['status'] == 'ready'
 assert listed['network_activity'] == 'none'
 assert listed['count'] == 1
 assert shown['target_id'] == 'example-app'
 assert shown['include_paths'] == ['/api']
 assert shown['exclude_paths'] == ['/api/logout']
+assert shown['authorization_reference'] == 'hackerone/program/example#scope-2026'
 PY
+
+profile="$workspace/targets/example-app.json"
+receipt="$workspace/targets/example-app.disabled.json"
+[[ "$(stat -c '%a' "$profile")" == '600' ]] || { echo 'target profile mode is not 0600' >&2; exit 1; }
+if grep -Fq 'secret-that-must-never-be-persisted' "$profile" \
+  || grep -Fq "$policy" "$profile" \
+  || grep -Fq "$authorization" "$profile"; then
+  echo 'target profile persisted secret bytes or source paths' >&2
+  exit 1
+fi
 
 for origin in \
   'http://example.org' \
@@ -91,6 +155,7 @@ for origin in \
     --id invalid-origin \
     --name 'Invalid Origin' \
     --origin "$origin" \
+    "${create_args[@]}" \
     --json
 done
 expect_exit 50 "$nxb" target create \
@@ -99,23 +164,40 @@ expect_exit 50 "$nxb" target create \
   --name 'Invalid Path' \
   --origin 'https://example.org' \
   --include-path '/api%2fadmin' \
+  "${create_args[@]}" \
+  --json
+expect_exit 50 "$nxb" target create \
+  --workspace "$workspace" \
+  --id invalid-reference \
+  --name 'Invalid Reference' \
+  --origin 'https://example.org' \
+  --authorization-reference 'https://example.org/scope?token=secret' \
+  --authorization-document "$authorization" \
+  --policy "$policy" \
   --json
 
-profile="$workspace/targets/example-app.json"
-receipt="$workspace/targets/example-app.disabled.json"
-[[ "$(stat -c '%a' "$profile")" == '600' ]] || { echo 'target profile mode is not 0600' >&2; exit 1; }
 cp -- "$profile" "$output_dir/profile.original"
 python3 - "$profile" <<'PY'
 import json, pathlib, sys
 path = pathlib.Path(sys.argv[1])
 value = json.loads(path.read_text())
-value['origin'] = 'https://attacker.invalid'
+value['name'] = 'Tampered Target'
 path.write_text(json.dumps(value, indent=2) + '\n')
 PY
 chmod 600 "$profile"
 expect_exit 52 "$nxb" target show --workspace "$workspace" --id example-app --json
 cp -- "$output_dir/profile.original" "$profile"
 chmod 600 "$profile"
+
+cp -- "$authorization" "$output_dir/authorization.original"
+printf 'different authorization\n' >"$authorization"
+expect_exit 54 "$nxb" target validate \
+  --workspace "$workspace" \
+  --id example-app \
+  --authorization-document "$authorization" \
+  --policy "$policy" \
+  --json
+cp -- "$output_dir/authorization.original" "$authorization"
 
 "$nxb" target disable \
   --workspace "$workspace" \
@@ -167,15 +249,18 @@ output, head, rustc, binary = sys.argv[1:]
 value = {
     'schema_version': 1,
     'milestone': 'NXB-151',
-    'gate': 'target_profiles',
+    'gate': 'authorization_bound_target_profiles',
     'platform': 'linux',
     'head_sha': head,
     'rustc': rustc,
     'binary_sha256': hashlib.sha256(pathlib.Path(binary).read_bytes()).hexdigest(),
     'checks': {
-        'create_list_show_disable': 'passed',
-        'origin_and_path_rejection': 'passed',
-        'profile_tamper_rejection': 'passed',
+        'create_validate_list_show_disable': 'passed',
+        'authorization_and_policy_binding': 'passed',
+        'secret_and_source_path_non_persistence': 'passed',
+        'origin_path_and_reference_rejection': 'passed',
+        'identity_tamper_rejection': 'passed',
+        'source_digest_drift_exit_54': 'passed',
         'receipt_tamper_rejection': 'passed',
         'pending_migration_exit_51': 'passed',
         'private_file_modes': 'passed',
@@ -185,6 +270,6 @@ value = {
 pathlib.Path(output).write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
 PY
 
-printf 'NXB-151 target Linux validation passed.\n'
+printf 'NXB-151 authorization-bound target Linux validation passed.\n'
 printf 'HEAD: %s\n' "$head_sha"
 printf 'Evidence: %s\n' "$evidence"
