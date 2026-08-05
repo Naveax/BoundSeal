@@ -1,0 +1,51 @@
+name: NXB-149 evidence key-provider lifecycle
+
+on:
+  push:
+    branches:
+      - nxb-149-evidence-key-provider-lifecycle
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/nxb-evidence-key-provider/**"
+      - ".github/workflows/nxb149-evidence-key-provider-validation.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nxb149-evidence-key-provider-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: ${{ matrix.os }} evidence key provider
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-slim, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pinned Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - name: Require canonical lockfile
+        shell: bash
+        run: |
+          cargo generate-lockfile
+          git diff --exit-code -- Cargo.lock
+      - name: Formatting
+        if: runner.os == 'Linux'
+        run: cargo fmt --all -- --check
+      - name: Check
+        run: cargo check -p nxb-evidence-key-provider --all-features --locked
+      - name: Clippy
+        run: cargo clippy -p nxb-evidence-key-provider --all-targets --all-features --locked -- -D warnings
+      - name: Tests
+        run: cargo test -p nxb-evidence-key-provider --all-features --locked -- --test-threads=1
