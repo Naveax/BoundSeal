@@ -59,8 +59,12 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw 'Could not resolve Cargo version.'
     }
-    $auditVersion = Get-NxbCommandVersion @('audit', '--version') 'cargo-audit'
-    $denyVersion = Get-NxbCommandVersion @('deny', '--version') 'cargo-deny'
+    $auditVersion = Get-NxbCommandVersion `
+        -Arguments @('audit', '--version') `
+        -Label 'cargo-audit'
+    $denyVersion = Get-NxbCommandVersion `
+        -Arguments @('deny', '--version') `
+        -Label 'cargo-deny'
 
     $lockPath = Join-Path $RepoRoot 'Cargo.lock'
     if (-not (Test-Path -LiteralPath $lockPath -PathType Leaf)) {
@@ -71,11 +75,13 @@ try {
     )
     Copy-Item -LiteralPath $lockPath -Destination $lockBackup
 
-    Invoke-NxbCargo @('generate-lockfile') 'cargo generate-lockfile'
+    Invoke-NxbCargo `
+        -Arguments @('generate-lockfile') `
+        -Label 'cargo generate-lockfile'
     git diff --exit-code -- Cargo.lock
     if ($LASTEXITCODE -ne 0) {
-        git --no-pager diff -- Cargo.lock | Write-Error
-        throw 'cargo generate-lockfile changed the committed Cargo.lock.'
+        $lockDiff = git --no-pager diff -- Cargo.lock | Out-String
+        throw "cargo generate-lockfile changed the committed Cargo.lock.`n$lockDiff"
     }
 
     $lockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -83,36 +89,54 @@ try {
         throw "Cargo.lock SHA-256 mismatch: expected $ExpectedCargoLockSha256, found $lockSha256"
     }
 
-    Invoke-NxbCargo @('metadata', '--format-version', '1', '--locked', '--no-deps') 'cargo metadata'
-    Invoke-NxbCargo @('fmt', '--all', '--', '--check') 'cargo fmt'
-    Invoke-NxbCargo @(
-        'check', '-p', 'nxb-evidence-key-provider-process', '--all-features', '--locked'
-    ) 'package cargo check'
-    Invoke-NxbCargo @(
-        'clippy', '-p', 'nxb-evidence-key-provider-process',
-        '--all-targets', '--all-features', '--locked', '--', '-D', 'warnings'
-    ) 'package cargo clippy'
-    Invoke-NxbCargo @(
-        'test', '-p', 'nxb-evidence-key-provider-process',
-        '--all-features', '--locked', '--', '--test-threads=1'
-    ) 'serial process-adapter tests'
-    Invoke-NxbCargo @(
-        'test', '-p', 'nxb-vault-provider', '--locked', '--', '--test-threads=1'
-    ) 'vault-provider regression tests'
+    Invoke-NxbCargo `
+        -Arguments @('metadata', '--format-version', '1', '--locked', '--no-deps') `
+        -Label 'cargo metadata'
+    Invoke-NxbCargo `
+        -Arguments @('fmt', '--all', '--', '--check') `
+        -Label 'cargo fmt'
+    Invoke-NxbCargo `
+        -Arguments @(
+            'check', '-p', 'nxb-evidence-key-provider-process', '--all-features', '--locked'
+        ) `
+        -Label 'package cargo check'
+    Invoke-NxbCargo `
+        -Arguments @(
+            'clippy', '-p', 'nxb-evidence-key-provider-process',
+            '--all-targets', '--all-features', '--locked', '--', '-D', 'warnings'
+        ) `
+        -Label 'package cargo clippy'
+    Invoke-NxbCargo `
+        -Arguments @(
+            'test', '-p', 'nxb-evidence-key-provider-process',
+            '--all-features', '--locked', '--', '--test-threads=1'
+        ) `
+        -Label 'serial process-adapter tests'
+    Invoke-NxbCargo `
+        -Arguments @(
+            'test', '-p', 'nxb-vault-provider', '--locked', '--', '--test-threads=1'
+        ) `
+        -Label 'vault-provider regression tests'
 
-    Invoke-NxbCargo @(
-        'check', '--workspace', '--all-targets', '--all-features', '--locked'
-    ) 'workspace cargo check'
-    Invoke-NxbCargo @(
-        'clippy', '--workspace', '--all-targets', '--all-features',
-        '--locked', '--', '-D', 'warnings'
-    ) 'workspace cargo clippy'
-    Invoke-NxbCargo @(
-        'test', '--workspace', '--all-features', '--locked', '--', '--test-threads=1'
-    ) 'workspace cargo test'
+    Invoke-NxbCargo `
+        -Arguments @(
+            'check', '--workspace', '--all-targets', '--all-features', '--locked'
+        ) `
+        -Label 'workspace cargo check'
+    Invoke-NxbCargo `
+        -Arguments @(
+            'clippy', '--workspace', '--all-targets', '--all-features',
+            '--locked', '--', '-D', 'warnings'
+        ) `
+        -Label 'workspace cargo clippy'
+    Invoke-NxbCargo `
+        -Arguments @(
+            'test', '--workspace', '--all-features', '--locked', '--', '--test-threads=1'
+        ) `
+        -Label 'workspace cargo test'
 
-    Invoke-NxbCargo @('audit') 'RustSec cargo audit'
-    Invoke-NxbCargo @('deny', 'check') 'cargo-deny checks'
+    Invoke-NxbCargo -Arguments @('audit') -Label 'RustSec cargo audit'
+    Invoke-NxbCargo -Arguments @('deny', 'check') -Label 'cargo-deny checks'
 
     $finalHead = (git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0 -or $finalHead -ne $headSha) {
