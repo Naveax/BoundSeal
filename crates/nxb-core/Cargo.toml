@@ -14,6 +14,10 @@ path = "src/main.rs"
 name = "nxb-product"
 path = "src/bin/nxb-product.rs"
 
+[[bin]]
+name = "nxb-workspace-migrate"
+path = "src/bin/nxb-workspace-migrate.rs"
+
 [features]
 default = []
 live-network = [
@@ -32,7 +36,7 @@ chrono.workspace = true
 clap.workspace = true
 nxb-events = { path = "../nxb-events" }
 nxb-executor = { path = "../nxb-executor", optional = true }
-nxb-gateway = { path = "../nxb-gateway", optional = true }
+nxb-gateway = { path = "../nxb-gateway" }
 nxb-live-adapter = { path = "../nxb-live-adapter", optional = true }
 nxb-operator = { path = "../nxb-operator" }
 nxb-passive-analyzers = { path = "../nxb-passive-analyzers", optional = true }
