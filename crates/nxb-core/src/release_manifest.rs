@@ -18,7 +18,7 @@ use crate::{
     workspace,
 };
 
-const RELEASE_MANIFEST_VERSION: u32 = 1;
+const RELEASE_MANIFEST_VERSION: u32 = 2;
 const TEMPLATE_EXIT_CODE: u8 = 60;
 const VERIFY_EXIT_CODE: u8 = 61;
 const MAX_BINARY_BYTES: u64 = 512 * 1024 * 1024;
@@ -51,6 +51,8 @@ enum ReleaseCommand {
     ManifestTemplate {
         #[arg(long)]
         release_id: String,
+        #[arg(long)]
+        release_sequence: u64,
         #[arg(long)]
         source_commit: String,
         #[arg(long, value_enum)]
@@ -105,6 +107,7 @@ enum ReleaseArchitecture {
 struct ReleaseManifest {
     manifest_version: u32,
     release_id: String,
+    release_sequence: u64,
     product: String,
     version: String,
     source_commit: String,
@@ -138,6 +141,7 @@ struct SignedReleaseDocument {
 struct VerificationResult {
     status: &'static str,
     release_id: String,
+    release_sequence: u64,
     version: String,
     source_commit: String,
     platform: ReleasePlatform,
@@ -152,6 +156,7 @@ pub(crate) fn run(args: ReleaseArgs) -> ExitCode {
     let (exit_code, spec, json_output, result) = match args.command {
         ReleaseCommand::ManifestTemplate {
             release_id,
+            release_sequence,
             source_commit,
             platform,
             architecture,
@@ -167,6 +172,7 @@ pub(crate) fn run(args: ReleaseArgs) -> ExitCode {
             json,
             manifest_template_value(
                 &release_id,
+                release_sequence,
                 &source_commit,
                 platform,
                 architecture,
@@ -212,6 +218,7 @@ pub(crate) fn run(args: ReleaseArgs) -> ExitCode {
 #[allow(clippy::too_many_arguments)]
 fn manifest_template_value(
     release_id: &str,
+    release_sequence: u64,
     source_commit: &str,
     platform: ReleasePlatform,
     architecture: ReleaseArchitecture,
@@ -222,8 +229,10 @@ fn manifest_template_value(
     output: &Path,
 ) -> Result<Value> {
     validate_release_id(release_id)?;
+    validate_release_sequence(release_sequence)?;
     validate_source_commit(source_commit)?;
     validate_utc_timestamp(generated_at)?;
+
     let binary = artifact_binding(binary_path, "release binary", MAX_BINARY_BYTES)?;
     let sbom = artifact_binding(sbom_path, "CycloneDX SBOM", MAX_SBOM_BYTES)?;
     let checksums = artifact_binding(checksums_path, "checksum manifest", MAX_CHECKSUM_BYTES)?;
@@ -238,6 +247,7 @@ fn manifest_template_value(
     let mut manifest = ReleaseManifest {
         manifest_version: RELEASE_MANIFEST_VERSION,
         release_id: release_id.to_owned(),
+        release_sequence,
         product: "NXBounty".into(),
         version: env!("CARGO_PKG_VERSION").into(),
         source_commit: source_commit.to_owned(),
@@ -251,6 +261,7 @@ fn manifest_template_value(
     };
     manifest.manifest_sha256 = manifest_sha256(&manifest)?;
     validate_manifest(&manifest)?;
+
     let signing_payload = signing_bytes(&manifest)?;
     let document = SignedReleaseDocument {
         manifest,
@@ -270,12 +281,14 @@ fn verify_manifest_value(
     sbom_path: &Path,
     checksums_path: &Path,
 ) -> Result<Value> {
-    let document_bytes = read_bounded(document_path, "signed release manifest", MAX_DOCUMENT_BYTES)?;
+    let document_bytes =
+        read_bounded(document_path, "signed release manifest", MAX_DOCUMENT_BYTES)?;
     let document: SignedReleaseDocument = serde_json::from_slice(&document_bytes)
         .context("signed release manifest is invalid JSON")?;
     if document_bytes != canonical_json(&document)? {
         bail!("signed release manifest is not canonical JSON");
     }
+
     validate_manifest(&document.manifest)?;
     let signing_payload = signing_bytes(&document.manifest)?;
     if document.signing_payload_hex != lower_hex(&signing_payload)
@@ -313,6 +326,7 @@ fn verify_manifest_value(
     serde_json::to_value(VerificationResult {
         status: "valid",
         release_id: document.manifest.release_id,
+        release_sequence: document.manifest.release_sequence,
         version: document.manifest.version,
         source_commit: document.manifest.source_commit,
         platform: document.manifest.platform,
@@ -333,11 +347,16 @@ fn validate_manifest(manifest: &ReleaseManifest) -> Result<()> {
         bail!("release manifest product or version contract is invalid");
     }
     validate_release_id(&manifest.release_id)?;
+    validate_release_sequence(manifest.release_sequence)?;
     validate_source_commit(&manifest.source_commit)?;
     validate_utc_timestamp(&manifest.generated_at)?;
     validate_artifact(&manifest.binary, "release binary", MAX_BINARY_BYTES)?;
     validate_artifact(&manifest.sbom, "CycloneDX SBOM", MAX_SBOM_BYTES)?;
-    validate_artifact(&manifest.checksums, "checksum manifest", MAX_CHECKSUM_BYTES)?;
+    validate_artifact(
+        &manifest.checksums,
+        "checksum manifest",
+        MAX_CHECKSUM_BYTES,
+    )?;
     validate_binary_name(manifest.platform, &manifest.binary.file_name)?;
     workspace::validate_sha(&manifest.manifest_sha256, "release manifest SHA-256")?;
     if manifest.manifest_sha256 != manifest_sha256(manifest)? {
@@ -366,9 +385,10 @@ fn validate_artifact(binding: &ArtifactBinding, label: &str, maximum: u64) -> Re
     if binding.file_name.is_empty()
         || binding.file_name.len() > 128
         || !binding.file_name.is_ascii()
-        || !binding.file_name.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')
-        })
+        || !binding
+            .file_name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
         || binding.size_bytes == 0
         || binding.size_bytes > maximum
     {
@@ -408,6 +428,7 @@ fn validate_checksum_manifest(
     if !text.ends_with('\n') || text.contains('\r') || text.contains('\0') {
         bail!("checksum manifest must use canonical LF-terminated text");
     }
+
     let mut entries = BTreeMap::new();
     for line in text.lines() {
         if line.is_empty() || line.len() > 256 {
@@ -422,16 +443,20 @@ fn validate_checksum_manifest(
             || !file_name.is_ascii()
             || file_name.contains('/')
             || file_name.contains('\\')
-            || !file_name.bytes().all(|byte| {
-                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')
-            })
+            || !file_name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
         {
             bail!("checksum entry file name is invalid");
         }
-        if entries.insert(file_name.to_owned(), sha256.to_owned()).is_some() {
+        if entries
+            .insert(file_name.to_owned(), sha256.to_owned())
+            .is_some()
+        {
             bail!("checksum manifest contains a duplicate file name");
         }
     }
+
     if entries.len() < 2
         || entries.get(&binary.file_name) != Some(&binary.sha256)
         || entries.get(&sbom.file_name) != Some(&sbom.sha256)
@@ -458,11 +483,18 @@ fn validate_release_id(value: &str) -> Result<()> {
         || value.starts_with('-')
         || value.ends_with('-')
         || value.contains("--")
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'.'))
+        || !value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'.')
+        })
     {
         bail!("release_id must be a canonical lowercase release identifier");
+    }
+    Ok(())
+}
+
+fn validate_release_sequence(value: u64) -> Result<()> {
+    if value == 0 || value > i64::MAX as u64 {
+        bail!("release_sequence must be between 1 and 9223372036854775807");
     }
     Ok(())
 }
@@ -479,7 +511,8 @@ fn validate_source_commit(value: &str) -> Result<()> {
 }
 
 fn validate_utc_timestamp(value: &str) -> Result<()> {
-    let parsed = DateTime::parse_from_rfc3339(value).context("generated_at is invalid RFC3339")?;
+    let parsed =
+        DateTime::parse_from_rfc3339(value).context("generated_at is invalid RFC3339")?;
     if parsed.offset().local_minus_utc() != 0 {
         bail!("generated_at must use UTC");
     }
@@ -493,6 +526,7 @@ fn read_bounded(path: &Path, label: &str, maximum: u64) -> Result<Vec<u8>> {
     if !metadata.is_file() || metadata.len() == 0 || metadata.len() > maximum {
         bail!("{label} size or type is invalid");
     }
+
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
     File::open(path)?
         .take(maximum + 1)
@@ -523,6 +557,7 @@ fn decode_hex(value: &str, label: &str) -> Result<Vec<u8>> {
     {
         bail!("{label} must use lowercase hexadecimal encoding");
     }
+
     value
         .as_bytes()
         .chunks_exact(2)
@@ -599,17 +634,20 @@ mod tests {
                 workspace::random_hex(8).unwrap()
             ));
             fs::create_dir_all(&root).unwrap();
+
             let binary = root.join("nxb");
             let sbom = root.join("nxb.cdx.json");
             let checksums = root.join("SHA256SUMS");
             let document = root.join("release-manifest.json");
             let public_key = root.join("release-public-key.hex");
+
             fs::write(&binary, b"synthetic-nxb-binary").unwrap();
             fs::write(
                 &sbom,
                 br#"{"bomFormat":"CycloneDX","specVersion":"1.6","components":[]}"#,
             )
             .unwrap();
+
             let binary_sha = workspace::sha256(&fs::read(&binary).unwrap());
             let sbom_sha = workspace::sha256(&fs::read(&sbom).unwrap());
             fs::write(
@@ -617,6 +655,7 @@ mod tests {
                 format!("{binary_sha}  nxb\n{sbom_sha}  nxb.cdx.json\n"),
             )
             .unwrap();
+
             Self {
                 root,
                 binary,
@@ -627,9 +666,10 @@ mod tests {
             }
         }
 
-        fn template(&self) -> SignedReleaseDocument {
+        fn template(&self, release_sequence: u64) -> SignedReleaseDocument {
             manifest_template_value(
                 "v0.1.0-test",
+                release_sequence,
                 "a234567890123456789012345678901234567890",
                 ReleasePlatform::Linux,
                 ReleaseArchitecture::X86_64,
@@ -643,16 +683,19 @@ mod tests {
             serde_json::from_slice(&fs::read(&self.document).unwrap()).unwrap()
         }
 
-        fn sign(&self) -> SignedReleaseDocument {
-            let mut document = self.template();
-            let seed = [7_u8; 32];
-            let key_pair = Ed25519KeyPair::from_seed_unchecked(&seed).unwrap();
+        fn sign(&self, release_sequence: u64) -> SignedReleaseDocument {
+            let mut document = self.template(release_sequence);
+            let key_pair = Ed25519KeyPair::from_seed_unchecked(&[7_u8; 32]).unwrap();
             document.signature_hex = lower_hex(
                 key_pair
                     .sign(&signing_bytes(&document.manifest).unwrap())
                     .as_ref(),
             );
-            fs::write(&self.public_key, lower_hex(key_pair.public_key().as_ref())).unwrap();
+            fs::write(
+                &self.public_key,
+                lower_hex(key_pair.public_key().as_ref()),
+            )
+            .unwrap();
             fs::write(&self.document, canonical_json(&document).unwrap()).unwrap();
             document
         }
@@ -667,7 +710,7 @@ mod tests {
     #[test]
     fn signed_release_round_trip_verifies() {
         let fixture = Fixture::new();
-        let document = fixture.sign();
+        let document = fixture.sign(7);
         let value = verify_manifest_value(
             &fixture.document,
             &fixture.public_key,
@@ -676,7 +719,12 @@ mod tests {
             &fixture.checksums,
         )
         .unwrap();
+
         assert_eq!(value.get("status").and_then(Value::as_str), Some("valid"));
+        assert_eq!(
+            value.get("release_sequence").and_then(Value::as_u64),
+            Some(7)
+        );
         assert_eq!(
             value.get("manifest_sha256").and_then(Value::as_str),
             Some(document.manifest.manifest_sha256.as_str())
@@ -686,7 +734,7 @@ mod tests {
     #[test]
     fn binary_tampering_is_rejected() {
         let fixture = Fixture::new();
-        fixture.sign();
+        fixture.sign(1);
         fs::write(&fixture.binary, b"tampered-binary").unwrap();
         assert!(verify_manifest_value(
             &fixture.document,
@@ -701,11 +749,12 @@ mod tests {
     #[test]
     fn signature_tampering_is_rejected() {
         let fixture = Fixture::new();
-        let mut document = fixture.sign();
+        let mut document = fixture.sign(1);
         let mut signature = decode_hex(&document.signature_hex, "signature").unwrap();
         signature[0] ^= 1;
         document.signature_hex = lower_hex(&signature);
         fs::write(&fixture.document, canonical_json(&document).unwrap()).unwrap();
+
         assert!(verify_manifest_value(
             &fixture.document,
             &fixture.public_key,
@@ -724,8 +773,28 @@ mod tests {
             "0000000000000000000000000000000000000000000000000000000000000000  nxb\n",
         )
         .unwrap();
+
         assert!(manifest_template_value(
             "v0.1.0-test",
+            1,
+            "a234567890123456789012345678901234567890",
+            ReleasePlatform::Linux,
+            ReleaseArchitecture::X86_64,
+            &fixture.binary,
+            &fixture.sbom,
+            &fixture.checksums,
+            "2026-08-05T15:00:00Z",
+            &fixture.document,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn zero_release_sequence_is_rejected() {
+        let fixture = Fixture::new();
+        assert!(manifest_template_value(
+            "v0.1.0-test",
+            0,
             "a234567890123456789012345678901234567890",
             ReleasePlatform::Linux,
             ReleaseArchitecture::X86_64,
