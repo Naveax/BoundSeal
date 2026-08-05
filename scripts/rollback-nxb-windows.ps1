@@ -80,33 +80,39 @@ function Restore-NxbRollbackSlots {
         [Parameter(Mandatory = $true)][string]$ActiveRoot,
         [Parameter(Mandatory = $true)][string]$PreviousRoot,
         [Parameter(Mandatory = $true)][string]$FailedRoot,
-        [Parameter(Mandatory = $true)][string]$ScratchRoot
+        [Parameter(Mandatory = $true)][string]$ScratchRoot,
+        [Parameter(Mandatory = $true)][bool]$CurrentMovedToFailed,
+        [Parameter(Mandatory = $true)][bool]$PreviousPublished,
+        [Parameter(Mandatory = $true)][bool]$NewerMovedToPrevious
     )
 
-    $hasActive = Test-Path -LiteralPath $ActiveRoot -PathType Container
-    $hasPrevious = Test-Path -LiteralPath $PreviousRoot -PathType Container
-    $hasFailed = Test-Path -LiteralPath $FailedRoot -PathType Container
-
-    if ($hasActive -and $hasPrevious -and -not $hasFailed) {
+    if ($NewerMovedToPrevious) {
+        if (-not (Test-Path -LiteralPath $ActiveRoot -PathType Container) -or
+            -not (Test-Path -LiteralPath $PreviousRoot -PathType Container) -or
+            (Test-Path -LiteralPath $FailedRoot)) {
+            throw 'Completed slot swap is not in a restorable layout.'
+        }
         Move-Item -LiteralPath $ActiveRoot -Destination $ScratchRoot
         Move-Item -LiteralPath $PreviousRoot -Destination $ActiveRoot
         Move-Item -LiteralPath $ScratchRoot -Destination $PreviousRoot
         return
     }
-    if ($hasActive -and -not $hasPrevious -and $hasFailed) {
+    if ($PreviousPublished) {
+        if (-not (Test-Path -LiteralPath $ActiveRoot -PathType Container) -or
+            -not (Test-Path -LiteralPath $FailedRoot -PathType Container) -or
+            (Test-Path -LiteralPath $PreviousRoot)) {
+            throw 'Published previous slot is not in a restorable layout.'
+        }
         Move-Item -LiteralPath $ActiveRoot -Destination $PreviousRoot
         Move-Item -LiteralPath $FailedRoot -Destination $ActiveRoot
         return
     }
-    if (-not $hasActive -and $hasPrevious -and $hasFailed) {
+    if ($CurrentMovedToFailed) {
+        if ((Test-Path -LiteralPath $ActiveRoot) -or
+            -not (Test-Path -LiteralPath $FailedRoot -PathType Container)) {
+            throw 'Moved active slot is not in a restorable layout.'
+        }
         Move-Item -LiteralPath $FailedRoot -Destination $ActiveRoot
-        return
-    }
-    if (-not $hasActive -and $hasPrevious -and -not $hasFailed) {
-        throw 'Rollback restoration cannot locate the original active release.'
-    }
-    if ($hasActive -and $hasPrevious -and $hasFailed) {
-        throw 'Rollback restoration found three occupied release slots.'
     }
 }
 
@@ -122,22 +128,23 @@ function Backup-NxbFile {
     if (Test-Path -LiteralPath $Path -PathType Leaf) {
         Assert-NxbRegularFile $Path 'rollback metadata file' 1048576
         Move-Item -LiteralPath $Path -Destination $Backup
-        return $true
     }
-    return $false
 }
 
-function Restore-NxbFile {
+function Restore-NxbPublishedFile {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string]$Backup,
-        [Parameter(Mandatory = $true)][bool]$HadOriginal
+        [Parameter(Mandatory = $true)][bool]$Published
     )
 
-    if (Test-Path -LiteralPath $Path) {
+    if ($Published -and (Test-Path -LiteralPath $Path)) {
         Remove-Item -LiteralPath $Path -Force
     }
-    if ($HadOriginal -and (Test-Path -LiteralPath $Backup -PathType Leaf)) {
+    if (Test-Path -LiteralPath $Backup -PathType Leaf) {
+        if (Test-Path -LiteralPath $Path) {
+            Remove-Item -LiteralPath $Path -Force
+        }
         Move-Item -LiteralPath $Backup -Destination $Path
     }
 }
@@ -163,8 +170,9 @@ $receiptBackup = $receiptPath + '.backup.' + $nonce
 
 $lock = Open-NxbInstallerLock $installRootPath
 $current = $null
-$currentStateHadOriginal = $false
-$receiptHadOriginal = $false
+$currentMovedToFailed = $false
+$previousPublished = $false
+$newerMovedToPrevious = $false
 $currentStatePublished = $false
 $receiptPublished = $false
 $transactionCommitted = $false
@@ -187,7 +195,9 @@ try {
     }
 
     Move-Item -LiteralPath $installRootPath -Destination $failedRoot
+    $currentMovedToFailed = $true
     Move-Item -LiteralPath $previousRoot -Destination $installRootPath
+    $previousPublished = $true
 
     $restored = Assert-NxbInstalledRoot `
         $installRootPath $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
@@ -226,14 +236,15 @@ try {
     Write-NxbJsonFile $receiptPending $receipt
 
     Move-Item -LiteralPath $failedRoot -Destination $previousRoot
+    $newerMovedToPrevious = $true
     $preserved = Assert-NxbInstalledRoot `
         $previousRoot $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
     if ($preserved.Verification.manifest_sha256 -ne $current.Verification.manifest_sha256) {
         throw 'Newer release was not preserved in the previous slot.'
     }
 
-    $currentStateHadOriginal = Backup-NxbFile $currentStatePath $currentStateBackup
-    $receiptHadOriginal = Backup-NxbFile $receiptPath $receiptBackup
+    Backup-NxbFile $currentStatePath $currentStateBackup
+    Backup-NxbFile $receiptPath $receiptBackup
     Move-Item -LiteralPath $currentStatePending -Destination $currentStatePath
     $currentStatePublished = $true
     Move-Item -LiteralPath $receiptPending -Destination $receiptPath
@@ -246,15 +257,16 @@ catch {
     $failure = $_
     if (-not $transactionCommitted) {
         try {
-            Restore-NxbFile `
-                $currentStatePath $currentStateBackup $currentStateHadOriginal
-            Restore-NxbFile `
-                $receiptPath $receiptBackup $receiptHadOriginal
+            Restore-NxbPublishedFile `
+                $currentStatePath $currentStateBackup $currentStatePublished
+            Restore-NxbPublishedFile `
+                $receiptPath $receiptBackup $receiptPublished
             Remove-Item -LiteralPath $currentStatePending -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $receiptPending -Force -ErrorAction SilentlyContinue
 
             Restore-NxbRollbackSlots `
-                $installRootPath $previousRoot $failedRoot $restoreScratch
+                $installRootPath $previousRoot $failedRoot $restoreScratch `
+                $currentMovedToFailed $previousPublished $newerMovedToPrevious
             if ($null -ne $current -and
                 (Test-Path -LiteralPath $installRootPath -PathType Container)) {
                 $recovered = Assert-NxbInstalledRoot `
