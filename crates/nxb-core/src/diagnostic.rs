@@ -75,7 +75,9 @@ mod tests {
     fn diagnostic_message_is_single_line_and_bounded() {
         let input = anyhow::anyhow!("first\nsecond\rthird\0{}", "x".repeat(4_096));
         let message = bounded_message(&input);
-        assert!(!message.contains(['\n', '\r', '\0']));
+        assert!(!message
+            .chars()
+            .any(|value| matches!(value, '\n' | '\r' | '\0')));
         assert!(message.chars().count() <= MAX_MESSAGE_CHARACTERS);
     }
 }
