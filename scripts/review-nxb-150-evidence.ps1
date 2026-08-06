@@ -112,14 +112,19 @@ function Read-Evidence {
     }
 
     $timestamp = [DateTimeOffset]::MinValue
+    $dateStyles = [Globalization.DateTimeStyles]::AssumeUniversal -bor `
+        [Globalization.DateTimeStyles]::AdjustToUniversal
     if (-not [DateTimeOffset]::TryParseExact(
         [string]$evidence.validated_at,
         'yyyy-MM-ddTHH:mm:ssZ',
         [Globalization.CultureInfo]::InvariantCulture,
-        [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal,
+        $dateStyles,
         [ref]$timestamp
     )) {
         throw "$ExpectedPlatform evidence validated_at is not canonical UTC."
+    }
+    if ($timestamp -gt [DateTimeOffset]::UtcNow.AddMinutes(5)) {
+        throw "$ExpectedPlatform evidence validated_at is unreasonably in the future."
     }
 
     return [ordered]@{
@@ -139,10 +144,8 @@ function Read-Evidence {
 
 Push-Location $RepoRoot
 try {
-    foreach ($command in @('git')) {
-        if ($null -eq (Get-Command $command -ErrorAction SilentlyContinue)) {
-            throw "$command is unavailable."
-        }
+    if ($null -eq (Get-Command git -ErrorAction SilentlyContinue)) {
+        throw 'git is unavailable.'
     }
 
     $headSha = (git rev-parse HEAD).Trim()
@@ -200,12 +203,20 @@ try {
 
     New-Item -ItemType Directory -Path $EvidenceDirectory -Force | Out-Null
     $closurePath = Join-Path $EvidenceDirectory "nxb-150-closure-$headSha.json"
-    $bytes = [Text.UTF8Encoding]::new($false).GetBytes(
-        (($closure | ConvertTo-Json -Depth 16) + [Environment]::NewLine)
-    )
+    $json = $closure | ConvertTo-Json -Depth 16
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes($json + [Environment]::NewLine)
     if (Test-Path -LiteralPath $closurePath -PathType Leaf) {
-        $existing = [IO.File]::ReadAllBytes($closurePath)
-        if (-not [Linq.Enumerable]::SequenceEqual([byte[]]$existing, [byte[]]$bytes)) {
+        $closureItem = Get-Item -LiteralPath $closurePath -Force
+        if (($closureItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'Existing closure evidence must not be a symbolic link or reparse point.'
+        }
+        $existing = [IO.File]::ReadAllText(
+            $closurePath,
+            [Text.UTF8Encoding]::new($false, $true)
+        ) | ConvertFrom-Json -Depth 16
+        $existingCanonical = $existing | ConvertTo-Json -Depth 16 -Compress
+        $expectedCanonical = $closure | ConvertTo-Json -Depth 16 -Compress
+        if ($existingCanonical -cne $expectedCanonical) {
             throw 'Existing closure evidence differs from the deterministic review result.'
         }
     } else {
