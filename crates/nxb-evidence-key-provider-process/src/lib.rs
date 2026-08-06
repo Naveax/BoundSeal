@@ -232,15 +232,8 @@ impl EvidenceKeyProvider for ProcessEvidenceKeyProvider {
         self.identity.clone()
     }
 
-    fn begin(
-        &mut self,
-        request: &EvidenceSessionRequest,
-    ) -> Result<(), EvidenceProviderFailure> {
-        if self.finished
-            || self.inner.is_some()
-            || self.session.is_some()
-            || self.binding.is_some()
-        {
+    fn begin(&mut self, request: &EvidenceSessionRequest) -> Result<(), EvidenceProviderFailure> {
+        if self.finished || self.inner.is_some() || self.session.is_some() || self.binding.is_some() {
             return Err(local_failure("process_adapter_invalid_state"));
         }
         if request.store_id != self.configured_store_id {
@@ -333,10 +326,7 @@ impl EvidenceKeyProvider for ProcessEvidenceKeyProvider {
         Ok(material)
     }
 
-    fn finish(
-        &mut self,
-        outcome: &EvidenceSessionOutcome,
-    ) -> Result<(), EvidenceProviderFailure> {
+    fn finish(&mut self, outcome: &EvidenceSessionOutcome) -> Result<(), EvidenceProviderFailure> {
         if self.finished {
             return Err(local_failure("process_adapter_invalid_state"));
         }
@@ -355,13 +345,12 @@ impl EvidenceKeyProvider for ProcessEvidenceKeyProvider {
                     outcome.receipt_sha256.is_none() && outcome.failure_code.is_some()
                 }
             };
-        let vault_outcome = if outcome_valid
-            && outcome.disposition == EvidenceSessionDisposition::Completed
-        {
-            VaultSessionOutcome::Committed
-        } else {
-            VaultSessionOutcome::Aborted
-        };
+        let vault_outcome =
+            if outcome_valid && outcome.disposition == EvidenceSessionDisposition::Completed {
+                VaultSessionOutcome::Committed
+            } else {
+                VaultSessionOutcome::Aborted
+            };
         let session = self
             .session
             .take()
@@ -420,11 +409,12 @@ fn validate_config(
             "executable_sha256",
         ));
     }
-    config.process.expected_identity.validate().map_err(|_| {
-        ProcessEvidenceKeyProviderError::InvalidConfiguration("expected_identity")
-    })?;
-    if config.process.expected_identity.provider_instance_sha256
-        != config.process.executable_sha256
+    config
+        .process
+        .expected_identity
+        .validate()
+        .map_err(|_| ProcessEvidenceKeyProviderError::InvalidConfiguration("expected_identity"))?;
+    if config.process.expected_identity.provider_instance_sha256 != config.process.executable_sha256
     {
         return Err(ProcessEvidenceKeyProviderError::InvalidConfiguration(
             "provider_instance_sha256",
@@ -442,9 +432,8 @@ fn validate_config(
 }
 
 fn timeout_nanoseconds(timeout: Duration) -> Result<u64, ProcessEvidenceKeyProviderError> {
-    u64::try_from(timeout.as_nanos()).map_err(|_| {
-        ProcessEvidenceKeyProviderError::InvalidConfiguration("operation_timeout")
-    })
+    u64::try_from(timeout.as_nanos())
+        .map_err(|_| ProcessEvidenceKeyProviderError::InvalidConfiguration("operation_timeout"))
 }
 
 fn map_process_error(error: ProcessVaultProviderError) -> EvidenceProviderFailure {
@@ -454,9 +443,7 @@ fn map_process_error(error: ProcessVaultProviderError) -> EvidenceProviderFailur
         | ProcessVaultProviderError::ExecutableSymlinkDenied
         | ProcessVaultProviderError::ExecutableNotRegularFile
         | ProcessVaultProviderError::ExecutableTooLarge => "process_executable_invalid",
-        ProcessVaultProviderError::ExecutableDigestMismatch => {
-            "process_executable_digest_mismatch"
-        }
+        ProcessVaultProviderError::ExecutableDigestMismatch => "process_executable_digest_mismatch",
         ProcessVaultProviderError::SpawnFailed
         | ProcessVaultProviderError::ReaderSpawnFailed
         | ProcessVaultProviderError::IoFailure => "process_io_failure",
@@ -495,8 +482,7 @@ fn valid_provider_handle(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_PROCESS_EVIDENCE_KEY_HANDLE_BYTES
         && value.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric()
-                || matches!(byte, b'-' | b'_' | b'.' | b':' | b'/' | b'@')
+            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':' | b'/' | b'@')
         })
 }
 
