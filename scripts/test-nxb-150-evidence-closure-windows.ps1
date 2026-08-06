@@ -8,6 +8,7 @@ $ErrorActionPreference = 'Stop'
 
 $expectedLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
 $closureSource = Join-Path $RepoRoot 'scripts\review-nxb-150-evidence.ps1'
+$attributesSource = Join-Path $RepoRoot '.gitattributes'
 
 function Assert-LastExitCode {
     param([Parameter(Mandatory = $true)][string]$Operation)
@@ -59,6 +60,9 @@ if (-not $convertFromJsonCommand.Parameters.ContainsKey('DateKind')) {
 if (-not (Test-Path -LiteralPath $closureSource -PathType Leaf)) {
     throw "Closure source is missing: $closureSource"
 }
+if (-not (Test-Path -LiteralPath $attributesSource -PathType Leaf)) {
+    throw "Repository attributes are missing: $attributesSource"
+}
 
 $lockSource = Join-Path $RepoRoot 'Cargo.lock'
 if (-not (Test-Path -LiteralPath $lockSource -PathType Leaf)) {
@@ -78,6 +82,7 @@ $fixtureClosure = Join-Path $fixtureScripts 'review-nxb-150-evidence.ps1'
 try {
     New-Item -ItemType Directory -Path $fixtureScripts -Force | Out-Null
     New-Item -ItemType Directory -Path $evidenceDirectory -Force | Out-Null
+    Copy-Item -LiteralPath $attributesSource -Destination (Join-Path $fixtureRepo '.gitattributes')
     Copy-Item -LiteralPath $lockSource -Destination (Join-Path $fixtureRepo 'Cargo.lock')
     Copy-Item -LiteralPath $closureSource -Destination $fixtureClosure
 
@@ -87,7 +92,7 @@ try {
     Assert-LastExitCode -Operation 'git config user.name'
     & git -C $fixtureRepo config user.email 'nxb-closure-self-test@example.invalid'
     Assert-LastExitCode -Operation 'git config user.email'
-    & git -C $fixtureRepo add Cargo.lock scripts/review-nxb-150-evidence.ps1
+    & git -C $fixtureRepo add .gitattributes Cargo.lock scripts/review-nxb-150-evidence.ps1
     Assert-LastExitCode -Operation 'git add'
     & git -C $fixtureRepo commit -qm 'Create NXB-150 closure fixture'
     Assert-LastExitCode -Operation 'git commit'
