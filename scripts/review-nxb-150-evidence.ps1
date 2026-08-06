@@ -12,56 +12,53 @@ $expectedAuditVersion = '0.22.2'
 $expectedDenyVersion = '0.20.2'
 $maximumEvidenceBytes = 65536
 $expectedFields = @(
-    'schema_version',
-    'milestone',
-    'gate',
-    'platform',
-    'head_sha',
-    'rustc',
-    'cargo',
-    'cargo_audit',
-    'cargo_audit_sha256',
-    'cargo_deny',
-    'cargo_deny_sha256',
-    'cargo_lock_sha256',
-    'lockfile_reproduced_without_diff',
-    'package_fmt_check_clippy_tests',
-    'vault_provider_regressions',
-    'workspace_check_clippy_tests',
-    'rustsec',
-    'cargo_deny_checks',
-    'process_fixture_serial',
-    'network_activity',
-    'validated_at'
+    'schema_version', 'milestone', 'gate', 'platform', 'head_sha', 'rustc', 'cargo',
+    'cargo_audit', 'cargo_audit_sha256', 'cargo_deny', 'cargo_deny_sha256',
+    'cargo_lock_sha256', 'lockfile_reproduced_without_diff',
+    'package_fmt_check_clippy_tests', 'vault_provider_regressions',
+    'workspace_check_clippy_tests', 'rustsec', 'cargo_deny_checks',
+    'process_fixture_serial', 'network_activity', 'validated_at'
 )
 $stringFields = @(
-    'milestone',
-    'gate',
-    'platform',
-    'head_sha',
-    'rustc',
-    'cargo',
-    'cargo_audit',
-    'cargo_audit_sha256',
-    'cargo_deny',
-    'cargo_deny_sha256',
-    'cargo_lock_sha256',
-    'package_fmt_check_clippy_tests',
-    'vault_provider_regressions',
-    'workspace_check_clippy_tests',
-    'rustsec',
-    'cargo_deny_checks',
-    'network_activity',
-    'validated_at'
+    'milestone', 'gate', 'platform', 'head_sha', 'rustc', 'cargo', 'cargo_audit',
+    'cargo_audit_sha256', 'cargo_deny', 'cargo_deny_sha256', 'cargo_lock_sha256',
+    'package_fmt_check_clippy_tests', 'vault_provider_regressions',
+    'workspace_check_clippy_tests', 'rustsec', 'cargo_deny_checks',
+    'network_activity', 'validated_at'
 )
-$booleanFields = @(
-    'lockfile_reproduced_without_diff',
-    'process_fixture_serial'
-)
+$booleanFields = @('lockfile_reproduced_without_diff', 'process_fixture_serial')
 
 function Test-LowerSha256 {
     param([Parameter(Mandatory = $true)][string]$Value)
     return $Value -match '^[0-9a-f]{64}$'
+}
+
+function Assert-NoReparseComponents {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $absolute = [IO.Path]::GetFullPath($Path)
+    $root = [IO.Path]::GetPathRoot($absolute)
+    if ([string]::IsNullOrWhiteSpace($root)) {
+        throw "$Label path has no filesystem root."
+    }
+    $current = $root
+    $relative = $absolute.Substring($root.Length)
+    foreach ($segment in $relative.Split(
+        [char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar),
+        [StringSplitOptions]::RemoveEmptyEntries
+    )) {
+        $current = Join-Path $current $segment
+        if (-not (Test-Path -LiteralPath $current)) {
+            break
+        }
+        $item = Get-Item -LiteralPath $current -Force
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "$Label contains a symbolic-link or reparse-point component: $current"
+        }
+    }
 }
 
 function Assert-ExactFields {
@@ -112,6 +109,7 @@ function Read-Evidence {
         [Parameter(Mandatory = $true)][string]$ExpectedHead
     )
 
+    Assert-NoReparseComponents -Path $Path -Label "$ExpectedPlatform evidence"
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "Missing $ExpectedPlatform evidence: $Path"
     }
@@ -213,6 +211,19 @@ try {
         throw "Repository Cargo.lock SHA-256 mismatch: expected $expectedLockSha256, found $lockSha256"
     }
 
+    $EvidenceDirectory = [IO.Path]::GetFullPath($EvidenceDirectory)
+    Assert-NoReparseComponents -Path $EvidenceDirectory -Label 'evidence directory'
+    if (Test-Path -LiteralPath $EvidenceDirectory) {
+        $directoryItem = Get-Item -LiteralPath $EvidenceDirectory -Force
+        if (-not $directoryItem.PSIsContainer -or
+            ($directoryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'Evidence directory must be a normal non-reparse directory.'
+        }
+    } else {
+        New-Item -ItemType Directory -Path $EvidenceDirectory | Out-Null
+        Assert-NoReparseComponents -Path $EvidenceDirectory -Label 'evidence directory'
+    }
+
     $windowsPath = Join-Path $EvidenceDirectory "nxb-150-windows-$headSha.json"
     $linuxPath = Join-Path $EvidenceDirectory "nxb-150-linux-$headSha.json"
     $windows = Read-Evidence -Path $windowsPath -ExpectedPlatform 'windows' -ExpectedHead $headSha
@@ -248,14 +259,19 @@ try {
         network_activity = 'none'
     }
 
-    New-Item -ItemType Directory -Path $EvidenceDirectory -Force | Out-Null
     $closurePath = Join-Path $EvidenceDirectory "nxb-150-closure-$headSha.json"
-    $json = $closure | ConvertTo-Json -Depth 16
-    $bytes = [Text.UTF8Encoding]::new($false).GetBytes($json + [Environment]::NewLine)
-    if (Test-Path -LiteralPath $closurePath -PathType Leaf) {
+    $pendingPath = "$closurePath.pending"
+    Assert-NoReparseComponents -Path $closurePath -Label 'closure evidence'
+    if (Test-Path -LiteralPath $closurePath) {
+        if (-not (Test-Path -LiteralPath $closurePath -PathType Leaf)) {
+            throw 'Existing closure evidence must be a regular file.'
+        }
         $closureItem = Get-Item -LiteralPath $closurePath -Force
         if (($closureItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw 'Existing closure evidence must not be a symbolic link or reparse point.'
+        }
+        if ($closureItem.Length -le 0 -or $closureItem.Length -gt $maximumEvidenceBytes) {
+            throw 'Existing closure evidence size is invalid.'
         }
         $existing = [IO.File]::ReadAllText(
             $closurePath,
@@ -267,12 +283,26 @@ try {
             throw 'Existing closure evidence differs from the deterministic review result.'
         }
     } else {
-        $pending = "$closurePath.pending"
-        if (Test-Path -LiteralPath $pending) {
-            Remove-Item -LiteralPath $pending -Force
+        Assert-NoReparseComponents -Path $pendingPath -Label 'pending closure evidence'
+        if (Test-Path -LiteralPath $pendingPath) {
+            throw 'Pending closure evidence already exists; manual recovery is required.'
         }
-        [IO.File]::WriteAllBytes($pending, $bytes)
-        Move-Item -LiteralPath $pending -Destination $closurePath
+        $json = $closure | ConvertTo-Json -Depth 16
+        $bytes = [Text.UTF8Encoding]::new($false).GetBytes($json + [Environment]::NewLine)
+        $stream = [IO.File]::Open(
+            $pendingPath,
+            [IO.FileMode]::CreateNew,
+            [IO.FileAccess]::Write,
+            [IO.FileShare]::None
+        )
+        try {
+            $stream.Write($bytes, 0, $bytes.Length)
+            $stream.Flush($true)
+        }
+        finally {
+            $stream.Dispose()
+        }
+        Move-Item -LiteralPath $pendingPath -Destination $closurePath
     }
 
     Write-Host 'NXB-150 dual-platform evidence closure passed.'
