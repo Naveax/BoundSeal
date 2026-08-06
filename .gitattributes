@@ -1,3 +1,6 @@
 # NXB validation binds the root lockfile by byte-level SHA-256.
 # Keep checkout bytes identical on Windows, Linux and macOS regardless of core.autocrlf.
 /Cargo.lock text eol=lf
+
+# rustfmt checks source bytes and requires a platform-neutral newline convention.
+*.rs text eol=lf
