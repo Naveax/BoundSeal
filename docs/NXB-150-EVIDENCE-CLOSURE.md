@@ -26,6 +26,8 @@ The evidence directory and every existing parent component must be a normal dire
 
 ## Windows review
 
+The Windows verifier and its self-test require PowerShell `7.5` or newer. They use `ConvertFrom-Json -DateKind String` so ISO-8601 timestamp tokens remain JSON strings instead of being converted implicitly to `[datetime]` values.
+
 ```text
 pwsh -NoProfile -File .\scripts\review-nxb-150-evidence.ps1
 ```
@@ -62,6 +64,7 @@ Each platform document must:
 - be strict UTF-8 JSON;
 - contain exactly the schema-v2 field set, with no unknown or missing field;
 - use the required JSON types rather than truthy or string-coerced values;
+- preserve timestamp tokens as strings during Windows parsing;
 - identify milestone `NXB-150` and gate `pinned_process_evidence_key_provider`;
 - identify the expected platform and current exact Git head;
 - report Rust `1.97.1`;
@@ -133,7 +136,7 @@ The Windows verifier has a corresponding PowerShell self-test:
 pwsh -NoProfile -File .\scripts\test-nxb-150-evidence-closure-windows.ps1
 ```
 
-It creates an isolated temporary Git repository and covers:
+It creates an isolated temporary Git repository with the same `.gitattributes` lockfile checkout contract as the product repository and covers:
 
 - valid dual-platform closure and idempotent repeat;
 - mixed-head, unknown-field, wrong-type, future-timestamp and failed-gate rejection;
@@ -142,7 +145,7 @@ It creates an isolated temporary Git repository and covers:
 - non-file and tampered existing closure rejection;
 - orphan pending-file and non-file pending-path rejection.
 
-These are verifier-source tests only. They do not replace Rust compilation, package/workspace validation or real Linux/Windows platform evidence. The Windows self-test is not claimed as parsed or executed until it runs under real PowerShell on Windows.
+These are verifier-source tests only. They do not replace Rust compilation, package/workspace validation or real Linux/Windows platform evidence.
 
 ## Manual PR transition
 
@@ -159,4 +162,6 @@ A missing platform, stale head, mixed toolchain, unknown JSON field, hash mismat
 
 ## Validation status
 
-The closure sources and both adversarial self-test sources are present on the NXB-150 draft branch. The Linux self-test logic passed in an isolated local simulation. The PowerShell self-test has not been parsed or executed in the current environment. Source presence and source-level testing are not evidence that Rust, Linux package validation or Windows validation has run. PR #68 remains draft until actual platform evidence and a successful closure document are produced on one final unchanged head.
+Real Windows execution has confirmed the canonical LF lockfile checkout and reached the closure verifier. That run exposed PowerShell's default ISO timestamp conversion, causing the valid `validated_at` JSON string to arrive as `[datetime]` and correctly fail the strict type gate. The verifier, semantic idempotency read path and self-test mutation path now preserve timestamps with `-DateKind String`; the fixture also inherits `.gitattributes`.
+
+This corrected source still requires a real Windows rerun. No successful Windows closure self-test, Rust compilation, package/workspace validation or dual-platform closure is claimed yet. PR #68 remains draft until actual platform evidence and a successful closure document are produced on one final unchanged head.
