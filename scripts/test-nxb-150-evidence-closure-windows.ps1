@@ -52,6 +52,10 @@ function Expect-Failure {
 if ($null -eq (Get-Command git -ErrorAction SilentlyContinue)) {
     throw 'git is unavailable.'
 }
+$convertFromJsonCommand = Get-Command ConvertFrom-Json -ErrorAction Stop
+if (-not $convertFromJsonCommand.Parameters.ContainsKey('DateKind')) {
+    throw 'PowerShell 7.5 or newer is required so JSON timestamp fields can be preserved as strings.'
+}
 if (-not (Test-Path -LiteralPath $closureSource -PathType Leaf)) {
     throw "Closure source is missing: $closureSource"
 }
@@ -145,7 +149,7 @@ try {
         $evidence = [IO.File]::ReadAllText(
             $path,
             [Text.UTF8Encoding]::new($false, $true)
-        ) | ConvertFrom-Json -Depth 16
+        ) | ConvertFrom-Json -Depth 16 -DateKind String
         switch ($Operation) {
             'mixed-head' {
                 $evidence.head_sha = '0' * 40
