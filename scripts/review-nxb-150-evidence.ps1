@@ -28,6 +28,11 @@ $stringFields = @(
 )
 $booleanFields = @('lockfile_reproduced_without_diff', 'process_fixture_serial')
 
+$convertFromJsonCommand = Get-Command ConvertFrom-Json -ErrorAction Stop
+if (-not $convertFromJsonCommand.Parameters.ContainsKey('DateKind')) {
+    throw 'PowerShell 7.5 or newer is required so JSON timestamp fields can be preserved as strings.'
+}
+
 function Test-LowerSha256 {
     param([Parameter(Mandatory = $true)][string]$Value)
     return $Value -match '^[0-9a-f]{64}$'
@@ -122,7 +127,7 @@ function Read-Evidence {
     }
 
     $raw = [IO.File]::ReadAllText($Path, [Text.UTF8Encoding]::new($false, $true))
-    $evidence = $raw | ConvertFrom-Json -Depth 16
+    $evidence = $raw | ConvertFrom-Json -Depth 16 -DateKind String
     Assert-ExactFields -Evidence $evidence -Label "$ExpectedPlatform evidence"
     Assert-ExactTypes -Evidence $evidence -Label "$ExpectedPlatform evidence"
 
@@ -276,7 +281,7 @@ try {
         $existing = [IO.File]::ReadAllText(
             $closurePath,
             [Text.UTF8Encoding]::new($false, $true)
-        ) | ConvertFrom-Json -Depth 16
+        ) | ConvertFrom-Json -Depth 16 -DateKind String
         $existingCanonical = $existing | ConvertTo-Json -Depth 16 -Compress
         $expectedCanonical = $closure | ConvertTo-Json -Depth 16 -Compress
         if ($existingCanonical -cne $expectedCanonical) {
