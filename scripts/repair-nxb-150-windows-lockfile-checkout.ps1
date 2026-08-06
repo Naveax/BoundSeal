@@ -12,6 +12,14 @@ if ($null -eq (Get-Command git -ErrorAction SilentlyContinue)) {
     throw 'git is unavailable.'
 }
 
+function Get-GitStatusLines {
+    $lines = @(git status --porcelain=v1 --untracked-files=all)
+    if ($LASTEXITCODE -ne 0) {
+        throw 'git status failed.'
+    }
+    return $lines
+}
+
 Push-Location $RepoRoot
 try {
     $headSha = (git rev-parse HEAD).Trim()
@@ -19,9 +27,9 @@ try {
         throw 'Exact Git HEAD could not be resolved.'
     }
 
-    $status = git status --porcelain=v1 --untracked-files=all
-    if ($LASTEXITCODE -ne 0 -or $status) {
-        throw 'Working tree must be clean before lockfile checkout repair.'
+    $status = @(Get-GitStatusLines)
+    if ($status.Count -ne 0) {
+        throw "Working tree must be clean before lockfile checkout repair.`n$($status -join [Environment]::NewLine)"
     }
 
     $attribute = (git check-attr eol -- Cargo.lock | Out-String).Trim()
@@ -44,7 +52,11 @@ try {
 
     git diff --quiet -- Cargo.lock
     if ($LASTEXITCODE -ne 0) {
-        throw 'Cargo.lock has user-authored or staged differences; refusing checkout repair.'
+        throw 'Cargo.lock has user-authored working-tree differences; refusing checkout repair.'
+    }
+    git diff --cached --quiet -- Cargo.lock
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Cargo.lock has staged differences; refusing checkout repair.'
     }
 
     Remove-Item -LiteralPath $lockPath -Force
@@ -58,9 +70,24 @@ try {
         throw "Cargo.lock remains non-canonical after rematerialization: expected $expectedCargoLockSha256, found $afterSha256"
     }
 
-    $finalStatus = git status --porcelain=v1 --untracked-files=all
-    if ($LASTEXITCODE -ne 0 -or $finalStatus) {
-        throw 'Working tree changed during lockfile checkout repair.'
+    git diff --quiet -- Cargo.lock
+    if ($LASTEXITCODE -ne 0) {
+        $lockDiff = git --no-pager diff -- Cargo.lock | Out-String
+        throw "Canonical Cargo.lock bytes differ from the index after rematerialization.`n$lockDiff"
+    }
+    git diff --cached --quiet -- Cargo.lock
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Cargo.lock unexpectedly differs from HEAD in the index after rematerialization.'
+    }
+
+    git update-index --really-refresh -- Cargo.lock
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Git could not refresh the Cargo.lock index stat cache.'
+    }
+
+    $finalStatus = @(Get-GitStatusLines)
+    if ($finalStatus.Count -ne 0) {
+        throw "Working tree changed during lockfile checkout repair.`n$($finalStatus -join [Environment]::NewLine)"
     }
 
     Write-Host 'NXB-150 Cargo.lock checkout repair passed.'
