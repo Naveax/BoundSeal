@@ -29,7 +29,7 @@ function Invoke-NxbCargo {
 function Invoke-NxbTool {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$Arguments,
         [Parameter(Mandatory = $true)][string]$Label
     )
 
