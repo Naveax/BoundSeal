@@ -121,8 +121,7 @@ fn pinned_process_adapter_acquires_key_and_tears_down() {
     let (plan, activation) = signed_plan(identity, STORE_ID);
     let mut provider = ProcessEvidenceKeyProvider::new(config).unwrap();
 
-    let (sealer, receipt) =
-        acquire_evidence_sealer(plan, activation, &mut provider, NOW).unwrap();
+    let (sealer, receipt) = acquire_evidence_sealer(plan, activation, &mut provider, NOW).unwrap();
 
     assert_eq!(sealer.key_id(), KEY_ID);
     assert_eq!(receipt.key_version_id, FIXTURE_VERSION_ID);
@@ -292,13 +291,10 @@ fn capability_identity_binds_exact_submillisecond_timeout() {
     let one_nanosecond = config("fixture/evidence-key", None, Duration::from_nanos(1))
         .evidence_identity()
         .unwrap();
-    let nine_hundred_ninety_nine_microseconds = config(
-        "fixture/evidence-key",
-        None,
-        Duration::from_micros(999),
-    )
-    .evidence_identity()
-    .unwrap();
+    let nine_hundred_ninety_nine_microseconds =
+        config("fixture/evidence-key", None, Duration::from_micros(999))
+            .evidence_identity()
+            .unwrap();
 
     assert_ne!(
         one_nanosecond.capability_sha256,
