@@ -22,6 +22,8 @@ The checkout must have:
 - `Cargo.lock` SHA-256 `f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff`;
 - no source or untracked working-tree change.
 
+The evidence directory and every existing parent component must be a normal directory path. Symbolic links, junctions and Windows reparse points are rejected rather than resolved.
+
 ## Windows review
 
 ```text
@@ -56,8 +58,10 @@ bash scripts/review-nxb-150-evidence-linux.sh \
 Each platform document must:
 
 - be a regular non-symlink file of 1–65,536 bytes;
+- have no symbolic-link, junction or reparse-point parent component;
 - be strict UTF-8 JSON;
 - contain exactly the schema-v2 field set, with no unknown or missing field;
+- use the required JSON types rather than truthy or string-coerced values;
 - identify milestone `NXB-150` and gate `pinned_process_evidence_key_provider`;
 - identify the expected platform and current exact Git head;
 - report Rust `1.97.1`;
@@ -103,7 +107,9 @@ The closure binds:
 - status `ready_for_manual_pr_review`;
 - network activity `none`.
 
-The closure is published through a pending file and atomic rename. If a closure already exists, it must be semantically identical; it is never silently replaced with a different result.
+The closure is published through a create-new pending file and atomic rename. Linux flushes the pending file and parent directory before success. A pre-existing pending file is never deleted automatically; it blocks closure and requires manual recovery.
+
+A pre-existing closure must be a bounded regular non-symlink file and semantically identical to the deterministic review result. Formatting differences are permitted; content differences are never overwritten.
 
 ## Manual PR transition
 
@@ -116,7 +122,7 @@ The closure is published through a pending file and atomic rename. If a closure 
 5. confirm the PR diff contains no workflow enablement or unexpected file;
 6. only then mark the exact-head PR ready for review.
 
-A missing platform, stale head, mixed toolchain, unknown JSON field, hash mismatch or failed gate blocks closure.
+A missing platform, stale head, mixed toolchain, unknown JSON field, hash mismatch, path indirection, orphan pending file or failed gate blocks closure.
 
 ## Validation status
 
