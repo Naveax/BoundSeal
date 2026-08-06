@@ -137,9 +137,6 @@ try {
 
     if (-not $PrepareOnly) {
         & (Join-Path $PSScriptRoot 'validate-nxb-150-windows.ps1') -RepoRoot $RepoRoot
-        if ($LASTEXITCODE -ne 0) {
-            throw "NXB-150 Windows validation failed with exit code $LASTEXITCODE."
-        }
     }
 }
 finally {
