@@ -24,6 +24,47 @@ target/nxb-tools/bin/
 
 They are never resolved from an arbitrary global `PATH` during validation.
 
+## Canonical lockfile checkout bytes
+
+NXB-150 binds the root `Cargo.lock` by byte-level SHA-256. The repository therefore contains this mandatory attribute:
+
+```gitattributes
+/Cargo.lock text eol=lf
+```
+
+This keeps the working-tree lockfile byte-identical on Windows, Linux and macOS regardless of the user's `core.autocrlf` setting.
+
+A Windows checkout created before this attribute was added may still contain a clean-but-CRLF `Cargo.lock`. After pulling the current branch, run the fail-closed checkout repair:
+
+```powershell
+git pull --ff-only
+pwsh -NoProfile -File .\scripts\repair-nxb-150-windows-lockfile-checkout.ps1
+```
+
+The repair refuses dirty working trees and user-authored lockfile differences. It verifies the `eol=lf` attribute, rematerializes only a clean tracked `Cargo.lock`, verifies the canonical SHA-256 and requires the working tree to remain clean.
+
+Manual equivalent:
+
+```powershell
+git pull --ff-only
+Remove-Item -LiteralPath .\Cargo.lock -Force
+git restore --source=HEAD --worktree -- .\Cargo.lock
+```
+
+Then verify the canonical hash:
+
+```powershell
+(Get-FileHash -LiteralPath .\Cargo.lock -Algorithm SHA256).Hash.ToLowerInvariant()
+```
+
+Expected value:
+
+```text
+f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff
+```
+
+Do not rewrite the lockfile manually and do not accept the CRLF checkout hash as canonical evidence.
+
 ## Windows
 
 From a clean checkout of PR #68:
