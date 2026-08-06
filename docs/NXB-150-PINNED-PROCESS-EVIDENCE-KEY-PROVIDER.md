@@ -2,7 +2,9 @@
 
 ## Status
 
-NXB-150 is implemented on draft PR #68 but is not release-complete. Source integration, the real child-process fixture, adversarial tests and local exact-head validation harnesses are committed. Canonical `Cargo.lock` publication and actual pinned-toolchain Linux/Windows execution remain mandatory before review or merge.
+NXB-150 is implemented. Source integration, the real child-process fixture, adversarial tests, the canonical committed lockfile, exact-head Linux and Windows validation harnesses and deterministic dual-platform evidence closure are part of the milestone contract.
+
+A final PR head is merge-eligible only after both platforms validate that same unchanged head and the closure reports `ready_for_manual_pr_review`. Any later commit invalidates the earlier exact-head evidence and requires a fresh platform pair and closure.
 
 ## Purpose
 
@@ -67,7 +69,7 @@ The adapter maps one NXB-149 acquisition to one NXB-140 process session:
 
 The process provider handle is required by the child protocol but is never included in adapter `Debug` output, receipts or capability plaintext. Only its SHA-256 is capability-bound. Invalid-length key material is zeroized by the NXB-149 material constructor before rejection.
 
-## Implemented fixture coverage
+## Fixture and adversarial coverage
 
 The real child-process fixture and integration tests cover:
 
@@ -85,7 +87,7 @@ The real child-process fixture and integration tests cover:
 - exact sub-millisecond timeout capability separation;
 - second-fetch rejection while preserving abortability.
 
-The test source is present, but these cases are not counted as passed until the pinned Rust toolchain actually compiles and executes them.
+These cases are executed serially by the platform harnesses against the real child-process fixture.
 
 ## Exact-head validation harnesses
 
@@ -105,33 +107,31 @@ Both harnesses require:
 
 - a clean, unchanged exact Git head;
 - Rust `1.97.1` with rustfmt and Clippy;
-- installed `cargo-audit` and `cargo-deny` subcommands;
+- pinned local `cargo-audit 0.22.2` and `cargo-deny 0.20.2` binaries;
 - committed `Cargo.lock` SHA-256 `f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff`;
-- `cargo generate-lockfile` reproduction with no byte or Git diff;
 - locked Cargo metadata resolution;
 - package format, check, all-target Clippy and serial real-process tests;
 - `nxb-vault-provider` regression tests;
 - full workspace check, all-target/all-feature Clippy and serial tests;
-- RustSec `cargo audit`;
+- RustSec audit;
 - cargo-deny advisories, licenses, bans and source checks.
 
-A successful run writes platform-specific JSON under:
+A successful run writes platform-specific schema-v2 JSON under:
 
 ```text
 target/nxb-validation/
 ```
 
-Evidence binds the exact head, Rust/Cargo and supply-chain tool versions, canonical lockfile SHA-256 and each completed gate. It contains no provider handle, secret material, authorization data or private signing key.
+Evidence binds the exact head, Rust/Cargo and supply-chain tool versions, security-tool executable hashes, canonical lockfile SHA-256 and each completed gate. It contains no provider handle, secret material, authorization data or private signing key.
 
-The harnesses restore the original `Cargo.lock` bytes in cleanup. They emit no success document if lockfile generation changes the committed file, the expected SHA-256 differs, the working tree moves, or any package/workspace/supply-chain command fails.
+The committed lockfile is the resolution authority. The harnesses use `cargo metadata --locked` and locked package/workspace commands; they do not accept a mutable-index `cargo generate-lockfile` rebuild as a reproducibility gate.
 
-## Required terminal validation
+The harnesses emit no success document if the expected SHA-256 differs, the working tree moves, the exact head changes or any package, workspace or supply-chain command fails.
 
-The harnesses execute the following mandatory core sequence without enabling GitHub Actions:
+## Mandatory command sequence
 
 ```text
-cargo generate-lockfile
-git diff --exit-code -- Cargo.lock
+cargo metadata --locked
 cargo fmt --all -- --check
 cargo check -p nxb-evidence-key-provider-process --all-features --locked
 cargo clippy -p nxb-evidence-key-provider-process --all-targets --all-features --locked -- -D warnings
@@ -144,9 +144,23 @@ cargo audit
 cargo deny check
 ```
 
-A lockfile candidate was prepared from the last immutable release-candidate lockfile by adding the new path-package stanza. It is not accepted as canonical evidence until published and reproduced by `cargo generate-lockfile` with no diff.
+## Dual-platform closure
 
-An external validation attempt through the available Hugging Face Jobs connector failed before execution with `Tool hf_jobs not found`. The local container also lacks both a Rust toolchain and outbound DNS. These infrastructure failures produced no compilation or test result and are not treated as validation.
+The Linux and Windows evidence documents must describe the same exact head, canonical lockfile and pinned tool versions. The closure verifier rejects missing fields, unknown fields, wrong JSON types, mixed heads, future timestamps, failed gates, path indirection, symbolic links, tampered prior closure output and orphan pending files.
+
+Successful review creates:
+
+```text
+target/nxb-validation/nxb-150-closure-<HEAD>.json
+```
+
+with status:
+
+```text
+ready_for_manual_pr_review
+```
+
+That status authorizes manual PR review only. It is not an automatic merge instruction.
 
 ## Explicit exclusions
 
