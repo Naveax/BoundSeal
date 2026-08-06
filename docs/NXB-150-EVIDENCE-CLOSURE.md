@@ -18,7 +18,7 @@ target/nxb-validation/nxb-150-windows-<HEAD>.json
 The checkout must have:
 
 - one clean 40-character Git head;
-- the committed candidate `Cargo.lock`;
+- the committed canonical `Cargo.lock`;
 - `Cargo.lock` SHA-256 `f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff`;
 - no source or untracked working-tree change.
 
@@ -122,7 +122,7 @@ The Linux verifier has a permanent networkless adversarial self-test:
 bash scripts/test-nxb-150-evidence-closure-linux.sh
 ```
 
-It builds an isolated temporary Git repository from the current verifier and candidate lockfile, then covers:
+It builds an isolated temporary Git repository from the current verifier and canonical lockfile, then covers:
 
 - valid dual-platform closure and idempotent repeat;
 - mixed-head, unknown-field, wrong-type, future-timestamp and failed-gate rejection;
@@ -145,7 +145,7 @@ It creates an isolated temporary Git repository with the same `.gitattributes` l
 - non-file and tampered existing closure rejection;
 - orphan pending-file and non-file pending-path rejection.
 
-These are verifier-source tests only. They do not replace Rust compilation, package/workspace validation or real Linux/Windows platform evidence.
+These verifier-source tests do not replace Rust compilation, package/workspace validation or real Linux/Windows platform evidence.
 
 ## Manual PR transition
 
@@ -162,6 +162,6 @@ A missing platform, stale head, mixed toolchain, unknown JSON field, hash mismat
 
 ## Validation status
 
-Real Windows execution has confirmed the canonical LF lockfile checkout and reached the closure verifier. That run exposed PowerShell's default ISO timestamp conversion, causing the valid `validated_at` JSON string to arrive as `[datetime]` and correctly fail the strict type gate. The verifier, semantic idempotency read path and self-test mutation path now preserve timestamps with `-DateKind String`; the fixture also inherits `.gitattributes`.
+The verifier and its adversarial self-tests have completed real Windows and Linux execution, including deterministic dual-platform closure on an exact PR head. Evidence hashes and validation timestamps are recorded in the PR conversation rather than committed to the source tree.
 
-This corrected source still requires a real Windows rerun. No successful Windows closure self-test, Rust compilation, package/workspace validation or dual-platform closure is claimed yet. PR #68 remains draft until actual platform evidence and a successful closure document are produced on one final unchanged head.
+This result is head-specific. Any later source or documentation commit changes the PR head and requires fresh Windows evidence, Linux evidence and closure before the PR may return to ready-for-review state.
