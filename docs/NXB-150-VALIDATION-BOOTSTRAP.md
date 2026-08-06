@@ -81,7 +81,7 @@ This proves that both platforms accepted and used the same exact committed depen
 
 ## Windows
 
-From a clean checkout of PR #68:
+From a clean checkout of the current PR #68 head:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\prepare-and-validate-nxb-150-windows.ps1
@@ -101,7 +101,7 @@ Prerequisites:
 
 ## Linux
 
-From a clean checkout of PR #68:
+From a clean checkout of the same current PR #68 head:
 
 ```bash
 bash scripts/prepare-and-validate-nxb-150-linux.sh
@@ -172,7 +172,7 @@ The harness rejects:
 
 ## Validation evidence schema v2
 
-Successful Linux or Windows validation writes schema-v2 evidence that additionally binds:
+Successful Linux or Windows validation writes schema-v2 evidence that binds:
 
 - cargo-audit executable SHA-256;
 - cargo-deny executable SHA-256;
@@ -181,7 +181,7 @@ Successful Linux or Windows validation writes schema-v2 evidence that additional
 - exact lockfile SHA-256;
 - unchanged exact Git head.
 
-The existing `lockfile_reproduced_without_diff` evidence field means that the canonical committed lockfile was accepted by Cargo locked mode throughout the full platform harness and remained byte-identical. It does not mean that the mutable registry index was asked to construct a new lockfile from scratch.
+The `lockfile_reproduced_without_diff` evidence field means that the canonical committed lockfile was accepted by Cargo locked mode throughout the full platform harness and remained byte-identical. It does not mean that the mutable registry index was asked to construct a new lockfile from scratch.
 
 ## Network boundary
 
@@ -191,10 +191,14 @@ The validation phase may access dependency and advisory sources required by Carg
 
 ## Acceptance rule
 
-PR #68 remains draft until:
+The final PR #68 head may leave draft only when:
 
 1. both platforms verify the same canonical committed `Cargo.lock` through Cargo locked mode without byte or Git diff;
 2. Linux validation passes on one exact head;
 3. Windows validation passes on the same exact head;
 4. both schema-v2 evidence files and tool-preparation receipts are reviewed;
-5. no workflow has been added or re-enabled.
+5. deterministic closure reports `ready_for_manual_pr_review`;
+6. no review thread remains unresolved;
+7. no workflow has been added or re-enabled.
+
+Any commit after closure changes the exact head and invalidates the prior platform evidence for merge authorization.
