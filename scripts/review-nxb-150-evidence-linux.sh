@@ -195,7 +195,11 @@ bytes_value = (json.dumps(closure, indent=2, sort_keys=False) + "\n").encode("ut
 evidence_directory.mkdir(parents=True, exist_ok=True)
 closure_path = evidence_directory / f"nxb-150-closure-{head_sha}.json"
 if closure_path.exists():
-    if closure_path.read_bytes() != bytes_value:
+    try:
+        existing = json.loads(closure_path.read_text(encoding="utf-8", errors="strict"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        fail(f"existing closure evidence is invalid UTF-8 JSON: {error}")
+    if existing != closure:
         fail("existing closure evidence differs from the deterministic review result")
 else:
     pending_path = closure_path.with_suffix(closure_path.suffix + ".pending")
