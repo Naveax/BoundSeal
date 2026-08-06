@@ -4,16 +4,17 @@ All notable changes to NXBounty are documented here.
 
 ## [Unreleased]
 
-### NXB-150 draft — pinned process evidence-key provider
+### NXB-150 — pinned process evidence-key provider
 
 - Added the private `nxb-evidence-key-provider-process` workspace crate.
 - Adapted the NXB-149 evidence-key lifecycle to the existing NXB-140 shell-free, absolute-path and SHA-256-pinned process transport.
 - Bound executable digest, process identity, exact store/key mapping, provider-handle SHA-256, optional provider-version policy, timeout and session expiry into the adapter capability identity.
 - Added zeroizing transfer from external provider material into the exact 32-byte evidence-sealing key boundary.
 - Added a real process fixture and adversarial coverage for success, identity/digest and request mismatches, short key material, provider-version drift, logical failure, timeout, debug redaction and one-fetch enforcement.
-- Preserved the repository-wide GitHub Actions shutdown; no workflow was added.
+- Added exact-head Linux and Windows validation harnesses, pinned Rust and supply-chain tools, schema-v2 platform evidence and deterministic dual-platform closure review.
+- Preserved the repository-wide GitHub Actions shutdown; no workflow was added or re-enabled.
 
-NXB-150 remains a draft. Canonical lockfile publication and actual pinned-toolchain formatting, check, Clippy and test execution are required before it can be reviewed or merged.
+Every final PR head must pass the committed-lockfile package/workspace gates, RustSec, cargo-deny and dual-platform closure before merge.
 
 ## [0.1.0-contract-complete] - 2026-08-04
 
