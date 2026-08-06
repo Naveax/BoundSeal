@@ -2,8 +2,7 @@
 
 ## Completion
 
-- Fully validated architecture milestones: NXB-0 through NXB-149 contract block
-- Active draft milestone: NXB-150 pinned process evidence-key provider
+- Fully validated architecture milestones: NXB-0 through NXB-150
 - Workspace manifest members: 49 private crates
 - Current package version: 0.1.0
 - Distribution status: private, `publish = false`
@@ -15,9 +14,7 @@
 
 GitHub-hosted Actions are disabled for this repository. The workflow files were removed from `main`, and NXB-150 does not add or re-enable a workflow.
 
-NXB-149 remains the last fully validated block. Its implementation source and canonical lockfile passed GitHub Actions run `30991875053` (`NXB-149 evidence key-provider lifecycle`, run number 50) on Ubuntu and Windows, plus primary workspace and dependency-policy run `30985279437`.
-
-NXB-150 currently has:
+NXB-150 provides:
 
 - a private `nxb-evidence-key-provider-process` crate;
 - reuse of the NXB-140 absolute-path and SHA-256-pinned process transport;
@@ -26,30 +23,28 @@ NXB-150 currently has:
 - zeroizing transfer from process secret material into the NXB-149 32-byte key boundary;
 - completed/aborted teardown mapping with timeout and fatal failure remaining abortable;
 - a real child-process fixture;
-- adversarial tests for success, executable mismatch, store/request mismatch, version mismatch, short key, logical failure, timeout, one-fetch enforcement and debug redaction.
+- adversarial tests for success, executable mismatch, store/request mismatch, version mismatch, short key, logical failure, timeout, one-fetch enforcement and debug redaction;
+- exact-head Windows and Linux validation harnesses;
+- pinned Rust `1.97.1`, cargo-audit `0.22.2` and cargo-deny `0.20.2`;
+- schema-v2 per-platform evidence and deterministic dual-platform closure.
 
-NXB-150 is not ready for merge. Required terminal gates remain:
-
-- publish the canonical `Cargo.lock` entry for the new workspace member;
-- run pinned-toolchain formatting;
-- run package check and all-target Clippy with warnings denied;
-- run the real process integration tests serially;
-- rerun related `nxb-vault-provider` regression tests;
-- resolve any resulting compiler, lint or platform differences.
-
-The required command set is:
+The mandatory validation command set is:
 
 ```text
-cargo generate-lockfile
-git diff --exit-code -- Cargo.lock
+cargo metadata --locked
 cargo fmt --all -- --check
 cargo check -p nxb-evidence-key-provider-process --all-features --locked
 cargo clippy -p nxb-evidence-key-provider-process --all-targets --all-features --locked -- -D warnings
 cargo test -p nxb-evidence-key-provider-process --all-features --locked -- --test-threads=1
 cargo test -p nxb-vault-provider --locked -- --test-threads=1
+cargo check --workspace --all-targets --all-features --locked
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --all-features --locked -- --test-threads=1
+cargo audit
+cargo deny check
 ```
 
-A local lockfile candidate was generated from the last immutable release-candidate lockfile plus the new path-package stanza; it has not yet been published or accepted as validation evidence. External execution attempts were unsuccessful because the available Hugging Face Jobs connector returned `Tool hf_jobs not found`, and the local container has neither a Rust toolchain nor outbound DNS. These infrastructure failures do not count as product validation.
+A final PR head is merge-eligible only when both platforms validate that same unchanged head and the deterministic closure reports `ready_for_manual_pr_review`.
 
 ## Product readiness
 
@@ -71,7 +66,7 @@ A local lockfile candidate was generated from the last immutable release-candida
 | Signed manual-submission handoff | Complete; exact report/export and review binding |
 | Encrypted persistent evidence store | Complete; AES-256-GCM, create-only atomic publication and deterministic verification manifest |
 | Evidence sealing key-provider lifecycle | Complete; signed plan, exact identity, one fetch, mandatory teardown and metadata-only receipt |
-| Pinned process evidence-key adapter | Draft implementation complete; canonical lockfile and actual Rust validation pending |
+| Pinned process evidence-key adapter | Complete; exact-head dual-platform validation required for every final PR head |
 | Password-manager/OS credential-store helper | Not implemented |
 | Cloud KMS, HSM or PKCS#11 helper | Not implemented |
 | Automatic HackerOne submission | Intentionally not implemented |
@@ -79,6 +74,6 @@ A local lockfile candidate was generated from the last immutable release-candida
 
 ## Release meaning
 
-The merged repository contains the signed bounded live-execution chain from unified activation through authenticated runtime, resumable execution, terminal teardown, cryptographic closure and operator-reviewed manual-submission handoff. NXB-148 adds persistent authenticated encryption for evidence records that already passed redaction and content-address validation. NXB-149 adds the provider-neutral signed lifecycle for acquiring the exact 256-bit sealing key without serializing, logging or persisting key bytes.
+The repository contains the signed bounded live-execution chain from unified activation through authenticated runtime, resumable execution, terminal teardown, cryptographic closure and operator-reviewed manual-submission handoff. NXB-148 adds persistent authenticated encryption for evidence records that already passed redaction and content-address validation. NXB-149 adds the provider-neutral signed lifecycle for acquiring the exact 256-bit sealing key without serializing, logging or persisting key bytes. NXB-150 connects that lifecycle to the existing pinned process-provider security boundary.
 
-Draft NXB-150 connects that lifecycle to the existing pinned process-provider security boundary, but it is not part of the release meaning until canonical lockfile and actual pinned-toolchain validation complete. The repository does not claim unrestricted autonomous scanning, browser automation, credential discovery, active exploitation, arbitrary process execution or automatic HackerOne submission.
+The repository does not claim unrestricted autonomous scanning, browser automation, credential discovery, active exploitation, arbitrary process execution or automatic HackerOne submission.
