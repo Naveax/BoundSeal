@@ -34,7 +34,16 @@ NXB-150 binds the root `Cargo.lock` by byte-level SHA-256. The repository theref
 
 This keeps the working-tree lockfile byte-identical on Windows, Linux and macOS regardless of the user's `core.autocrlf` setting.
 
-A Windows checkout created before this attribute was added may still contain a clean-but-CRLF `Cargo.lock`. After pulling the attribute commit, rematerialize the file from the index before validation:
+A Windows checkout created before this attribute was added may still contain a clean-but-CRLF `Cargo.lock`. After pulling the current branch, run the fail-closed checkout repair:
+
+```powershell
+git pull --ff-only
+pwsh -NoProfile -File .\scripts\repair-nxb-150-windows-lockfile-checkout.ps1
+```
+
+The repair refuses dirty working trees and user-authored lockfile differences. It verifies the `eol=lf` attribute, rematerializes only a clean tracked `Cargo.lock`, verifies the canonical SHA-256 and requires the working tree to remain clean.
+
+Manual equivalent:
 
 ```powershell
 git pull --ff-only
