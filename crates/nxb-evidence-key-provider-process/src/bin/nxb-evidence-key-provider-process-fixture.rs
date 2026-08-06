@@ -34,9 +34,7 @@ fn run() -> Result<(), nxb_vault_provider_process::ProcessVaultProviderError> {
 
     let (hello, secret) = read_host_message(&mut reader)?;
     if !secret.is_empty() {
-        return Err(
-            nxb_vault_provider_process::ProcessVaultProviderError::ProtocolViolation,
-        );
+        return Err(nxb_vault_provider_process::ProcessVaultProviderError::ProtocolViolation);
     }
     let nonce_hex = match hello {
         HostMessage::Hello {
@@ -50,11 +48,7 @@ fn run() -> Result<(), nxb_vault_provider_process::ProcessVaultProviderError> {
         {
             nonce_hex
         }
-        _ => {
-            return Err(
-                nxb_vault_provider_process::ProcessVaultProviderError::ProtocolViolation,
-            )
-        }
+        _ => return Err(nxb_vault_provider_process::ProcessVaultProviderError::ProtocolViolation),
     };
     let executable = std::env::current_exe().map_err(|_| {
         nxb_vault_provider_process::ProcessVaultProviderError::ExecutableNotRegularFile
@@ -78,18 +72,12 @@ fn run() -> Result<(), nxb_vault_provider_process::ProcessVaultProviderError> {
     loop {
         let (message, secret) = read_host_message(&mut reader)?;
         if !secret.is_empty() {
-            return Err(
-                nxb_vault_provider_process::ProcessVaultProviderError::ProtocolViolation,
-            );
+            return Err(nxb_vault_provider_process::ProcessVaultProviderError::ProtocolViolation);
         }
         match message {
             HostMessage::Begin { sequence, .. } if !active => {
                 active = true;
-                write_provider_message(
-                    &mut writer,
-                    &ProviderMessage::Begun { sequence },
-                    &[],
-                )?;
+                write_provider_message(&mut writer, &ProviderMessage::Begun { sequence }, &[])?;
             }
             HostMessage::Fetch { sequence, request } if active => {
                 match request.provider_handle.as_str() {
@@ -153,11 +141,7 @@ fn run() -> Result<(), nxb_vault_provider_process::ProcessVaultProviderError> {
                 }
             }
             HostMessage::Finish { sequence, .. } if active => {
-                write_provider_message(
-                    &mut writer,
-                    &ProviderMessage::Finished { sequence },
-                    &[],
-                )?;
+                write_provider_message(&mut writer, &ProviderMessage::Finished { sequence }, &[])?;
                 return Ok(());
             }
             _ => {
