@@ -61,26 +61,13 @@ audit_sha256="$(sha256sum "$audit_path" | awk '{print $1}')"
 deny_sha256="$(sha256sum "$deny_path" | awk '{print $1}')"
 
 [[ -f Cargo.lock ]] || fail 'Cargo.lock is missing'
-lock_backup="$(mktemp)"
-cp Cargo.lock "$lock_backup"
-cleanup() {
-    cp "$lock_backup" Cargo.lock
-    rm -f "$lock_backup"
-}
-trap cleanup EXIT
-
-cargo_run generate-lockfile
-if ! cmp -s "$lock_backup" Cargo.lock; then
-    git --no-pager diff -- Cargo.lock >&2 || true
-    fail 'cargo generate-lockfile changed the committed Cargo.lock'
-fi
-
 lock_sha256="$(sha256sum Cargo.lock | awk '{print $1}')"
 [[ "$lock_sha256" == "$expected_lock_sha256" ]] ||
     fail "Cargo.lock SHA-256 mismatch: expected $expected_lock_sha256, found $lock_sha256"
 
-git diff --exit-code -- Cargo.lock >/dev/null || fail 'Cargo.lock differs after reproduction'
+git diff --exit-code -- Cargo.lock >/dev/null || fail 'committed Cargo.lock differs before locked validation'
 cargo_run metadata --format-version 1 --locked --no-deps >/dev/null
+git diff --exit-code -- Cargo.lock >/dev/null || fail 'Cargo.lock changed during cargo metadata --locked'
 
 cargo_run fmt --all -- --check
 cargo_run check -p nxb-evidence-key-provider-process --all-features --locked

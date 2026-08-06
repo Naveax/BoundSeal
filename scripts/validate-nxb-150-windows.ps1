@@ -57,7 +57,6 @@ function Get-NxbToolVersion {
 }
 
 Push-Location $RepoRoot
-$lockBackup = $null
 try {
     foreach ($command in @('git', 'rustup')) {
         if ($null -eq (Get-Command $command -ErrorAction SilentlyContinue)) {
@@ -97,28 +96,23 @@ try {
     if (-not (Test-Path -LiteralPath $lockPath -PathType Leaf)) {
         throw 'Cargo.lock is missing.'
     }
-    $lockBackup = Join-Path ([IO.Path]::GetTempPath()) (
-        'nxb-150-cargo-lock-' + [Guid]::NewGuid().ToString('N')
-    )
-    Copy-Item -LiteralPath $lockPath -Destination $lockBackup
-
-    Invoke-NxbCargo `
-        -Arguments @('generate-lockfile') `
-        -Label 'cargo generate-lockfile'
-    git diff --exit-code -- Cargo.lock
-    if ($LASTEXITCODE -ne 0) {
-        $lockDiff = git --no-pager diff -- Cargo.lock | Out-String
-        throw "cargo generate-lockfile changed the committed Cargo.lock.`n$lockDiff"
-    }
-
     $lockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($lockSha256 -ne $expectedCargoLockSha256) {
         throw "Cargo.lock SHA-256 mismatch: expected $expectedCargoLockSha256, found $lockSha256"
     }
 
+    git diff --exit-code -- Cargo.lock
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Committed Cargo.lock differs before locked validation.'
+    }
     Invoke-NxbCargo `
         -Arguments @('metadata', '--format-version', '1', '--locked', '--no-deps') `
-        -Label 'cargo metadata'
+        -Label 'cargo metadata --locked'
+    git diff --exit-code -- Cargo.lock
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Cargo.lock changed during cargo metadata --locked.'
+    }
+
     Invoke-NxbCargo `
         -Arguments @('fmt', '--all', '--', '--check') `
         -Label 'cargo fmt'
@@ -212,9 +206,5 @@ try {
     Write-Host "Evidence: $evidencePath"
 }
 finally {
-    if ($null -ne $lockBackup -and (Test-Path -LiteralPath $lockBackup -PathType Leaf)) {
-        Copy-Item -LiteralPath $lockBackup -Destination (Join-Path $RepoRoot 'Cargo.lock') -Force
-        Remove-Item -LiteralPath $lockBackup -Force -ErrorAction SilentlyContinue
-    }
     Pop-Location
 }

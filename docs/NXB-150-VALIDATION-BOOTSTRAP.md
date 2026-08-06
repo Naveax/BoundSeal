@@ -65,6 +65,20 @@ f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff
 
 Do not rewrite the lockfile manually and do not accept the CRLF checkout hash as canonical evidence.
 
+## Locked-resolution contract
+
+The committed `Cargo.lock` is the dependency-resolution authority. Validation does not run plain `cargo generate-lockfile`, because that command intentionally rebuilds an existing lockfile with the newest currently available compatible registry packages. A future compatible registry publication must not invalidate an otherwise valid committed lockfile.
+
+Instead, each platform harness:
+
+1. verifies the committed lockfile byte-level SHA-256;
+2. verifies that Git reports no lockfile difference;
+3. runs `cargo metadata --locked`;
+4. runs every package and workspace build/test gate with `--locked`;
+5. verifies that the lockfile and working tree remain unchanged.
+
+This proves that both platforms accepted and used the same exact committed dependency graph without allowing Cargo to rewrite it.
+
 ## Windows
 
 From a clean checkout of PR #68:
@@ -151,8 +165,9 @@ The harness rejects:
 - cargo-deny other than `0.20.2`;
 - dirty working trees;
 - changed Git head;
-- reproduced `Cargo.lock` differences;
-- unexpected `Cargo.lock` SHA-256;
+- an unexpected committed `Cargo.lock` SHA-256;
+- any Cargo `--locked` resolution failure;
+- any lockfile or working-tree change during validation;
 - any failed package, workspace, RustSec or cargo-deny gate.
 
 ## Validation evidence schema v2
@@ -166,6 +181,8 @@ Successful Linux or Windows validation writes schema-v2 evidence that additional
 - exact lockfile SHA-256;
 - unchanged exact Git head.
 
+The existing `lockfile_reproduced_without_diff` evidence field means that the canonical committed lockfile was accepted by Cargo locked mode throughout the full platform harness and remained byte-identical. It does not mean that the mutable registry index was asked to construct a new lockfile from scratch.
+
 ## Network boundary
 
 Preparation may access only the official Rust distribution and crates.io dependency sources required to install the pinned tools.
@@ -176,7 +193,7 @@ The validation phase may access dependency and advisory sources required by Carg
 
 PR #68 remains draft until:
 
-1. the candidate `Cargo.lock` reproduces byte-for-byte with Rust `1.97.1`;
+1. both platforms verify the same canonical committed `Cargo.lock` through Cargo locked mode without byte or Git diff;
 2. Linux validation passes on one exact head;
 3. Windows validation passes on the same exact head;
 4. both schema-v2 evidence files and tool-preparation receipts are reviewed;
