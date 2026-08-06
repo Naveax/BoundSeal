@@ -6,7 +6,13 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$rustToolchain = '1.97.1'
+$cargoAuditVersion = '0.22.2'
+$cargoDenyVersion = '0.20.2'
 $expectedCargoLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
+$toolsBin = Join-Path $RepoRoot 'target\nxb-tools\bin'
+$auditPath = Join-Path $toolsBin 'cargo-audit.exe'
+$denyPath = Join-Path $toolsBin 'cargo-deny.exe'
 
 function Invoke-NxbCargo {
     param(
@@ -14,21 +20,38 @@ function Invoke-NxbCargo {
         [Parameter(Mandatory = $true)][string]$Label
     )
 
-    & cargo @Arguments
+    & rustup run $rustToolchain cargo @Arguments
     if ($LASTEXITCODE -ne 0) {
         throw "$Label failed with exit code $LASTEXITCODE."
     }
 }
 
-function Get-NxbCommandVersion {
+function Invoke-NxbTool {
     param(
+        [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string[]]$Arguments,
         [Parameter(Mandatory = $true)][string]$Label
     )
 
-    $value = (& cargo @Arguments | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($value)) {
-        throw "$Label is unavailable."
+    & $Path @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Label failed with exit code $LASTEXITCODE."
+    }
+}
+
+function Get-NxbToolVersion {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ExpectedVersion,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "$Label is unavailable at $Path. Run prepare-and-validate-nxb-150-windows.ps1 first."
+    }
+    $value = (& $Path --version | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $value -notmatch ('(^|\s)' + [regex]::Escape($ExpectedVersion) + '($|\s)')) {
+        throw "$Label version mismatch: expected $ExpectedVersion, found '$value'."
     }
     return $value
 }
@@ -36,7 +59,7 @@ function Get-NxbCommandVersion {
 Push-Location $RepoRoot
 $lockBackup = $null
 try {
-    foreach ($command in @('git', 'rustc', 'cargo')) {
+    foreach ($command in @('git', 'rustup')) {
         if ($null -eq (Get-Command $command -ErrorAction SilentlyContinue)) {
             throw "$command is unavailable."
         }
@@ -51,20 +74,24 @@ try {
         throw 'Working tree must be clean.'
     }
 
-    $rustcVersion = (& rustc --version | Out-String).Trim()
+    $rustcVersion = (& rustup run $rustToolchain rustc --version | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or -not $rustcVersion.StartsWith('rustc 1.97.1 ')) {
         throw "Expected rustc 1.97.1, found '$rustcVersion'."
     }
-    $cargoVersion = (& cargo --version | Out-String).Trim()
+    $cargoVersion = (& rustup run $rustToolchain cargo --version | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) {
-        throw 'Could not resolve Cargo version.'
+        throw 'Could not resolve pinned Cargo version.'
     }
-    $auditVersion = Get-NxbCommandVersion `
-        -Arguments @('audit', '--version') `
+    $auditVersion = Get-NxbToolVersion `
+        -Path $auditPath `
+        -ExpectedVersion $cargoAuditVersion `
         -Label 'cargo-audit'
-    $denyVersion = Get-NxbCommandVersion `
-        -Arguments @('deny', '--version') `
+    $denyVersion = Get-NxbToolVersion `
+        -Path $denyPath `
+        -ExpectedVersion $cargoDenyVersion `
         -Label 'cargo-deny'
+    $auditSha256 = (Get-FileHash -LiteralPath $auditPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $denySha256 = (Get-FileHash -LiteralPath $denyPath -Algorithm SHA256).Hash.ToLowerInvariant()
 
     $lockPath = Join-Path $RepoRoot 'Cargo.lock'
     if (-not (Test-Path -LiteralPath $lockPath -PathType Leaf)) {
@@ -135,8 +162,8 @@ try {
         ) `
         -Label 'workspace cargo test'
 
-    Invoke-NxbCargo -Arguments @('audit') -Label 'RustSec cargo audit'
-    Invoke-NxbCargo -Arguments @('deny', 'check') -Label 'cargo-deny checks'
+    Invoke-NxbTool -Path $auditPath -Arguments @() -Label 'RustSec cargo audit'
+    Invoke-NxbTool -Path $denyPath -Arguments @('check') -Label 'cargo-deny checks'
 
     $finalHead = (git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0 -or $finalHead -ne $headSha) {
@@ -151,7 +178,7 @@ try {
     New-Item -ItemType Directory -Path $validationDirectory -Force | Out-Null
     $evidencePath = Join-Path $validationDirectory "nxb-150-windows-$headSha.json"
     $evidence = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         milestone = 'NXB-150'
         gate = 'pinned_process_evidence_key_provider'
         platform = 'windows'
@@ -159,7 +186,9 @@ try {
         rustc = $rustcVersion
         cargo = $cargoVersion
         cargo_audit = $auditVersion
+        cargo_audit_sha256 = $auditSha256
         cargo_deny = $denyVersion
+        cargo_deny_sha256 = $denySha256
         cargo_lock_sha256 = $lockSha256
         lockfile_reproduced_without_diff = $true
         package_fmt_check_clippy_tests = 'passed'
