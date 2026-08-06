@@ -233,7 +233,8 @@ impl EvidenceKeyProvider for ProcessEvidenceKeyProvider {
     }
 
     fn begin(&mut self, request: &EvidenceSessionRequest) -> Result<(), EvidenceProviderFailure> {
-        if self.finished || self.inner.is_some() || self.session.is_some() || self.binding.is_some() {
+        if self.finished || self.inner.is_some() || self.session.is_some() || self.binding.is_some()
+        {
             return Err(local_failure("process_adapter_invalid_state"));
         }
         if request.store_id != self.configured_store_id {
