@@ -79,7 +79,7 @@ cargo_run check --workspace --all-targets --all-features --locked
 cargo_run clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo_run test --workspace --all-features --locked -- --test-threads=1
 
-"$audit_path"
+"$audit_path" audit
 "$deny_path" check
 
 final_head="$(git rev-parse HEAD)"

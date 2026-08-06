@@ -156,7 +156,7 @@ try {
         ) `
         -Label 'workspace cargo test'
 
-    Invoke-NxbTool -Path $auditPath -Arguments @() -Label 'RustSec cargo audit'
+    Invoke-NxbTool -Path $auditPath -Arguments @('audit') -Label 'RustSec cargo audit'
     Invoke-NxbTool -Path $denyPath -Arguments @('check') -Label 'cargo-deny checks'
 
     $finalHead = (git rev-parse HEAD).Trim()
