@@ -111,7 +111,7 @@ The closure is published through a create-new pending file and atomic rename. Li
 
 A pre-existing closure must be a bounded regular non-symlink file and semantically identical to the deterministic review result. Formatting differences are permitted; content differences are never overwritten.
 
-## Closure source self-test
+## Closure source self-tests
 
 The Linux verifier has a permanent networkless adversarial self-test:
 
@@ -119,23 +119,30 @@ The Linux verifier has a permanent networkless adversarial self-test:
 bash scripts/test-nxb-150-evidence-closure-linux.sh
 ```
 
-The self-test builds an isolated temporary Git repository from the current verifier and candidate lockfile, then covers:
+It builds an isolated temporary Git repository from the current verifier and candidate lockfile, then covers:
 
-- valid dual-platform closure;
-- idempotent repeat;
-- mixed-head rejection;
-- unknown-field rejection;
-- wrong-type rejection;
-- future-timestamp rejection;
-- failed-gate rejection;
-- evidence-file symlink rejection;
-- evidence-directory symlink rejection;
-- existing closure symlink rejection;
-- tampered closure rejection;
-- orphan pending-file rejection;
-- pending symlink rejection.
+- valid dual-platform closure and idempotent repeat;
+- mixed-head, unknown-field, wrong-type, future-timestamp and failed-gate rejection;
+- evidence-file and evidence-directory symlink rejection;
+- existing closure symlink and tamper rejection;
+- orphan pending-file and pending-symlink rejection.
 
-This is verifier-source testing only. It does not replace Rust compilation, package/workspace validation or real Linux/Windows evidence.
+The Windows verifier has a corresponding PowerShell self-test:
+
+```text
+pwsh -NoProfile -File .\scripts\test-nxb-150-evidence-closure-windows.ps1
+```
+
+It creates an isolated temporary Git repository and covers:
+
+- valid dual-platform closure and idempotent repeat;
+- mixed-head, unknown-field, wrong-type, future-timestamp and failed-gate rejection;
+- non-file evidence rejection;
+- evidence-directory junction rejection;
+- non-file and tampered existing closure rejection;
+- orphan pending-file and non-file pending-path rejection.
+
+These are verifier-source tests only. They do not replace Rust compilation, package/workspace validation or real Linux/Windows platform evidence. The Windows self-test is not claimed as parsed or executed until it runs under real PowerShell on Windows.
 
 ## Manual PR transition
 
@@ -152,4 +159,4 @@ A missing platform, stale head, mixed toolchain, unknown JSON field, hash mismat
 
 ## Validation status
 
-The closure sources and Linux adversarial self-test are present on the NXB-150 draft branch. Their existence and source-level success are not evidence that Rust, Linux package validation or Windows validation has run. PR #68 remains draft until actual platform evidence and a successful closure document are produced on one final unchanged head.
+The closure sources and both adversarial self-test sources are present on the NXB-150 draft branch. The Linux self-test logic passed in an isolated local simulation. The PowerShell self-test has not been parsed or executed in the current environment. Source presence and source-level testing are not evidence that Rust, Linux package validation or Windows validation has run. PR #68 remains draft until actual platform evidence and a successful closure document are produced on one final unchanged head.
