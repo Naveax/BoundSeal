@@ -34,6 +34,30 @@ $expectedFields = @(
     'network_activity',
     'validated_at'
 )
+$stringFields = @(
+    'milestone',
+    'gate',
+    'platform',
+    'head_sha',
+    'rustc',
+    'cargo',
+    'cargo_audit',
+    'cargo_audit_sha256',
+    'cargo_deny',
+    'cargo_deny_sha256',
+    'cargo_lock_sha256',
+    'package_fmt_check_clippy_tests',
+    'vault_provider_regressions',
+    'workspace_check_clippy_tests',
+    'rustsec',
+    'cargo_deny_checks',
+    'network_activity',
+    'validated_at'
+)
+$booleanFields = @(
+    'lockfile_reproduced_without_diff',
+    'process_fixture_serial'
+)
 
 function Test-LowerSha256 {
     param([Parameter(Mandatory = $true)][string]$Value)
@@ -59,6 +83,28 @@ function Assert-ExactFields {
     }
 }
 
+function Assert-ExactTypes {
+    param(
+        [Parameter(Mandatory = $true)]$Evidence,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if (($Evidence.schema_version -isnot [int]) -and
+        ($Evidence.schema_version -isnot [long])) {
+        throw "$Label field 'schema_version' must be an integer."
+    }
+    foreach ($field in $stringFields) {
+        if ($Evidence.$field -isnot [string]) {
+            throw "$Label field '$field' must be a string."
+        }
+    }
+    foreach ($field in $booleanFields) {
+        if ($Evidence.$field -isnot [bool]) {
+            throw "$Label field '$field' must be a boolean."
+        }
+    }
+}
+
 function Read-Evidence {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -80,12 +126,13 @@ function Read-Evidence {
     $raw = [IO.File]::ReadAllText($Path, [Text.UTF8Encoding]::new($false, $true))
     $evidence = $raw | ConvertFrom-Json -Depth 16
     Assert-ExactFields -Evidence $evidence -Label "$ExpectedPlatform evidence"
+    Assert-ExactTypes -Evidence $evidence -Label "$ExpectedPlatform evidence"
 
     if ($evidence.schema_version -ne 2 -or
-        $evidence.milestone -ne 'NXB-150' -or
-        $evidence.gate -ne 'pinned_process_evidence_key_provider' -or
-        $evidence.platform -ne $ExpectedPlatform -or
-        $evidence.head_sha -ne $ExpectedHead) {
+        $evidence.milestone -cne 'NXB-150' -or
+        $evidence.gate -cne 'pinned_process_evidence_key_provider' -or
+        $evidence.platform -cne $ExpectedPlatform -or
+        $evidence.head_sha -cne $ExpectedHead) {
         throw "$ExpectedPlatform evidence identity does not match the closure contract."
     }
     if ($evidence.rustc -notmatch '^rustc 1\.97\.1\s' -or
@@ -99,15 +146,15 @@ function Read-Evidence {
             throw "$ExpectedPlatform evidence field '$field' is not a lowercase SHA-256."
         }
     }
-    if ($evidence.cargo_lock_sha256 -ne $expectedLockSha256 -or
+    if ($evidence.cargo_lock_sha256 -cne $expectedLockSha256 -or
         $evidence.lockfile_reproduced_without_diff -ne $true -or
-        $evidence.package_fmt_check_clippy_tests -ne 'passed' -or
-        $evidence.vault_provider_regressions -ne 'passed' -or
-        $evidence.workspace_check_clippy_tests -ne 'passed' -or
-        $evidence.rustsec -ne 'passed' -or
-        $evidence.cargo_deny_checks -ne 'passed' -or
+        $evidence.package_fmt_check_clippy_tests -cne 'passed' -or
+        $evidence.vault_provider_regressions -cne 'passed' -or
+        $evidence.workspace_check_clippy_tests -cne 'passed' -or
+        $evidence.rustsec -cne 'passed' -or
+        $evidence.cargo_deny_checks -cne 'passed' -or
         $evidence.process_fixture_serial -ne $true -or
-        $evidence.network_activity -ne 'dependency_and_advisory_sources_only') {
+        $evidence.network_activity -cne 'dependency_and_advisory_sources_only') {
         throw "$ExpectedPlatform evidence contains a failed or unsupported gate value."
     }
 
@@ -162,7 +209,7 @@ try {
         throw 'Cargo.lock is missing.'
     }
     $lockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($lockSha256 -ne $expectedLockSha256) {
+    if ($lockSha256 -cne $expectedLockSha256) {
         throw "Repository Cargo.lock SHA-256 mismatch: expected $expectedLockSha256, found $lockSha256"
     }
 
@@ -172,7 +219,7 @@ try {
     $linux = Read-Evidence -Path $linuxPath -ExpectedPlatform 'linux' -ExpectedHead $headSha
 
     foreach ($field in @('rustc', 'cargo', 'cargo_audit', 'cargo_deny', 'cargo_lock_sha256')) {
-        if ($windows[$field] -ne $linux[$field]) {
+        if ($windows[$field] -cne $linux[$field]) {
             throw "Linux and Windows evidence disagree on '$field'."
         }
     }
@@ -184,10 +231,10 @@ try {
         status = 'ready_for_manual_pr_review'
         head_sha = $headSha
         cargo_lock_sha256 = $lockSha256
-        rustc = $windows.rustc
-        cargo = $windows.cargo
-        cargo_audit = $windows.cargo_audit
-        cargo_deny = $windows.cargo_deny
+        rustc = $windows['rustc']
+        cargo = $windows['cargo']
+        cargo_audit = $windows['cargo_audit']
+        cargo_deny = $windows['cargo_deny']
         platforms = @('linux', 'windows')
         evidence = @($linux, $windows)
         requirements = [ordered]@{
