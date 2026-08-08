@@ -260,7 +260,7 @@ fn export_windows_acl_sddl(path: &Path) -> Result<String> {
 
 fn decode_windows_text(bytes: &[u8]) -> Result<String> {
     if bytes.starts_with(&[0xff, 0xfe]) {
-        if (bytes.len() - 2) % 2 != 0 {
+        if !(bytes.len() - 2).is_multiple_of(2) {
             bail!("UTF-16 ACL export has an invalid byte length");
         }
         let units: Vec<u16> = bytes[2..]
