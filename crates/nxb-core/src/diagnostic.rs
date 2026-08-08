@@ -25,12 +25,7 @@ struct DiagnosticDocument<'a> {
     message: &'a str,
 }
 
-pub(crate) fn emit_failure(
-    spec: DiagnosticSpec,
-    exit_code: u8,
-    json_output: bool,
-    error: &Error,
-) {
+pub(crate) fn emit_failure(spec: DiagnosticSpec, exit_code: u8, json_output: bool, error: &Error) {
     let message = bounded_message(error);
     if json_output {
         let document = DiagnosticDocument {

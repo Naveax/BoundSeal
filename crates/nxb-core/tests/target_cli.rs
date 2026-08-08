@@ -57,7 +57,10 @@ fn assert_diagnostic(
         serde_json::from_slice(&output.stderr).expect("failure stderr is not diagnostic JSON");
     assert_eq!(value.get("schema_version").and_then(Value::as_u64), Some(1));
     assert_eq!(value.get("status").and_then(Value::as_str), Some("error"));
-    assert_eq!(value.get("code").and_then(Value::as_str), Some(expected_code));
+    assert_eq!(
+        value.get("code").and_then(Value::as_str),
+        Some(expected_code)
+    );
     assert_eq!(value.get("domain").and_then(Value::as_str), Some("target"));
     assert_eq!(
         value.get("operation").and_then(Value::as_str),
@@ -88,7 +91,10 @@ fn initialize(root: &Path) {
         "Target CLI Test",
         "--json",
     ]);
-    assert_eq!(value.get("status").and_then(Value::as_str), Some("initialized"));
+    assert_eq!(
+        value.get("status").and_then(Value::as_str),
+        Some("initialized")
+    );
 }
 
 fn write_sources(root: &Path) -> (PathBuf, PathBuf) {
@@ -173,19 +179,23 @@ fn target_cli_create_validate_list_show_and_disable_lifecycle() {
     let (policy, authorization) = write_sources(&root);
 
     let created = create_target(&root, &policy, &authorization);
-    assert_eq!(created.get("status").and_then(Value::as_str), Some("active"));
+    assert_eq!(
+        created.get("status").and_then(Value::as_str),
+        Some("active")
+    );
     assert_eq!(
         created.get("network_activity").and_then(Value::as_str),
         Some("none")
     );
     assert_eq!(
-        created
-            .pointer("/program/platform")
-            .and_then(Value::as_str),
+        created.pointer("/program/platform").and_then(Value::as_str),
         Some("hackerone")
     );
     assert_eq!(
-        created.get("policy_sha256").and_then(Value::as_str).map(str::len),
+        created
+            .get("policy_sha256")
+            .and_then(Value::as_str)
+            .map(str::len),
         Some(64)
     );
 
@@ -228,11 +238,12 @@ fn target_cli_create_validate_list_show_and_disable_lifecycle() {
         "example-app",
         "--json",
     ]);
-    assert_eq!(shown.get("origin").and_then(Value::as_str), Some("https://example.org"));
     assert_eq!(
-        shown
-            .get("authorization_reference")
-            .and_then(Value::as_str),
+        shown.get("origin").and_then(Value::as_str),
+        Some("https://example.org")
+    );
+    assert_eq!(
+        shown.get("authorization_reference").and_then(Value::as_str),
         Some("hackerone/program/example#scope-2026")
     );
 
@@ -253,7 +264,10 @@ fn target_cli_create_validate_list_show_and_disable_lifecycle() {
         "operator-hold",
         "--json",
     ]);
-    assert_eq!(disabled.get("status").and_then(Value::as_str), Some("disabled"));
+    assert_eq!(
+        disabled.get("status").and_then(Value::as_str),
+        Some("disabled")
+    );
 
     let active = run_json(&["target", "list", "--workspace", root_text, "--json"]);
     assert_eq!(active.get("count").and_then(Value::as_u64), Some(0));

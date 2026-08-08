@@ -71,17 +71,16 @@ fn validate_windows_acl_with_sid(path: &Path, directory: bool, current_sid: &str
         bail!("Windows ACL target type does not match: {}", path.display());
     }
 
-    run_icacls(
-        path,
-        &[OsString::from("/verify"), OsString::from("/q")],
-    )?;
+    run_icacls(path, &[OsString::from("/verify"), OsString::from("/q")])?;
     let sddl = export_windows_acl_sddl(path)?;
     if !sddl.contains("D:P") {
-        bail!("Windows ACL inheritance is not protected: {}", path.display());
+        bail!(
+            "Windows ACL inheritance is not protected: {}",
+            path.display()
+        );
     }
     if !sddl_has_full_control(&sddl, current_sid)
-        || !(sddl_has_full_control(&sddl, WINDOWS_SYSTEM_SID)
-            || sddl_has_full_control(&sddl, "SY"))
+        || !(sddl_has_full_control(&sddl, WINDOWS_SYSTEM_SID) || sddl_has_full_control(&sddl, "SY"))
         || !(sddl_has_full_control(&sddl, WINDOWS_ADMINISTRATORS_SID)
             || sddl_has_full_control(&sddl, "BA"))
     {
@@ -162,7 +161,10 @@ fn run_windows_system_tool(name: &str, arguments: &[OsString]) -> Result<Output>
     let metadata = fs::metadata(&tool)
         .with_context(|| format!("Windows system tool is missing: {}", tool.display()))?;
     if !metadata.is_file() {
-        bail!("Windows system tool is not a regular file: {}", tool.display());
+        bail!(
+            "Windows system tool is not a regular file: {}",
+            tool.display()
+        );
     }
 
     let output = Command::new(&tool)
@@ -194,8 +196,12 @@ fn windows_system_root() -> Result<PathBuf> {
         bail!("Windows system root is not absolute");
     }
     reject_path_indirections(&root, "Windows system root")?;
-    fs::canonicalize(&root)
-        .with_context(|| format!("could not canonicalize Windows system root {}", root.display()))
+    fs::canonicalize(&root).with_context(|| {
+        format!(
+            "could not canonicalize Windows system root {}",
+            root.display()
+        )
+    })
 }
 
 fn windows_cli_path(path: &Path) -> OsString {
@@ -267,9 +273,8 @@ fn decode_windows_text(bytes: &[u8]) -> Result<String> {
 }
 
 fn sddl_has_full_control(sddl: &str, principal: &str) -> bool {
-    sddl_aces(sddl).any(|ace| {
-        ace.ace_type == "A" && ace.rights.contains("FA") && ace.principal == principal
-    })
+    sddl_aces(sddl)
+        .any(|ace| ace.ace_type == "A" && ace.rights.contains("FA") && ace.principal == principal)
 }
 
 fn sddl_has_allow_ace(sddl: &str, principal: &str) -> bool {
@@ -328,9 +333,8 @@ mod tests {
     #[test]
     fn parses_required_and_forbidden_sddl_entries() {
         let sid = "S-1-5-21-100-200-300-1001";
-        let sddl = format!(
-            "D:P(A;OICI;FA;;;{sid})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;RX;;;WD)"
-        );
+        let sddl =
+            format!("D:P(A;OICI;FA;;;{sid})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;RX;;;WD)");
         assert!(sddl_has_full_control(&sddl, sid));
         assert!(sddl_has_full_control(&sddl, "SY"));
         assert!(sddl_has_allow_ace(&sddl, "WD"));

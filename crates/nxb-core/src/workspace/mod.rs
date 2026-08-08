@@ -22,14 +22,7 @@ pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 1;
 pub(crate) const MANIFEST_FILE: &str = "workspace.json";
 pub(crate) const MAX_DOCUMENT_BYTES: u64 = 64 * 1024;
 const CANONICAL_DIRECTORIES: &[&str] = &[
-    "config",
-    "targets",
-    "sessions",
-    "runs",
-    "evidence",
-    "reports",
-    "state",
-    "tmp",
+    "config", "targets", "sessions", "runs", "evidence", "reports", "state", "tmp",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -497,8 +490,8 @@ pub(crate) fn replace_document(path: &Path, bytes: &[u8]) -> Result<()> {
 
 pub(crate) fn read_document(path: &Path, label: &str) -> Result<Vec<u8>> {
     reject_path_indirections(path, label)?;
-    let metadata = fs::metadata(path)
-        .with_context(|| format!("{label} is missing: {}", path.display()))?;
+    let metadata =
+        fs::metadata(path).with_context(|| format!("{label} is missing: {}", path.display()))?;
     if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_DOCUMENT_BYTES {
         bail!("{label} size or type is invalid");
     }
@@ -740,11 +733,17 @@ pub(crate) fn validate_private_permissions(path: &Path, directory: bool) -> Resu
 
     let mode = fs::metadata(path)?.permissions().mode();
     if mode & 0o077 != 0 {
-        bail!("workspace path permissions are too broad: {}", path.display());
+        bail!(
+            "workspace path permissions are too broad: {}",
+            path.display()
+        );
     }
     let required = if directory { 0o700 } else { 0o600 };
     if mode & required != required {
-        bail!("workspace path permissions are incomplete: {}", path.display());
+        bail!(
+            "workspace path permissions are incomplete: {}",
+            path.display()
+        );
     }
     Ok(())
 }
@@ -827,7 +826,10 @@ mod tests {
         initialize_value(&path, "Test Workspace").unwrap();
         fs::remove_dir(path.join("evidence")).unwrap();
         let value = doctor_value(&path).unwrap();
-        assert_eq!(value.get("status").and_then(Value::as_str), Some("unhealthy"));
+        assert_eq!(
+            value.get("status").and_then(Value::as_str),
+            Some("unhealthy")
+        );
         fs::remove_dir_all(path).unwrap();
     }
 
@@ -840,7 +842,10 @@ mod tests {
         fs::create_dir(path.join("targets").join("nested")).unwrap();
         set_private_directory_permissions(&path.join("targets").join("nested")).unwrap();
         let value = status_value(&path).unwrap();
-        assert_eq!(value.pointer("/records/targets").and_then(Value::as_u64), Some(1));
+        assert_eq!(
+            value.pointer("/records/targets").and_then(Value::as_u64),
+            Some(1)
+        );
         fs::remove_dir_all(path).unwrap();
     }
 
@@ -854,8 +859,8 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         fs::create_dir_all(&target).unwrap();
         symlink(&target, root.join("linked")).unwrap();
-        let error = reject_path_indirections(&root.join("linked").join("workspace"), "test")
-            .unwrap_err();
+        let error =
+            reject_path_indirections(&root.join("linked").join("workspace"), "test").unwrap_err();
         assert!(error.to_string().contains("path indirection"));
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(target).unwrap();

@@ -51,7 +51,10 @@ fn assert_diagnostic(output: &Output, expected_exit: i32, expected_code: &str) {
     let value: Value = serde_json::from_slice(&output.stderr).expect("invalid diagnostic JSON");
     assert_eq!(value.get("schema_version").and_then(Value::as_u64), Some(1));
     assert_eq!(value.get("status").and_then(Value::as_str), Some("error"));
-    assert_eq!(value.get("code").and_then(Value::as_str), Some(expected_code));
+    assert_eq!(
+        value.get("code").and_then(Value::as_str),
+        Some(expected_code)
+    );
     assert_eq!(value.get("domain").and_then(Value::as_str), Some("release"));
     assert_eq!(
         value.get("exit_code").and_then(Value::as_i64),

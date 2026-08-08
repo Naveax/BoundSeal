@@ -526,7 +526,10 @@ fn load_profiles(
         workspace::reject_path_indirections(&path, "target record")?;
         let metadata = fs::symlink_metadata(&path)?;
         if !metadata.is_file() {
-            bail!("target directory contains a non-file entry: {}", path.display());
+            bail!(
+                "target directory contains a non-file entry: {}",
+                path.display()
+            );
         }
         workspace::validate_private_permissions(&path, false)?;
         entries = entries
@@ -588,10 +591,7 @@ fn read_profile(path: &Path) -> Result<TargetProfile> {
     Ok(profile)
 }
 
-fn read_optional_receipt(
-    path: &Path,
-    profile: &TargetProfile,
-) -> Result<Option<DisableReceipt>> {
+fn read_optional_receipt(path: &Path, profile: &TargetProfile) -> Result<Option<DisableReceipt>> {
     if workspace::safe_exists(path)? {
         Ok(Some(read_receipt(path, profile)?))
     } else {
@@ -602,8 +602,8 @@ fn read_optional_receipt(
 fn read_receipt(path: &Path, profile: &TargetProfile) -> Result<DisableReceipt> {
     let profile_bytes = canonical_json(profile)?;
     let receipt_bytes = workspace::read_document(path, "target disable receipt")?;
-    let receipt: DisableReceipt = serde_json::from_slice(&receipt_bytes)
-        .context("target disable receipt is invalid JSON")?;
+    let receipt: DisableReceipt =
+        serde_json::from_slice(&receipt_bytes).context("target disable receipt is invalid JSON")?;
     validate_receipt(&receipt, profile, &profile_bytes)?;
     if receipt_bytes != canonical_json(&receipt)? {
         bail!("target disable receipt is not canonical JSON");
@@ -628,10 +628,7 @@ fn validate_profile(profile: &TargetProfile) -> Result<()> {
     validate_path_relationships(&includes, &excludes)?;
     validate_allowed_methods(&profile.allowed_methods)?;
     validate_program_metadata(&profile.program)?;
-    validate_safe_reference(
-        &profile.authorization.reference,
-        "authorization reference",
-    )?;
+    validate_safe_reference(&profile.authorization.reference, "authorization reference")?;
     workspace::validate_sha(
         &profile.authorization.document_sha256,
         "authorization document SHA-256",
@@ -706,7 +703,10 @@ fn validate_policy_binding(compiled: &CompiledPolicy, origin: &str) -> Result<Ve
         .filter(|method| compiled.allows_request(&url, method))
         .map(|method| (*method).to_owned())
         .collect::<Vec<_>>();
-    if !allowed.iter().any(|method| matches!(method.as_str(), "GET" | "HEAD")) {
+    if !allowed
+        .iter()
+        .any(|method| matches!(method.as_str(), "GET" | "HEAD"))
+    {
         bail!("target policy does not permit GET or HEAD for the exact origin");
     }
     validate_allowed_methods(&allowed)?;
@@ -803,11 +803,7 @@ fn validate_public_domain(host: &str) -> Result<()> {
         ".example",
         ".home.arpa",
     ];
-    if host == "localhost"
-        || DENIED_SUFFIXES
-            .iter()
-            .any(|suffix| host.ends_with(suffix))
-    {
+    if host == "localhost" || DENIED_SUFFIXES.iter().any(|suffix| host.ends_with(suffix)) {
         bail!("target origin host uses a reserved or local DNS suffix");
     }
     if host.parse::<IpAddr>().is_ok() {
@@ -948,8 +944,8 @@ fn validate_time(value: &str, field: &str) -> Result<()> {
 
 fn read_bounded_source(path: &Path, label: &str, maximum: u64) -> Result<Vec<u8>> {
     workspace::reject_path_indirections(path, label)?;
-    let metadata = fs::metadata(path)
-        .with_context(|| format!("{label} is missing: {}", path.display()))?;
+    let metadata =
+        fs::metadata(path).with_context(|| format!("{label} is missing: {}", path.display()))?;
     if !metadata.is_file() || metadata.len() == 0 || metadata.len() > maximum {
         bail!("{label} size or type is invalid");
     }
@@ -1109,7 +1105,10 @@ expires_at = 2099-01-01T00:00:00Z
     fn creates_validates_lists_shows_and_disables_target() {
         let fixture = Fixture::new();
         let created = fixture.create();
-        assert_eq!(created.get("status").and_then(Value::as_str), Some("active"));
+        assert_eq!(
+            created.get("status").and_then(Value::as_str),
+            Some("active")
+        );
         assert_eq!(
             validate_value(
                 &fixture.root,
@@ -1139,15 +1138,18 @@ expires_at = 2099-01-01T00:00:00Z
         );
         let disabled =
             disable_value(&fixture.root, "example-app", DisableReason::OperatorHold).unwrap();
-        assert_eq!(disabled.get("status").and_then(Value::as_str), Some("disabled"));
+        assert_eq!(
+            disabled.get("status").and_then(Value::as_str),
+            Some("disabled")
+        );
     }
 
     #[test]
     fn secret_source_bytes_and_paths_are_not_persisted() {
         let fixture = Fixture::new();
         fixture.create();
-        let text = fs::read_to_string(fixture.root.join("targets").join("example-app.json"))
-            .unwrap();
+        let text =
+            fs::read_to_string(fixture.root.join("targets").join("example-app.json")).unwrap();
         assert!(!text.contains("Bearer"));
         assert!(!text.contains("secret-that-must-never-be-persisted"));
         assert!(!text.contains(fixture.policy.to_string_lossy().as_ref()));
@@ -1224,8 +1226,7 @@ expires_at = 2099-01-01T00:00:00Z
     fn source_digest_drift_is_rejected() {
         let fixture = Fixture::new();
         fixture.create();
-        workspace::replace_document(&fixture.authorization, b"different authorization\n")
-            .unwrap();
+        workspace::replace_document(&fixture.authorization, b"different authorization\n").unwrap();
         assert!(validate_value(
             &fixture.root,
             "example-app",

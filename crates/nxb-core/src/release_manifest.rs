@@ -195,14 +195,8 @@ pub(crate) fn run(args: ReleaseArgs) -> ExitCode {
             VERIFY_EXIT_CODE,
             VERIFY_DIAGNOSTIC,
             json,
-            verify_manifest_value(
-                &document,
-                &public_key,
-                &binary,
-                &sbom,
-                &checksums,
-            )
-            .and_then(|value| emit_value(&value, json)),
+            verify_manifest_value(&document, &public_key, &binary, &sbom, &checksums)
+                .and_then(|value| emit_value(&value, json)),
         ),
     };
 
@@ -351,11 +345,7 @@ fn validate_manifest(manifest: &ReleaseManifest) -> Result<()> {
     validate_utc_timestamp(&manifest.generated_at)?;
     validate_artifact(&manifest.binary, "release binary", MAX_BINARY_BYTES)?;
     validate_artifact(&manifest.sbom, "CycloneDX SBOM", MAX_SBOM_BYTES)?;
-    validate_artifact(
-        &manifest.checksums,
-        "checksum manifest",
-        MAX_CHECKSUM_BYTES,
-    )?;
+    validate_artifact(&manifest.checksums, "checksum manifest", MAX_CHECKSUM_BYTES)?;
     validate_binary_name(manifest.platform, &manifest.binary.file_name)?;
     workspace::validate_sha(&manifest.manifest_sha256, "release manifest SHA-256")?;
     if manifest.manifest_sha256 != manifest_sha256(manifest)? {
@@ -510,8 +500,7 @@ fn validate_source_commit(value: &str) -> Result<()> {
 }
 
 fn validate_utc_timestamp(value: &str) -> Result<()> {
-    let parsed =
-        DateTime::parse_from_rfc3339(value).context("generated_at is invalid RFC3339")?;
+    let parsed = DateTime::parse_from_rfc3339(value).context("generated_at is invalid RFC3339")?;
     if parsed.offset().local_minus_utc() != 0 {
         bail!("generated_at must use UTC");
     }
@@ -520,8 +509,8 @@ fn validate_utc_timestamp(value: &str) -> Result<()> {
 
 fn read_bounded(path: &Path, label: &str, maximum: u64) -> Result<Vec<u8>> {
     workspace::reject_path_indirections(path, label)?;
-    let metadata = fs::metadata(path)
-        .with_context(|| format!("{label} is missing: {}", path.display()))?;
+    let metadata =
+        fs::metadata(path).with_context(|| format!("{label} is missing: {}", path.display()))?;
     if !metadata.is_file() || metadata.len() == 0 || metadata.len() > maximum {
         bail!("{label} size or type is invalid");
     }
@@ -690,11 +679,7 @@ mod tests {
                     .sign(&signing_bytes(&document.manifest).unwrap())
                     .as_ref(),
             );
-            fs::write(
-                &self.public_key,
-                lower_hex(key_pair.public_key().as_ref()),
-            )
-            .unwrap();
+            fs::write(&self.public_key, lower_hex(key_pair.public_key().as_ref())).unwrap();
             fs::write(&self.document, canonical_json(&document).unwrap()).unwrap();
             document
         }

@@ -41,8 +41,14 @@ fn assert_diagnostic(
         serde_json::from_slice(&output.stderr).expect("failure stderr is not diagnostic JSON");
     assert_eq!(value.get("schema_version").and_then(Value::as_u64), Some(1));
     assert_eq!(value.get("status").and_then(Value::as_str), Some("error"));
-    assert_eq!(value.get("code").and_then(Value::as_str), Some(expected_code));
-    assert_eq!(value.get("domain").and_then(Value::as_str), Some(expected_domain));
+    assert_eq!(
+        value.get("code").and_then(Value::as_str),
+        Some(expected_code)
+    );
+    assert_eq!(
+        value.get("domain").and_then(Value::as_str),
+        Some(expected_domain)
+    );
     assert_eq!(
         value.get("operation").and_then(Value::as_str),
         Some(expected_operation)
@@ -86,13 +92,7 @@ fn workspace_init_and_doctor_emit_stable_json_diagnostics() {
 
     let missing = temporary_path("missing");
     let missing_text = missing.to_str().unwrap();
-    let output = run(&[
-        "workspace",
-        "doctor",
-        "--workspace",
-        missing_text,
-        "--json",
-    ]);
+    let output = run(&["workspace", "doctor", "--workspace", missing_text, "--json"]);
     assert_diagnostic(
         &output,
         20,
@@ -120,13 +120,7 @@ fn workspace_status_and_migration_status_emit_stable_json_diagnostics() {
     assert!(initialized.status.success());
 
     fs::write(root.join("state").join("migration-active.json"), b"{}\n").unwrap();
-    let output = run(&[
-        "workspace",
-        "status",
-        "--workspace",
-        root_text,
-        "--json",
-    ]);
+    let output = run(&["workspace", "status", "--workspace", root_text, "--json"]);
     assert_diagnostic(
         &output,
         30,
@@ -134,7 +128,10 @@ fn workspace_status_and_migration_status_emit_stable_json_diagnostics() {
         "workspace",
         "status",
     );
-    assert!(!output.stdout.is_empty(), "status must preserve its redacted state document");
+    assert!(
+        !output.stdout.is_empty(),
+        "status must preserve its redacted state document"
+    );
 
     let missing = temporary_path("missing-migration");
     let missing_text = missing.to_str().unwrap();
