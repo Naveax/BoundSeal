@@ -61,7 +61,7 @@ function Assert-PowerShellScriptParses {
     )
     if ($errors.Count -ne 0) {
         $messages = ($errors | ForEach-Object { $_.Message }) -join '; '
-        throw "PowerShell parser rejected $Path: $messages"
+        throw "PowerShell parser rejected ${Path}: $messages"
     }
 }
 
