@@ -1,0 +1,30 @@
+[package]
+name = "nxb-evidence-key-provider-process"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+default = []
+fixture = []
+
+[dependencies]
+nxb-evidence-key-provider = { path = "../nxb-evidence-key-provider" }
+nxb-vault = { path = "../nxb-vault" }
+nxb-vault-provider = { path = "../nxb-vault-provider" }
+nxb-vault-provider-process = { path = "../nxb-vault-provider-process" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+ring = "0.17"
+
+[[bin]]
+name = "nxb-evidence-key-provider-process-fixture"
+path = "src/bin/nxb-evidence-key-provider-process-fixture.rs"
+required-features = ["fixture"]
+test = false
+bench = false
