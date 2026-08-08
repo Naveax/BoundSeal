@@ -357,7 +357,13 @@ pub(crate) fn reject_path_indirections(path: &Path, label: &str) -> Result<()> {
     let mut current = PathBuf::new();
     for component in absolute.components() {
         match component {
-            Component::Prefix(prefix) => current.push(prefix.as_os_str()),
+            Component::Prefix(prefix) => {
+                current.push(prefix.as_os_str());
+                // A Windows drive/UNC prefix is not itself a filesystem
+                // entry. Inspect only after RootDir or a normal component
+                // has completed an inspectable path.
+                continue;
+            }
             Component::RootDir => current.push(Path::new(std::path::MAIN_SEPARATOR_STR)),
             Component::CurDir => continue,
             Component::ParentDir => bail!("{label} must not contain parent traversal"),
@@ -846,6 +852,20 @@ mod tests {
             value.pointer("/records/targets").and_then(Value::as_u64),
             Some(1)
         );
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn accepts_canonical_windows_path_prefix() {
+        let path = temporary_path("canonical-windows-prefix");
+        fs::create_dir_all(&path).unwrap();
+
+        let canonical = fs::canonicalize(&path).unwrap();
+        assert!(canonical.is_absolute());
+
+        reject_path_indirections(&canonical, "test").unwrap();
+
         fs::remove_dir_all(path).unwrap();
     }
 

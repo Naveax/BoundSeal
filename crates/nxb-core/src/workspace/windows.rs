@@ -45,21 +45,32 @@ fn harden_windows_acl(path: &Path, directory: bool) -> Result<()> {
 
     let current_sid = current_windows_user_sid()?;
     let rights = if directory { "(OI)(CI)F" } else { "F" };
-    let mut arguments = vec![
-        OsString::from("/inheritance:r"),
+
+    let grant_arguments = [
         OsString::from("/grant:r"),
         OsString::from(format!("*{current_sid}:{rights}")),
         OsString::from(format!("*{WINDOWS_SYSTEM_SID}:{rights}")),
         OsString::from(format!("*{WINDOWS_ADMINISTRATORS_SID}:{rights}")),
-        OsString::from("/remove:g"),
+        OsString::from("/q"),
     ];
-    arguments.extend(
+    run_icacls(path, &grant_arguments)?;
+
+    let mut remove_arguments = vec![OsString::from("/remove:g")];
+    remove_arguments.extend(
         WINDOWS_FORBIDDEN_ALLOW_SIDS
             .iter()
             .map(|sid| OsString::from(format!("*{sid}"))),
     );
-    arguments.push(OsString::from("/q"));
-    run_icacls(path, &arguments)?;
+    remove_arguments.push(OsString::from("/q"));
+    run_icacls(path, &remove_arguments)?;
+
+    // Make inheritance protection the final ACL mutation. This prevents
+    // later ACL edits from weakening the protected DACL control flag.
+    run_icacls(
+        path,
+        &[OsString::from("/inheritancelevel:r"), OsString::from("/q")],
+    )?;
+
     validate_windows_acl_with_sid(path, directory, &current_sid)
 }
 
@@ -267,8 +278,30 @@ fn decode_windows_text(bytes: &[u8]) -> Result<String> {
             .chunks_exact(2)
             .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
             .collect();
-        return String::from_utf16(&units).context("ACL export is not valid UTF-16");
+        return String::from_utf16(&units).context("ACL export is not valid UTF-16LE");
     }
+
+    if bytes.starts_with(&[0xef, 0xbb, 0xbf]) {
+        return String::from_utf8(bytes[3..].to_vec()).context("ACL export is not valid UTF-8");
+    }
+
+    // icacls /save can emit UTF-16LE without a BOM. Its path and
+    // SDDL syntax are predominantly ASCII, so UTF-16LE output has
+    // zero high bytes in a large fraction of its 16-bit code units.
+    if bytes.len().is_multiple_of(2) && !bytes.is_empty() {
+        let pair_count = bytes.len() / 2;
+        let zero_high_bytes = bytes.chunks_exact(2).filter(|pair| pair[1] == 0).count();
+
+        if zero_high_bytes * 2 >= pair_count {
+            let units: Vec<u16> = bytes
+                .chunks_exact(2)
+                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                .collect();
+
+            return String::from_utf16(&units).context("ACL export is not valid BOM-less UTF-16LE");
+        }
+    }
+
     String::from_utf8(bytes.to_vec()).context("ACL export is not valid UTF-8")
 }
 
@@ -308,6 +341,54 @@ fn sddl_aces(sddl: &str) -> impl Iterator<Item = SddlAce<'_>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decodes_bomless_utf16le_icacls_save_output() {
+        let expected =
+            "private.txt\r\nD:PAI(A;;FA;;;BA)(A;;FA;;;SY)(A;;FA;;;S-1-5-21-100-200-300-1001)\r\n";
+
+        let mut bytes = Vec::new();
+        for unit in expected.encode_utf16() {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+
+        assert!(!bytes.starts_with(&[0xff, 0xfe]));
+        assert_eq!(decode_windows_text(&bytes).unwrap(), expected);
+    }
+
+    #[test]
+    fn hardens_acl_and_protects_inheritance() {
+        let root = std::env::temp_dir().join(format!(
+            "nxb-windows-acl-{}-{}",
+            std::process::id(),
+            random_hex(8).unwrap()
+        ));
+        fs::create_dir_all(&root).unwrap();
+
+        let result = (|| -> Result<()> {
+            harden_windows_acl(&root, true)?;
+
+            let current_sid = current_windows_user_sid()?;
+            validate_windows_acl_with_sid(&root, true, &current_sid)?;
+
+            let root_sddl = export_windows_acl_sddl(&root)?;
+            assert!(root_sddl.contains("D:P"));
+
+            let file = root.join("private.txt");
+            fs::write(&file, b"private").unwrap();
+
+            harden_windows_acl(&file, false)?;
+            validate_windows_acl_with_sid(&file, false, &current_sid)?;
+
+            let file_sddl = export_windows_acl_sddl(&file)?;
+            assert!(file_sddl.contains("D:P"));
+
+            Ok(())
+        })();
+
+        let _ = fs::remove_dir_all(&root);
+        result.unwrap();
+    }
 
     #[test]
     fn validates_windows_sid_shape() {

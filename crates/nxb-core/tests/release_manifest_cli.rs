@@ -178,11 +178,18 @@ impl Fixture {
                 .and_then(Value::as_str)
                 .expect("signing payload is missing"),
         );
-        document["signature_hex"] =
-            Value::String(lower_hex(self.key_pair.sign(&signing_payload).as_ref()));
-        let mut bytes = serde_json::to_vec_pretty(&document).unwrap();
-        bytes.push(b'\n');
-        fs::write(&self.document, bytes).unwrap();
+        let signature_hex = lower_hex(self.key_pair.sign(&signing_payload).as_ref());
+        document["signature_hex"] = Value::String(signature_hex.clone());
+
+        // Preserve the canonical template bytes exactly. Re-serializing
+        // through serde_json::Value can change object key order and must
+        // therefore not be used to construct a signed release document.
+        let template = fs::read_to_string(&self.document).unwrap();
+        let needle = "\"signature_hex\": \"\"";
+        assert_eq!(template.matches(needle).count(), 1);
+        let replacement = format!("\"signature_hex\": \"{signature_hex}\"");
+        let signed = template.replacen(needle, &replacement, 1);
+        fs::write(&self.document, signed.as_bytes()).unwrap();
         document
     }
 

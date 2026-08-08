@@ -1,7 +1,7 @@
 use std::{collections::BTreeSet, net::IpAddr};
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 use url::Url;
 
@@ -59,6 +59,7 @@ pub struct AuthorizationPolicy {
     pub confirmed: bool,
     pub researcher: String,
     pub policy_snapshot_sha256: String,
+    #[serde(deserialize_with = "deserialize_utc_datetime")]
     pub expires_at: DateTime<Utc>,
 }
 
@@ -76,6 +77,7 @@ pub struct ChildPolicy {
     pub max_requests_per_second: Option<f64>,
     pub max_concurrency: Option<u16>,
     pub max_total_requests: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_utc_datetime")]
     pub expires_at: Option<DateTime<Utc>>,
 }
 
@@ -96,6 +98,44 @@ pub enum PolicyError {
     Invalid(String),
     #[error("child policy would broaden its parent: {0}")]
     Broadening(String),
+}
+
+fn parse_toml_utc_datetime<E>(value: toml::Value) -> Result<DateTime<Utc>, E>
+where
+    E: serde::de::Error,
+{
+    let text = match value {
+        toml::Value::String(value) => value,
+        toml::Value::Datetime(value) => value.to_string(),
+        _ => {
+            return Err(E::custom(
+                "authorization expiry must be a TOML datetime or RFC3339 string",
+            ))
+        }
+    };
+
+    DateTime::parse_from_rfc3339(&text)
+        .map(|value| value.with_timezone(&Utc))
+        .map_err(|error| E::custom(format!("authorization expiry is not RFC3339: {error}")))
+}
+
+fn deserialize_utc_datetime<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = toml::Value::deserialize(deserializer)?;
+    parse_toml_utc_datetime(value)
+}
+
+fn deserialize_optional_utc_datetime<'de, D>(
+    deserializer: D,
+) -> Result<Option<DateTime<Utc>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<toml::Value>::deserialize(deserializer)?
+        .map(parse_toml_utc_datetime)
+        .transpose()
 }
 
 impl TargetPolicy {
@@ -607,6 +647,55 @@ mod tests {
         }
     }
 
+    #[test]
+    fn parses_native_and_quoted_toml_datetimes() {
+        let native = r#"schema_version = 1
+
+[program]
+name = "Example Program"
+platform = "hackerone"
+
+[scope]
+include_hosts = ["example.org"]
+allowed_schemes = ["https"]
+allowed_methods = ["GET"]
+
+[automation]
+active_testing = false
+credential_bruteforce = false
+destructive_testing = false
+oob_callbacks = false
+max_requests_per_second = 1.0
+max_concurrency = 1
+max_total_requests = 10
+
+[authorization]
+confirmed = true
+researcher = "test-researcher"
+policy_snapshot_sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+expires_at = 2099-01-01T00:00:00Z
+"#;
+
+        let expected = DateTime::parse_from_rfc3339("2099-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        let native_policy = TargetPolicy::from_toml(native).unwrap();
+        assert_eq!(native_policy.authorization.expires_at, expected);
+
+        let quoted = native.replace(
+            "expires_at = 2099-01-01T00:00:00Z",
+            "expires_at = \"2099-01-01T00:00:00Z\"",
+        );
+        let quoted_policy = TargetPolicy::from_toml(&quoted).unwrap();
+        assert_eq!(quoted_policy.authorization.expires_at, expected);
+
+        let native_child = ChildPolicy::from_toml("expires_at = 2099-01-01T00:00:00Z").unwrap();
+        assert_eq!(native_child.expires_at, Some(expected));
+
+        let quoted_child = ChildPolicy::from_toml("expires_at = \"2099-01-01T00:00:00Z\"").unwrap();
+        assert_eq!(quoted_child.expires_at, Some(expected));
+    }
     #[test]
     fn compiles_and_checks_scope() {
         let compiled = valid_policy().compile(Utc::now()).unwrap();
