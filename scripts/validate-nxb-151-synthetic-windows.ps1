@@ -212,10 +212,10 @@ try {
     if ($doctorAfter.status -ne "healthy" -or $workspaceStatus.status -ne "ready") {
         throw "Final workspace state is not healthy and ready."
     }
-    if ($policyText -notmatch '(?m)^policy: valid$' -or
-        $scanText -notmatch '(?m)^network_activity: none$' -or
-        $verifyDemoText -notmatch '(?m)^demo_receipt: valid$' -or
-        $systemText -notmatch '(?m)^status: contract-complete$') {
+    if ($policyText -notmatch '(?m)^policy: valid\r?$' -or
+        $scanText -notmatch '(?m)^network_activity: none\r?$' -or
+        $verifyDemoText -notmatch '(?m)^demo_receipt: valid\r?$' -or
+        $systemText -notmatch '(?m)^status: contract-complete\r?$') {
         throw "Synthetic command text contract is invalid."
     }
     $draftText = Get-Content -LiteralPath $hackerOneDraft -Raw
