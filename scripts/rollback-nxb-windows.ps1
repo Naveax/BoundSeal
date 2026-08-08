@@ -29,6 +29,7 @@ function Set-NxbRollbackUninstallEntry {
         [Parameter(Mandatory = $true)][string]$Root,
         [Parameter(Mandatory = $true)][string]$Data,
         [Parameter(Mandatory = $true)][string]$Version,
+        [Parameter(Mandatory = $true)][uint64]$ReleaseSequence,
         [Parameter(Mandatory = $true)][string]$PublisherThumbprint,
         [Parameter(Mandatory = $true)][string]$ReleasePublicKeySha256
     )
@@ -40,6 +41,7 @@ function Set-NxbRollbackUninstallEntry {
         $uninstaller, $Root, $Data, $PublisherThumbprint, $ReleasePublicKeySha256
     New-ItemProperty -Path $keyPath -Name DisplayName -Value 'NXBounty' -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name DisplayVersion -Value $Version -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $keyPath -Name ReleaseSequence -Value ([string]$ReleaseSequence) -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name Publisher -Value 'Naveax' -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name InstallLocation -Value $Root -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name DisplayIcon -Value (Join-Path $Root 'nxb.exe') -PropertyType String -Force | Out-Null
@@ -48,96 +50,238 @@ function Set-NxbRollbackUninstallEntry {
     New-ItemProperty -Path $keyPath -Name NoRepair -Value 1 -PropertyType DWord -Force | Out-Null
 }
 
+function Restore-NxbIntegration {
+    param(
+        [Parameter(Mandatory = $true)]$Installed,
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$Data,
+        [Parameter(Mandatory = $true)][string]$PublisherThumbprint,
+        [Parameter(Mandatory = $true)][string]$ReleasePublicKeySha256
+    )
+
+    if ([bool]$Installed.State.add_to_user_path) {
+        [void](Add-NxbUserPath $Root)
+    } else {
+        [void](Remove-NxbUserPath $Root)
+    }
+    if ([bool]$Installed.State.create_start_menu_shortcut) {
+        [void](Set-NxbStartMenuShortcut $Root)
+    } else {
+        [void](Remove-NxbStartMenuShortcut)
+    }
+    Set-NxbRollbackUninstallEntry `
+        $Root $Data $Installed.Verification.version `
+        ([uint64]$Installed.Verification.release_sequence) `
+        $PublisherThumbprint $ReleasePublicKeySha256
+}
+
+function Restore-NxbRollbackSlots {
+    param(
+        [Parameter(Mandatory = $true)][string]$ActiveRoot,
+        [Parameter(Mandatory = $true)][string]$PreviousRoot,
+        [Parameter(Mandatory = $true)][string]$FailedRoot,
+        [Parameter(Mandatory = $true)][string]$ScratchRoot,
+        [Parameter(Mandatory = $true)][bool]$CurrentMovedToFailed,
+        [Parameter(Mandatory = $true)][bool]$PreviousPublished,
+        [Parameter(Mandatory = $true)][bool]$NewerMovedToPrevious
+    )
+
+    if ($NewerMovedToPrevious) {
+        if (-not (Test-Path -LiteralPath $ActiveRoot -PathType Container) -or
+            -not (Test-Path -LiteralPath $PreviousRoot -PathType Container) -or
+            (Test-Path -LiteralPath $FailedRoot)) {
+            throw 'Completed slot swap is not in a restorable layout.'
+        }
+        Move-Item -LiteralPath $ActiveRoot -Destination $ScratchRoot
+        Move-Item -LiteralPath $PreviousRoot -Destination $ActiveRoot
+        Move-Item -LiteralPath $ScratchRoot -Destination $PreviousRoot
+        return
+    }
+    if ($PreviousPublished) {
+        if (-not (Test-Path -LiteralPath $ActiveRoot -PathType Container) -or
+            -not (Test-Path -LiteralPath $FailedRoot -PathType Container) -or
+            (Test-Path -LiteralPath $PreviousRoot)) {
+            throw 'Published previous slot is not in a restorable layout.'
+        }
+        Move-Item -LiteralPath $ActiveRoot -Destination $PreviousRoot
+        Move-Item -LiteralPath $FailedRoot -Destination $ActiveRoot
+        return
+    }
+    if ($CurrentMovedToFailed) {
+        if ((Test-Path -LiteralPath $ActiveRoot) -or
+            -not (Test-Path -LiteralPath $FailedRoot -PathType Container)) {
+            throw 'Moved active slot is not in a restorable layout.'
+        }
+        Move-Item -LiteralPath $FailedRoot -Destination $ActiveRoot
+    }
+}
+
+function Backup-NxbFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Backup
+    )
+
+    if (Test-Path -LiteralPath $Backup) {
+        throw "Backup path already exists: $Backup"
+    }
+    if (Test-Path -LiteralPath $Path -PathType Leaf) {
+        Assert-NxbRegularFile $Path 'rollback metadata file' 1048576
+        Move-Item -LiteralPath $Path -Destination $Backup
+    }
+}
+
+function Restore-NxbPublishedFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Backup,
+        [Parameter(Mandatory = $true)][bool]$Published
+    )
+
+    if ($Published -and (Test-Path -LiteralPath $Path)) {
+        Remove-Item -LiteralPath $Path -Force
+    }
+    if (Test-Path -LiteralPath $Backup -PathType Leaf) {
+        if (Test-Path -LiteralPath $Path) {
+            Remove-Item -LiteralPath $Path -Force
+        }
+        Move-Item -LiteralPath $Backup -Destination $Path
+    }
+}
+
 $installRootPath = Assert-NxbManagedRoot $InstallRoot 'install root'
 $dataRootPath = Assert-NxbManagedRoot $DataRoot 'data root'
+if ((Test-NxbPathWithin $installRootPath $dataRootPath) -or
+    (Test-NxbPathWithin $dataRootPath $installRootPath)) {
+    throw 'Install and data roots must be independent directories.'
+}
+
+$nonce = [Guid]::NewGuid().ToString('N')
 $previousRoot = $installRootPath + '.previous'
-$failedRoot = $installRootPath + '.rollback-failed.' + [Guid]::NewGuid().ToString('N')
+$failedRoot = $installRootPath + '.rollback-failed.' + $nonce
+$restoreScratch = $installRootPath + '.rollback-restore.' + $nonce
 $maintenanceRoot = Join-Path $dataRootPath 'installer'
+$currentStatePath = Join-Path $maintenanceRoot 'current-install.json'
+$currentStatePending = $currentStatePath + '.pending.' + $nonce
+$currentStateBackup = $currentStatePath + '.backup.' + $nonce
+$receiptPath = Join-Path $maintenanceRoot 'last-rollback.json'
+$receiptPending = $receiptPath + '.pending.' + $nonce
+$receiptBackup = $receiptPath + '.backup.' + $nonce
 
 $lock = Open-NxbInstallerLock $installRootPath
-$currentMoved = $false
+$current = $null
+$currentMovedToFailed = $false
 $previousPublished = $false
+$newerMovedToPrevious = $false
+$currentStatePublished = $false
+$receiptPublished = $false
+$transactionCommitted = $false
+$result = $null
 try {
     $current = Assert-NxbInstalledRoot `
         $installRootPath $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
     $previous = Assert-NxbInstalledRoot `
         $previousRoot $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
 
-    if ((Compare-NxbVersion $previous.Verification.version $current.Verification.version) -ge 0) {
-        throw 'Rollback slot must contain a strictly older semantic version.'
+    $comparison = Compare-NxbReleaseOrder `
+        $previous.Verification.version $previous.Verification.release_sequence `
+        $current.Verification.version $current.Verification.release_sequence
+    if ($comparison -ge 0) {
+        throw 'Rollback slot must contain a strictly older signed release order.'
     }
-    if ($previous.Verification.manifest_sha256 -eq $current.Verification.manifest_sha256) {
-        throw 'Rollback slot must not contain the currently installed manifest.'
+    if ($previous.Verification.manifest_sha256 -eq $current.Verification.manifest_sha256 -or
+        $previous.Verification.source_commit -eq $current.Verification.source_commit) {
+        throw 'Rollback slot must bind a different manifest and exact source commit.'
     }
 
     Move-Item -LiteralPath $installRootPath -Destination $failedRoot
-    $currentMoved = $true
+    $currentMovedToFailed = $true
     Move-Item -LiteralPath $previousRoot -Destination $installRootPath
     $previousPublished = $true
 
     $restored = Assert-NxbInstalledRoot `
         $installRootPath $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
-    if ($restored.Verification.manifest_sha256 -ne $previous.Verification.manifest_sha256) {
+    if ($restored.Verification.manifest_sha256 -ne $previous.Verification.manifest_sha256 -or
+        [uint64]$restored.Verification.release_sequence -ne [uint64]$previous.Verification.release_sequence) {
         throw 'Published rollback installation does not match the validated previous slot.'
     }
 
-    if ($restored.State.add_to_user_path) {
-        [void](Add-NxbUserPath $installRootPath)
-    } else {
-        [void](Remove-NxbUserPath $installRootPath)
-    }
-    if ($restored.State.create_start_menu_shortcut) {
-        [void](Set-NxbStartMenuShortcut $installRootPath)
-    } else {
-        [void](Remove-NxbStartMenuShortcut)
-    }
-    Set-NxbRollbackUninstallEntry `
-        $installRootPath $dataRootPath $restored.Verification.version `
+    Restore-NxbIntegration `
+        $restored $installRootPath $dataRootPath `
         $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
-
-    Move-Item -LiteralPath $failedRoot -Destination $previousRoot
-    $currentMoved = $false
     Protect-NxbDirectoryAcl $installRootPath
-    Protect-NxbDirectoryAcl $previousRoot
+    Protect-NxbDirectoryAcl $failedRoot
+
     New-Item -ItemType Directory -Path $maintenanceRoot -Force | Out-Null
-    Write-NxbJsonFile `
-        (Join-Path $maintenanceRoot 'current-install.json') $restored.State
+    Protect-NxbDirectoryAcl $maintenanceRoot
 
     $receipt = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         status = 'rolled_back'
         from_version = $current.Verification.version
+        from_release_sequence = [uint64]$current.Verification.release_sequence
         from_source_commit = $current.Verification.source_commit
         from_manifest_sha256 = $current.Verification.manifest_sha256
         to_version = $restored.Verification.version
+        to_release_sequence = [uint64]$restored.Verification.release_sequence
         to_source_commit = $restored.Verification.source_commit
         to_manifest_sha256 = $restored.Verification.manifest_sha256
-        newer_version_preserved_in_previous_slot = $true
+        newer_release_preserved_in_previous_slot = $true
         install_root = $installRootPath
         data_root = $dataRootPath
         rolled_back_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffffffZ')
         network_activity = 'none'
     }
-    Write-NxbJsonFile `
-        (Join-Path $maintenanceRoot 'last-rollback.json') $receipt
-    $receipt | ConvertTo-Json -Depth 8
+    Write-NxbJsonFile $currentStatePending $restored.State
+    Write-NxbJsonFile $receiptPending $receipt
+
+    Move-Item -LiteralPath $failedRoot -Destination $previousRoot
+    $newerMovedToPrevious = $true
+    $preserved = Assert-NxbInstalledRoot `
+        $previousRoot $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
+    if ($preserved.Verification.manifest_sha256 -ne $current.Verification.manifest_sha256) {
+        throw 'Newer release was not preserved in the previous slot.'
+    }
+
+    Backup-NxbFile $currentStatePath $currentStateBackup
+    Backup-NxbFile $receiptPath $receiptBackup
+    Move-Item -LiteralPath $currentStatePending -Destination $currentStatePath
+    $currentStatePublished = $true
+    Move-Item -LiteralPath $receiptPending -Destination $receiptPath
+    $receiptPublished = $true
+
+    $result = $receipt
+    $transactionCommitted = $true
 }
 catch {
     $failure = $_
-    try {
-        if ($previousPublished -and (Test-Path -LiteralPath $installRootPath)) {
-            if (-not (Test-Path -LiteralPath $previousRoot)) {
-                Move-Item -LiteralPath $installRootPath -Destination $previousRoot
-            } else {
-                Remove-Item -LiteralPath $installRootPath -Recurse -Force
+    if (-not $transactionCommitted) {
+        try {
+            Restore-NxbPublishedFile `
+                $currentStatePath $currentStateBackup $currentStatePublished
+            Restore-NxbPublishedFile `
+                $receiptPath $receiptBackup $receiptPublished
+            Remove-Item -LiteralPath $currentStatePending -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $receiptPending -Force -ErrorAction SilentlyContinue
+
+            Restore-NxbRollbackSlots `
+                $installRootPath $previousRoot $failedRoot $restoreScratch `
+                $currentMovedToFailed $previousPublished $newerMovedToPrevious
+            if ($null -ne $current -and
+                (Test-Path -LiteralPath $installRootPath -PathType Container)) {
+                $recovered = Assert-NxbInstalledRoot `
+                    $installRootPath $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
+                if ($recovered.Verification.manifest_sha256 -ne $current.Verification.manifest_sha256) {
+                    throw 'Rollback restoration recovered the wrong active release.'
+                }
+                Restore-NxbIntegration `
+                    $recovered $installRootPath $dataRootPath `
+                    $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
             }
         }
-        if ($currentMoved -and (Test-Path -LiteralPath $failedRoot)) {
-            Move-Item -LiteralPath $failedRoot -Destination $installRootPath
+        catch {
+            Write-Error "Rollback restoration also failed: $($_.Exception.Message)"
         }
-    }
-    catch {
-        Write-Error "Rollback restoration also failed: $($_.Exception.Message)"
     }
     throw $failure
 }
@@ -145,4 +289,13 @@ finally {
     if ($null -ne $lock) {
         $lock.Dispose()
     }
+}
+
+if ($transactionCommitted) {
+    foreach ($path in @($currentStateBackup, $receiptBackup, $restoreScratch)) {
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    $result | ConvertTo-Json -Depth 8
 }

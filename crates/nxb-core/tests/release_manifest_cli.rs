@@ -107,6 +107,7 @@ impl Fixture {
         let checksums = root.join("SHA256SUMS");
         let public_key = root.join("release-public-key.hex");
         let document = root.join("release-manifest.json");
+
         fs::write(&binary, b"synthetic-single-nxb-binary").unwrap();
         fs::write(
             &sbom,
@@ -122,8 +123,10 @@ impl Fixture {
             ),
         )
         .unwrap();
+
         let key_pair = Ed25519KeyPair::from_seed_unchecked(&[9_u8; 32]).unwrap();
         fs::write(&public_key, lower_hex(key_pair.public_key().as_ref())).unwrap();
+
         Self {
             root,
             binary,
@@ -135,12 +138,15 @@ impl Fixture {
         }
     }
 
-    fn template(&self) -> Value {
+    fn template(&self, release_sequence: u64) -> Value {
+        let release_sequence = release_sequence.to_string();
         run_json(&[
             "release",
             "manifest-template",
             "--release-id",
             "v0.1.0-cli-test",
+            "--release-sequence",
+            &release_sequence,
             "--source-commit",
             "a234567890123456789012345678901234567890",
             "--platform",
@@ -161,17 +167,16 @@ impl Fixture {
         ])
     }
 
-    fn sign(&self) -> Value {
-        let mut document = self.template();
+    fn sign(&self, release_sequence: u64) -> Value {
+        let mut document = self.template(release_sequence);
         let signing_payload = decode_hex(
             document
                 .get("signing_payload_hex")
                 .and_then(Value::as_str)
                 .expect("signing payload is missing"),
         );
-        document["signature_hex"] = Value::String(lower_hex(
-            self.key_pair.sign(&signing_payload).as_ref(),
-        ));
+        document["signature_hex"] =
+            Value::String(lower_hex(self.key_pair.sign(&signing_payload).as_ref()));
         let mut bytes = serde_json::to_vec_pretty(&document).unwrap();
         bytes.push(b'\n');
         fs::write(&self.document, bytes).unwrap();
@@ -210,13 +215,20 @@ fn path(value: &Path) -> &str {
 #[test]
 fn release_cli_template_sign_and_verify_round_trip() {
     let fixture = Fixture::new();
-    let document = fixture.sign();
+    let document = fixture.sign(42);
     assert_eq!(
         document
             .pointer("/manifest/binary/file_name")
             .and_then(Value::as_str),
         Some("nxb")
     );
+    assert_eq!(
+        document
+            .pointer("/manifest/release_sequence")
+            .and_then(Value::as_u64),
+        Some(42)
+    );
+
     let output = fixture.verify();
     assert!(
         output.status.success(),
@@ -225,14 +237,35 @@ fn release_cli_template_sign_and_verify_round_trip() {
     );
     let value: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value.get("status").and_then(Value::as_str), Some("valid"));
-    assert_eq!(value.get("network_activity").and_then(Value::as_str), Some("none"));
+    assert_eq!(
+        value.get("release_sequence").and_then(Value::as_u64),
+        Some(42)
+    );
+    assert_eq!(
+        value.get("network_activity").and_then(Value::as_str),
+        Some("none")
+    );
 }
 
 #[test]
-fn release_cli_rejects_binary_tampering() {
+fn release_cli_rejects_binary_and_sequence_tampering() {
     let fixture = Fixture::new();
-    fixture.sign();
+    fixture.sign(1);
+
     fs::write(&fixture.binary, b"tampered-single-binary").unwrap();
+    assert_diagnostic(
+        &fixture.verify(),
+        VERIFY_EXIT_CODE,
+        "NXB151-RELEASE-MANIFEST-VERIFY-FAILED",
+    );
+
+    fs::write(&fixture.binary, b"synthetic-single-nxb-binary").unwrap();
+    let mut document: Value =
+        serde_json::from_slice(&fs::read(&fixture.document).unwrap()).unwrap();
+    document["manifest"]["release_sequence"] = Value::from(2_u64);
+    let mut bytes = serde_json::to_vec_pretty(&document).unwrap();
+    bytes.push(b'\n');
+    fs::write(&fixture.document, bytes).unwrap();
     assert_diagnostic(
         &fixture.verify(),
         VERIFY_EXIT_CODE,
@@ -241,43 +274,52 @@ fn release_cli_rejects_binary_tampering() {
 }
 
 #[test]
-fn release_cli_rejects_invalid_binary_name_and_wrong_key() {
+fn release_cli_rejects_invalid_binary_name_zero_sequence_and_wrong_key() {
     let fixture = Fixture::new();
     let invalid_binary = fixture.root.join("nxb-helper");
     fs::write(&invalid_binary, b"not-the-primary-binary").unwrap();
-    let output = run(&[
-        "release",
-        "manifest-template",
-        "--release-id",
-        "v0.1.0-invalid",
-        "--source-commit",
-        "a234567890123456789012345678901234567890",
-        "--platform",
-        "linux",
-        "--architecture",
-        "x86-64",
-        "--binary",
-        path(&invalid_binary),
-        "--sbom",
-        path(&fixture.sbom),
-        "--checksums",
-        path(&fixture.checksums),
-        "--generated-at",
-        "2026-08-05T15:00:00Z",
-        "--output",
-        path(&fixture.document),
-        "--json",
-    ]);
-    assert_diagnostic(
-        &output,
-        TEMPLATE_EXIT_CODE,
-        "NXB151-RELEASE-MANIFEST-TEMPLATE-FAILED",
-    );
 
-    fixture.sign();
+    for (binary, sequence) in [
+        (invalid_binary.as_path(), "1"),
+        (fixture.binary.as_path(), "0"),
+    ] {
+        let output = run(&[
+            "release",
+            "manifest-template",
+            "--release-id",
+            "v0.1.0-invalid",
+            "--release-sequence",
+            sequence,
+            "--source-commit",
+            "a234567890123456789012345678901234567890",
+            "--platform",
+            "linux",
+            "--architecture",
+            "x86-64",
+            "--binary",
+            path(binary),
+            "--sbom",
+            path(&fixture.sbom),
+            "--checksums",
+            path(&fixture.checksums),
+            "--generated-at",
+            "2026-08-05T15:00:00Z",
+            "--output",
+            path(&fixture.document),
+            "--json",
+        ]);
+        assert_diagnostic(
+            &output,
+            TEMPLATE_EXIT_CODE,
+            "NXB151-RELEASE-MANIFEST-TEMPLATE-FAILED",
+        );
+    }
+
+    fixture.sign(1);
     let wrong_key = fixture.root.join("wrong-public-key.hex");
     let pair = Ed25519KeyPair::from_seed_unchecked(&[10_u8; 32]).unwrap();
     fs::write(&wrong_key, lower_hex(pair.public_key().as_ref())).unwrap();
+
     let output = run(&[
         "release",
         "verify-manifest",

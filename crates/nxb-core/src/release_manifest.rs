@@ -248,8 +248,8 @@ fn manifest_template_value(
         manifest_version: RELEASE_MANIFEST_VERSION,
         release_id: release_id.to_owned(),
         release_sequence,
-        product: "NXBounty".into(),
-        version: env!("CARGO_PKG_VERSION").into(),
+        product: "NXBounty".to_owned(),
+        version: env!("CARGO_PKG_VERSION").to_owned(),
         source_commit: source_commit.to_owned(),
         platform,
         architecture,
@@ -269,8 +269,7 @@ fn manifest_template_value(
         signing_payload_sha256: workspace::sha256(&signing_payload),
         signature_hex: String::new(),
     };
-    let bytes = canonical_json(&document)?;
-    workspace::create_document(output, &bytes)?;
+    workspace::create_document(output, &canonical_json(&document)?)?;
     serde_json::to_value(document).context("could not serialize release manifest template")
 }
 
@@ -617,6 +616,10 @@ mod tests {
     use super::*;
     use ring::signature::{Ed25519KeyPair, KeyPair};
 
+    const SOURCE_COMMIT: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const CYCLONEDX_FIXTURE: &[u8] =
+        b"{\"bomFormat\":\"CycloneDX\",\"specVersion\":\"1.6\",\"components\":[]}";
+
     struct Fixture {
         root: PathBuf,
         binary: PathBuf,
@@ -642,11 +645,7 @@ mod tests {
             let public_key = root.join("release-public-key.hex");
 
             fs::write(&binary, b"synthetic-nxb-binary").unwrap();
-            fs::write(
-                &sbom,
-                br#"{"bomFormat":"CycloneDX","specVersion":"1.6","components":[]}"#,
-            )
-            .unwrap();
+            fs::write(&sbom, CYCLONEDX_FIXTURE).unwrap();
 
             let binary_sha = workspace::sha256(&fs::read(&binary).unwrap());
             let sbom_sha = workspace::sha256(&fs::read(&sbom).unwrap());
@@ -670,7 +669,7 @@ mod tests {
             manifest_template_value(
                 "v0.1.0-test",
                 release_sequence,
-                "a234567890123456789012345678901234567890",
+                SOURCE_COMMIT,
                 ReleasePlatform::Linux,
                 ReleaseArchitecture::X86_64,
                 &self.binary,
@@ -732,7 +731,7 @@ mod tests {
     }
 
     #[test]
-    fn binary_tampering_is_rejected() {
+    fn binary_and_signature_tampering_are_rejected() {
         let fixture = Fixture::new();
         fixture.sign(1);
         fs::write(&fixture.binary, b"tampered-binary").unwrap();
@@ -744,17 +743,14 @@ mod tests {
             &fixture.checksums,
         )
         .is_err());
-    }
 
-    #[test]
-    fn signature_tampering_is_rejected() {
-        let fixture = Fixture::new();
-        let mut document = fixture.sign(1);
+        fs::write(&fixture.binary, b"synthetic-nxb-binary").unwrap();
+        let mut document: SignedReleaseDocument =
+            serde_json::from_slice(&fs::read(&fixture.document).unwrap()).unwrap();
         let mut signature = decode_hex(&document.signature_hex, "signature").unwrap();
         signature[0] ^= 1;
         document.signature_hex = lower_hex(&signature);
         fs::write(&fixture.document, canonical_json(&document).unwrap()).unwrap();
-
         assert!(verify_manifest_value(
             &fixture.document,
             &fixture.public_key,
@@ -766,18 +762,17 @@ mod tests {
     }
 
     #[test]
-    fn checksum_manifest_must_bind_binary_and_sbom() {
+    fn checksum_mismatch_and_zero_sequence_are_rejected() {
         let fixture = Fixture::new();
         fs::write(
             &fixture.checksums,
             "0000000000000000000000000000000000000000000000000000000000000000  nxb\n",
         )
         .unwrap();
-
         assert!(manifest_template_value(
             "v0.1.0-test",
             1,
-            "a234567890123456789012345678901234567890",
+            SOURCE_COMMIT,
             ReleasePlatform::Linux,
             ReleaseArchitecture::X86_64,
             &fixture.binary,
@@ -787,15 +782,11 @@ mod tests {
             &fixture.document,
         )
         .is_err());
-    }
 
-    #[test]
-    fn zero_release_sequence_is_rejected() {
-        let fixture = Fixture::new();
         assert!(manifest_template_value(
             "v0.1.0-test",
             0,
-            "a234567890123456789012345678901234567890",
+            SOURCE_COMMIT,
             ReleasePlatform::Linux,
             ReleaseArchitecture::X86_64,
             &fixture.binary,
