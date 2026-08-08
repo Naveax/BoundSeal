@@ -228,7 +228,7 @@ fn logical_child_failure_remains_abortable() {
 
 #[test]
 fn timeout_kills_child_and_allows_abort_completion() {
-    let config = config("fixture/stall", None, Duration::from_millis(100));
+    let config = config("fixture/stall", None, Duration::from_secs(5));
     let identity = config.evidence_identity().unwrap();
     let (plan, activation) = signed_plan(identity, STORE_ID);
     let mut provider = ProcessEvidenceKeyProvider::new(config).unwrap();
