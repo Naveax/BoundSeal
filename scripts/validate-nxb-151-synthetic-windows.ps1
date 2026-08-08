@@ -112,7 +112,7 @@ try {
         "target", "list", "--workspace", $workspace, "--json"
     )
     $policyText = Invoke-NativeText -FilePath $nxb -Name "policy" -Arguments @(
-        "validate-policy", "--path", $policy, "--now", $now
+        "validate-policy", $policy, "--now", $now
     )
     $scanText = Invoke-NativeText -FilePath $nxb -Name "scan" -Arguments @(
         "scan", "--program", $policy,
