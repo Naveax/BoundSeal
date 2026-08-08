@@ -64,7 +64,7 @@ now='2026-08-05T12:00:00Z'
   --policy "$policy" \
   --json > "$output_dir/target-validate.json"
 "$nxb" target list --workspace "$workspace" --json > "$output_dir/target-list.json"
-"$nxb" validate-policy --path "$policy" --now "$now" > "$output_dir/policy.txt"
+"$nxb" validate-policy "$policy" --now "$now" > "$output_dir/policy.txt"
 "$nxb" scan \
   --program "$policy" \
   --target 'https://example.org/' \
