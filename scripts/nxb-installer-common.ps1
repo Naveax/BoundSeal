@@ -472,7 +472,43 @@ function Assert-NxbInstalledRoot {
         $state.source_commit -ne $verification.source_commit -or
         $state.version -ne $verification.version -or
         [uint64]$state.release_sequence -ne [uint64]$verification.release_sequence) {
-        throw 'Installed state does not match the verified release package.'
+        $diagnostic = [ordered]@{
+            schema_match = ($state.schema_version -eq $script:NxbInstallerSchemaVersion)
+            state_schema = [string]$state.schema_version
+            expected_schema = [string]$script:NxbInstallerSchemaVersion
+
+            product_match = ($state.product -eq 'NXBounty')
+            state_product = [string]$state.product
+            expected_product = 'NXBounty'
+
+            install_root_match = ($state.install_root -eq $paths.Root)
+            state_install_root = [string]$state.install_root
+            expected_install_root = [string]$paths.Root
+
+            manifest_sha256_match = ($state.manifest_sha256 -eq $verification.manifest_sha256)
+            state_manifest_sha256 = [string]$state.manifest_sha256
+            expected_manifest_sha256 = [string]$verification.manifest_sha256
+
+            source_commit_match = ($state.source_commit -eq $verification.source_commit)
+            state_source_commit = [string]$state.source_commit
+            expected_source_commit = [string]$verification.source_commit
+
+            version_match = ($state.version -eq $verification.version)
+            state_version = [string]$state.version
+            expected_version = [string]$verification.version
+
+            release_sequence_match = (
+                [uint64]$state.release_sequence -eq
+                [uint64]$verification.release_sequence
+            )
+            state_release_sequence = [string]$state.release_sequence
+            expected_release_sequence = [string]$verification.release_sequence
+        }
+
+        throw (
+            'Installed state does not match the verified release package. diagnostic=' +
+            ($diagnostic | ConvertTo-Json -Depth 4 -Compress)
+        )
     }
     [void](Assert-NxbReleaseSequence $state.release_sequence 'installed release sequence')
     return [pscustomobject]@{
