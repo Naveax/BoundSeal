@@ -2,7 +2,7 @@
 param(
     [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
 
-    [string]$PreviousSourceCommit = '9751ac1b9144be2b2c78d8f3d90477aa8b615e5d'
+    [string]$PreviousSourceCommit = 'fa58b34ecbb8ca5071100ab2f0c2e127b4afd94e'
 )
 
 Set-StrictMode -Version Latest
