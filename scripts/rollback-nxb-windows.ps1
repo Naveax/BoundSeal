@@ -92,9 +92,9 @@ function Restore-NxbRollbackSlots {
             (Test-Path -LiteralPath $FailedRoot)) {
             throw 'Completed slot swap is not in a restorable layout.'
         }
-        Move-Item -LiteralPath $ActiveRoot -Destination $ScratchRoot
-        Move-Item -LiteralPath $PreviousRoot -Destination $ActiveRoot
-        Move-Item -LiteralPath $ScratchRoot -Destination $PreviousRoot
+        Move-NxbDirectoryStrict $ActiveRoot $ScratchRoot 'rollback active scratch publication'
+        Move-NxbDirectoryStrict $PreviousRoot $ActiveRoot 'rollback previous active restoration'
+        Move-NxbDirectoryStrict $ScratchRoot $PreviousRoot 'rollback scratch previous restoration'
         return
     }
     if ($PreviousPublished) {
@@ -103,8 +103,8 @@ function Restore-NxbRollbackSlots {
             (Test-Path -LiteralPath $PreviousRoot)) {
             throw 'Published previous slot is not in a restorable layout.'
         }
-        Move-Item -LiteralPath $ActiveRoot -Destination $PreviousRoot
-        Move-Item -LiteralPath $FailedRoot -Destination $ActiveRoot
+        Move-NxbDirectoryStrict $ActiveRoot $PreviousRoot 'rollback active previous restoration'
+        Move-NxbDirectoryStrict $FailedRoot $ActiveRoot 'rollback failed-slot active restoration'
         return
     }
     if ($CurrentMovedToFailed) {
@@ -112,7 +112,7 @@ function Restore-NxbRollbackSlots {
             -not (Test-Path -LiteralPath $FailedRoot -PathType Container)) {
             throw 'Moved active slot is not in a restorable layout.'
         }
-        Move-Item -LiteralPath $FailedRoot -Destination $ActiveRoot
+        Move-NxbDirectoryStrict $FailedRoot $ActiveRoot 'rollback failed-slot active restoration'
     }
 }
 
@@ -195,9 +195,9 @@ try {
         throw 'Rollback slot must bind a different manifest and exact source commit.'
     }
 
-    Move-Item -LiteralPath $installRootPath -Destination $failedRoot
+    Move-NxbDirectoryStrict $installRootPath $failedRoot 'rollback active deactivation'
     $currentMovedToFailed = $true
-    Move-Item -LiteralPath $previousRoot -Destination $installRootPath
+    Move-NxbDirectoryStrict $previousRoot $installRootPath 'rollback previous publication'
     $previousPublished = $true
 
     $restored = Assert-NxbInstalledRoot `
@@ -236,7 +236,7 @@ try {
     Write-NxbJsonFile $currentStatePending $restored.State
     Write-NxbJsonFile $receiptPending $receipt
 
-    Move-Item -LiteralPath $failedRoot -Destination $previousRoot
+    Move-NxbDirectoryStrict $failedRoot $previousRoot 'rollback newer previous preservation'
     $newerMovedToPrevious = $true
     $preserved = Assert-NxbInstalledRoot `
         $previousRoot $ExpectedPublisherThumbprint `

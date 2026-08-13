@@ -138,12 +138,12 @@ try {
         if (Test-Path -LiteralPath $previousRoot) {
             $previous = Assert-NxbInstalledRoot `
                 $previousRoot $ExpectedPublisherThumbprint `
-        $ExpectedReleasePublicKeySha256 $installRootPath
+                $ExpectedReleasePublicKeySha256 $installRootPath
         }
 
-        Move-Item -LiteralPath $installRootPath -Destination $currentTombstone
+        Move-NxbDirectoryStrict $installRootPath $currentTombstone 'uninstall active deactivation'
         if ($null -ne $previous) {
-            Move-Item -LiteralPath $previousRoot -Destination $previousTombstone
+            Move-NxbDirectoryStrict $previousRoot $previousTombstone 'uninstall previous deactivation'
         }
 
         [void](Remove-NxbUserPath $installRootPath)
@@ -178,13 +178,13 @@ try {
                 if (Test-Path -LiteralPath $installRootPath) {
                     throw 'Cannot restore active installation because its root is occupied.'
                 }
-                Move-Item -LiteralPath $currentTombstone -Destination $installRootPath
+                Move-NxbDirectoryStrict $currentTombstone $installRootPath 'failed uninstall active restoration'
             }
             if (Test-Path -LiteralPath $previousTombstone -PathType Container) {
                 if (Test-Path -LiteralPath $previousRoot) {
                     throw 'Cannot restore rollback slot because its root is occupied.'
                 }
-                Move-Item -LiteralPath $previousTombstone -Destination $previousRoot
+                Move-NxbDirectoryStrict $previousTombstone $previousRoot 'failed uninstall previous restoration'
             }
             if ($null -ne $current -and
                 (Test-Path -LiteralPath $installRootPath -PathType Container)) {

@@ -123,7 +123,7 @@ function Publish-NxbMaintenanceScripts {
     }
     if (Test-Path -LiteralPath $Destination) {
         Assert-NxbNoReparseChain $Destination 'existing maintenance directory'
-        Move-Item -LiteralPath $Destination -Destination $Backup
+        Move-NxbDirectoryStrict $Destination $Backup 'maintenance backup publication'
     }
     try {
         Copy-NxbMaintenanceScripts $Destination
@@ -141,7 +141,7 @@ function Publish-NxbMaintenanceScripts {
             Remove-Item -LiteralPath $Destination -Recurse -Force
         }
         if (Test-Path -LiteralPath $Backup) {
-            Move-Item -LiteralPath $Backup -Destination $Destination
+            Move-NxbDirectoryStrict $Backup $Destination 'maintenance publication restoration'
         }
         throw
     }
@@ -158,7 +158,7 @@ function Restore-NxbMaintenanceScripts {
         Remove-Item -LiteralPath $Destination -Recurse -Force
     }
     if (Test-Path -LiteralPath $Backup) {
-        Move-Item -LiteralPath $Backup -Destination $Destination
+        Move-NxbDirectoryStrict $Backup $Destination 'maintenance rollback restoration'
     }
 }
 
@@ -345,14 +345,14 @@ try {
             [void](Assert-NxbInstalledRoot `
                 $previousRoot $publisherThumbprint $releaseKeySha256 `
                 $installRootPath)
-            Move-Item -LiteralPath $previousRoot -Destination $previousBackupRoot
+            Move-NxbDirectoryStrict $previousRoot $previousBackupRoot 'previous slot backup'
             $previousSlotBackedUp = $true
         }
         if (Test-Path -LiteralPath $installRootPath) {
-            Move-Item -LiteralPath $installRootPath -Destination $previousRoot
+            Move-NxbDirectoryStrict $installRootPath $previousRoot 'active slot demotion'
             $movedExisting = $true
         }
-        Move-Item -LiteralPath $stageRoot -Destination $installRootPath
+        Move-NxbDirectoryStrict $stageRoot $installRootPath 'staged release publication'
         $publishedStage = $true
 
         Set-NxbIntegrationState `
@@ -403,10 +403,10 @@ catch {
                 Remove-Item -LiteralPath $installRootPath -Recurse -Force
             }
             if ($movedExisting -and (Test-Path -LiteralPath $previousRoot)) {
-                Move-Item -LiteralPath $previousRoot -Destination $installRootPath
+                Move-NxbDirectoryStrict $previousRoot $installRootPath 'failed upgrade active restoration'
             }
             if ($previousSlotBackedUp -and (Test-Path -LiteralPath $previousBackupRoot)) {
-                Move-Item -LiteralPath $previousBackupRoot -Destination $previousRoot
+                Move-NxbDirectoryStrict $previousBackupRoot $previousRoot 'failed upgrade previous-slot restoration'
             }
             if (Test-Path -LiteralPath $stageRoot) {
                 Assert-NxbNoReparseChain $stageRoot 'failed staging directory'

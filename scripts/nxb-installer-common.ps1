@@ -94,6 +94,82 @@ function Assert-NxbManagedRoot {
     return $fullPath
 }
 
+function Move-NxbDirectoryStrict {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $sourcePath = Assert-NxbManagedRoot $Source "$Label source"
+    $destinationPath = Assert-NxbManagedRoot $Destination "$Label destination"
+
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) {
+        throw "$Label source directory is missing: $sourcePath"
+    }
+
+    if (Test-Path -LiteralPath $destinationPath) {
+        throw "$Label destination already exists: $destinationPath"
+    }
+
+    $sourceParent = Get-NxbCanonicalPath (
+        Split-Path -Parent $sourcePath
+    )
+
+    $destinationParent = Get-NxbCanonicalPath (
+        Split-Path -Parent $destinationPath
+    )
+
+    if (-not $sourceParent.Equals(
+        $destinationParent,
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "$Label must remain within one parent directory."
+    }
+
+    try {
+        [IO.Directory]::Move(
+            $sourcePath,
+            $destinationPath
+        )
+    }
+    catch {
+        $sourceStillExists = (
+            Test-Path -LiteralPath $sourcePath
+        )
+
+        $destinationExists = (
+            Test-Path -LiteralPath $destinationPath
+        )
+
+        if ($sourceStillExists -and $destinationExists) {
+            throw (
+                "$Label failed and left both source and destination present. " +
+                "source=$sourcePath destination=$destinationPath " +
+                "error=$($_.Exception.Message)"
+            )
+        }
+
+        throw
+    }
+
+    if (Test-Path -LiteralPath $sourcePath) {
+        throw (
+            "$Label completed but source still exists: $sourcePath"
+        )
+    }
+
+    if (-not (
+        Test-Path `
+            -LiteralPath $destinationPath `
+            -PathType Container
+    )) {
+        throw (
+            "$Label completed without a destination directory: " +
+            $destinationPath
+        )
+    }
+}
 function Assert-NxbRegularFile {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
