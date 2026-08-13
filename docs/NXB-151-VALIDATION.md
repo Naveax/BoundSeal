@@ -134,7 +134,7 @@ pwsh -NoProfile -File .\scripts\validate-nxb-151-installer-windows.ps1
 Default previous source revision:
 
 ```text
-a8aef038449edbe1dbe1ecc6d57e160f82f44c7b
+9751ac1b9144be2b2c78d8f3d90477aa8b615e5d
 ```
 
 The harness must verify:
