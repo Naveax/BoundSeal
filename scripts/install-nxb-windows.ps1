@@ -343,7 +343,8 @@ try {
 
         if (Test-Path -LiteralPath $previousRoot) {
             [void](Assert-NxbInstalledRoot `
-                $previousRoot $publisherThumbprint $releaseKeySha256)
+                $previousRoot $publisherThumbprint $releaseKeySha256 `
+                $installRootPath)
             Move-Item -LiteralPath $previousRoot -Destination $previousBackupRoot
             $previousSlotBackedUp = $true
         }

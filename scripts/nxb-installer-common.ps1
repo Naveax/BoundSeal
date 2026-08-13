@@ -451,11 +451,19 @@ function Assert-NxbInstalledRoot {
     param(
         [Parameter(Mandatory = $true)][string]$InstallRoot,
         [Parameter(Mandatory = $true)][string]$ExpectedPublisherThumbprint,
-        [Parameter(Mandatory = $true)][string]$ExpectedReleasePublicKeySha256
+        [Parameter(Mandatory = $true)][string]$ExpectedReleasePublicKeySha256,
+        [string]$ExpectedStateInstallRoot = ''
     )
 
     $paths = Get-NxbInstalledPaths $InstallRoot
     $paths.Root = Assert-NxbManagedRoot $paths.Root 'installed NXBounty root'
+    $expectedStateInstallRoot = if ([string]::IsNullOrWhiteSpace($ExpectedStateInstallRoot)) {
+        $paths.Root
+    } else {
+        Assert-NxbManagedRoot `
+            $ExpectedStateInstallRoot `
+            'expected installed-state root'
+    }
     Assert-NxbExactDirectoryEntries $paths.Root $script:NxbInstalledFileNames 'installed NXBounty root'
     foreach ($name in @('Binary', 'Sbom', 'Checksums', 'Manifest', 'PublicKey', 'State')) {
         Assert-NxbRegularFile $paths.$name "installed $name"
@@ -467,7 +475,7 @@ function Assert-NxbInstalledRoot {
     $state = [IO.File]::ReadAllText($paths.State) | ConvertFrom-Json
     if ($state.schema_version -ne $script:NxbInstallerSchemaVersion -or
         $state.product -ne 'NXBounty' -or
-        $state.install_root -ne $paths.Root -or
+        $state.install_root -ne $expectedStateInstallRoot -or
         $state.manifest_sha256 -ne $verification.manifest_sha256 -or
         $state.source_commit -ne $verification.source_commit -or
         $state.version -ne $verification.version -or
@@ -481,9 +489,9 @@ function Assert-NxbInstalledRoot {
             state_product = [string]$state.product
             expected_product = 'NXBounty'
 
-            install_root_match = ($state.install_root -eq $paths.Root)
+            install_root_match = ($state.install_root -eq $expectedStateInstallRoot)
             state_install_root = [string]$state.install_root
-            expected_install_root = [string]$paths.Root
+            expected_install_root = [string]$expectedStateInstallRoot
 
             manifest_sha256_match = ($state.manifest_sha256 -eq $verification.manifest_sha256)
             state_manifest_sha256 = [string]$state.manifest_sha256

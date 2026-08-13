@@ -181,7 +181,8 @@ try {
     $current = Assert-NxbInstalledRoot `
         $installRootPath $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
     $previous = Assert-NxbInstalledRoot `
-        $previousRoot $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
+        $previousRoot $ExpectedPublisherThumbprint `
+        $ExpectedReleasePublicKeySha256 $installRootPath
 
     $comparison = Compare-NxbReleaseOrder `
         $previous.Verification.version $previous.Verification.release_sequence `
@@ -238,7 +239,8 @@ try {
     Move-Item -LiteralPath $failedRoot -Destination $previousRoot
     $newerMovedToPrevious = $true
     $preserved = Assert-NxbInstalledRoot `
-        $previousRoot $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
+        $previousRoot $ExpectedPublisherThumbprint `
+        $ExpectedReleasePublicKeySha256 $installRootPath
     if ($preserved.Verification.manifest_sha256 -ne $current.Verification.manifest_sha256) {
         throw 'Newer release was not preserved in the previous slot.'
     }

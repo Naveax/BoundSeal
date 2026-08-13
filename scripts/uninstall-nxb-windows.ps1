@@ -137,7 +137,8 @@ try {
             $installRootPath $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
         if (Test-Path -LiteralPath $previousRoot) {
             $previous = Assert-NxbInstalledRoot `
-                $previousRoot $ExpectedPublisherThumbprint $ExpectedReleasePublicKeySha256
+                $previousRoot $ExpectedPublisherThumbprint `
+        $ExpectedReleasePublicKeySha256 $installRootPath
         }
 
         Move-Item -LiteralPath $installRootPath -Destination $currentTombstone
