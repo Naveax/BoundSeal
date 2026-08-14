@@ -16,8 +16,7 @@ use nxb_evidence_key_provider::{
     EvidenceKeyProviderError,
 };
 use nxb_evidence_key_provider_process::{
-    bundled_windows_credential_config, ProcessEvidenceKeyProvider,
-    WINDOWS_CREDENTIAL_TARGET_PREFIX,
+    bundled_windows_credential_config, ProcessEvidenceKeyProvider, WINDOWS_CREDENTIAL_TARGET_PREFIX,
 };
 use nxb_vault_provider_process::{sha256_file, sha256_hex};
 use ring::signature::{Ed25519KeyPair, KeyPair};
@@ -120,10 +119,7 @@ fn create_valid_credential(store_id: &str, key_id: &str) -> String {
     assert_eq!(value["present"], true);
     assert_eq!(value["key_bytes"], 32);
     assert_eq!(value["persistence"], "local_machine");
-    let version = value["version_id"]
-        .as_str()
-        .expect("version id")
-        .to_owned();
+    let version = value["version_id"].as_str().expect("version id").to_owned();
     assert!(version.starts_with("v1-"));
     assert_eq!(version.len(), 35);
     version
@@ -330,10 +326,7 @@ fn lifecycle_failures_are_exact_and_metadata_remains_non_secret() {
 
 #[test]
 fn malformed_and_truncated_protocol_inputs_fail_without_output() {
-    for bytes in [
-        b"NXB1".as_slice(),
-        b"BAD!\0\0\0\0\0\0\0\0".as_slice(),
-    ] {
+    for bytes in [b"NXB1".as_slice(), b"BAD!\0\0\0\0\0\0\0\0".as_slice()] {
         let mut child = Command::new(helper_executable())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -389,8 +382,7 @@ unsafe extern "system" {
 
 fn write_corrupt_credential(target: &str) {
     let mut wide_target = wide_nul(target);
-    let mut wide_comment =
-        wide_nul("NXB_EVIDENCE_KEY_VERSION:v1-00000000000000000000000000000000");
+    let mut wide_comment = wide_nul("NXB_EVIDENCE_KEY_VERSION:v1-00000000000000000000000000000000");
     let mut non_secret_corrupt_sentinel = [0xa5_u8; 31];
     let credential = CredentialW {
         flags: 0,
