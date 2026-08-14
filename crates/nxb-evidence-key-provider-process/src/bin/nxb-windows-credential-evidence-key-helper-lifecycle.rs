@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use serde::Serialize;
 use zeroize::Zeroizing;
 
-use super::{target_name, EVIDENCE_SEALING_KEY_BYTES, VERSION_COMMENT_PREFIX};
+use super::{target_name, EVIDENCE_SEALING_KEY_BYTES};
 
 const VERSION_RANDOM_BYTES: usize = 16;
 const VERSION_ID_PREFIX: &str = "v1-";
@@ -35,8 +35,6 @@ impl Operation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Command {
     operation: Operation,
-    store_id: String,
-    key_id: String,
     target: String,
 }
 
@@ -45,6 +43,7 @@ struct CredentialMetadata {
     version_id: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeError {
     UnsupportedPlatform,
@@ -67,7 +66,11 @@ struct LifecycleOutput<'a> {
 pub(super) fn run() -> Result<(), &'static str> {
     let arguments = std::env::args_os()
         .skip(1)
-        .map(|argument| argument.into_string().map_err(|_| "windows_credential_cli_invalid"))
+        .map(|argument| {
+            argument
+                .into_string()
+                .map_err(|_| "windows_credential_cli_invalid")
+        })
         .collect::<Result<Vec<_>, _>>()?;
     let command = parse_command(&arguments)?;
     execute(command)
@@ -90,25 +93,18 @@ fn parse_command(arguments: &[String]) -> Result<Command, &'static str> {
         return Err("windows_credential_cli_invalid");
     }
 
-    let store_id = arguments[2].clone();
-    let key_id = arguments[4].clone();
-    let target = target_name(&store_id, &key_id).ok_or("windows_credential_cli_invalid")?;
+    let target = target_name(&arguments[2], &arguments[4])
+        .ok_or("windows_credential_cli_invalid")?;
 
     if operation.mutates() {
-        if arguments.get(5).map(String::as_str) != Some("--confirm-target") {
-            return Err("windows_credential_confirmation_required");
-        }
-        if arguments.get(6).map(String::as_str) != Some(target.as_str()) {
+        if arguments.get(5).map(String::as_str) != Some("--confirm-target")
+            || arguments.get(6).map(String::as_str) != Some(target.as_str())
+        {
             return Err("windows_credential_confirmation_required");
         }
     }
 
-    Ok(Command {
-        operation,
-        store_id,
-        key_id,
-        target,
-    })
+    Ok(Command { operation, target })
 }
 
 fn execute(command: Command) -> Result<(), &'static str> {
@@ -130,6 +126,8 @@ fn create(command: &Command) -> Result<(), &'static str> {
     let (version_id, key) = new_material()?;
     native::write_evidence_key(&command.target, &version_id, &key)
         .map_err(native_error_code)?;
+    drop(key);
+
     let stored = native::read_metadata(&command.target).map_err(native_error_code)?;
     if stored.version_id != version_id {
         return Err("windows_credential_post_write_verify_failed");
@@ -151,6 +149,8 @@ fn rotate(command: &Command) -> Result<(), &'static str> {
     let (version_id, key) = new_material()?;
     native::write_evidence_key(&command.target, &version_id, &key)
         .map_err(native_error_code)?;
+    drop(key);
+
     let stored = native::read_metadata(&command.target).map_err(native_error_code)?;
     if stored.version_id != version_id {
         return Err("windows_credential_post_write_verify_failed");
@@ -220,7 +220,8 @@ fn new_material() -> Result<(String, Zeroizing<Vec<u8>>), &'static str> {
 fn emit(output: LifecycleOutput<'_>) -> Result<(), &'static str> {
     let stdout = io::stdout();
     let mut writer = io::BufWriter::new(stdout.lock());
-    serde_json::to_writer(&mut writer, &output).map_err(|_| "windows_credential_output_failure")?;
+    serde_json::to_writer(&mut writer, &output)
+        .map_err(|_| "windows_credential_output_failure")?;
     writer
         .write_all(b"\n")
         .and_then(|_| writer.flush())
@@ -251,9 +252,8 @@ fn lower_hex(bytes: &[u8]) -> String {
 mod native {
     use std::{ffi::c_void, ptr, slice};
 
-    use super::{
-        CredentialMetadata, NativeError, EVIDENCE_SEALING_KEY_BYTES, VERSION_COMMENT_PREFIX,
-    };
+    use super::super::VERSION_COMMENT_PREFIX;
+    use super::{CredentialMetadata, NativeError, EVIDENCE_SEALING_KEY_BYTES};
 
     const CRED_TYPE_GENERIC: u32 = 1;
     const CRED_PERSIST_LOCAL_MACHINE: u32 = 2;
@@ -264,24 +264,24 @@ mod native {
 
     #[repr(C)]
     struct FileTime {
-        low_date_time: u32,
-        high_date_time: u32,
+        _low_date_time: u32,
+        _high_date_time: u32,
     }
 
     #[repr(C)]
     struct CredentialW {
-        flags: u32,
+        _flags: u32,
         credential_type: u32,
-        target_name: *mut u16,
+        _target_name: *mut u16,
         comment: *mut u16,
-        last_written: FileTime,
+        _last_written: FileTime,
         credential_blob_size: u32,
         credential_blob: *mut u8,
         persist: u32,
-        attribute_count: u32,
-        attributes: *mut c_void,
-        target_alias: *mut u16,
-        user_name: *mut u16,
+        _attribute_count: u32,
+        _attributes: *mut c_void,
+        _target_alias: *mut u16,
+        _user_name: *mut u16,
     }
 
     #[link(name = "Advapi32")]
@@ -371,21 +371,21 @@ mod native {
         let mut wide_comment = wide_nul(&comment);
         let blob_size = u32::try_from(key.len()).map_err(|_| NativeError::InvalidRecord)?;
         let credential = CredentialW {
-            flags: 0,
+            _flags: 0,
             credential_type: CRED_TYPE_GENERIC,
-            target_name: wide_target.as_mut_ptr(),
+            _target_name: wide_target.as_mut_ptr(),
             comment: wide_comment.as_mut_ptr(),
-            last_written: FileTime {
-                low_date_time: 0,
-                high_date_time: 0,
+            _last_written: FileTime {
+                _low_date_time: 0,
+                _high_date_time: 0,
             },
             credential_blob_size: blob_size,
             credential_blob: key.as_ptr().cast_mut(),
             persist: CRED_PERSIST_LOCAL_MACHINE,
-            attribute_count: 0,
-            attributes: ptr::null_mut(),
-            target_alias: ptr::null_mut(),
-            user_name: ptr::null_mut(),
+            _attribute_count: 0,
+            _attributes: ptr::null_mut(),
+            _target_alias: ptr::null_mut(),
+            _user_name: ptr::null_mut(),
         };
 
         // SAFETY: all pointers in CredentialW reference live, NUL-terminated metadata
@@ -545,8 +545,6 @@ mod tests {
             command,
             Command {
                 operation: Operation::Status,
-                store_id: "store-a".into(),
-                key_id: "key-a".into(),
                 target: "Naveax_NXBounty_EvidenceKey::store-a::key-a".into(),
             }
         );
