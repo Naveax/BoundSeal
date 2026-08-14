@@ -12,10 +12,12 @@ use nxb_vault_provider_process::{
 };
 use zeroize::Zeroizing;
 
+#[path = "nxb-windows-credential-evidence-key-helper-lifecycle.rs"]
+mod lifecycle;
+
 const PROVIDER_ID: &str = "nxb-windows-credential-evidence-key";
 const CAPABILITY_V1: &[u8] = b"nxb152-windows-credential-manager-evidence-key-fetch-v1";
 const TARGET_PREFIX: &str = "Naveax_NXBounty_EvidenceKey::";
-#[cfg(windows)]
 const VERSION_COMMENT_PREFIX: &str = "NXB_EVIDENCE_KEY_VERSION:";
 const SYNTHETIC_AUTHORITY: &str = "evidence-key-provider.invalid";
 const ADAPTER_WORKER_ID: &str = "evidence-key-process";
@@ -53,7 +55,15 @@ enum WinCredError {
 }
 
 fn main() {
-    if run().is_err() {
+    let result = if std::env::args_os().count() == 1 {
+        run()
+    } else {
+        lifecycle::run().map_err(|code| {
+            eprintln!("NXB_ERROR={code}");
+            HelperError
+        })
+    };
+    if result.is_err() {
         std::process::exit(1);
     }
 }
