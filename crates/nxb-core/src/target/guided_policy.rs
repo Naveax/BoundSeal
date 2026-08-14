@@ -35,6 +35,7 @@ struct GuidedPolicySnapshot<'a> {
 pub(super) struct GuidedPolicyArtifact {
     pub(super) snapshot_sha256: String,
     pub(super) document_sha256: String,
+    pub(super) document: String,
     pub(super) allowed_methods: Vec<String>,
     pub(super) compiled: CompiledPolicy,
 }
@@ -175,9 +176,12 @@ pub(super) fn compile_guided_policy(
         bail!("compiled guided policy exceeded the read-only product boundary");
     }
 
+    let document_sha256 = workspace::sha256(document.as_bytes());
+
     Ok(GuidedPolicyArtifact {
         snapshot_sha256,
-        document_sha256: workspace::sha256(document.as_bytes()),
+        document_sha256,
+        document,
         allowed_methods,
         compiled,
     })
