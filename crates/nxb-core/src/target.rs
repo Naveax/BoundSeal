@@ -1,8 +1,10 @@
 mod activation;
 mod guided_policy;
+mod scope_import;
 
 use activation::activate_value;
 use guided_policy::{compile_guided_policy, GuidedPolicyArtifact};
+use scope_import::load_scope_import;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File},
@@ -135,6 +137,43 @@ enum TargetCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Preview one bounded operator-provided scope import through the guided compiler.
+    SetupImport {
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        scope_import: PathBuf,
+        #[arg(long)]
+        program_name: String,
+        #[arg(long)]
+        program_platform: String,
+        #[arg(long)]
+        program_reference: Option<String>,
+        #[arg(long)]
+        authorization_reference: String,
+        #[arg(long)]
+        authorization_document: PathBuf,
+        #[arg(long)]
+        researcher: String,
+        #[arg(long, value_enum)]
+        authorization_basis: AuthorizationBasis,
+        #[arg(long)]
+        authorization_expires_at: String,
+        #[arg(long)]
+        acknowledge_authorization: String,
+        #[arg(long, default_value_t = 1.0)]
+        max_requests_per_second: f64,
+        #[arg(long, default_value_t = 1)]
+        max_concurrency: u16,
+        #[arg(long, default_value_t = 10)]
+        max_total_requests: u64,
+        #[arg(long)]
+        json: bool,
+    },
     /// Activate one exact guided preview using the immutable target profile boundary.
     Activate {
         #[arg(long)]
@@ -169,6 +208,47 @@ enum TargetCommand {
         acknowledge_authorization: String,
         #[arg(long)]
         allow_subdomains: bool,
+        #[arg(long, default_value_t = 1.0)]
+        max_requests_per_second: f64,
+        #[arg(long, default_value_t = 1)]
+        max_concurrency: u16,
+        #[arg(long, default_value_t = 10)]
+        max_total_requests: u64,
+        #[arg(long)]
+        confirm_preview_sha: String,
+        #[arg(long)]
+        acknowledge_activation: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Activate one bounded imported scope after exact preview confirmation.
+    ActivateImport {
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        scope_import: PathBuf,
+        #[arg(long)]
+        program_name: String,
+        #[arg(long)]
+        program_platform: String,
+        #[arg(long)]
+        program_reference: Option<String>,
+        #[arg(long)]
+        authorization_reference: String,
+        #[arg(long)]
+        authorization_document: PathBuf,
+        #[arg(long)]
+        researcher: String,
+        #[arg(long, value_enum)]
+        authorization_basis: AuthorizationBasis,
+        #[arg(long)]
+        authorization_expires_at: String,
+        #[arg(long)]
+        acknowledge_authorization: String,
         #[arg(long, default_value_t = 1.0)]
         max_requests_per_second: f64,
         #[arg(long, default_value_t = 1)]
@@ -400,11 +480,60 @@ pub(crate) fn run(args: TargetArgs) -> ExitCode {
                 max_concurrency,
                 max_total_requests,
             )
-            .and_then(|build| {
-                serde_json::to_value(build.preview)
-                    .context("could not serialize guided target preview")
-            })
-            .and_then(|value| emit_value(&value, json)),
+            .and_then(|build| emit_setup_preview(&build.preview, json)),
+        ),
+        TargetCommand::SetupImport {
+            workspace,
+            id,
+            name,
+            scope_import,
+            program_name,
+            program_platform,
+            program_reference,
+            authorization_reference,
+            authorization_document,
+            researcher,
+            authorization_basis,
+            authorization_expires_at,
+            acknowledge_authorization,
+            max_requests_per_second,
+            max_concurrency,
+            max_total_requests,
+            json,
+        } => (
+            SETUP_EXIT_CODE,
+            SETUP_DIAGNOSTIC,
+            json,
+            load_scope_import(&scope_import)
+                .and_then(|scope| {
+                    let origin = scope.origin;
+                    let include_paths = scope.include_paths;
+                    let exclude_paths = scope.exclude_paths;
+                    let allow_subdomains = scope.allow_subdomains;
+
+                    build_guided_setup(
+                        &workspace,
+                        &id,
+                        &name,
+                        &origin,
+                        include_paths,
+                        exclude_paths,
+                        &program_name,
+                        &program_platform,
+                        program_reference.as_deref(),
+                        &authorization_reference,
+                        &authorization_document,
+                        &researcher,
+                        authorization_basis,
+                        &authorization_expires_at,
+                        &acknowledge_authorization,
+                        allow_subdomains,
+                        max_requests_per_second,
+                        max_concurrency,
+                        max_total_requests,
+                    )
+                })
+                .and_then(|build| emit_setup_preview(&build.preview, json)),
         ),
         TargetCommand::Activate {
             workspace,
@@ -457,6 +586,63 @@ pub(crate) fn run(args: TargetArgs) -> ExitCode {
                 &acknowledge_activation,
             )
             .and_then(|value| emit_value(&value, json)),
+        ),
+        TargetCommand::ActivateImport {
+            workspace,
+            id,
+            name,
+            scope_import,
+            program_name,
+            program_platform,
+            program_reference,
+            authorization_reference,
+            authorization_document,
+            researcher,
+            authorization_basis,
+            authorization_expires_at,
+            acknowledge_authorization,
+            max_requests_per_second,
+            max_concurrency,
+            max_total_requests,
+            confirm_preview_sha,
+            acknowledge_activation,
+            json,
+        } => (
+            ACTIVATE_EXIT_CODE,
+            ACTIVATE_DIAGNOSTIC,
+            json,
+            load_scope_import(&scope_import)
+                .and_then(|scope| {
+                    let origin = scope.origin;
+                    let include_paths = scope.include_paths;
+                    let exclude_paths = scope.exclude_paths;
+                    let allow_subdomains = scope.allow_subdomains;
+
+                    activate_value(
+                        &workspace,
+                        &id,
+                        &name,
+                        &origin,
+                        include_paths,
+                        exclude_paths,
+                        &program_name,
+                        &program_platform,
+                        program_reference.as_deref(),
+                        &authorization_reference,
+                        &authorization_document,
+                        &researcher,
+                        authorization_basis,
+                        &authorization_expires_at,
+                        &acknowledge_authorization,
+                        allow_subdomains,
+                        max_requests_per_second,
+                        max_concurrency,
+                        max_total_requests,
+                        &confirm_preview_sha,
+                        &acknowledge_activation,
+                    )
+                })
+                .and_then(|value| emit_value(&value, json)),
         ),
         TargetCommand::Create {
             workspace,
@@ -1573,6 +1759,92 @@ fn effective_target(profile: TargetProfile, receipt: Option<DisableReceipt>) -> 
         disabled_at: receipt.map(|value| value.disabled_at),
         network_activity: "none",
     }
+}
+
+fn emit_setup_preview(preview: &SetupPreview, json_output: bool) -> Result<()> {
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(preview)?);
+        return Ok(());
+    }
+
+    let identity = &preview.identity;
+
+    println!("status: {}", identity.status);
+    println!("target_id: {}", identity.target_id);
+    println!("name: {}", identity.name);
+    println!("origin: {}", identity.origin);
+
+    println!("include_paths:");
+    for path in &identity.include_paths {
+        println!("  - {path}");
+    }
+
+    println!("exclude_paths:");
+    if identity.exclude_paths.is_empty() {
+        println!("  - (none)");
+    } else {
+        for path in &identity.exclude_paths {
+            println!("  - {path}");
+        }
+    }
+
+    println!(
+        "allowed_methods: {}",
+        identity.automation.allowed_methods.join(", ")
+    );
+    println!("allow_subdomains: {}", identity.automation.allow_subdomains);
+    println!(
+        "max_requests_per_second: {}",
+        identity.automation.max_requests_per_second
+    );
+    println!("max_concurrency: {}", identity.automation.max_concurrency);
+    println!(
+        "max_total_requests: {}",
+        identity.automation.max_total_requests
+    );
+
+    println!("active_testing: {}", identity.automation.active_testing);
+    println!("oob_callbacks: {}", identity.automation.oob_callbacks);
+    println!(
+        "credential_bruteforce: {}",
+        identity.automation.credential_bruteforce
+    );
+    println!(
+        "destructive_testing: {}",
+        identity.automation.destructive_testing
+    );
+
+    println!(
+        "authorization_reference: {}",
+        identity.authorization.reference
+    );
+    println!(
+        "authorization_sha256: {}",
+        identity.authorization.document_sha256
+    );
+    println!(
+        "authorization_expires_at: {}",
+        identity.authorization.expires_at
+    );
+
+    println!(
+        "policy_snapshot_sha256: {}",
+        identity.policy.policy_snapshot_sha256
+    );
+    println!(
+        "policy_document_sha256: {}",
+        identity.policy.policy_document_sha256
+    );
+
+    println!("hard_denied_actions:");
+    for action in &identity.hard_denied_actions {
+        println!("  - {action}");
+    }
+
+    println!("preview_sha256: {}", preview.preview_sha256);
+    println!("network_activity: {}", identity.network_activity);
+
+    Ok(())
 }
 
 fn emit_value(value: &Value, json_output: bool) -> Result<()> {

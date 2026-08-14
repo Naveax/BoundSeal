@@ -182,7 +182,10 @@ fn imported_scope_normalizes_to_the_exact_manual_preview_and_readable_text() {
     ));
     let manual = run_json(&manual_setup_arguments(&root, &authorization));
 
-    assert_eq!(imported, manual, "import must disappear after normalization");
+    assert_eq!(
+        imported, manual,
+        "import must disappear after normalization"
+    );
     assert_eq!(
         imported.get("origin").and_then(Value::as_str),
         Some("https://example.org")
@@ -196,13 +199,7 @@ fn imported_scope_normalizes_to_the_exact_manual_preview_and_readable_text() {
         Some(&serde_json::json!(["/api/logout"]))
     );
 
-    let text_arguments = import_arguments(
-        "setup-import",
-        &root,
-        &authorization,
-        &import,
-        false,
-    );
+    let text_arguments = import_arguments("setup-import", &root, &authorization, &import, false);
     let first_text = run(&text_arguments);
     let second_text = run(&text_arguments);
 
@@ -257,14 +254,11 @@ fn imported_scope_activates_end_to_end_without_hand_authored_policy_or_profile()
         .and_then(Value::as_str)
         .unwrap();
 
-    let mut activation = import_arguments(
-        "activate-import",
-        &root,
-        &authorization,
-        &import,
-        true,
-    );
-    let json_index = activation.iter().position(|value| value == "--json").unwrap();
+    let mut activation = import_arguments("activate-import", &root, &authorization, &import, true);
+    let json_index = activation
+        .iter()
+        .position(|value| value == "--json")
+        .unwrap();
     activation.splice(
         json_index..json_index,
         [

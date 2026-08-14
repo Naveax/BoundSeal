@@ -3,9 +3,7 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
-use super::{
-    canonical_paths, guided_origin, read_bounded_source, validate_path_relationships,
-};
+use super::{canonical_paths, guided_origin, read_bounded_source, validate_path_relationships};
 
 const SCOPE_IMPORT_SCHEMA_VERSION: u32 = 1;
 const MAX_SCOPE_IMPORT_BYTES: u64 = 64 * 1024;
