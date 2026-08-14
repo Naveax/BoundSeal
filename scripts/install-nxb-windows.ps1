@@ -211,6 +211,10 @@ if ($verification.version -ne $manifestDocument.manifest.version -or
     throw 'Candidate verification result does not match the signed manifest document.'
 }
 
+$candidateHelperSha256 = Assert-NxbBundledHelperBinding `
+    $package.Helper `
+    $package.Checksums
+
 $installParent = Split-Path -Parent $installRootPath
 New-Item -ItemType Directory -Path $installParent -Force | Out-Null
 $lock = Open-NxbInstallerLock $installRootPath
@@ -285,13 +289,14 @@ try {
             (Join-Path $maintenanceRoot 'current-install.json') $existing.State
 
         $result = [ordered]@{
-            schema_version = 2
+            schema_version = 3
             status = 'already_installed'
             version = $verification.version
             release_sequence = [uint64]$verification.release_sequence
             source_commit = $verification.source_commit
             manifest_sha256 = $verification.manifest_sha256
             binary_sha256 = (Get-FileHash -LiteralPath $package.Binary -Algorithm SHA256).Hash.ToLowerInvariant()
+            helper_sha256 = $candidateHelperSha256
             install_root = $installRootPath
             data_root = $dataRootPath
             rollback_available = (Test-Path -LiteralPath $previousRoot -PathType Container)
@@ -320,8 +325,16 @@ try {
             throw 'Staged package does not match the verified source package.'
         }
 
+        $stageHelperSha256 = Assert-NxbBundledHelperBinding `
+            $stagePaths.Helper `
+            $stagePaths.Checksums
+
+        if ($stageHelperSha256 -ne $candidateHelperSha256) {
+            throw 'Staged bundled helper does not match the verified source package.'
+        }
+
         $state = [ordered]@{
-            schema_version = 2
+            schema_version = 3
             product = 'NXBounty'
             version = $verification.version
             release_sequence = [uint64]$verification.release_sequence
@@ -331,6 +344,7 @@ try {
             signature_sha256 = $verification.signature_sha256
             manifest_document_sha256 = $verification.document_sha256
             binary_sha256 = (Get-FileHash -LiteralPath $stagePaths.Binary -Algorithm SHA256).Hash.ToLowerInvariant()
+            helper_sha256 = $stageHelperSha256
             publisher_thumbprint = $publisherThumbprint
             release_public_key_sha256 = $releaseKeySha256
             install_root = $installRootPath
@@ -372,7 +386,7 @@ try {
         Write-NxbJsonFile (Join-Path $maintenanceRoot 'current-install.json') $state
 
         $result = [ordered]@{
-            schema_version = 2
+            schema_version = 3
             status = if ($movedExisting) { 'upgraded' } else { 'installed' }
             version = $verification.version
             release_sequence = [uint64]$verification.release_sequence
@@ -380,6 +394,7 @@ try {
             manifest_sha256 = $verification.manifest_sha256
             signature_sha256 = $verification.signature_sha256
             binary_sha256 = $state.binary_sha256
+            helper_sha256 = $state.helper_sha256
             install_root = $installRootPath
             data_root = $dataRootPath
             rollback_available = $movedExisting

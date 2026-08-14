@@ -28,3 +28,8 @@ path = "src/bin/nxb-evidence-key-provider-process-fixture.rs"
 required-features = ["fixture"]
 test = false
 bench = false
+
+[[bin]]
+name = "nxb-windows-credential-evidence-key-helper"
+path = "src/bin/nxb-windows-credential-evidence-key-helper.rs"
+bench = false
