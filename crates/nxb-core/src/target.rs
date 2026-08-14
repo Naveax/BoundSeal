@@ -27,6 +27,7 @@ const LIST_EXIT_CODE: u8 = 51;
 const SHOW_EXIT_CODE: u8 = 52;
 const DISABLE_EXIT_CODE: u8 = 53;
 const VALIDATE_EXIT_CODE: u8 = 54;
+const SETUP_EXIT_CODE: u8 = 55;
 const MAX_TARGET_PROFILES: usize = 1_024;
 const MAX_PATH_RULES: usize = 64;
 const MAX_PATH_BYTES: usize = 512;
@@ -64,6 +65,12 @@ const VALIDATE_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
     operation: "validate",
     text_prefix: "NXB-TARGET-54",
 };
+const SETUP_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
+    code: "NXB153-TARGET-SETUP-REJECTED",
+    domain: "target",
+    operation: "setup",
+    text_prefix: "NXB-TARGET-55",
+};
 
 #[derive(Debug, Args)]
 pub(crate) struct TargetArgs {
@@ -73,6 +80,49 @@ pub(crate) struct TargetArgs {
 
 #[derive(Debug, Subcommand)]
 enum TargetCommand {
+    /// Preview one guided authorization-bound target setup without persistent mutation.
+    Setup {
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        origin: String,
+        #[arg(long = "include-path")]
+        include_paths: Vec<String>,
+        #[arg(long = "exclude-path")]
+        exclude_paths: Vec<String>,
+        #[arg(long)]
+        program_name: String,
+        #[arg(long)]
+        program_platform: String,
+        #[arg(long)]
+        program_reference: Option<String>,
+        #[arg(long)]
+        authorization_reference: String,
+        #[arg(long)]
+        authorization_document: PathBuf,
+        #[arg(long)]
+        researcher: String,
+        #[arg(long, value_enum)]
+        authorization_basis: AuthorizationBasis,
+        #[arg(long)]
+        authorization_expires_at: String,
+        #[arg(long)]
+        acknowledge_authorization: String,
+        #[arg(long)]
+        allow_subdomains: bool,
+        #[arg(long, default_value_t = 1.0)]
+        max_requests_per_second: f64,
+        #[arg(long, default_value_t = 1)]
+        max_concurrency: u16,
+        #[arg(long, default_value_t = 10)]
+        max_total_requests: u64,
+        #[arg(long)]
+        json: bool,
+    },
     /// Create one immutable, authorization-bound, networkless target profile.
     Create {
         #[arg(long)]
@@ -138,6 +188,14 @@ enum TargetCommand {
         #[arg(long)]
         json: bool,
     },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+enum AuthorizationBasis {
+    ProgramPolicy,
+    OwnedAsset,
+    WrittenPermission,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
@@ -237,6 +295,54 @@ struct TargetList {
 
 pub(crate) fn run(args: TargetArgs) -> ExitCode {
     let (failure_code, diagnostic_spec, json_output, result) = match args.command {
+        TargetCommand::Setup {
+            workspace,
+            id,
+            name,
+            origin,
+            include_paths,
+            exclude_paths,
+            program_name,
+            program_platform,
+            program_reference,
+            authorization_reference,
+            authorization_document,
+            researcher,
+            authorization_basis,
+            authorization_expires_at,
+            acknowledge_authorization,
+            allow_subdomains,
+            max_requests_per_second,
+            max_concurrency,
+            max_total_requests,
+            json,
+        } => (
+            SETUP_EXIT_CODE,
+            SETUP_DIAGNOSTIC,
+            json,
+            setup_preview_value(
+                &workspace,
+                &id,
+                &name,
+                &origin,
+                include_paths,
+                exclude_paths,
+                &program_name,
+                &program_platform,
+                program_reference.as_deref(),
+                &authorization_reference,
+                &authorization_document,
+                &researcher,
+                authorization_basis,
+                &authorization_expires_at,
+                &acknowledge_authorization,
+                allow_subdomains,
+                max_requests_per_second,
+                max_concurrency,
+                max_total_requests,
+            )
+            .and_then(|value| emit_value(&value, json)),
+        ),
         TargetCommand::Create {
             workspace,
             id,
@@ -318,6 +424,258 @@ pub(crate) fn run(args: TargetArgs) -> ExitCode {
             ExitCode::from(failure_code)
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SetupProgram {
+    name: String,
+    platform: String,
+    reference: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SetupAuthorization {
+    reference: String,
+    document_sha256: String,
+    researcher: String,
+    basis: AuthorizationBasis,
+    expires_at: String,
+    acknowledged: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SetupAutomation {
+    allowed_methods: Vec<String>,
+    allow_subdomains: bool,
+    active_testing: bool,
+    oob_callbacks: bool,
+    credential_bruteforce: bool,
+    destructive_testing: bool,
+    max_requests_per_second: f64,
+    max_concurrency: u16,
+    max_total_requests: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SetupPreviewIdentity {
+    schema_version: u32,
+    status: &'static str,
+    target_id: String,
+    name: String,
+    origin: String,
+    include_paths: Vec<String>,
+    exclude_paths: Vec<String>,
+    program: SetupProgram,
+    authorization: SetupAuthorization,
+    automation: SetupAutomation,
+    hard_denied_actions: Vec<String>,
+    network_activity: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SetupPreview {
+    #[serde(flatten)]
+    identity: SetupPreviewIdentity,
+    preview_sha256: String,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn setup_preview_value(
+    workspace_path: &Path,
+    id: &str,
+    name: &str,
+    origin: &str,
+    include_paths: Vec<String>,
+    exclude_paths: Vec<String>,
+    program_name: &str,
+    program_platform: &str,
+    program_reference: Option<&str>,
+    authorization_reference: &str,
+    authorization_document: &Path,
+    researcher: &str,
+    authorization_basis: AuthorizationBasis,
+    authorization_expires_at: &str,
+    acknowledge_authorization: &str,
+    allow_subdomains: bool,
+    max_requests_per_second: f64,
+    max_concurrency: u16,
+    max_total_requests: u64,
+) -> Result<Value> {
+    let _root = ready_workspace(workspace_path)?;
+
+    validate_target_id(id)?;
+    validate_target_name(name)?;
+
+    let origin = guided_origin(origin)?;
+
+    let include_paths = canonical_paths(include_paths, true)?;
+
+    let exclude_paths = canonical_paths(exclude_paths, false)?;
+
+    validate_path_relationships(&include_paths, &exclude_paths)?;
+
+    validate_setup_text(program_name, "program name", 96)?;
+
+    validate_setup_platform(program_platform)?;
+
+    let program_reference = program_reference
+        .map(|value| {
+            validate_safe_reference(value, "program reference")?;
+
+            Ok::<String, anyhow::Error>(value.to_owned())
+        })
+        .transpose()?;
+
+    validate_safe_reference(authorization_reference, "authorization reference")?;
+
+    validate_setup_text(researcher, "authorization researcher", 128)?;
+
+    if acknowledge_authorization != "I_HAVE_EXPLICIT_AUTHORIZATION" {
+        bail!("guided target setup requires the exact explicit authorization acknowledgement");
+    }
+
+    let expires_at = canonical_setup_expiry(authorization_expires_at)?;
+
+    validate_setup_budget(max_requests_per_second, max_concurrency, max_total_requests)?;
+
+    let authorization_bytes = read_bounded_source(
+        authorization_document,
+        "authorization document",
+        MAX_AUTHORIZATION_BYTES,
+    )?;
+
+    let identity = SetupPreviewIdentity {
+        schema_version: 1,
+        status: "preview",
+        target_id: id.to_owned(),
+        name: name.to_owned(),
+        origin,
+        include_paths,
+        exclude_paths,
+        program: SetupProgram {
+            name: program_name.to_owned(),
+            platform: program_platform.to_owned(),
+            reference: program_reference,
+        },
+        authorization: SetupAuthorization {
+            reference: authorization_reference.to_owned(),
+            document_sha256: workspace::sha256(&authorization_bytes),
+            researcher: researcher.to_owned(),
+            basis: authorization_basis,
+            expires_at,
+            acknowledged: true,
+        },
+        automation: SetupAutomation {
+            allowed_methods: vec!["GET".to_owned(), "HEAD".to_owned(), "OPTIONS".to_owned()],
+            allow_subdomains,
+            active_testing: false,
+            oob_callbacks: false,
+            credential_bruteforce: false,
+            destructive_testing: false,
+            max_requests_per_second,
+            max_concurrency,
+            max_total_requests,
+        },
+        hard_denied_actions: vec![
+            "credential_bruteforce".to_owned(),
+            "destructive_testing".to_owned(),
+            "state_changing_http_methods".to_owned(),
+        ],
+        network_activity: "none",
+    };
+
+    let preview_sha256 = workspace::sha256(&serde_json::to_vec(&identity)?);
+
+    serde_json::to_value(SetupPreview {
+        identity,
+        preview_sha256,
+    })
+    .context("could not serialize guided target preview")
+}
+
+fn guided_origin(input: &str) -> Result<String> {
+    let parsed = Url::parse(input).context("guided target origin is not a valid URL")?;
+
+    if parsed.port().is_some_and(|port| port != 443) {
+        bail!("guided target setup supports only the exact HTTPS/443 origin boundary");
+    }
+
+    let canonical = canonical_origin(input)?;
+
+    let canonical_url =
+        Url::parse(&canonical).context("canonical guided target origin is invalid")?;
+
+    if canonical_url.port_or_known_default() != Some(443) {
+        bail!("guided target setup supports only the exact HTTPS/443 origin boundary");
+    }
+
+    Ok(canonical)
+}
+
+fn validate_setup_text(value: &str, field: &str, maximum_bytes: usize) -> Result<()> {
+    if value.is_empty()
+        || value.len() > maximum_bytes
+        || value.trim() != value
+        || value.chars().any(char::is_control)
+    {
+        bail!("{field} must be bounded printable text without edge whitespace");
+    }
+
+    Ok(())
+}
+
+fn validate_setup_platform(value: &str) -> Result<()> {
+    if value.is_empty()
+        || value.len() > 64
+        || !value.is_ascii()
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        bail!("program platform must be a bounded non-secret identifier");
+    }
+
+    Ok(())
+}
+
+fn canonical_setup_expiry(value: &str) -> Result<String> {
+    let parsed = chrono::DateTime::parse_from_rfc3339(value)
+        .context("authorization expiry is not valid RFC3339")?;
+
+    if parsed.offset().local_minus_utc() != 0 {
+        bail!("authorization expiry must use UTC");
+    }
+
+    let parsed = parsed.with_timezone(&Utc);
+
+    if parsed <= Utc::now() {
+        bail!("authorization expiry must be in the future");
+    }
+
+    Ok(parsed.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+}
+
+fn validate_setup_budget(
+    max_requests_per_second: f64,
+    max_concurrency: u16,
+    max_total_requests: u64,
+) -> Result<()> {
+    if !max_requests_per_second.is_finite()
+        || max_requests_per_second <= 0.0
+        || max_requests_per_second > 5.0
+    {
+        bail!("guided max_requests_per_second must be finite and between 0 and 5");
+    }
+
+    if !(1..=8).contains(&max_concurrency) {
+        bail!("guided max_concurrency must be between 1 and 8");
+    }
+
+    if !(1..=100_000).contains(&max_total_requests) {
+        bail!("guided max_total_requests must be between 1 and 100000");
+    }
+
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
