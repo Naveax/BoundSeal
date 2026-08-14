@@ -1,6 +1,8 @@
+mod activation;
 mod guided_policy;
 
-use guided_policy::compile_guided_policy;
+use activation::activate_value;
+use guided_policy::{compile_guided_policy, GuidedPolicyArtifact};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File},
@@ -31,6 +33,7 @@ const SHOW_EXIT_CODE: u8 = 52;
 const DISABLE_EXIT_CODE: u8 = 53;
 const VALIDATE_EXIT_CODE: u8 = 54;
 const SETUP_EXIT_CODE: u8 = 55;
+const ACTIVATE_EXIT_CODE: u8 = 56;
 const MAX_TARGET_PROFILES: usize = 1_024;
 const MAX_PATH_RULES: usize = 64;
 const MAX_PATH_BYTES: usize = 512;
@@ -73,6 +76,12 @@ const SETUP_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
     domain: "target",
     operation: "setup",
     text_prefix: "NXB-TARGET-55",
+};
+const ACTIVATE_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
+    code: "NXB153-TARGET-ACTIVATE-REJECTED",
+    domain: "target",
+    operation: "activate",
+    text_prefix: "NXB-TARGET-56",
 };
 
 #[derive(Debug, Args)]
@@ -123,6 +132,53 @@ enum TargetCommand {
         max_concurrency: u16,
         #[arg(long, default_value_t = 10)]
         max_total_requests: u64,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Activate one exact guided preview using the immutable target profile boundary.
+    Activate {
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        origin: String,
+        #[arg(long = "include-path")]
+        include_paths: Vec<String>,
+        #[arg(long = "exclude-path")]
+        exclude_paths: Vec<String>,
+        #[arg(long)]
+        program_name: String,
+        #[arg(long)]
+        program_platform: String,
+        #[arg(long)]
+        program_reference: Option<String>,
+        #[arg(long)]
+        authorization_reference: String,
+        #[arg(long)]
+        authorization_document: PathBuf,
+        #[arg(long)]
+        researcher: String,
+        #[arg(long, value_enum)]
+        authorization_basis: AuthorizationBasis,
+        #[arg(long)]
+        authorization_expires_at: String,
+        #[arg(long)]
+        acknowledge_authorization: String,
+        #[arg(long)]
+        allow_subdomains: bool,
+        #[arg(long, default_value_t = 1.0)]
+        max_requests_per_second: f64,
+        #[arg(long, default_value_t = 1)]
+        max_concurrency: u16,
+        #[arg(long, default_value_t = 10)]
+        max_total_requests: u64,
+        #[arg(long)]
+        confirm_preview_sha: String,
+        #[arg(long)]
+        acknowledge_activation: String,
         #[arg(long)]
         json: bool,
     },
@@ -323,7 +379,7 @@ pub(crate) fn run(args: TargetArgs) -> ExitCode {
             SETUP_EXIT_CODE,
             SETUP_DIAGNOSTIC,
             json,
-            setup_preview_value(
+            build_guided_setup(
                 &workspace,
                 &id,
                 &name,
@@ -343,6 +399,62 @@ pub(crate) fn run(args: TargetArgs) -> ExitCode {
                 max_requests_per_second,
                 max_concurrency,
                 max_total_requests,
+            )
+            .and_then(|build| {
+                serde_json::to_value(build.preview)
+                    .context("could not serialize guided target preview")
+            })
+            .and_then(|value| emit_value(&value, json)),
+        ),
+        TargetCommand::Activate {
+            workspace,
+            id,
+            name,
+            origin,
+            include_paths,
+            exclude_paths,
+            program_name,
+            program_platform,
+            program_reference,
+            authorization_reference,
+            authorization_document,
+            researcher,
+            authorization_basis,
+            authorization_expires_at,
+            acknowledge_authorization,
+            allow_subdomains,
+            max_requests_per_second,
+            max_concurrency,
+            max_total_requests,
+            confirm_preview_sha,
+            acknowledge_activation,
+            json,
+        } => (
+            ACTIVATE_EXIT_CODE,
+            ACTIVATE_DIAGNOSTIC,
+            json,
+            activate_value(
+                &workspace,
+                &id,
+                &name,
+                &origin,
+                include_paths,
+                exclude_paths,
+                &program_name,
+                &program_platform,
+                program_reference.as_deref(),
+                &authorization_reference,
+                &authorization_document,
+                &researcher,
+                authorization_basis,
+                &authorization_expires_at,
+                &acknowledge_authorization,
+                allow_subdomains,
+                max_requests_per_second,
+                max_concurrency,
+                max_total_requests,
+                &confirm_preview_sha,
+                &acknowledge_activation,
             )
             .and_then(|value| emit_value(&value, json)),
         ),
@@ -491,8 +603,14 @@ struct SetupPreview {
     preview_sha256: String,
 }
 
+struct GuidedSetupBuild {
+    preview: SetupPreview,
+    authorization_bytes: Vec<u8>,
+    policy: GuidedPolicyArtifact,
+}
+
 #[allow(clippy::too_many_arguments)]
-fn setup_preview_value(
+fn build_guided_setup(
     workspace_path: &Path,
     id: &str,
     name: &str,
@@ -512,7 +630,7 @@ fn setup_preview_value(
     max_requests_per_second: f64,
     max_concurrency: u16,
     max_total_requests: u64,
-) -> Result<Value> {
+) -> Result<GuidedSetupBuild> {
     let _root = ready_workspace(workspace_path)?;
 
     validate_target_id(id)?;
@@ -605,8 +723,8 @@ fn setup_preview_value(
         },
         policy: SetupPolicyBinding {
             schema_version: 1,
-            policy_snapshot_sha256: policy.snapshot_sha256,
-            policy_document_sha256: policy.document_sha256,
+            policy_snapshot_sha256: policy.snapshot_sha256.clone(),
+            policy_document_sha256: policy.document_sha256.clone(),
             compiled: true,
         },
         hard_denied_actions: vec![
@@ -619,11 +737,14 @@ fn setup_preview_value(
 
     let preview_sha256 = workspace::sha256(&serde_json::to_vec(&identity)?);
 
-    serde_json::to_value(SetupPreview {
-        identity,
-        preview_sha256,
+    Ok(GuidedSetupBuild {
+        preview: SetupPreview {
+            identity,
+            preview_sha256,
+        },
+        authorization_bytes,
+        policy,
     })
-    .context("could not serialize guided target preview")
 }
 
 fn guided_origin(input: &str) -> Result<String> {
@@ -725,24 +846,82 @@ fn create_value(
     policy_path: &Path,
 ) -> Result<Value> {
     let root = ready_workspace(workspace_path)?;
-    let targets = targets_directory(&root)?;
+    let _targets = targets_directory(&root)?;
+
     validate_target_id(id)?;
     validate_target_name(name)?;
     validate_safe_reference(authorization_reference, "authorization reference")?;
-    let origin = canonical_origin(origin)?;
-    let include_paths = canonical_paths(include_paths, true)?;
-    let exclude_paths = canonical_paths(exclude_paths, false)?;
-    validate_path_relationships(&include_paths, &exclude_paths)?;
+
+    let _ = canonical_origin(origin)?;
+
+    let canonical_includes = canonical_paths(include_paths.clone(), true)?;
+    let canonical_excludes = canonical_paths(exclude_paths.clone(), false)?;
+
+    validate_path_relationships(&canonical_includes, &canonical_excludes)?;
 
     let policy_bytes = read_bounded_source(policy_path, "target policy", MAX_POLICY_BYTES)?;
+
     let authorization_bytes = read_bounded_source(
         authorization_document,
         "authorization document",
         MAX_AUTHORIZATION_BYTES,
     )?;
-    let policy = parse_policy(&policy_bytes)?;
+
+    create_value_from_bytes(
+        workspace_path,
+        id,
+        name,
+        origin,
+        include_paths,
+        exclude_paths,
+        authorization_reference,
+        &authorization_bytes,
+        &policy_bytes,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create_value_from_bytes(
+    workspace_path: &Path,
+    id: &str,
+    name: &str,
+    origin: &str,
+    include_paths: Vec<String>,
+    exclude_paths: Vec<String>,
+    authorization_reference: &str,
+    authorization_bytes: &[u8],
+    policy_bytes: &[u8],
+) -> Result<Value> {
+    if policy_bytes.is_empty() || policy_bytes.len() as u64 > MAX_POLICY_BYTES {
+        bail!("target policy size is invalid");
+    }
+
+    if authorization_bytes.is_empty() || authorization_bytes.len() as u64 > MAX_AUTHORIZATION_BYTES
+    {
+        bail!("authorization document size is invalid");
+    }
+
+    let root = ready_workspace(workspace_path)?;
+    let targets = targets_directory(&root)?;
+
+    validate_target_id(id)?;
+    validate_target_name(name)?;
+
+    validate_safe_reference(authorization_reference, "authorization reference")?;
+
+    let origin = canonical_origin(origin)?;
+
+    let include_paths = canonical_paths(include_paths, true)?;
+
+    let exclude_paths = canonical_paths(exclude_paths, false)?;
+
+    validate_path_relationships(&include_paths, &exclude_paths)?;
+
+    let policy = parse_policy(policy_bytes)?;
     let compiled = policy.clone().compile(Utc::now())?;
+
     let program = program_metadata(&policy)?;
+
     let allowed_methods = validate_policy_binding(&compiled, &origin)?;
 
     let mut profile = TargetProfile {
@@ -756,21 +935,27 @@ fn create_value(
         program,
         authorization: AuthorizationBinding {
             reference: authorization_reference.to_owned(),
-            document_sha256: workspace::sha256(&authorization_bytes),
+            document_sha256: workspace::sha256(authorization_bytes),
         },
-        policy_sha256: workspace::sha256(&policy_bytes),
+        policy_sha256: workspace::sha256(policy_bytes),
         identity_sha256: String::new(),
         created_at: workspace::now(),
     };
+
     profile.identity_sha256 = profile_identity_sha256(&profile)?;
+
     validate_profile(&profile)?;
 
     let path = profile_path(&targets, id);
+
     if workspace::safe_exists(&disable_path(&targets, id))? {
         bail!("target disable receipt already exists without a creatable profile");
     }
+
     let bytes = canonical_json(&profile)?;
+
     workspace::create_document(&path, &bytes)?;
+
     serde_json::to_value(effective_target(profile, None))
         .context("could not serialize target profile")
 }

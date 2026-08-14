@@ -47,7 +47,10 @@ fn run_json(arguments: &[String]) -> Value {
 
 fn assert_activation_rejection(output: &Output) {
     assert_eq!(output.status.code(), Some(ACTIVATE_EXIT_CODE));
-    assert!(output.stdout.is_empty(), "failed JSON activation wrote stdout");
+    assert!(
+        output.stdout.is_empty(),
+        "failed JSON activation wrote stdout"
+    );
 
     let value: Value =
         serde_json::from_slice(&output.stderr).expect("failure stderr is not diagnostic JSON");
@@ -142,11 +145,7 @@ fn preview(root: &Path, authorization: &Path) -> Value {
     run_json(&guided_arguments("setup", root, authorization))
 }
 
-fn activation_arguments(
-    root: &Path,
-    authorization: &Path,
-    preview_sha256: &str,
-) -> Vec<String> {
+fn activation_arguments(root: &Path, authorization: &Path, preview_sha256: &str) -> Vec<String> {
     let mut arguments = guided_arguments("activate", root, authorization);
     let json_index = arguments
         .iter()
@@ -182,11 +181,7 @@ fn exact_preview_activation_creates_existing_profile_model_without_secret_persis
         .and_then(Value::as_str)
         .unwrap();
 
-    let activated = run_json(&activation_arguments(
-        &root,
-        &authorization,
-        preview_sha256,
-    ));
+    let activated = run_json(&activation_arguments(&root, &authorization, preview_sha256));
 
     assert_eq!(
         activated.get("status").and_then(Value::as_str),
@@ -242,7 +237,10 @@ fn exact_preview_activation_creates_existing_profile_model_without_secret_persis
         "--json".into(),
     ]);
     assert_eq!(shown.get("policy_sha256"), activated.get("policy_sha256"));
-    assert_eq!(shown.get("identity_sha256"), activated.get("identity_sha256"));
+    assert_eq!(
+        shown.get("identity_sha256"),
+        activated.get("identity_sha256")
+    );
 
     fs::remove_dir_all(root).unwrap();
 }

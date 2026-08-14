@@ -3,9 +3,7 @@ use std::path::Path;
 use anyhow::{bail, Result};
 use serde_json::Value;
 
-use super::{
-    build_guided_setup, create_value_from_bytes, workspace, AuthorizationBasis,
-};
+use super::{build_guided_setup, create_value_from_bytes, workspace, AuthorizationBasis};
 
 pub(super) const ACTIVATION_ACKNOWLEDGEMENT: &str = "I_CONFIRM_THIS_EXACT_PREVIEW";
 
@@ -65,7 +63,9 @@ pub(super) fn activate_value(
     )?;
 
     if build.preview.preview_sha256 != confirm_preview_sha256 {
-        bail!("guided target activation preview confirmation does not match current normalized input");
+        bail!(
+            "guided target activation preview confirmation does not match current normalized input"
+        );
     }
 
     let identity = &build.preview.identity;
@@ -84,9 +84,7 @@ pub(super) fn activate_value(
         build.policy.document.as_bytes(),
     )?;
 
-    if value.get("policy_sha256").and_then(Value::as_str)
-        != Some(expected_policy_sha256.as_str())
-    {
+    if value.get("policy_sha256").and_then(Value::as_str) != Some(expected_policy_sha256.as_str()) {
         bail!("activated target policy digest does not match the confirmed preview policy");
     }
 
