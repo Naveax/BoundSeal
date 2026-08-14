@@ -96,12 +96,11 @@ fn parse_command(arguments: &[String]) -> Result<Command, &'static str> {
     let target =
         target_name(&arguments[2], &arguments[4]).ok_or("windows_credential_cli_invalid")?;
 
-    if operation.mutates() {
-        if arguments.get(5).map(String::as_str) != Some("--confirm-target")
-            || arguments.get(6).map(String::as_str) != Some(target.as_str())
-        {
-            return Err("windows_credential_confirmation_required");
-        }
+    if operation.mutates()
+        && (arguments.get(5).map(String::as_str) != Some("--confirm-target")
+            || arguments.get(6).map(String::as_str) != Some(target.as_str()))
+    {
+        return Err("windows_credential_confirmation_required");
     }
 
     Ok(Command { operation, target })

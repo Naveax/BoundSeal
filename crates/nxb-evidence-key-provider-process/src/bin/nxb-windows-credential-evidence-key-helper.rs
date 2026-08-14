@@ -12,7 +12,7 @@ use nxb_vault_provider_process::{
 };
 use zeroize::Zeroizing;
 
-#[path = "nxb-windows-credential-evidence-key-helper-lifecycle.rs"]
+#[path = "nxb-windows-credential-evidence-key-helper/lifecycle.rs"]
 mod lifecycle;
 
 const PROVIDER_ID: &str = "nxb-windows-credential-evidence-key";
