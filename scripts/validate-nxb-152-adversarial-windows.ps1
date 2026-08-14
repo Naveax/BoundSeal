@@ -55,18 +55,26 @@ function Assert-PowerShellScriptParses {
     }
 }
 
-function Get-CargoSubcommandVersion {
+function Get-PinnedToolVersion {
     param(
-        [Parameter(Mandatory = $true)][ValidateSet('audit','deny')][string]$Subcommand
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
     )
 
-    $output = (& cargo $Subcommand --version | Out-String).Trim()
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw ('{0} is unavailable at {1}' -f $Label, $Path)
+    }
+
+    $output = (& $Path --version | Out-String).Trim()
+
     if ($LASTEXITCODE -ne 0) {
-        throw ('cargo {0} --version failed' -f $Subcommand)
+        throw ('{0} --version failed' -f $Label)
     }
+
     if ([string]::IsNullOrWhiteSpace($output)) {
-        throw ('cargo {0} --version returned no output' -f $Subcommand)
+        throw ('{0} --version returned no output' -f $Label)
     }
+
     return $output
 }
 
@@ -155,8 +163,38 @@ try {
         throw ('Expected rustc {0}, found {1}' -f $expectedRust, $rustc)
     }
 
-    $cargoAudit = Get-CargoSubcommandVersion 'audit'
-    $cargoDeny = Get-CargoSubcommandVersion 'deny'
+    Write-Host ''
+    Write-Host '=== PINNED SUPPLY-CHAIN TOOL PREPARATION ==='
+
+    $prepareScript =
+        Join-Path $RepoRoot 'scripts\prepare-and-validate-nxb-150-windows.ps1'
+
+    if (-not (Test-Path -LiteralPath $prepareScript -PathType Leaf)) {
+        throw 'Canonical NXB-150 Windows preparation script is missing.'
+    }
+
+    & $prepareScript `
+        -RepoRoot $RepoRoot `
+        -PrepareOnly
+
+    $toolsBin =
+        Join-Path $RepoRoot 'target\nxb-tools\bin'
+
+    $auditPath =
+        Join-Path $toolsBin 'cargo-audit.exe'
+
+    $denyPath =
+        Join-Path $toolsBin 'cargo-deny.exe'
+
+    $cargoAudit =
+        Get-PinnedToolVersion `
+            -Path $auditPath `
+            -Label 'cargo-audit'
+
+    $cargoDeny =
+        Get-PinnedToolVersion `
+            -Path $denyPath `
+            -Label 'cargo-deny'
     if ($cargoAudit -notmatch ('(^|\s){0}(\s|$)' -f [regex]::Escape($expectedCargoAudit))) {
         throw ('Expected cargo-audit {0}, found {1}' -f $expectedCargoAudit, $cargoAudit)
     }
@@ -317,11 +355,11 @@ try {
     }
 
     Invoke-CheckedNative 'RUSTSEC AUDIT' {
-        & cargo audit
+        & $auditPath audit
     }
 
     Invoke-CheckedNative 'CARGO DENY' {
-        & cargo deny check
+        & $denyPath check
     }
 
     $finalHead = (git rev-parse HEAD).Trim()
