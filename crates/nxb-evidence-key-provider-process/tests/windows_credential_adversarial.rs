@@ -4,7 +4,7 @@
 use std::{
     ffi::c_void,
     io::Write,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Command, Output, Stdio},
     ptr,
     sync::atomic::{AtomicU64, Ordering},
@@ -427,8 +427,4 @@ fn lower_hex(bytes: &[u8]) -> String {
         output.push(HEX[(byte & 0x0f) as usize] as char);
     }
     output
-}
-
-fn _assert_absolute(path: &Path) {
-    assert!(path.is_absolute());
 }
