@@ -15,9 +15,9 @@ use zeroize::Zeroizing;
 #[path = "nxb-windows-credential-evidence-key-helper/lifecycle.rs"]
 mod lifecycle;
 
-const PROVIDER_ID: &str = "nxb-windows-credential-evidence-key";
-const CAPABILITY_V1: &[u8] = b"nxb152-windows-credential-manager-evidence-key-fetch-v1";
-const TARGET_PREFIX: &str = "Naveax_NXBounty_EvidenceKey::";
+const PROVIDER_ID: &str = nxb_evidence_key_provider_process::WINDOWS_CREDENTIAL_PROVIDER_ID;
+const CAPABILITY_V1: &[u8] = nxb_evidence_key_provider_process::WINDOWS_CREDENTIAL_CAPABILITY_V1;
+const TARGET_PREFIX: &str = nxb_evidence_key_provider_process::WINDOWS_CREDENTIAL_TARGET_PREFIX;
 const VERSION_COMMENT_PREFIX: &str = "NXB_EVIDENCE_KEY_VERSION:";
 const SYNTHETIC_AUTHORITY: &str = "evidence-key-provider.invalid";
 const ADAPTER_WORKER_ID: &str = "evidence-key-process";

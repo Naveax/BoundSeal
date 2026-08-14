@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::{fmt, time::Duration};
+use std::{fmt, path::Path, time::Duration};
 
 use nxb_evidence_key_provider::{
     EvidenceKeyProvider, EvidenceKeyProviderIdentity, ProviderFailure as EvidenceProviderFailure,
@@ -26,6 +26,13 @@ use zeroize::Zeroize;
 pub const PROCESS_EVIDENCE_KEY_ADAPTER_VERSION: u32 = 1;
 pub const PROCESS_EVIDENCE_KEY_BACKEND_KIND: &str = "pinned-process";
 pub const MAX_PROCESS_EVIDENCE_KEY_HANDLE_BYTES: usize = 512;
+
+pub const WINDOWS_CREDENTIAL_HELPER_FILE_NAME: &str =
+    "nxb-windows-credential-evidence-key-helper.exe";
+pub const WINDOWS_CREDENTIAL_PROVIDER_ID: &str = "nxb-windows-credential-evidence-key";
+pub const WINDOWS_CREDENTIAL_CAPABILITY_V1: &[u8] =
+    b"nxb152-windows-credential-manager-evidence-key-fetch-v1";
+pub const WINDOWS_CREDENTIAL_TARGET_PREFIX: &str = "Naveax_NXBounty_EvidenceKey::";
 
 const SYNTHETIC_AUTHORITY: &str = "evidence-key-provider.invalid";
 const SYNTHETIC_ORIGIN: &[u8] = b"https://evidence-key-provider.invalid:443";
@@ -71,6 +78,60 @@ impl ProcessEvidenceKeyProviderConfig {
             capability_sha256: sha256_hex(&bytes),
         })
     }
+}
+
+pub fn bundled_windows_credential_config(
+    install_root: &Path,
+    helper_sha256: &str,
+    store_id: &str,
+    key_id: &str,
+    required_version_sha256: Option<String>,
+    session_expires_at_epoch_seconds: i64,
+    operation_timeout: Duration,
+) -> Result<ProcessEvidenceKeyProviderConfig, ProcessEvidenceKeyProviderError> {
+    if !install_root.is_absolute() {
+        return Err(ProcessEvidenceKeyProviderError::InvalidConfiguration(
+            "install_root",
+        ));
+    }
+    if !valid_sha256(helper_sha256) {
+        return Err(ProcessEvidenceKeyProviderError::InvalidConfiguration(
+            "helper_sha256",
+        ));
+    }
+    if !valid_identifier(store_id) {
+        return Err(ProcessEvidenceKeyProviderError::InvalidConfiguration(
+            "store_id",
+        ));
+    }
+    if !valid_identifier(key_id) {
+        return Err(ProcessEvidenceKeyProviderError::InvalidConfiguration(
+            "key_id",
+        ));
+    }
+
+    let provider_handle = format!("{WINDOWS_CREDENTIAL_TARGET_PREFIX}{store_id}::{key_id}");
+
+    let config = ProcessEvidenceKeyProviderConfig {
+        process: ProcessVaultProviderConfig {
+            executable: install_root.join(WINDOWS_CREDENTIAL_HELPER_FILE_NAME),
+            executable_sha256: helper_sha256.to_owned(),
+            expected_identity: ProviderIdentity {
+                provider_id: WINDOWS_CREDENTIAL_PROVIDER_ID.into(),
+                provider_instance_sha256: helper_sha256.to_owned(),
+                capability_sha256: sha256_hex(WINDOWS_CREDENTIAL_CAPABILITY_V1),
+            },
+            operation_timeout,
+        },
+        store_id: store_id.to_owned(),
+        key_id: key_id.to_owned(),
+        provider_handle,
+        required_version_sha256,
+        session_expires_at_epoch_seconds,
+    };
+
+    config.evidence_identity()?;
+    Ok(config)
 }
 
 impl fmt::Debug for ProcessEvidenceKeyProviderConfig {
