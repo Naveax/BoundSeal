@@ -1,15 +1,31 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:NxbInstallerSchemaVersion = 2
+$script:NxbInstallerSchemaVersion = 3
+$script:NxbLegacyInstallerSchemaVersion = 2
+$script:NxbBundledHelperFileName =
+    'nxb-windows-credential-evidence-key-helper.exe'
+
 $script:NxbPackageFileNames = @(
     'nxb.exe',
+    $script:NxbBundledHelperFileName,
     'nxb.cdx.json',
     'SHA256SUMS',
     'nxb-release-manifest.json',
     'release-public-key.hex'
 )
+
 $script:NxbInstalledFileNames = @(
+    'nxb.exe',
+    $script:NxbBundledHelperFileName,
+    'nxb.cdx.json',
+    'SHA256SUMS',
+    'nxb-release-manifest.json',
+    'release-public-key.hex',
+    'install-state.json'
+)
+
+$script:NxbLegacyInstalledFileNames = @(
     'nxb.exe',
     'nxb.cdx.json',
     'SHA256SUMS',
@@ -221,12 +237,14 @@ function Get-NxbPackagePaths {
     $paths = [pscustomobject]@{
         Root = $root
         Binary = Join-Path $root 'nxb.exe'
+        Helper = Join-Path $root $script:NxbBundledHelperFileName
         Sbom = Join-Path $root 'nxb.cdx.json'
         Checksums = Join-Path $root 'SHA256SUMS'
         Manifest = Join-Path $root 'nxb-release-manifest.json'
         PublicKey = Join-Path $root 'release-public-key.hex'
     }
     Assert-NxbRegularFile $paths.Binary 'candidate nxb.exe'
+    Assert-NxbRegularFile $paths.Helper 'candidate bundled credential helper'
     Assert-NxbRegularFile $paths.Sbom 'candidate CycloneDX SBOM' 33554432
     Assert-NxbRegularFile $paths.Checksums 'candidate checksum manifest' 1048576
     Assert-NxbRegularFile $paths.Manifest 'candidate signed release manifest' 65536
@@ -246,6 +264,103 @@ function Normalize-NxbHex {
         throw "$Label must contain exactly $Length hexadecimal characters."
     }
     return $normalized
+}
+
+function Get-NxbChecksumSha256 {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ChecksumsPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$FileName,
+
+        [switch]$AllowMissing
+    )
+
+    Assert-NxbRegularFile `
+        $ChecksumsPath `
+        'checksum manifest' `
+        1048576
+
+    $text = [IO.File]::ReadAllText($ChecksumsPath)
+
+    if ([string]::IsNullOrEmpty($text) -or
+        -not $text.EndsWith("`n") -or
+        $text.Contains("`r") -or
+        $text.Contains([string][char]0)) {
+        throw 'Checksum manifest is not canonical LF-terminated text.'
+    }
+
+    $body = $text.Substring(0, $text.Length - 1)
+
+    if ([string]::IsNullOrEmpty($body)) {
+        throw 'Checksum manifest is empty.'
+    }
+
+    $entries =
+        [Collections.Generic.Dictionary[string,string]]::new(
+            [StringComparer]::Ordinal
+        )
+
+    foreach ($line in $body.Split("`n")) {
+        $match = [regex]::Match(
+            $line,
+            '^([0-9a-f]{64})  ([A-Za-z0-9._-]+)$'
+        )
+
+        if (-not $match.Success) {
+            throw 'Checksum manifest contains an invalid canonical line.'
+        }
+
+        $sha256 = $match.Groups[1].Value
+        $name = $match.Groups[2].Value
+
+        if ($entries.ContainsKey($name)) {
+            throw "Checksum manifest contains duplicate file name: $name"
+        }
+
+        $entries.Add($name, $sha256)
+    }
+
+    if (-not $entries.ContainsKey($FileName)) {
+        if ($AllowMissing) {
+            return $null
+        }
+
+        throw "Checksum manifest does not bind required file: $FileName"
+    }
+
+    return $entries[$FileName]
+}
+
+function Assert-NxbBundledHelperBinding {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$HelperPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ChecksumsPath
+    )
+
+    Assert-NxbRegularFile `
+        $HelperPath `
+        'bundled credential helper'
+
+    $expected = Get-NxbChecksumSha256 `
+        $ChecksumsPath `
+        $script:NxbBundledHelperFileName
+
+    $actual = (
+        Get-FileHash `
+            -LiteralPath $HelperPath `
+            -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
+
+    if ($actual -ne $expected) {
+        throw 'Bundled credential helper does not match the signed checksum manifest.'
+    }
+
+    return $actual
 }
 
 function Assert-NxbReleaseSequence {
@@ -512,9 +627,11 @@ function Get-NxbInstalledPaths {
     param([Parameter(Mandatory = $true)][string]$InstallRoot)
 
     $root = Get-NxbCanonicalPath $InstallRoot
+
     return [pscustomobject]@{
         Root = $root
         Binary = Join-Path $root 'nxb.exe'
+        Helper = Join-Path $root $script:NxbBundledHelperFileName
         Sbom = Join-Path $root 'nxb.cdx.json'
         Checksums = Join-Path $root 'SHA256SUMS'
         Manifest = Join-Path $root 'nxb-release-manifest.json'
@@ -525,79 +642,279 @@ function Get-NxbInstalledPaths {
 
 function Assert-NxbInstalledRoot {
     param(
-        [Parameter(Mandatory = $true)][string]$InstallRoot,
-        [Parameter(Mandatory = $true)][string]$ExpectedPublisherThumbprint,
-        [Parameter(Mandatory = $true)][string]$ExpectedReleasePublicKeySha256,
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedPublisherThumbprint,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedReleasePublicKeySha256,
+
         [string]$ExpectedStateInstallRoot = ''
     )
 
     $paths = Get-NxbInstalledPaths $InstallRoot
-    $paths.Root = Assert-NxbManagedRoot $paths.Root 'installed NXBounty root'
-    $expectedStateInstallRoot = if ([string]::IsNullOrWhiteSpace($ExpectedStateInstallRoot)) {
-        $paths.Root
-    } else {
-        Assert-NxbManagedRoot `
-            $ExpectedStateInstallRoot `
-            'expected installed-state root'
+    $paths.Root = Assert-NxbManagedRoot `
+        $paths.Root `
+        'installed NXBounty root'
+
+    $expectedStateInstallRoot =
+        if ([string]::IsNullOrWhiteSpace(
+            $ExpectedStateInstallRoot
+        )) {
+            $paths.Root
+        }
+        else {
+            Assert-NxbManagedRoot `
+                $ExpectedStateInstallRoot `
+                'expected installed-state root'
+        }
+
+    #
+    # Before executing nxb.exe, permit only one of the two known
+    # revision layouts. This blocks arbitrary extra local binaries/DLLs
+    # before the signed verifier process is started.
+    #
+
+    $physicalHelperPresent =
+        Test-Path `
+            -LiteralPath $paths.Helper `
+            -PathType Leaf
+
+    $physicalExpectedNames =
+        if ($physicalHelperPresent) {
+            $script:NxbInstalledFileNames
+        }
+        else {
+            $script:NxbLegacyInstalledFileNames
+        }
+
+    Assert-NxbExactDirectoryEntries `
+        $paths.Root `
+        $physicalExpectedNames `
+        'installed NXBounty root'
+
+    foreach ($name in @(
+        'Binary',
+        'Sbom',
+        'Checksums',
+        'Manifest',
+        'PublicKey',
+        'State'
+    )) {
+        Assert-NxbRegularFile `
+            $paths.$name `
+            "installed $name"
     }
-    Assert-NxbExactDirectoryEntries $paths.Root $script:NxbInstalledFileNames 'installed NXBounty root'
-    foreach ($name in @('Binary', 'Sbom', 'Checksums', 'Manifest', 'PublicKey', 'State')) {
-        Assert-NxbRegularFile $paths.$name "installed $name"
+
+    if ($physicalHelperPresent) {
+        Assert-NxbRegularFile `
+            $paths.Helper `
+            'installed bundled credential helper'
     }
-    [void](Assert-NxbAuthenticode $paths.Binary $ExpectedPublisherThumbprint)
-    [void](Assert-NxbReleasePublicKey $paths.PublicKey $ExpectedReleasePublicKeySha256)
+
+    [void](
+        Assert-NxbAuthenticode `
+            $paths.Binary `
+            $ExpectedPublisherThumbprint
+    )
+
+    [void](
+        Assert-NxbReleasePublicKey `
+            $paths.PublicKey `
+            $ExpectedReleasePublicKeySha256
+    )
+
+    #
+    # The verifier authenticates the SHA256SUMS artifact through the
+    # signed manifest before the helper entry is trusted.
+    #
+
     $verification = Invoke-NxbReleaseVerification `
-        $paths.Binary $paths.Manifest $paths.PublicKey $paths.Sbom $paths.Checksums
-    $state = [IO.File]::ReadAllText($paths.State) | ConvertFrom-Json
-    if ($state.schema_version -ne $script:NxbInstallerSchemaVersion -or
+        $paths.Binary `
+        $paths.Manifest `
+        $paths.PublicKey `
+        $paths.Sbom `
+        $paths.Checksums
+
+    $signedHelperSha256 = Get-NxbChecksumSha256 `
+        $paths.Checksums `
+        $script:NxbBundledHelperFileName `
+        -AllowMissing
+
+    if ($physicalHelperPresent -and
+        [string]::IsNullOrWhiteSpace($signedHelperSha256)) {
+        throw 'Installed helper exists but the signed checksum manifest does not bind it.'
+    }
+
+    if (-not $physicalHelperPresent -and
+        -not [string]::IsNullOrWhiteSpace($signedHelperSha256)) {
+        throw 'Signed checksum manifest requires a bundled helper that is missing.'
+    }
+
+    $expectedSchemaVersion =
+        if ($physicalHelperPresent) {
+            $script:NxbInstallerSchemaVersion
+        }
+        else {
+            $script:NxbLegacyInstallerSchemaVersion
+        }
+
+    $helperSha256 =
+        if ($physicalHelperPresent) {
+            Assert-NxbBundledHelperBinding `
+                $paths.Helper `
+                $paths.Checksums
+        }
+        else {
+            $null
+        }
+
+    $state =
+        [IO.File]::ReadAllText(
+            $paths.State
+        ) |
+        ConvertFrom-Json
+
+    $helperStateProperty =
+        $state.PSObject.Properties['helper_sha256']
+
+    $stateHelperSha256 =
+        if ($null -eq $helperStateProperty) {
+            ''
+        }
+        else {
+            [string]$state.helper_sha256
+        }
+
+    $helperStateMatches =
+        if ($physicalHelperPresent) {
+            $stateHelperSha256 -eq $helperSha256
+        }
+        else {
+            [string]::IsNullOrWhiteSpace(
+                $stateHelperSha256
+            )
+        }
+
+    if ($state.schema_version -ne $expectedSchemaVersion -or
         $state.product -ne 'NXBounty' -or
         $state.install_root -ne $expectedStateInstallRoot -or
         $state.manifest_sha256 -ne $verification.manifest_sha256 -or
         $state.source_commit -ne $verification.source_commit -or
         $state.version -ne $verification.version -or
-        [uint64]$state.release_sequence -ne [uint64]$verification.release_sequence) {
+        [uint64]$state.release_sequence -ne
+            [uint64]$verification.release_sequence -or
+        -not $helperStateMatches) {
+
         $diagnostic = [ordered]@{
-            schema_match = ($state.schema_version -eq $script:NxbInstallerSchemaVersion)
-            state_schema = [string]$state.schema_version
-            expected_schema = [string]$script:NxbInstallerSchemaVersion
+            schema_match = (
+                $state.schema_version -eq
+                $expectedSchemaVersion
+            )
+            state_schema =
+                [string]$state.schema_version
+            expected_schema =
+                [string]$expectedSchemaVersion
 
-            product_match = ($state.product -eq 'NXBounty')
-            state_product = [string]$state.product
-            expected_product = 'NXBounty'
+            product_match =
+                ($state.product -eq 'NXBounty')
+            state_product =
+                [string]$state.product
+            expected_product =
+                'NXBounty'
 
-            install_root_match = ($state.install_root -eq $expectedStateInstallRoot)
-            state_install_root = [string]$state.install_root
-            expected_install_root = [string]$expectedStateInstallRoot
+            install_root_match = (
+                $state.install_root -eq
+                $expectedStateInstallRoot
+            )
+            state_install_root =
+                [string]$state.install_root
+            expected_install_root =
+                [string]$expectedStateInstallRoot
 
-            manifest_sha256_match = ($state.manifest_sha256 -eq $verification.manifest_sha256)
-            state_manifest_sha256 = [string]$state.manifest_sha256
-            expected_manifest_sha256 = [string]$verification.manifest_sha256
+            manifest_sha256_match = (
+                $state.manifest_sha256 -eq
+                $verification.manifest_sha256
+            )
+            state_manifest_sha256 =
+                [string]$state.manifest_sha256
+            expected_manifest_sha256 =
+                [string]$verification.manifest_sha256
 
-            source_commit_match = ($state.source_commit -eq $verification.source_commit)
-            state_source_commit = [string]$state.source_commit
-            expected_source_commit = [string]$verification.source_commit
+            source_commit_match = (
+                $state.source_commit -eq
+                $verification.source_commit
+            )
+            state_source_commit =
+                [string]$state.source_commit
+            expected_source_commit =
+                [string]$verification.source_commit
 
-            version_match = ($state.version -eq $verification.version)
-            state_version = [string]$state.version
-            expected_version = [string]$verification.version
+            version_match = (
+                $state.version -eq
+                $verification.version
+            )
+            state_version =
+                [string]$state.version
+            expected_version =
+                [string]$verification.version
 
             release_sequence_match = (
                 [uint64]$state.release_sequence -eq
                 [uint64]$verification.release_sequence
             )
-            state_release_sequence = [string]$state.release_sequence
-            expected_release_sequence = [string]$verification.release_sequence
+            state_release_sequence =
+                [string]$state.release_sequence
+            expected_release_sequence =
+                [string]$verification.release_sequence
+
+            helper_layout =
+                if ($physicalHelperPresent) {
+                    'bundled'
+                }
+                else {
+                    'legacy'
+                }
+
+            helper_state_match =
+                $helperStateMatches
+
+            state_helper_sha256 =
+                $stateHelperSha256
+
+            expected_helper_sha256 =
+                if ($null -eq $helperSha256) {
+                    ''
+                }
+                else {
+                    $helperSha256
+                }
         }
 
         throw (
             'Installed state does not match the verified release package. diagnostic=' +
-            ($diagnostic | ConvertTo-Json -Depth 4 -Compress)
+            (
+                $diagnostic |
+                ConvertTo-Json `
+                    -Depth 4 `
+                    -Compress
+            )
         )
     }
-    [void](Assert-NxbReleaseSequence $state.release_sequence 'installed release sequence')
+
+    [void](
+        Assert-NxbReleaseSequence `
+            $state.release_sequence `
+            'installed release sequence'
+    )
+
     return [pscustomobject]@{
         Paths = $paths
         State = $state
         Verification = $verification
+        HelperSha256 = $helperSha256
+        BundledHelper = $physicalHelperPresent
     }
 }
