@@ -149,7 +149,8 @@ fn run() -> Result<(), HelperError> {
                     continue;
                 }
 
-                let Some(expected_target) = target_name(&session.store_id, &request.logical_id) else {
+                let Some(expected_target) = target_name(&session.store_id, &request.logical_id)
+                else {
                     write_failure(&mut writer, sequence, "windows_credential_request_invalid")?;
                     continue;
                 };
@@ -394,7 +395,10 @@ mod wincred {
         Ok(CredentialRecord { version_id, value })
     }
 
-    fn read_wide_bounded(pointer: *const u16, maximum_units: usize) -> Result<String, WinCredError> {
+    fn read_wide_bounded(
+        pointer: *const u16,
+        maximum_units: usize,
+    ) -> Result<String, WinCredError> {
         if pointer.is_null() {
             return Err(WinCredError::InvalidRecord);
         }
