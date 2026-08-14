@@ -83,7 +83,11 @@ fn lifecycle_mutation_arguments(operation: &str, store_id: &str, key_id: &str) -
 
 fn lifecycle_json(arguments: &[String]) -> Value {
     let output = helper_output(arguments);
-    assert!(output.status.success(), "stderr={}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(output.stderr.is_empty());
     serde_json::from_slice(&output.stdout).expect("lifecycle json")
 }
@@ -326,7 +330,10 @@ fn lifecycle_failures_are_exact_and_metadata_remains_non_secret() {
 
 #[test]
 fn malformed_and_truncated_protocol_inputs_fail_without_output() {
-    for bytes in [b"NXB1".as_slice(), b"BAD!\0\0\0\0\0\0\0\0".as_slice()] {
+    for bytes in [
+        b"NXB1".as_slice(),
+        b"BAD!\0\0\0\0\0\0\0\0".as_slice(),
+    ] {
         let mut child = Command::new(helper_executable())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -347,12 +354,14 @@ fn malformed_and_truncated_protocol_inputs_fail_without_output() {
     }
 }
 
+#[allow(dead_code)]
 #[repr(C)]
 struct FileTime {
     low_date_time: u32,
     high_date_time: u32,
 }
 
+#[allow(dead_code)]
 #[repr(C)]
 struct CredentialW {
     flags: u32,
@@ -380,7 +389,8 @@ unsafe extern "system" {
 
 fn write_corrupt_credential(target: &str) {
     let mut wide_target = wide_nul(target);
-    let mut wide_comment = wide_nul("NXB_EVIDENCE_KEY_VERSION:v1-00000000000000000000000000000000");
+    let mut wide_comment =
+        wide_nul("NXB_EVIDENCE_KEY_VERSION:v1-00000000000000000000000000000000");
     let mut non_secret_corrupt_sentinel = [0xa5_u8; 31];
     let credential = CredentialW {
         flags: 0,
