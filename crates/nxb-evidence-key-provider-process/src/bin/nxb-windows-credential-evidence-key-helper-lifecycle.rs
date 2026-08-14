@@ -93,8 +93,8 @@ fn parse_command(arguments: &[String]) -> Result<Command, &'static str> {
         return Err("windows_credential_cli_invalid");
     }
 
-    let target = target_name(&arguments[2], &arguments[4])
-        .ok_or("windows_credential_cli_invalid")?;
+    let target =
+        target_name(&arguments[2], &arguments[4]).ok_or("windows_credential_cli_invalid")?;
 
     if operation.mutates() {
         if arguments.get(5).map(String::as_str) != Some("--confirm-target")
@@ -124,8 +124,7 @@ fn create(command: &Command) -> Result<(), &'static str> {
     }
 
     let (version_id, key) = new_material()?;
-    native::write_evidence_key(&command.target, &version_id, &key)
-        .map_err(native_error_code)?;
+    native::write_evidence_key(&command.target, &version_id, &key).map_err(native_error_code)?;
     drop(key);
 
     let stored = native::read_metadata(&command.target).map_err(native_error_code)?;
@@ -147,8 +146,7 @@ fn rotate(command: &Command) -> Result<(), &'static str> {
     native::read_metadata(&command.target).map_err(native_error_code)?;
 
     let (version_id, key) = new_material()?;
-    native::write_evidence_key(&command.target, &version_id, &key)
-        .map_err(native_error_code)?;
+    native::write_evidence_key(&command.target, &version_id, &key).map_err(native_error_code)?;
     drop(key);
 
     let stored = native::read_metadata(&command.target).map_err(native_error_code)?;
@@ -220,8 +218,7 @@ fn new_material() -> Result<(String, Zeroizing<Vec<u8>>), &'static str> {
 fn emit(output: LifecycleOutput<'_>) -> Result<(), &'static str> {
     let stdout = io::stdout();
     let mut writer = io::BufWriter::new(stdout.lock());
-    serde_json::to_writer(&mut writer, &output)
-        .map_err(|_| "windows_credential_output_failure")?;
+    serde_json::to_writer(&mut writer, &output).map_err(|_| "windows_credential_output_failure")?;
     writer
         .write_all(b"\n")
         .and_then(|_| writer.flush())
