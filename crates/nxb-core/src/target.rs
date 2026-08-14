@@ -1,3 +1,6 @@
+mod guided_policy;
+
+use guided_policy::compile_guided_policy;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File},
@@ -457,6 +460,14 @@ struct SetupAutomation {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct SetupPolicyBinding {
+    schema_version: u32,
+    policy_snapshot_sha256: String,
+    policy_document_sha256: String,
+    compiled: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct SetupPreviewIdentity {
     schema_version: u32,
     status: &'static str,
@@ -468,6 +479,7 @@ struct SetupPreviewIdentity {
     program: SetupProgram,
     authorization: SetupAuthorization,
     automation: SetupAutomation,
+    policy: SetupPolicyBinding,
     hard_denied_actions: Vec<String>,
     network_activity: &'static str,
 }
@@ -544,6 +556,21 @@ fn setup_preview_value(
         MAX_AUTHORIZATION_BYTES,
     )?;
 
+    let authorization_document_sha256 = workspace::sha256(&authorization_bytes);
+
+    let policy = compile_guided_policy(
+        &origin,
+        program_name,
+        program_platform,
+        program_reference.as_deref(),
+        researcher,
+        &expires_at,
+        allow_subdomains,
+        max_requests_per_second,
+        max_concurrency,
+        max_total_requests,
+    )?;
+
     let identity = SetupPreviewIdentity {
         schema_version: 1,
         status: "preview",
@@ -559,22 +586,28 @@ fn setup_preview_value(
         },
         authorization: SetupAuthorization {
             reference: authorization_reference.to_owned(),
-            document_sha256: workspace::sha256(&authorization_bytes),
+            document_sha256: authorization_document_sha256,
             researcher: researcher.to_owned(),
             basis: authorization_basis,
             expires_at,
             acknowledged: true,
         },
         automation: SetupAutomation {
-            allowed_methods: vec!["GET".to_owned(), "HEAD".to_owned(), "OPTIONS".to_owned()],
+            allowed_methods: policy.allowed_methods.clone(),
             allow_subdomains,
-            active_testing: false,
-            oob_callbacks: false,
+            active_testing: policy.compiled.active_testing_enabled(),
+            oob_callbacks: policy.compiled.oob_callbacks_enabled(),
             credential_bruteforce: false,
             destructive_testing: false,
-            max_requests_per_second,
-            max_concurrency,
-            max_total_requests,
+            max_requests_per_second: policy.compiled.maximum_requests_per_second(),
+            max_concurrency: policy.compiled.maximum_concurrency(),
+            max_total_requests: policy.compiled.maximum_total_requests(),
+        },
+        policy: SetupPolicyBinding {
+            schema_version: 1,
+            policy_snapshot_sha256: policy.snapshot_sha256,
+            policy_document_sha256: policy.document_sha256,
+            compiled: true,
         },
         hard_denied_actions: vec![
             "credential_bruteforce".to_owned(),
@@ -628,6 +661,7 @@ fn validate_setup_platform(value: &str) -> Result<()> {
     if value.is_empty()
         || value.len() > 64
         || !value.is_ascii()
+        || value.to_ascii_lowercase() != value
         || !value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))

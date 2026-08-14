@@ -195,6 +195,43 @@ fn preview_is_deterministic_networkless_and_non_persistent() {
 
     assert_eq!(
         first
+            .pointer("/policy/schema_version")
+            .and_then(Value::as_u64),
+        Some(1)
+    );
+
+    assert_eq!(
+        first.pointer("/policy/compiled").and_then(Value::as_bool),
+        Some(true)
+    );
+
+    assert_eq!(
+        first
+            .pointer("/policy/policy_snapshot_sha256")
+            .and_then(Value::as_str)
+            .map(str::len),
+        Some(64)
+    );
+
+    assert_eq!(
+        first
+            .pointer("/policy/policy_document_sha256")
+            .and_then(Value::as_str)
+            .map(str::len),
+        Some(64)
+    );
+
+    assert_ne!(
+        first
+            .pointer("/policy/policy_snapshot_sha256")
+            .and_then(Value::as_str),
+        first
+            .pointer("/policy/policy_document_sha256")
+            .and_then(Value::as_str)
+    );
+
+    assert_eq!(
+        first
             .pointer("/automation/credential_bruteforce")
             .and_then(Value::as_bool),
         Some(false)
@@ -237,6 +274,7 @@ fn preview_rejects_unsafe_or_unauthorized_input_without_mutation() {
         ("--origin", "http://example.org"),
         ("--authorization-expires-at", "2000-01-01T00:00:00Z"),
         ("--acknowledge-authorization", "yes"),
+        ("--program-platform", "HackerOne"),
         ("--max-requests-per-second", "6"),
         ("--max-concurrency", "9"),
         ("--max-total-requests", "100001"),
@@ -259,6 +297,75 @@ fn preview_rejects_unsafe_or_unauthorized_input_without_mutation() {
 
         assert_eq!(fs::read_dir(&targets).unwrap().count(), 0);
     }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn preview_policy_compiler_binds_budget_changes() {
+    let root = temporary_workspace("policy-compiler");
+
+    initialize(&root);
+
+    let authorization = authorization_document(&root);
+    let root_text = root.to_str().unwrap();
+    let authorization_text = authorization.to_str().unwrap();
+
+    let baseline_arguments = setup_arguments(root_text, authorization_text);
+
+    let baseline = run_json(&baseline_arguments);
+
+    let mut changed_arguments = setup_arguments(root_text, authorization_text);
+
+    let index = changed_arguments
+        .iter()
+        .position(|value| *value == "--max-total-requests")
+        .unwrap();
+
+    changed_arguments[index + 1] = "11";
+
+    let changed = run_json(&changed_arguments);
+
+    assert_ne!(
+        baseline.get("preview_sha256").and_then(Value::as_str),
+        changed.get("preview_sha256").and_then(Value::as_str)
+    );
+
+    assert_ne!(
+        baseline
+            .pointer("/policy/policy_snapshot_sha256")
+            .and_then(Value::as_str),
+        changed
+            .pointer("/policy/policy_snapshot_sha256")
+            .and_then(Value::as_str)
+    );
+
+    assert_ne!(
+        baseline
+            .pointer("/policy/policy_document_sha256")
+            .and_then(Value::as_str),
+        changed
+            .pointer("/policy/policy_document_sha256")
+            .and_then(Value::as_str)
+    );
+
+    assert_eq!(
+        baseline
+            .pointer("/authorization/document_sha256")
+            .and_then(Value::as_str),
+        changed
+            .pointer("/authorization/document_sha256")
+            .and_then(Value::as_str)
+    );
+
+    assert_eq!(
+        changed
+            .pointer("/automation/max_total_requests")
+            .and_then(Value::as_u64),
+        Some(11)
+    );
+
+    assert_eq!(fs::read_dir(root.join("targets")).unwrap().count(), 0);
 
     fs::remove_dir_all(root).unwrap();
 }

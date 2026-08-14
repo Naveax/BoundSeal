@@ -143,6 +143,19 @@ impl TargetPolicy {
         toml::from_str(input).map_err(|error| PolicyError::Parse(error.to_string()))
     }
 
+    pub fn to_canonical_toml(&self) -> Result<String, PolicyError> {
+        let mut output = toml::to_string(self).map_err(|error| {
+            PolicyError::Invalid(format!("policy could not be serialized: {error}"))
+        })?;
+
+        while output.ends_with('\n') {
+            output.pop();
+        }
+        output.push('\n');
+
+        Ok(output)
+    }
+
     pub fn compile(self, now: DateTime<Utc>) -> Result<CompiledPolicy, PolicyError> {
         validate_top_level(&self, now)?;
 
