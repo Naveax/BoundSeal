@@ -6,17 +6,17 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
-use nxb_executor::ExecutionControl;
-use nxb_gateway::{DecisionOutcome, RequestIntent, ScopeGateway};
-use nxb_live_adapter::{LiveAdapterConfig, LivePassivePipeline, LivePassiveRequest, PassiveMethod};
-use nxb_passive_analyzers::{
+use bsl_executor::ExecutionControl;
+use bsl_gateway::{DecisionOutcome, RequestIntent, ScopeGateway};
+use bsl_live_adapter::{LiveAdapterConfig, LivePassivePipeline, LivePassiveRequest, PassiveMethod};
+use bsl_passive_analyzers::{
     CachePolicyAnalyzer, CookieSecurityAnalyzer, Finding, HeaderSecurityAnalyzer, ObservedHeader,
     PassiveAnalyzer, ResponseObservation,
 };
-use nxb_pinned_transport::PinnedTransportCoordinator;
-use nxb_policy::TargetPolicy;
-use nxb_stream::StreamControl;
-use nxb_transport::{ConnectionAttempt, TransportScheme};
+use bsl_pinned_transport::PinnedTransportCoordinator;
+use bsl_policy::TargetPolicy;
+use bsl_stream::StreamControl;
+use bsl_transport::{ConnectionAttempt, TransportScheme};
 use url::Url;
 
 use super::{hash_bytes, validate_request_target, validate_target_url, PlannedMethod};
@@ -45,7 +45,7 @@ impl DiscoverySessionRequestSpec {
             || self
                 .resolved_ips
                 .iter()
-                .any(|ip| !nxb_policy::is_public_destination(*ip))
+                .any(|ip| !bsl_policy::is_public_destination(*ip))
         {
             bail!("discovery-session DNS binding is empty, non-public, or inconsistent");
         }
@@ -137,7 +137,7 @@ pub fn execute_discovery_session_request(
         redirect_depth: ticket.redirect_depth,
     };
 
-    let mut config = LiveAdapterConfig::conservative("nxb-discovery-session")?;
+    let mut config = LiveAdapterConfig::conservative("bsl-discovery-session")?;
     config.limits.http.maximum_response_body_bytes = spec.maximum_response_body_bytes;
     config.limits.http.maximum_chunk_bytes = config
         .limits
