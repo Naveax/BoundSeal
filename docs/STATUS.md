@@ -2,7 +2,7 @@
 
 ## Completion
 
-- Fully validated architecture milestones: NXB-0 through NXB-150
+- Fully validated architecture milestones: BSL-0 through BSL-150
 - Workspace manifest members: 49 private crates
 - Current package version: 0.1.0
 - Distribution status: private, `publish = false`
@@ -12,15 +12,15 @@
 
 ## Quality gates
 
-GitHub-hosted Actions are disabled for this repository. The workflow files were removed from `main`, and NXB-150 does not add or re-enable a workflow.
+GitHub-hosted Actions are disabled for this repository. The workflow files were removed from `main`, and BSL-150 does not add or re-enable a workflow.
 
-NXB-150 provides:
+BSL-150 provides:
 
-- a private `nxb-evidence-key-provider-process` crate;
-- reuse of the NXB-140 absolute-path and SHA-256-pinned process transport;
+- a private `bsl-evidence-key-provider-process` crate;
+- reuse of the BSL-140 absolute-path and SHA-256-pinned process transport;
 - capability binding for exact executable digest, process identity, store/key mapping, provider-handle SHA-256, optional version policy, timeout and session expiry;
-- one NXB-149 acquisition mapped to one process-provider session;
-- zeroizing transfer from process secret material into the NXB-149 32-byte key boundary;
+- one BSL-149 acquisition mapped to one process-provider session;
+- zeroizing transfer from process secret material into the BSL-149 32-byte key boundary;
 - completed/aborted teardown mapping with timeout and fatal failure remaining abortable;
 - a real child-process fixture;
 - adversarial tests for success, executable mismatch, store/request mismatch, version mismatch, short key, logical failure, timeout, one-fetch enforcement and debug redaction;
@@ -33,10 +33,10 @@ The mandatory validation command set is:
 ```text
 cargo metadata --locked
 cargo fmt --all -- --check
-cargo check -p nxb-evidence-key-provider-process --all-features --locked
-cargo clippy -p nxb-evidence-key-provider-process --all-targets --all-features --locked -- -D warnings
-cargo test -p nxb-evidence-key-provider-process --all-features --locked -- --test-threads=1
-cargo test -p nxb-vault-provider --locked -- --test-threads=1
+cargo check -p bsl-evidence-key-provider-process --all-features --locked
+cargo clippy -p bsl-evidence-key-provider-process --all-targets --all-features --locked -- -D warnings
+cargo test -p bsl-evidence-key-provider-process --all-features --locked -- --test-threads=1
+cargo test -p bsl-vault-provider --locked -- --test-threads=1
 cargo check --workspace --all-targets --all-features --locked
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --all-features --locked -- --test-threads=1
@@ -74,6 +74,6 @@ A final PR head is merge-eligible only when both platforms validate that same un
 
 ## Release meaning
 
-The repository contains the signed bounded live-execution chain from unified activation through authenticated runtime, resumable execution, terminal teardown, cryptographic closure and operator-reviewed manual-submission handoff. NXB-148 adds persistent authenticated encryption for evidence records that already passed redaction and content-address validation. NXB-149 adds the provider-neutral signed lifecycle for acquiring the exact 256-bit sealing key without serializing, logging or persisting key bytes. NXB-150 connects that lifecycle to the existing pinned process-provider security boundary.
+The repository contains the signed bounded live-execution chain from unified activation through authenticated runtime, resumable execution, terminal teardown, cryptographic closure and operator-reviewed manual-submission handoff. BSL-148 adds persistent authenticated encryption for evidence records that already passed redaction and content-address validation. BSL-149 adds the provider-neutral signed lifecycle for acquiring the exact 256-bit sealing key without serializing, logging or persisting key bytes. BSL-150 connects that lifecycle to the existing pinned process-provider security boundary.
 
 The repository does not claim unrestricted autonomous scanning, browser automation, credential discovery, active exploitation, arbitrary process execution or automatic HackerOne submission.
