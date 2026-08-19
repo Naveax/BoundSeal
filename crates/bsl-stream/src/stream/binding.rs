@@ -1,5 +1,5 @@
-use nxb_executor::{ExecutionOutcome, ExecutionReceipt, ExecutionState, ExecutorAuditRecord};
-use nxb_transport::TransportPermit;
+use bsl_executor::{ExecutionOutcome, ExecutionReceipt, ExecutionState, ExecutorAuditRecord};
+use bsl_transport::TransportPermit;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 

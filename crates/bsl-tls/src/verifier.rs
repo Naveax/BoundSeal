@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use nxb_stream::{BoundedByteStream, ByteStreamBackend};
+use bsl_stream::{BoundedByteStream, ByteStreamBackend};
 use thiserror::Error;
 
 use crate::{

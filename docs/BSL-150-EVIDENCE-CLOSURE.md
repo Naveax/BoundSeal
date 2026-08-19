@@ -1,8 +1,8 @@
-# NXB-150 Dual-Platform Evidence Closure
+# BSL-150 Dual-Platform Evidence Closure
 
 ## Purpose
 
-NXB-150 cannot leave draft state merely because Linux and Windows validation files exist. Both files must describe the same unchanged Git head, the same canonical lockfile and the same pinned toolchain, and every required gate must report success.
+BSL-150 cannot leave draft state merely because Linux and Windows validation files exist. Both files must describe the same unchanged Git head, the same canonical lockfile and the same pinned toolchain, and every required gate must report success.
 
 The closure scripts perform that final networkless review and publish one deterministic local closure document.
 
@@ -11,8 +11,8 @@ The closure scripts perform that final networkless review and publish one determ
 The evidence directory must contain exactly named schema-v2 platform documents for the current checkout head:
 
 ```text
-target/nxb-validation/nxb-150-linux-<HEAD>.json
-target/nxb-validation/nxb-150-windows-<HEAD>.json
+target/bsl-validation/bsl-150-linux-<HEAD>.json
+target/bsl-validation/bsl-150-windows-<HEAD>.json
 ```
 
 The checkout must have:
@@ -29,14 +29,14 @@ The evidence directory and every existing parent component must be a normal dire
 The Windows verifier and its self-test require PowerShell `7.5` or newer. They use `ConvertFrom-Json -DateKind String` so ISO-8601 timestamp tokens remain JSON strings instead of being converted implicitly to `[datetime]` values.
 
 ```text
-pwsh -NoProfile -File .\scripts\review-nxb-150-evidence.ps1
+pwsh -NoProfile -File .\scripts\review-bsl-150-evidence.ps1
 ```
 
 An alternate evidence directory may be supplied:
 
 ```text
-pwsh -NoProfile -File .\scripts\review-nxb-150-evidence.ps1 \
-  -EvidenceDirectory D:\NXB-Evidence
+pwsh -NoProfile -File .\scripts\review-bsl-150-evidence.ps1 \
+  -EvidenceDirectory D:\BSL-Evidence
 ```
 
 ## Linux review
@@ -44,13 +44,13 @@ pwsh -NoProfile -File .\scripts\review-nxb-150-evidence.ps1 \
 The Linux wrapper uses only Bash, Git, `sha256sum` and the Python 3 standard library:
 
 ```text
-bash scripts/review-nxb-150-evidence-linux.sh
+bash scripts/review-bsl-150-evidence-linux.sh
 ```
 
 An alternate evidence directory may be supplied as the second positional argument:
 
 ```text
-bash scripts/review-nxb-150-evidence-linux.sh \
+bash scripts/review-bsl-150-evidence-linux.sh \
   /path/to/repository \
   /path/to/evidence
 ```
@@ -65,7 +65,7 @@ Each platform document must:
 - contain exactly the schema-v2 field set, with no unknown or missing field;
 - use the required JSON types rather than truthy or string-coerced values;
 - preserve timestamp tokens as strings during Windows parsing;
-- identify milestone `NXB-150` and gate `pinned_process_evidence_key_provider`;
+- identify milestone `BSL-150` and gate `pinned_process_evidence_key_provider`;
 - identify the expected platform and current exact Git head;
 - report Rust `1.97.1`;
 - report `cargo-audit 0.22.2` and `cargo-deny 0.20.2`;
@@ -95,7 +95,7 @@ Platform executable hashes are retained separately because Windows and Linux bin
 A successful review creates:
 
 ```text
-target/nxb-validation/nxb-150-closure-<HEAD>.json
+target/bsl-validation/bsl-150-closure-<HEAD>.json
 ```
 
 The closure binds:
@@ -119,7 +119,7 @@ A pre-existing closure must be a bounded regular non-symlink file and semantical
 The Linux verifier has a permanent networkless adversarial self-test:
 
 ```text
-bash scripts/test-nxb-150-evidence-closure-linux.sh
+bash scripts/test-bsl-150-evidence-closure-linux.sh
 ```
 
 It builds an isolated temporary Git repository from the current verifier and canonical lockfile, then covers:
@@ -133,7 +133,7 @@ It builds an isolated temporary Git repository from the current verifier and can
 The Windows verifier has a corresponding PowerShell self-test:
 
 ```text
-pwsh -NoProfile -File .\scripts\test-nxb-150-evidence-closure-windows.ps1
+pwsh -NoProfile -File .\scripts\test-bsl-150-evidence-closure-windows.ps1
 ```
 
 It creates an isolated temporary Git repository with the same `.gitattributes` lockfile checkout contract as the product repository and covers:

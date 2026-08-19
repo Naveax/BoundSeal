@@ -1,19 +1,19 @@
-# NXBounty NXB-151 Quick Start
+# BoundSeal BSL-151 Quick Start
 
 ## Current status
 
-NXB-151 is a draft product milestone. The supported product shape is one executable:
+BSL-151 is a draft product milestone. The supported product shape is one executable:
 
 ```text
-nxb.exe   # Windows
-nxb       # Linux
+bsl.exe   # Windows
+bsl       # Linux
 ```
 
 The commands below describe the intended exact-head acceptance flow. They are not a release claim until pinned Rust 1.97.1, Windows, Linux and installer gates pass and PRs #68 and #70 merge.
 
 ## Safety model
 
-Before using NXB on a real program:
+Before using BSL on a real program:
 
 - read the current program policy;
 - confirm automated testing is allowed;
@@ -30,32 +30,32 @@ A local target profile narrows product behavior and binds source digests. It doe
 Windows:
 
 ```powershell
-.\nxb.exe workspace init `
-  --workspace "$HOME\NXBounty" `
-  --name "My NXBounty Workspace" `
+.\bsl.exe workspace init `
+  --workspace "$HOME\BoundSeal" `
+  --name "My BoundSeal Workspace" `
   --json
 ```
 
 Linux:
 
 ```bash
-./nxb workspace init \
-  --workspace "$HOME/NXBounty" \
-  --name 'My NXBounty Workspace' \
+./bsl workspace init \
+  --workspace "$HOME/BoundSeal" \
+  --name 'My BoundSeal Workspace' \
   --json
 ```
 
 ## 2. Check workspace health
 
 ```text
-nxb workspace doctor --workspace <workspace> --json
-nxb workspace status --workspace <workspace> --json
+bsl workspace doctor --workspace <workspace> --json
+bsl workspace status --workspace <workspace> --json
 ```
 
 A pending migration blocks target and later operations:
 
 ```text
-nxb workspace migrate recover --workspace <workspace> --json
+bsl workspace migrate recover --workspace <workspace> --json
 ```
 
 ## 3. Prepare source documents
@@ -70,7 +70,7 @@ Target profiles require:
 The policy is compiled. The authorization document is treated as opaque bytes and represented only by SHA-256 plus a safe external reference.
 
 ```text
-nxb validate-policy \
+bsl validate-policy \
   --path <program-policy.toml> \
   --now <current-rfc3339-time>
 ```
@@ -78,14 +78,14 @@ nxb validate-policy \
 Synthetic acceptance fixtures are not authorization for real systems:
 
 ```text
-fixtures/nxb-151/synthetic-policy.toml
-fixtures/nxb-151/synthetic-authorization.txt
+fixtures/bsl-151/synthetic-policy.toml
+fixtures/bsl-151/synthetic-authorization.txt
 ```
 
 ## 4. Create and validate one target
 
 ```text
-nxb target create \
+bsl target create \
   --workspace <workspace> \
   --id example-app \
   --name "Example App" \
@@ -99,7 +99,7 @@ nxb target create \
 ```
 
 ```text
-nxb target validate \
+bsl target validate \
   --workspace <workspace> \
   --id example-app \
   --authorization-document <authorization-document> \
@@ -108,14 +108,14 @@ nxb target validate \
 ```
 
 ```text
-nxb target show --workspace <workspace> --id example-app --json
-nxb target list --workspace <workspace> --json
+bsl target show --workspace <workspace> --id example-app --json
+bsl target list --workspace <workspace> --json
 ```
 
 Disable without modifying the profile:
 
 ```text
-nxb target disable \
+bsl target disable \
   --workspace <workspace> \
   --id example-app \
   --reason operator-hold \
@@ -125,7 +125,7 @@ nxb target disable \
 ## 5. Produce a networkless scan/report bundle
 
 ```text
-nxb scan \
+bsl scan \
   --program <program-policy.toml> \
   --target https://example.org/ \
   --output-directory <workspace>/reports/synthetic-run \
@@ -147,13 +147,13 @@ hackerone-draft.md
 manifest.json
 ```
 
-The HackerOne document is manual-review only. NXB does not submit it.
+The HackerOne document is manual-review only. BSL does not submit it.
 
 ## 6. Generate and verify architecture receipt
 
 ```text
-nxb demo-run --output <workspace>/reports/demo-receipt.json
-nxb verify-demo <workspace>/reports/demo-receipt.json
+bsl demo-run --output <workspace>/reports/demo-receipt.json
+bsl verify-demo <workspace>/reports/demo-receipt.json
 ```
 
 ## 7. Create a signed release template
@@ -161,28 +161,28 @@ nxb verify-demo <workspace>/reports/demo-receipt.json
 Release manifest schema `2` requires a positive monotonic revision sequence:
 
 ```text
-nxb release manifest-template \
+bsl release manifest-template \
   --release-id v0.1.0-r1 \
   --release-sequence 1 \
   --source-commit <exact-40-character-commit> \
   --platform <windows|linux> \
   --architecture x86-64 \
-  --binary <nxb.exe|nxb> \
-  --sbom <nxb.cdx.json> \
+  --binary <bsl.exe|bsl> \
+  --sbom <bsl.cdx.json> \
   --checksums <SHA256SUMS> \
   --generated-at <utc-rfc3339> \
-  --output <nxb-release-manifest.json> \
+  --output <bsl-release-manifest.json> \
   --json
 ```
 
 Sign the exact decoded `signing_payload_hex` externally with Ed25519, insert the lowercase signature into `signature_hex`, then verify:
 
 ```text
-nxb release verify-manifest \
-  --document <nxb-release-manifest.json> \
+bsl release verify-manifest \
+  --document <bsl-release-manifest.json> \
   --public-key <release-public-key.hex> \
-  --binary <nxb.exe|nxb> \
-  --sbom <nxb.cdx.json> \
+  --binary <bsl.exe|bsl> \
+  --sbom <bsl.cdx.json> \
   --checksums <SHA256SUMS> \
   --json
 ```
@@ -192,20 +192,20 @@ Release ordering is `(SemVer, release_sequence)`. Never reuse a sequence for a d
 ## 8. Windows install, rollback and uninstall
 
 ```powershell
-.\scripts\install-nxb-windows.ps1 `
+.\scripts\install-bsl-windows.ps1 `
   -PackageDirectory C:\path\to\five-file-package `
   -ExpectedPublisherThumbprint <publisher-thumbprint> `
   -ExpectedReleasePublicKeySha256 <release-key-file-sha256>
 ```
 
 ```powershell
-.\scripts\rollback-nxb-windows.ps1 `
+.\scripts\rollback-bsl-windows.ps1 `
   -ExpectedPublisherThumbprint <publisher-thumbprint> `
   -ExpectedReleasePublicKeySha256 <release-key-file-sha256>
 ```
 
 ```powershell
-.\scripts\uninstall-nxb-windows.ps1 `
+.\scripts\uninstall-bsl-windows.ps1 `
   -ExpectedPublisherThumbprint <publisher-thumbprint> `
   -ExpectedReleasePublicKeySha256 <release-key-file-sha256>
 ```
@@ -215,9 +215,9 @@ Uninstall preserves workspace/data by default. Data deletion requires `-PurgeDat
 ## 9. Confirm final local state
 
 ```text
-nxb workspace doctor --workspace <workspace> --json
-nxb workspace status --workspace <workspace> --json
-nxb system-status
+bsl workspace doctor --workspace <workspace> --json
+bsl workspace status --workspace <workspace> --json
+bsl system-status
 ```
 
 ## Machine-readable failures
@@ -227,12 +227,12 @@ Commands with `--json` emit versioned diagnostic JSON on stderr and preserve ope
 ## Acceptance harnesses
 
 ```bash
-bash scripts/validate-nxb-151-synthetic-linux.sh
+bash scripts/validate-bsl-151-synthetic-linux.sh
 ```
 
 ```powershell
-pwsh -NoProfile -File .\scripts\validate-nxb-151-synthetic-windows.ps1
-pwsh -NoProfile -File .\scripts\validate-nxb-151-installer-windows.ps1
+pwsh -NoProfile -File .\scripts\validate-bsl-151-synthetic-windows.ps1
+pwsh -NoProfile -File .\scripts\validate-bsl-151-installer-windows.ps1
 ```
 
 The installer harness builds a previous exact ancestor and the final exact head, creates signed sequences `1` and `2`, then exercises install, upgrade, replay rejection, rollback, re-upgrade, tamper rejection and data-preserving uninstall.

@@ -56,8 +56,8 @@ fn maintenance_chain() -> (
         &identity,
         ChangeClass::SecurityPatch,
         BTreeMap::from([
-            ("nxb-platform-assurance".into(), hex('8')),
-            ("nxb-release-governance".into(), hex('9')),
+            ("bsl-platform-assurance".into(), hex('8')),
+            ("bsl-release-governance".into(), hex('9')),
         ]),
         hex('a'),
         hex('b'),
@@ -67,7 +67,7 @@ fn maintenance_chain() -> (
     let assessment = ImpactAssessment::new(
         "assessment-86",
         &proposal,
-        BTreeSet::from(["nxb-platform-assurance".into()]),
+        BTreeSet::from(["bsl-platform-assurance".into()]),
         BTreeSet::from([
             "hard-safety".into(),
             "identity-binding".into(),

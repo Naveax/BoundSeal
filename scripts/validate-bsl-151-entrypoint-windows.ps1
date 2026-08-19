@@ -54,49 +54,49 @@ try {
 
     & cargo fmt --all -- --check
     if ($LASTEXITCODE -ne 0) { throw "cargo fmt failed." }
-    & cargo check -p nxb-core --all-targets --all-features --locked
+    & cargo check -p bsl-core --all-targets --all-features --locked
     if ($LASTEXITCODE -ne 0) { throw "cargo check failed." }
-    & cargo clippy -p nxb-core --all-targets --all-features --locked -- -D warnings
+    & cargo clippy -p bsl-core --all-targets --all-features --locked -- -D warnings
     if ($LASTEXITCODE -ne 0) { throw "cargo clippy failed." }
-    & cargo test -p nxb-core --all-features --locked -- --test-threads=1
+    & cargo test -p bsl-core --all-features --locked -- --test-threads=1
     if ($LASTEXITCODE -ne 0) { throw "cargo test failed." }
-    & cargo build -p nxb-core --bin nxb --all-features --locked
-    if ($LASTEXITCODE -ne 0) { throw "cargo build --bin nxb failed." }
+    & cargo build -p bsl-core --bin bsl --all-features --locked
+    if ($LASTEXITCODE -ne 0) { throw "cargo build --bin bsl failed." }
 
-    $nxb = Join-Path $RepoRoot "target\debug\nxb.exe"
-    if (-not (Test-Path -LiteralPath $nxb -PathType Leaf)) {
-        throw "Required binary is missing: $nxb"
+    $bsl = Join-Path $RepoRoot "target\debug\bsl.exe"
+    if (-not (Test-Path -LiteralPath $bsl -PathType Leaf)) {
+        throw "Required binary is missing: $bsl"
     }
 
-    $metadataPath = Join-Path $RepoRoot "target\nxb-151-metadata.json"
+    $metadataPath = Join-Path $RepoRoot "target\bsl-151-metadata.json"
     & cargo metadata --no-deps --format-version 1 | Set-Content -LiteralPath $metadataPath -Encoding utf8NoBOM
     if ($LASTEXITCODE -ne 0) { throw "cargo metadata failed." }
     $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json -Depth 64
-    $package = @($metadata.packages | Where-Object name -eq "nxb-core")
-    if ($package.Count -ne 1) { throw "Could not resolve the nxb-core package target set." }
+    $package = @($metadata.packages | Where-Object name -eq "bsl-core")
+    if ($package.Count -ne 1) { throw "Could not resolve the bsl-core package target set." }
     $binaryTargets = @(
         $package[0].targets |
         Where-Object { $_.kind -contains "bin" } |
         ForEach-Object name |
         Sort-Object
     )
-    if ($binaryTargets.Count -ne 1 -or $binaryTargets[0] -ne "nxb") {
-        throw "Expected exactly one nxb binary target; found '$($binaryTargets -join ',')'."
+    if ($binaryTargets.Count -ne 1 -or $binaryTargets[0] -ne "bsl") {
+        throw "Expected exactly one bsl binary target; found '$($binaryTargets -join ',')'."
     }
 
     $nonce = [Guid]::NewGuid().ToString("N")
-    $workspace = Join-Path ([IO.Path]::GetTempPath()) "nxb-151-entrypoint-$nonce"
-    $outputDirectory = Join-Path ([IO.Path]::GetTempPath()) "nxb-151-entrypoint-output-$nonce"
+    $workspace = Join-Path ([IO.Path]::GetTempPath()) "bsl-151-entrypoint-$nonce"
+    $outputDirectory = Join-Path ([IO.Path]::GetTempPath()) "bsl-151-entrypoint-output-$nonce"
     New-Item -ItemType Directory -Path $outputDirectory | Out-Null
 
-    $init = Invoke-JsonCommand -FilePath $nxb -Arguments @(
+    $init = Invoke-JsonCommand -FilePath $bsl -Arguments @(
         "workspace", "init", "--workspace", $workspace,
         "--name", "Unified Windows Acceptance", "--json"
     ) -OutputPath (Join-Path $outputDirectory "init.json") `
       -ErrorPath (Join-Path $outputDirectory "init.err")
     if ($init.status -ne "initialized") { throw "Unified init output is invalid." }
 
-    $doctor = Invoke-JsonCommand -FilePath $nxb -Arguments @(
+    $doctor = Invoke-JsonCommand -FilePath $bsl -Arguments @(
         "workspace", "doctor", "--workspace", $workspace, "--json"
     ) -OutputPath (Join-Path $outputDirectory "doctor.json") `
       -ErrorPath (Join-Path $outputDirectory "doctor.err")
@@ -108,7 +108,7 @@ try {
         throw "Unified doctor migration check is missing or invalid."
     }
 
-    $workspaceStatus = Invoke-JsonCommand -FilePath $nxb -Arguments @(
+    $workspaceStatus = Invoke-JsonCommand -FilePath $bsl -Arguments @(
         "workspace", "status", "--workspace", $workspace, "--json"
     ) -OutputPath (Join-Path $outputDirectory "status.json") `
       -ErrorPath (Join-Path $outputDirectory "status.err")
@@ -116,7 +116,7 @@ try {
         throw "Unified status output is invalid."
     }
 
-    $migration = Invoke-JsonCommand -FilePath $nxb -Arguments @(
+    $migration = Invoke-JsonCommand -FilePath $bsl -Arguments @(
         "workspace", "migrate", "status", "--workspace", $workspace, "--json"
     ) -OutputPath (Join-Path $outputDirectory "migration.json") `
       -ErrorPath (Join-Path $outputDirectory "migration.err")
@@ -125,7 +125,7 @@ try {
     $active = Join-Path $workspace "state\migration-active.json"
     [IO.File]::WriteAllText($active, "{}`n", [Text.UTF8Encoding]::new($false))
 
-    $pendingDoctor = Invoke-JsonCommand -FilePath $nxb -Arguments @(
+    $pendingDoctor = Invoke-JsonCommand -FilePath $bsl -Arguments @(
         "workspace", "doctor", "--workspace", $workspace, "--json"
     ) -ExpectedExitCode 20 `
       -OutputPath (Join-Path $outputDirectory "doctor-pending.json") `
@@ -135,7 +135,7 @@ try {
         throw "Pending migration was not surfaced through doctor."
     }
 
-    $pendingStatus = Invoke-JsonCommand -FilePath $nxb -Arguments @(
+    $pendingStatus = Invoke-JsonCommand -FilePath $bsl -Arguments @(
         "workspace", "status", "--workspace", $workspace, "--json"
     ) -ExpectedExitCode 30 `
       -OutputPath (Join-Path $outputDirectory "status-pending.json") `
@@ -146,24 +146,24 @@ try {
     }
 
     Remove-Item -LiteralPath $active -Force
-    [void](Invoke-JsonCommand -FilePath $nxb -Arguments @(
+    [void](Invoke-JsonCommand -FilePath $bsl -Arguments @(
         "workspace", "doctor", "--workspace", $workspace, "--json"
     ) -OutputPath (Join-Path $outputDirectory "doctor-restored.json") `
       -ErrorPath (Join-Path $outputDirectory "doctor-restored.err"))
 
-    $validationDirectory = Join-Path $RepoRoot "target\nxb-validation"
+    $validationDirectory = Join-Path $RepoRoot "target\bsl-validation"
     New-Item -ItemType Directory -Path $validationDirectory -Force | Out-Null
-    $evidencePath = Join-Path $validationDirectory "nxb-151-entrypoint-windows-$head.json"
+    $evidencePath = Join-Path $validationDirectory "bsl-151-entrypoint-windows-$head.json"
     $evidence = [ordered]@{
         schema_version = 1
-        milestone = "NXB-151"
+        milestone = "BSL-151"
         gate = "linked_single_binary_entrypoint"
         platform = "windows"
         head_sha = $head
         rustc = $rustcVersion
         binary = [ordered]@{
-            name = "nxb.exe"
-            sha256 = (Get-FileHash -LiteralPath $nxb -Algorithm SHA256).Hash.ToLowerInvariant()
+            name = "bsl.exe"
+            sha256 = (Get-FileHash -LiteralPath $bsl -Algorithm SHA256).Hash.ToLowerInvariant()
         }
         checks = [ordered]@{
             single_cargo_binary_target = "passed"
@@ -181,7 +181,7 @@ try {
         [Text.UTF8Encoding]::new($false)
     )
 
-    Write-Host "NXB-151 linked single-binary Windows validation passed."
+    Write-Host "BSL-151 linked single-binary Windows validation passed."
     Write-Host "HEAD: $head"
     Write-Host "Evidence: $evidencePath"
 }

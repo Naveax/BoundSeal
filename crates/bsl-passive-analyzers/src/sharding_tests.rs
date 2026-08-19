@@ -76,14 +76,14 @@ mod tests {
         let first_assignment = coordinator
             .assignment_for_origin(
                 &sha(first_origin.saturating_add(50_000)),
-                pair(1, "NXB-A"),
+                pair(1, "BSL-A"),
             )
             .unwrap();
         for candidate in 2_u64..10_000 {
             let assignment = coordinator
                 .assignment_for_origin(
                     &sha(candidate.saturating_add(50_000)),
-                    pair(candidate, "NXB-A"),
+                    pair(candidate, "BSL-A"),
                 )
                 .unwrap();
             if assignment.shard_id != first_assignment.shard_id {
@@ -103,10 +103,10 @@ mod tests {
         let mut coordinator =
             DeterministicShardCoordinator::new(limits(16, 100), sha(900_000)).unwrap();
         let first = coordinator
-            .enqueue(item(1, 77, "NXB-A", 1_000), 1)
+            .enqueue(item(1, 77, "BSL-A", 1_000), 1)
             .unwrap();
         let second = coordinator
-            .enqueue(item(2, 77, "NXB-B", 1_000), 1)
+            .enqueue(item(2, 77, "BSL-B", 1_000), 1)
             .unwrap();
         assert_eq!(first.shard_id, second.shard_id);
         assert_eq!(
@@ -122,9 +122,9 @@ mod tests {
         let mut coordinator =
             DeterministicShardCoordinator::new(limits(4, 10), sha(900_001)).unwrap();
         coordinator
-            .enqueue(item(1, 50, "NXB-A", 1_000), 1)
+            .enqueue(item(1, 50, "BSL-A", 1_000), 1)
             .unwrap();
-        let mut conflict = item(2, 50, "NXB-B", 1_000);
+        let mut conflict = item(2, 50, "BSL-B", 1_000);
         conflict.credential_partition_sha256 = sha(999_999);
         assert_eq!(
             coordinator.enqueue(conflict.clone(), 1),
@@ -138,7 +138,7 @@ mod tests {
     fn duplicate_pair_cannot_be_owned_twice() {
         let mut coordinator =
             DeterministicShardCoordinator::new(limits(4, 10), sha(900_002)).unwrap();
-        let original = item(1, 1, "NXB-A", 1_000);
+        let original = item(1, 1, "BSL-A", 1_000);
         coordinator.enqueue(original.clone(), 1).unwrap();
         let mut duplicate = original.clone();
         duplicate.origin_sha256 = sha(123_456);
@@ -165,9 +165,9 @@ mod tests {
         let mut coordinator =
             DeterministicShardCoordinator::new(constrained, sha(900_003)).unwrap();
         coordinator
-            .enqueue(item(1, 1, "NXB-A", 1_000), 1)
+            .enqueue(item(1, 1, "BSL-A", 1_000), 1)
             .unwrap();
-        let rejected = item(2, 2, "NXB-A", 1_000);
+        let rejected = item(2, 2, "BSL-A", 1_000);
         assert_eq!(
             coordinator.enqueue(rejected.clone(), 1),
             Err(ShardingError::ShardResourceBudget)
@@ -182,10 +182,10 @@ mod tests {
             DeterministicShardCoordinator::new(limits(64, 10_000), sha(900_004)).unwrap();
         for index in 0..10_000 {
             let assignment = coordinator
-                .enqueue(item(index, index % 500, "NXB-A", 100_000), 1)
+                .enqueue(item(index, index % 500, "BSL-A", 100_000), 1)
                 .unwrap();
             assert_eq!(
-                coordinator.owner_of(&pair(index, "NXB-A")),
+                coordinator.owner_of(&pair(index, "BSL-A")),
                 Some(assignment.shard_id)
             );
         }
@@ -204,10 +204,10 @@ mod tests {
         let (first_origin, first_shard, second_origin, second_shard) =
             origins_on_different_shards(&coordinator);
         coordinator
-            .enqueue(item(1, first_origin, "NXB-A", 1_000), 1)
+            .enqueue(item(1, first_origin, "BSL-A", 1_000), 1)
             .unwrap();
         coordinator
-            .enqueue(item(2, second_origin, "NXB-A", 1_000), 1)
+            .enqueue(item(2, second_origin, "BSL-A", 1_000), 1)
             .unwrap();
 
         let first_lease = coordinator.lease_next(first_shard, 2).unwrap();
@@ -247,7 +247,7 @@ mod tests {
         let mut coordinator =
             DeterministicShardCoordinator::new(limits(4, 10), sha(900_006)).unwrap();
         let assignment = coordinator
-            .enqueue(item(1, 1, "NXB-A", 1_000), 1)
+            .enqueue(item(1, 1, "BSL-A", 1_000), 1)
             .unwrap();
         let lease = coordinator.lease_next(assignment.shard_id, 2).unwrap();
         let mut overrun = result(&[1]);
@@ -280,10 +280,10 @@ mod tests {
         let mut coordinator =
             DeterministicShardCoordinator::new(limits(8, 20), sha(900_007)).unwrap();
         let first = coordinator
-            .enqueue(item(1, 1, "NXB-A", 1_000), 1)
+            .enqueue(item(1, 1, "BSL-A", 1_000), 1)
             .unwrap();
         coordinator
-            .enqueue(item(2, 2, "NXB-A", 1_000), 1)
+            .enqueue(item(2, 2, "BSL-A", 1_000), 1)
             .unwrap();
         coordinator.lease_next(first.shard_id, 2).unwrap();
         coordinator.emergency_stop().unwrap();
@@ -295,7 +295,7 @@ mod tests {
         assert_eq!(receipt.failed_pairs, 2);
         assert_eq!(receipt.global_reserved_resources, ShardResources::default());
         assert_eq!(
-            coordinator.enqueue(item(3, 3, "NXB-A", 1_000), 3),
+            coordinator.enqueue(item(3, 3, "BSL-A", 1_000), 3),
             Err(ShardingError::RunStopped(
                 RunStopReason::EmergencyStop
             ))
@@ -307,10 +307,10 @@ mod tests {
         let mut coordinator =
             DeterministicShardCoordinator::new(limits(4, 10), sha(900_008)).unwrap();
         let first = coordinator
-            .enqueue(item(1, 1, "NXB-A", 100), 1)
+            .enqueue(item(1, 1, "BSL-A", 100), 1)
             .unwrap();
         coordinator
-            .enqueue(item(2, 2, "NXB-A", 50), 1)
+            .enqueue(item(2, 2, "BSL-A", 50), 1)
             .unwrap();
         coordinator.lease_next(first.shard_id, 2).unwrap();
         let expired = coordinator.expire(100).unwrap();
@@ -324,21 +324,21 @@ mod tests {
     fn assignments_and_receipts_are_insertion_order_independent() {
         let mut first =
             DeterministicShardCoordinator::new(limits(8, 20), sha(900_009)).unwrap();
-        first.enqueue(item(1, 1, "NXB-A", 1_000), 1).unwrap();
-        first.enqueue(item(2, 2, "NXB-B", 1_000), 1).unwrap();
+        first.enqueue(item(1, 1, "BSL-A", 1_000), 1).unwrap();
+        first.enqueue(item(2, 2, "BSL-B", 1_000), 1).unwrap();
 
         let mut second =
             DeterministicShardCoordinator::new(limits(8, 20), sha(900_009)).unwrap();
-        second.enqueue(item(2, 2, "NXB-B", 1_000), 1).unwrap();
-        second.enqueue(item(1, 1, "NXB-A", 1_000), 1).unwrap();
+        second.enqueue(item(2, 2, "BSL-B", 1_000), 1).unwrap();
+        second.enqueue(item(1, 1, "BSL-A", 1_000), 1).unwrap();
 
         assert_eq!(
-            first.owner_of(&pair(1, "NXB-A")),
-            second.owner_of(&pair(1, "NXB-A"))
+            first.owner_of(&pair(1, "BSL-A")),
+            second.owner_of(&pair(1, "BSL-A"))
         );
         assert_eq!(
-            first.owner_of(&pair(2, "NXB-B")),
-            second.owner_of(&pair(2, "NXB-B"))
+            first.owner_of(&pair(2, "BSL-B")),
+            second.owner_of(&pair(2, "BSL-B"))
         );
         assert_eq!(first.receipt().unwrap(), second.receipt().unwrap());
     }
@@ -348,7 +348,7 @@ mod tests {
         let mut coordinator =
             DeterministicShardCoordinator::new(limits(4, 10), sha(900_010)).unwrap();
         coordinator
-            .enqueue(item(1, 1, "NXB-A", 1_000), 1)
+            .enqueue(item(1, 1, "BSL-A", 1_000), 1)
             .unwrap();
         let mut receipt = coordinator.receipt().unwrap();
         receipt.owned_pairs = receipt.owned_pairs.saturating_add(1);

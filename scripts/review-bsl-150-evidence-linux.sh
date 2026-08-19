@@ -2,13 +2,13 @@
 set -euo pipefail
 
 repo_root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-evidence_directory="${2:-$repo_root/target/nxb-validation}"
+evidence_directory="${2:-$repo_root/target/bsl-validation}"
 expected_lock_sha256="f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff"
 
 cd "$repo_root"
 
 fail() {
-    printf 'NXB-150 evidence closure failed: %s\n' "$1" >&2
+    printf 'BSL-150 evidence closure failed: %s\n' "$1" >&2
     exit 1
 }
 
@@ -55,7 +55,7 @@ expected_fields = {
 
 
 def fail(message: str) -> None:
-    raise SystemExit(f"NXB-150 evidence closure failed: {message}")
+    raise SystemExit(f"BSL-150 evidence closure failed: {message}")
 
 
 def is_lower_sha256(value: object) -> bool:
@@ -101,7 +101,7 @@ def sha256_file(path: pathlib.Path) -> str:
 
 
 def read_evidence(platform: str) -> dict[str, object]:
-    path = evidence_directory / f"nxb-150-{platform}-{head_sha}.json"
+    path = evidence_directory / f"bsl-150-{platform}-{head_sha}.json"
     require_regular_file(path, f"{platform} evidence", maximum_evidence_bytes)
     try:
         evidence = json.loads(path.read_bytes().decode("utf-8", errors="strict"))
@@ -123,7 +123,7 @@ def read_evidence(platform: str) -> dict[str, object]:
         fail(f"{platform} evidence contains a non-boolean gate field")
     if (
         evidence["schema_version"] != 2
-        or evidence["milestone"] != "NXB-150"
+        or evidence["milestone"] != "BSL-150"
         or evidence["gate"] != "pinned_process_evidence_key_provider"
         or evidence["platform"] != platform
         or evidence["head_sha"] != head_sha
@@ -188,7 +188,7 @@ for field in ("rustc", "cargo", "cargo_audit", "cargo_deny", "cargo_lock_sha256"
 
 closure = {
     "schema_version": 1,
-    "milestone": "NXB-150",
+    "milestone": "BSL-150",
     "gate": "dual_platform_evidence_closure",
     "status": "ready_for_manual_pr_review",
     "head_sha": head_sha,
@@ -210,7 +210,7 @@ closure = {
     "network_activity": "none",
 }
 bytes_value = (json.dumps(closure, indent=2) + "\n").encode("utf-8")
-closure_path = evidence_directory / f"nxb-150-closure-{head_sha}.json"
+closure_path = evidence_directory / f"bsl-150-closure-{head_sha}.json"
 pending_path = closure_path.with_suffix(closure_path.suffix + ".pending")
 
 assert_no_symlink_components(closure_path, "closure evidence")
@@ -245,7 +245,7 @@ else:
     finally:
         os.close(directory_fd)
 
-print("NXB-150 dual-platform evidence closure passed.")
+print("BSL-150 dual-platform evidence closure passed.")
 print(f"HEAD: {head_sha}")
 print(f"Cargo.lock SHA-256: {lock_sha256}")
 print(f"Closure: {closure_path}")

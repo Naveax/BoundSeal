@@ -173,31 +173,31 @@ try {
         "fmt", "--all", "--", "--check"
     )
     Invoke-Gate -Name "cargo_check" -FilePath "cargo" -Arguments @(
-        "check", "-p", "nxb-core", "--all-targets", "--all-features", "--locked"
+        "check", "-p", "bsl-core", "--all-targets", "--all-features", "--locked"
     )
     Invoke-Gate -Name "cargo_clippy" -FilePath "cargo" -Arguments @(
-        "clippy", "-p", "nxb-core", "--all-targets", "--all-features", "--locked", "--", "-D", "warnings"
+        "clippy", "-p", "bsl-core", "--all-targets", "--all-features", "--locked", "--", "-D", "warnings"
     )
     Invoke-Gate -Name "cargo_test" -FilePath "cargo" -Arguments @(
-        "test", "-p", "nxb-core", "--all-features", "--locked", "--", "--test-threads=1"
+        "test", "-p", "bsl-core", "--all-features", "--locked", "--", "--test-threads=1"
     )
-    Invoke-Gate -Name "cargo_build_nxb" -FilePath "cargo" -Arguments @(
-        "build", "-p", "nxb-core", "--bin", "nxb", "--all-features", "--locked"
+    Invoke-Gate -Name "cargo_build_bsl" -FilePath "cargo" -Arguments @(
+        "build", "-p", "bsl-core", "--bin", "bsl", "--all-features", "--locked"
     )
 
-    $binary = Join-Path $RepoRoot "target\debug\nxb.exe"
+    $binary = Join-Path $RepoRoot "target\debug\bsl.exe"
     if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
-        throw "NXB binary was not created at '$binary'."
+        throw "BSL binary was not created at '$binary'."
     }
 
     $nonce = [Guid]::NewGuid().ToString("N")
     $temp = [IO.Path]::GetTempPath()
-    $workspace = Join-Path $temp "nxb-151-$nonce"
-    $nonEmptyWorkspace = Join-Path $temp "nxb-151-nonempty-$nonce"
-    $brokenWorkspace = Join-Path $temp "nxb-151-broken-$nonce"
-    $junctionWorkspace = Join-Path $temp "nxb-151-junction-$nonce"
-    $junctionTarget = Join-Path $temp "nxb-151-junction-target-$nonce"
-    $aclWorkspace = Join-Path $temp "nxb-151-acl-$nonce"
+    $workspace = Join-Path $temp "bsl-151-$nonce"
+    $nonEmptyWorkspace = Join-Path $temp "bsl-151-nonempty-$nonce"
+    $brokenWorkspace = Join-Path $temp "bsl-151-broken-$nonce"
+    $junctionWorkspace = Join-Path $temp "bsl-151-junction-$nonce"
+    $junctionTarget = Join-Path $temp "bsl-151-junction-target-$nonce"
+    $aclWorkspace = Join-Path $temp "bsl-151-acl-$nonce"
 
     Invoke-Gate -Name "workspace_init" -FilePath $binary -Arguments @(
         "workspace", "init", "--workspace", $workspace,
@@ -256,12 +256,12 @@ try {
         "workspace", "doctor", "--workspace", $aclWorkspace, "--json"
     ) -ExpectedExitCode 20
 
-    $evidenceDirectory = Join-Path $RepoRoot "target\nxb-validation"
+    $evidenceDirectory = Join-Path $RepoRoot "target\bsl-validation"
     New-Item -ItemType Directory -Path $evidenceDirectory -Force | Out-Null
-    $evidencePath = Join-Path $evidenceDirectory "nxb-151-windows-$head.json"
+    $evidencePath = Join-Path $evidenceDirectory "bsl-151-windows-$head.json"
     $evidence = [ordered]@{
         schema_version = 1
-        milestone = "NXB-151"
+        milestone = "BSL-151"
         platform = "windows"
         head_sha = $head
         generated_at = [DateTimeOffset]::UtcNow.ToString("O")
@@ -271,7 +271,7 @@ try {
             rustfmt = $rustfmtVersion
             clippy = $clippyVersion
         }
-        nxb_binary_sha256 = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+        bsl_binary_sha256 = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
         security_checks = @(
             "protected current-user ACL on root, canonical directories and manifest",
             "junction/reparse-point rejection",
@@ -286,7 +286,7 @@ try {
         [Text.UTF8Encoding]::new($false)
     )
 
-    Write-Host "NXB-151 single-binary Windows workspace validation passed."
+    Write-Host "BSL-151 single-binary Windows workspace validation passed."
     Write-Host "HEAD: $head"
     Write-Host "Evidence: $evidencePath"
 }

@@ -1,8 +1,8 @@
-# NXB-148 — Production encrypted evidence sealer
+# BSL-148 — Production encrypted evidence sealer
 
 ## Purpose
 
-NXB-148 adds the first concrete encrypted persistent evidence store. It accepts only previously validated and redacted `EvidenceRecord` values from `nxb-knowledge-reporting`; it is not a raw HTTP capture store and does not permit secret-bearing request or response material.
+BSL-148 adds the first concrete encrypted persistent evidence store. It accepts only previously validated and redacted `EvidenceRecord` values from `bsl-knowledge-reporting`; it is not a raw HTTP capture store and does not permit secret-bearing request or response material.
 
 ## Cryptographic boundary
 
@@ -38,7 +38,7 @@ Publication uses a create-new temporary file, full file synchronization, a creat
 
 ## Canonical envelope
 
-Every `.nxbseal` file contains canonical pretty JSON with a trailing newline. The envelope includes only cryptographic metadata and hexadecimal authenticated ciphertext. Opening a record requires all of the following to agree:
+Every `.bslseal` file contains canonical pretty JSON with a trailing newline. The envelope includes only cryptographic metadata and hexadecimal authenticated ciphertext. Opening a record requires all of the following to agree:
 
 1. file name and evidence identifier;
 2. store policy snapshot and authenticated binding;
@@ -55,7 +55,7 @@ Every `.nxbseal` file contains canonical pretty JSON with a trailing newline. Th
 
 ## Explicit exclusions
 
-NXB-148 does not implement:
+BSL-148 does not implement:
 
 - key derivation from passwords;
 - storage of keys beside ciphertext;
@@ -66,4 +66,4 @@ NXB-148 does not implement:
 
 ## Validation
 
-The permanent NXB-148 workflow runs on Ubuntu and Windows and requires canonical `Cargo.lock`, Rust formatting, package check, all-target Clippy with warnings denied, and adversarial tests for round trips, duplicate publication, wrong keys, wrong key identifiers, tampering, policy drift, non-canonical envelopes, interrupted publication and redacted key diagnostics.
+The permanent BSL-148 workflow runs on Ubuntu and Windows and requires canonical `Cargo.lock`, Rust formatting, package check, all-target Clippy with warnings denied, and adversarial tests for round trips, duplicate publication, wrong keys, wrong key identifiers, tampering, policy drift, non-canonical envelopes, interrupted publication and redacted key diagnostics.

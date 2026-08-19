@@ -861,7 +861,7 @@ mod tests {
             .expect("clock")
             .as_nanos();
         let directory = std::env::temp_dir().join(format!(
-            "nxb-unified-operator-{}-{unique}",
+            "bsl-unified-operator-{}-{unique}",
             std::process::id()
         ));
         let consumed = consume_activation_once(

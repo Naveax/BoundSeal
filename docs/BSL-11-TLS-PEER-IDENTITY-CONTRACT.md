@@ -1,8 +1,8 @@
-# NXB-11 — TLS Peer Identity Contract
+# BSL-11 — TLS Peer Identity Contract
 
 ## Purpose
 
-NXB-11 freezes the trust and peer-identity boundary that a future TLS backend must satisfy. It does not implement a TLS stack. It validates bounded synthetic observations against the already authorized stream binding.
+BSL-11 freezes the trust and peer-identity boundary that a future TLS backend must satisfy. It does not implement a TLS stack. It validates bounded synthetic observations against the already authorized stream binding.
 
 ## Binding order
 
@@ -35,7 +35,7 @@ The synthetic chain is ordered leaf first and trust anchor last. The verifier re
 - path-length constraints
 - a self-issued root whose fingerprint exists in the explicit trust store
 
-The `signature_valid` fields are outputs expected from a future cryptographic backend. NXB-11 does not claim to perform X.509 parsing or signature verification itself.
+The `signature_valid` fields are outputs expected from a future cryptographic backend. BSL-11 does not claim to perform X.509 parsing or signature verification itself.
 
 ## DNS identity
 
@@ -64,4 +64,4 @@ Formatting, Clippy and all workspace tests run on the complete permit-to-stream 
 
 ## Exclusions
 
-NXB-11 adds no socket backend, TLS library binding, X.509 parser, operating-system trust import, revocation network lookup, OCSP, CRL, certificate transparency lookup, public-network traffic, browser integration, proxying or scanner behavior.
+BSL-11 adds no socket backend, TLS library binding, X.509 parser, operating-system trust import, revocation network lookup, OCSP, CRL, certificate transparency lookup, public-network traffic, browser integration, proxying or scanner behavior.

@@ -52,36 +52,36 @@ try {
     }
 
     Invoke-NativeGate cargo_fmt cargo @("fmt", "--all", "--", "--check")
-    Invoke-NativeGate cargo_check cargo @("check", "-p", "nxb-core", "--bin", "nxb", "--all-features", "--locked")
-    Invoke-NativeGate cargo_clippy cargo @("clippy", "-p", "nxb-core", "--bin", "nxb", "--all-features", "--locked", "--", "-D", "warnings")
-    Invoke-NativeGate cargo_test cargo @("test", "-p", "nxb-core", "--all-features", "--locked", "--", "--test-threads=1")
-    Invoke-NativeGate cargo_build cargo @("build", "-p", "nxb-core", "--bin", "nxb", "--all-features", "--locked")
+    Invoke-NativeGate cargo_check cargo @("check", "-p", "bsl-core", "--bin", "bsl", "--all-features", "--locked")
+    Invoke-NativeGate cargo_clippy cargo @("clippy", "-p", "bsl-core", "--bin", "bsl", "--all-features", "--locked", "--", "-D", "warnings")
+    Invoke-NativeGate cargo_test cargo @("test", "-p", "bsl-core", "--all-features", "--locked", "--", "--test-threads=1")
+    Invoke-NativeGate cargo_build cargo @("build", "-p", "bsl-core", "--bin", "bsl", "--all-features", "--locked")
 
-    $nxb = Join-Path $RepoRoot "target\debug\nxb.exe"
-    $fixture = Join-Path $RepoRoot "fixtures\nxb-151\workspace-v0.json"
-    foreach ($path in @($nxb, $fixture)) {
+    $bsl = Join-Path $RepoRoot "target\debug\bsl.exe"
+    $fixture = Join-Path $RepoRoot "fixtures\bsl-151\workspace-v0.json"
+    foreach ($path in @($bsl, $fixture)) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
             throw "Required migration acceptance input is missing: $path"
         }
     }
 
     $nonce = [Guid]::NewGuid().ToString("N")
-    $legacy = Join-Path ([IO.Path]::GetTempPath()) "nxb-151-migrate-$nonce"
-    $orphan = Join-Path ([IO.Path]::GetTempPath()) "nxb-151-orphan-$nonce"
+    $legacy = Join-Path ([IO.Path]::GetTempPath()) "bsl-151-migrate-$nonce"
+    $orphan = Join-Path ([IO.Path]::GetTempPath()) "bsl-151-orphan-$nonce"
     $fixtureBytes = [IO.File]::ReadAllBytes($fixture)
 
-    Invoke-NativeGate workspace_init $nxb @(
+    Invoke-NativeGate workspace_init $bsl @(
         "workspace", "init", "--workspace", $legacy,
         "--name", "Legacy Migration Acceptance", "--json"
     )
     [IO.File]::WriteAllBytes((Join-Path $legacy "workspace.json"), $fixtureBytes)
-    Invoke-NativeGate migration_status_before $nxb @(
+    Invoke-NativeGate migration_status_before $bsl @(
         "workspace", "migrate", "status", "--workspace", $legacy, "--json"
     )
-    Invoke-NativeGate migration_apply $nxb @(
+    Invoke-NativeGate migration_apply $bsl @(
         "workspace", "migrate", "apply", "--workspace", $legacy, "--json"
     )
-    Invoke-NativeGate migration_status_after $nxb @(
+    Invoke-NativeGate migration_status_after $bsl @(
         "workspace", "migrate", "status", "--workspace", $legacy, "--json"
     )
 
@@ -89,7 +89,7 @@ try {
     if ($manifest.schema_version -ne 1 -or $manifest.secret_storage -ne "external_provider_only") {
         throw "Schema-0 workspace did not migrate to the canonical schema-1 manifest."
     }
-    $receipts = @(Get-ChildItem -LiteralPath (Join-Path $legacy "state\migrations") -File -Filter "nxb-migration-*.json")
+    $receipts = @(Get-ChildItem -LiteralPath (Join-Path $legacy "state\migrations") -File -Filter "bsl-migration-*.json")
     if ($receipts.Count -ne 1) {
         throw "Expected exactly one immutable migration receipt."
     }
@@ -99,7 +99,7 @@ try {
         }
     }
 
-    Invoke-NativeGate workspace_init_orphan $nxb @(
+    Invoke-NativeGate workspace_init_orphan $bsl @(
         "workspace", "init", "--workspace", $orphan,
         "--name", "Orphan Recovery Acceptance", "--json"
     )
@@ -107,10 +107,10 @@ try {
     $orphanBackup = Join-Path $orphan "state\migration-source.json"
     [IO.File]::WriteAllBytes($orphanBackup, $fixtureBytes)
     Set-PrivateTestAcl -Path $orphanBackup
-    Invoke-NativeGate migration_recover_orphan $nxb @(
+    Invoke-NativeGate migration_recover_orphan $bsl @(
         "workspace", "migrate", "recover", "--workspace", $orphan, "--json"
     )
-    Invoke-NativeGate migration_status_orphan $nxb @(
+    Invoke-NativeGate migration_status_orphan $bsl @(
         "workspace", "migrate", "status", "--workspace", $orphan, "--json"
     )
 
@@ -119,16 +119,16 @@ try {
         throw "Orphan backup recovery did not publish schema 1."
     }
 
-    $outputDirectory = Join-Path $RepoRoot "target\nxb-validation"
+    $outputDirectory = Join-Path $RepoRoot "target\bsl-validation"
     New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
-    $output = Join-Path $outputDirectory "nxb-151-migration-windows-$head.json"
+    $output = Join-Path $outputDirectory "bsl-151-migration-windows-$head.json"
     $evidence = [ordered]@{
         schema_version = 1
-        milestone = "NXB-151-migration"
+        milestone = "BSL-151-migration"
         platform = "windows"
         head_sha = $head
         rustc = $rustcVersion
-        nxb_binary_sha256 = (Get-FileHash -LiteralPath $nxb -Algorithm SHA256).Hash.ToLowerInvariant()
+        bsl_binary_sha256 = (Get-FileHash -LiteralPath $bsl -Algorithm SHA256).Hash.ToLowerInvariant()
         gates = @(
             "fmt", "check", "clippy", "tests", "schema_0_to_1",
             "orphan_backup_recovery", "receipt_cleanup", "single_binary_dispatch"
@@ -140,7 +140,7 @@ try {
         [Text.UTF8Encoding]::new($false)
     )
 
-    Write-Host "NXB-151 single-binary migration Windows validation passed."
+    Write-Host "BSL-151 single-binary migration Windows validation passed."
     Write-Host "HEAD: $head"
     Write-Host "Evidence: $output"
 }

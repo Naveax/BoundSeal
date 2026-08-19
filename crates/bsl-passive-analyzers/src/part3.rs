@@ -8,7 +8,7 @@ impl PassiveAnalyzer for TlsMetadataAnalyzer {
             if response.url.scheme() == "https" {
                 push_finding(
                     &mut findings,
-                    "NXB-TLS-001",
+                    "BSL-TLS-001",
                     "HTTPS response lacks verified TLS metadata",
                     Severity::High,
                     Confidence::High,
@@ -24,7 +24,7 @@ impl PassiveAnalyzer for TlsMetadataAnalyzer {
         if !tls.verified || !tls.hostname_covered || !is_sha256(&tls.trusted_root_sha256) {
             push_finding(
                 &mut findings,
-                "NXB-TLS-002",
+                "BSL-TLS-002",
                 "TLS peer identity was not fully verified",
                 Severity::High,
                 Confidence::High,
@@ -38,7 +38,7 @@ impl PassiveAnalyzer for TlsMetadataAnalyzer {
         if !matches!(tls.protocol.as_str(), "tls_1_2" | "tls_1_3") {
             push_finding(
                 &mut findings,
-                "NXB-TLS-003",
+                "BSL-TLS-003",
                 "Unsupported legacy TLS protocol observed",
                 Severity::High,
                 Confidence::High,
@@ -52,7 +52,7 @@ impl PassiveAnalyzer for TlsMetadataAnalyzer {
         if tls.alpn != "http/1.1" {
             push_finding(
                 &mut findings,
-                "NXB-TLS-004",
+                "BSL-TLS-004",
                 "Unexpected ALPN for the HTTP/1 channel",
                 Severity::Medium,
                 Confidence::High,
@@ -69,7 +69,7 @@ impl PassiveAnalyzer for TlsMetadataAnalyzer {
         if remaining < 30 * 24 * 60 * 60 {
             push_finding(
                 &mut findings,
-                "NXB-TLS-005",
+                "BSL-TLS-005",
                 "TLS certificate expires soon",
                 Severity::Low,
                 Confidence::High,
@@ -83,7 +83,7 @@ impl PassiveAnalyzer for TlsMetadataAnalyzer {
         if tls.session_resumed || tls.early_data_accepted {
             push_finding(
                 &mut findings,
-                "NXB-TLS-006",
+                "BSL-TLS-006",
                 "TLS replay-related feature conflicts with the frozen channel policy",
                 Severity::Medium,
                 Confidence::High,

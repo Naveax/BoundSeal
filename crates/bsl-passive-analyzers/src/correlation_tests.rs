@@ -7,7 +7,7 @@ mod tests {
     fn finding(index: u64, endpoint: u64, title: &str, severity: Severity) -> Finding {
         Finding {
             finding_id: format!("{index:064x}"),
-            rule_id: "NXB-HDR-001".into(),
+            rule_id: "BSL-HDR-001".into(),
             title: title.into(),
             severity,
             confidence: Confidence::High,
@@ -22,7 +22,7 @@ mod tests {
     fn evidence(seed: u64) -> CorrelationEvidence {
         CorrelationEvidence {
             policy_snapshot_sha256: format!("{:064x}", seed.saturating_add(1)),
-            normalization_version: "nxb-correlation-v1".into(),
+            normalization_version: "bsl-correlation-v1".into(),
             component_sha256: format!("{:064x}", seed.saturating_add(2)),
             normalized_evidence_sha256: format!("{:064x}", seed.saturating_add(3)),
             response_shape_sha256: format!("{:064x}", seed.saturating_add(4)),
@@ -60,7 +60,7 @@ mod tests {
     #[test]
     fn five_thousand_endpoints_collapse_to_one_root_cause_without_losing_members() {
         let evidence = evidence(10);
-        let root_cause_id = evidence.root_cause_id("NXB-HDR-001").unwrap();
+        let root_cause_id = evidence.root_cause_id("BSL-HDR-001").unwrap();
         let mut correlator = RootCauseCorrelator::new(large_limits()).unwrap();
 
         for index in 1..=5_000 {

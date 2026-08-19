@@ -41,16 +41,30 @@ fn assert_diagnostic(
         serde_json::from_slice(&output.stderr).expect("failure stderr is not diagnostic JSON");
     assert_eq!(value.get("schema_version").and_then(Value::as_u64), Some(1));
     assert_eq!(value.get("status").and_then(Value::as_str), Some("error"));
-    assert_eq!(value.get("code").and_then(Value::as_str), Some(expected_code));
-    assert_eq!(value.get("domain").and_then(Value::as_str), Some(expected_domain));
-    assert_eq!(value.get("operation").and_then(Value::as_str), Some(expected_operation));
-    assert_eq!(value.get("exit_code").and_then(Value::as_i64), Some(i64::from(expected_exit)));
+    assert_eq!(
+        value.get("code").and_then(Value::as_str),
+        Some(expected_code)
+    );
+    assert_eq!(
+        value.get("domain").and_then(Value::as_str),
+        Some(expected_domain)
+    );
+    assert_eq!(
+        value.get("operation").and_then(Value::as_str),
+        Some(expected_operation)
+    );
+    assert_eq!(
+        value.get("exit_code").and_then(Value::as_i64),
+        Some(i64::from(expected_exit))
+    );
     let message = value
         .get("message")
         .and_then(Value::as_str)
         .expect("diagnostic message is missing");
     assert!(!message.is_empty());
-    assert!(!message.chars().any(|value| matches!(value, '\n' | '\r' | '\0')));
+    assert!(!message
+        .chars()
+        .any(|value| matches!(value, '\n' | '\r' | '\0')));
 }
 
 #[test]
@@ -60,7 +74,13 @@ fn workspace_init_and_doctor_emit_stable_json_diagnostics() {
     fs::write(occupied.join("unexpected.txt"), b"occupied\n").unwrap();
     let occupied_text = occupied.to_str().unwrap();
     let output = run(&[
-        "workspace", "init", "--workspace", occupied_text, "--name", "Occupied", "--json",
+        "workspace",
+        "init",
+        "--workspace",
+        occupied_text,
+        "--name",
+        "Occupied",
+        "--json",
     ]);
     assert_diagnostic(
         &output,
@@ -89,7 +109,13 @@ fn workspace_status_and_migration_status_emit_stable_json_diagnostics() {
     let root = temporary_path("pending");
     let root_text = root.to_str().unwrap();
     let initialized = run(&[
-        "workspace", "init", "--workspace", root_text, "--name", "Pending Migration", "--json",
+        "workspace",
+        "init",
+        "--workspace",
+        root_text,
+        "--name",
+        "Pending Migration",
+        "--json",
     ]);
     assert!(initialized.status.success());
 
@@ -102,12 +128,20 @@ fn workspace_status_and_migration_status_emit_stable_json_diagnostics() {
         "workspace",
         "status",
     );
-    assert!(!output.stdout.is_empty(), "status must preserve its redacted state document");
+    assert!(
+        !output.stdout.is_empty(),
+        "status must preserve its redacted state document"
+    );
 
     let missing = temporary_path("missing-migration");
     let missing_text = missing.to_str().unwrap();
     let output = run(&[
-        "workspace", "migrate", "status", "--workspace", missing_text, "--json",
+        "workspace",
+        "migrate",
+        "status",
+        "--workspace",
+        missing_text,
+        "--json",
     ]);
     assert_diagnostic(
         &output,

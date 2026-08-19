@@ -5,31 +5,31 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use nxb_executor::ExecutionControl;
-use nxb_gateway::{DecisionOutcome, RequestIntent, ScopeGateway};
-use nxb_live_adapter::{LiveAdapterConfig, LivePassivePipeline};
-use nxb_operator::OperatorConfig;
-use nxb_operator_runtime::{CheckpointBoundRuntime, RuntimeClock, RuntimeRecovery};
-use nxb_operator_state::OperatorRunStatus;
-use nxb_pinned_transport::PinnedTransportCoordinator;
-use nxb_policy::CompiledPolicy;
-use nxb_resumable_runner::{
+use bsl_executor::ExecutionControl;
+use bsl_gateway::{DecisionOutcome, RequestIntent, ScopeGateway};
+use bsl_live_adapter::{LiveAdapterConfig, LivePassivePipeline};
+use bsl_operator::OperatorConfig;
+use bsl_operator_runtime::{CheckpointBoundRuntime, RuntimeClock, RuntimeRecovery};
+use bsl_operator_state::OperatorRunStatus;
+use bsl_pinned_transport::PinnedTransportCoordinator;
+use bsl_policy::CompiledPolicy;
+use bsl_resumable_runner::{
     discover_authenticated_response, ResumableBoundedRunner, RunnerManifest, RunnerRecovery,
     RunnerStatus, RunnerStepReceipt, RunnerStopReason,
 };
-use nxb_session::SessionBroker;
-use nxb_session_injection::{
+use bsl_session::SessionBroker;
+use bsl_session_injection::{
     consume_activation_once as consume_injection_activation, BoundSessionInjection,
     SessionInjectionActivationCertificate, SessionInjectionManifest,
 };
-use nxb_stream::StreamControl;
-use nxb_transport::ConnectionAttempt;
-use nxb_unified_operator::{
+use bsl_stream::StreamControl;
+use bsl_transport::ConnectionAttempt;
+use bsl_unified_operator::{
     consume_activation_once as consume_unified_activation, UnifiedOperatorActivationCertificate,
     UnifiedOperatorPlan,
 };
-use nxb_vault::InMemorySecretVault;
-use nxb_vault_provider::{
+use bsl_vault::InMemorySecretVault;
+use bsl_vault_provider::{
     deprovision_external_session, ExternalVaultSessionPlan, ProvisionedExternalSession,
 };
 use url::Url;

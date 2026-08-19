@@ -6,12 +6,12 @@ use std::{
 #[cfg(windows)]
 use std::path::PathBuf;
 
-use nxb_operator::{
+use bsl_operator::{
     write_report_bundle, CoverageSummary, DiscoveryCandidate, DiscoveryScheduler,
     FindingDisposition, OperatorConfig, OperatorFinding, OperatorReport, ReleaseArtifact,
     ReleaseManifest, ReportBundle, SessionManifest, StopReason,
 };
-use nxb_passive_analyzers::{Confidence, Severity};
+use bsl_passive_analyzers::{Confidence, Severity};
 use sha2::{Digest, Sha256};
 use url::Url;
 
@@ -20,7 +20,7 @@ fn hash_bytes(bytes: &[u8]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn fixture_report(summary: &str) -> Result<OperatorReport, nxb_operator::OperatorError> {
+fn fixture_report(summary: &str) -> Result<OperatorReport, bsl_operator::OperatorError> {
     let finding = OperatorFinding {
         finding_id: "finding-hardening-1".into(),
         rule_id: "fixture_rule".into(),
@@ -134,7 +134,7 @@ fn secret_like_report_material_is_rejected_before_report_build() {
 #[test]
 fn stale_temporary_export_is_recovered_atomically() {
     let root = std::env::temp_dir().join(format!(
-        "nxb-operator-recovery-{}-{}",
+        "bsl-operator-recovery-{}-{}",
         std::process::id(),
         1_800_000_000_u64
     ));
@@ -164,7 +164,7 @@ fn stale_temporary_export_is_recovered_atomically() {
 
 #[test]
 fn unwritable_output_boundary_fails_closed() {
-    let root = std::env::temp_dir().join(format!("nxb-operator-unwritable-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("bsl-operator-unwritable-{}", std::process::id()));
     let _ = fs::remove_file(&root);
     let _ = fs::remove_dir_all(&root);
     fs::write(&root, b"not-a-directory").unwrap();
@@ -181,7 +181,7 @@ fn release_manifest_is_order_independent_and_path_safe() {
     let first = ReleaseManifest::build(
         vec![
             ReleaseArtifact {
-                logical_path: "bin/nxb.exe".into(),
+                logical_path: "bin/bsl.exe".into(),
                 content_sha256: "b".repeat(64),
                 bytes: 20,
             },
@@ -202,7 +202,7 @@ fn release_manifest_is_order_independent_and_path_safe() {
                 bytes: 10,
             },
             ReleaseArtifact {
-                logical_path: "bin/nxb.exe".into(),
+                logical_path: "bin/bsl.exe".into(),
                 content_sha256: "b".repeat(64),
                 bytes: 20,
             },
@@ -211,11 +211,11 @@ fn release_manifest_is_order_independent_and_path_safe() {
     )
     .unwrap();
     assert_eq!(first, second);
-    assert!(first.checksum_lines().contains("bin/nxb.exe"));
+    assert!(first.checksum_lines().contains("bin/bsl.exe"));
 
     let unsafe_path = ReleaseManifest::build(
         vec![ReleaseArtifact {
-            logical_path: "../nxb.exe".into(),
+            logical_path: "../bsl.exe".into(),
             content_sha256: "a".repeat(64),
             bytes: 1,
         }],
@@ -227,9 +227,9 @@ fn release_manifest_is_order_independent_and_path_safe() {
 #[cfg(windows)]
 #[test]
 fn windows_long_path_export_is_bounded_and_complete() {
-    let component = "nxb".repeat(30);
+    let component = "bsl".repeat(30);
     let root: PathBuf = std::env::temp_dir()
-        .join("nxb-operator-windows-long-path")
+        .join("bsl-operator-windows-long-path")
         .join(component);
     let _ = fs::remove_dir_all(&root);
     let report = fixture_report("No secret material is present in this finding.").unwrap();

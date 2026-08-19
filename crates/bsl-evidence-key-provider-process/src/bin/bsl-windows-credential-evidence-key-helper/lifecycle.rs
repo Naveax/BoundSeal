@@ -541,14 +541,14 @@ mod tests {
             command,
             Command {
                 operation: Operation::Status,
-                target: "Naveax_NXBounty_EvidenceKey::store-a::key-a".into(),
+                target: "Naveax_BoundSeal_EvidenceKey::store-a::key-a".into(),
             }
         );
     }
 
     #[test]
     fn create_requires_confirmation_bound_to_exact_target() {
-        let target = "Naveax_NXBounty_EvidenceKey::store-a::key-a";
+        let target = "Naveax_BoundSeal_EvidenceKey::store-a::key-a";
         assert!(parse_command(&strings(&[
             "create",
             "--store-id",

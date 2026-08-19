@@ -2,20 +2,20 @@
 
 use std::{fmt, path::Path, time::Duration};
 
-use nxb_evidence_key_provider::{
+use bsl_evidence_key_provider::{
     EvidenceKeyProvider, EvidenceKeyProviderIdentity, ProviderFailure as EvidenceProviderFailure,
     ProviderKeyMaterial, ProviderKeyRequest as EvidenceKeyRequest,
     ProviderSessionDisposition as EvidenceSessionDisposition,
     ProviderSessionOutcome as EvidenceSessionOutcome,
     ProviderSessionRequest as EvidenceSessionRequest, EVIDENCE_SEALING_KEY_BYTES,
 };
-use nxb_vault::SecretKind;
-use nxb_vault_provider::{
+use bsl_vault::SecretKind;
+use bsl_vault_provider::{
     ExternalVaultProvider, ProviderFailure as VaultProviderFailure, ProviderIdentity,
     ProviderSecretRequest, ProviderSessionOutcome as VaultSessionOutcome,
     ProviderSessionRequest as VaultSessionRequest,
 };
-use nxb_vault_provider_process::{
+use bsl_vault_provider_process::{
     sha256_hex, ProcessProviderSession, ProcessVaultProvider, ProcessVaultProviderConfig,
     ProcessVaultProviderError, MAX_PROCESS_OPERATION_SECONDS, PROCESS_PROVIDER_PROTOCOL_VERSION,
 };
@@ -28,11 +28,11 @@ pub const PROCESS_EVIDENCE_KEY_BACKEND_KIND: &str = "pinned-process";
 pub const MAX_PROCESS_EVIDENCE_KEY_HANDLE_BYTES: usize = 512;
 
 pub const WINDOWS_CREDENTIAL_HELPER_FILE_NAME: &str =
-    "nxb-windows-credential-evidence-key-helper.exe";
-pub const WINDOWS_CREDENTIAL_PROVIDER_ID: &str = "nxb-windows-credential-evidence-key";
+    "bsl-windows-credential-evidence-key-helper.exe";
+pub const WINDOWS_CREDENTIAL_PROVIDER_ID: &str = "bsl-windows-credential-evidence-key";
 pub const WINDOWS_CREDENTIAL_CAPABILITY_V1: &[u8] =
-    b"nxb152-windows-credential-manager-evidence-key-fetch-v1";
-pub const WINDOWS_CREDENTIAL_TARGET_PREFIX: &str = "Naveax_NXBounty_EvidenceKey::";
+    b"bsl152-windows-credential-manager-evidence-key-fetch-v1";
+pub const WINDOWS_CREDENTIAL_TARGET_PREFIX: &str = "Naveax_BoundSeal_EvidenceKey::";
 
 const SYNTHETIC_AUTHORITY: &str = "evidence-key-provider.invalid";
 const SYNTHETIC_ORIGIN: &[u8] = b"https://evidence-key-provider.invalid:443";

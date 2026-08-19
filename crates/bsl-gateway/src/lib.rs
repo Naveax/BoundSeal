@@ -4,11 +4,11 @@ use std::{
     time::Duration,
 };
 
-use nxb_audit::{AuditChain, AuditDestination, AuditDns, AuditError, AuditEvent};
-use nxb_budget::{BudgetError, RequestBudget};
-use nxb_destination::{assess_destination, DestinationAssessment, DestinationClass};
-use nxb_dns::{DnsObservation, DnsPinError, DnsPinSet, DnsPinStatus};
-use nxb_policy::CompiledPolicy;
+use bsl_audit::{AuditChain, AuditDestination, AuditDns, AuditError, AuditEvent};
+use bsl_budget::{BudgetError, RequestBudget};
+use bsl_destination::{assess_destination, DestinationAssessment, DestinationClass};
+use bsl_dns::{DnsObservation, DnsPinError, DnsPinSet, DnsPinStatus};
+use bsl_policy::CompiledPolicy;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
@@ -485,11 +485,11 @@ fn duration_milliseconds_saturated(duration: Duration) -> u64 {
 mod tests {
     use std::collections::BTreeSet;
 
-    use chrono::{Duration as ChronoDuration, Utc};
-    use nxb_policy::{
+    use bsl_policy::{
         AuthorizationPolicy, AutomationPolicy, ChildPolicy, ProgramPolicy, ScopePolicy,
         TargetPolicy,
     };
+    use chrono::{Duration as ChronoDuration, Utc};
 
     use super::*;
 

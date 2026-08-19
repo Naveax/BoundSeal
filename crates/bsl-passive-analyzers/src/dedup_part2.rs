@@ -24,7 +24,7 @@ impl DiskBackedExactDedupIndex {
         let manifest_tail = runs
             .last()
             .map(|record| record.record_hash.clone())
-            .unwrap_or_else(|| dedup_hash(format!("nxb-exact-dedup:{index_id}").as_bytes()));
+            .unwrap_or_else(|| dedup_hash(format!("bsl-exact-dedup:{index_id}").as_bytes()));
         let committed_unique_ids = runs.iter().fold(0_u64, |sum, record| {
             sum.saturating_add(record.entry_count)
         });

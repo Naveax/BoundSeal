@@ -1,12 +1,12 @@
-# NXB-151 — Crash-safe workspace migration journal
+# BSL-151 — Crash-safe workspace migration journal
 
 ## Status
 
-Draft implementation on PR #70. This slice is stacked on NXB-150 and is not release evidence until the pinned Rust 1.97.1 Windows and Linux validation harnesses pass.
+Draft implementation on PR #70. This slice is stacked on BSL-150 and is not release evidence until the pinned Rust 1.97.1 Windows and Linux validation harnesses pass.
 
 ## Purpose
 
-The migration layer upgrades an existing local NXBounty workspace without silently adopting unknown schemas, losing the original manifest, following path indirections or leaving an ambiguous partially migrated state.
+The migration layer upgrades an existing local BoundSeal workspace without silently adopting unknown schemas, losing the original manifest, following path indirections or leaving an ambiguous partially migrated state.
 
 The initial supported transition is:
 
@@ -24,12 +24,12 @@ No credential, cookie, token, key material or provider handle is introduced into
 
 ## Command surface
 
-The migration engine is linked directly into the single `nxb` executable:
+The migration engine is linked directly into the single `bsl` executable:
 
 ```text
-nxb workspace migrate status  --workspace <absolute-path> [--json]
-nxb workspace migrate apply   --workspace <absolute-path> [--json]
-nxb workspace migrate recover --workspace <absolute-path> [--json]
+bsl workspace migrate status  --workspace <absolute-path> [--json]
+bsl workspace migrate apply   --workspace <absolute-path> [--json]
+bsl workspace migrate recover --workspace <absolute-path> [--json]
 ```
 
 | Command | Failure code |
@@ -48,7 +48,7 @@ state/
   migration-active.json
   migration-applied.json
   migrations/
-    nxb-migration-0-1-<digest>.json
+    bsl-migration-0-1-<digest>.json
 ```
 
 - `migration-source.json` is the exact bounded source manifest backup.
@@ -122,14 +122,14 @@ The linked migration module tests successful migration, immutable receipt creati
 ## Platform acceptance harnesses
 
 ```text
-bash scripts/validate-nxb-151-migration-linux.sh
-pwsh -NoProfile -File .\scripts\validate-nxb-151-migration-windows.ps1
+bash scripts/validate-bsl-151-migration-linux.sh
+pwsh -NoProfile -File .\scripts\validate-bsl-151-migration-windows.ps1
 ```
 
-Both harnesses build only `--bin nxb` and exercise migration through `nxb workspace migrate ...`. Evidence is written below:
+Both harnesses build only `--bin bsl` and exercise migration through `bsl workspace migrate ...`. Evidence is written below:
 
 ```text
-target/nxb-validation/nxb-151-migration-<platform>-<head>.json
+target/bsl-validation/bsl-151-migration-<platform>-<head>.json
 ```
 
 ## Remaining acceptance requirements

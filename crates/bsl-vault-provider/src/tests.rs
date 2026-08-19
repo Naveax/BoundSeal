@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nxb_vault::SameSitePolicy;
+    use bsl_vault::SameSitePolicy;
     use ring::signature::{Ed25519KeyPair, KeyPair};
     use std::{
         collections::{BTreeMap, VecDeque},
@@ -188,7 +188,7 @@ mod tests {
     fn unique_state_directory(label: &str) -> PathBuf {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         std::env::temp_dir().join(format!(
-            "nxb-vault-provider-{label}-{}-{}",
+            "bsl-vault-provider-{label}-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ))

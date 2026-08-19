@@ -436,7 +436,7 @@ pub struct VaultAuditChain {
 
 impl VaultAuditChain {
     fn new(vault_id: &str) -> Self {
-        let genesis_hash = lower_hex(&Sha256::digest(format!("nxb-vault:{vault_id}").as_bytes()));
+        let genesis_hash = lower_hex(&Sha256::digest(format!("bsl-vault:{vault_id}").as_bytes()));
         Self {
             tail_hash: genesis_hash.clone(),
             genesis_hash,

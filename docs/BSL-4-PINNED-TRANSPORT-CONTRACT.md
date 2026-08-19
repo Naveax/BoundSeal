@@ -1,8 +1,8 @@
-# NXB-4 — Pinned Transport Contract
+# BSL-4 — Pinned Transport Contract
 
 ## Objective
 
-NXB-4 introduces the authorization object that must exist between a successful scope decision and any future socket implementation. It does not open sockets or perform DNS resolution.
+BSL-4 introduces the authorization object that must exist between a successful scope decision and any future socket implementation. It does not open sockets or perform DNS resolution.
 
 ## Trust boundary
 
@@ -79,7 +79,7 @@ Releasing a DNS context:
 
 A revoked ticket cannot be consumed.
 
-## Excluded from NXB-4
+## Excluded from BSL-4
 
 - operating-system DNS calls;
 - TCP, UDP, TLS, HTTP, QUIC, proxy, or browser networking;
@@ -89,4 +89,4 @@ A revoked ticket cannot be consumed.
 - real-target execution;
 - long-lived or reusable bearer tickets.
 
-All NXB-4 tests use synthetic public IP fixtures and no outbound network access.
+All BSL-4 tests use synthetic public IP fixtures and no outbound network access.

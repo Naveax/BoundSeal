@@ -1,8 +1,8 @@
-# NXB-150 Pinned Validation Bootstrap
+# BSL-150 Pinned Validation Bootstrap
 
 ## Purpose
 
-The NXB-150 validation bootstrap prepares one reproducible local tool environment and immediately runs the exact-head validation harness.
+The BSL-150 validation bootstrap prepares one reproducible local tool environment and immediately runs the exact-head validation harness.
 
 It does not enable GitHub Actions, modify the user's global Cargo installation, change the repository toolchain override or claim validation success when preparation alone completes.
 
@@ -19,14 +19,14 @@ It does not enable GitHub Actions, modify the user's global Cargo installation, 
 `cargo-audit` and `cargo-deny` are installed with `cargo install --locked` under:
 
 ```text
-target/nxb-tools/bin/
+target/bsl-tools/bin/
 ```
 
 They are never resolved from an arbitrary global `PATH` during validation.
 
 ## Canonical lockfile checkout bytes
 
-NXB-150 binds the root `Cargo.lock` by byte-level SHA-256. The repository therefore contains this mandatory attribute:
+BSL-150 binds the root `Cargo.lock` by byte-level SHA-256. The repository therefore contains this mandatory attribute:
 
 ```gitattributes
 /Cargo.lock text eol=lf
@@ -38,7 +38,7 @@ A Windows checkout created before this attribute was added may still contain a c
 
 ```powershell
 git pull --ff-only
-pwsh -NoProfile -File .\scripts\repair-nxb-150-windows-lockfile-checkout.ps1
+pwsh -NoProfile -File .\scripts\repair-bsl-150-windows-lockfile-checkout.ps1
 ```
 
 The repair refuses dirty working trees and user-authored lockfile differences. It verifies the `eol=lf` attribute, rematerializes only a clean tracked `Cargo.lock`, verifies the canonical SHA-256 and requires the working tree to remain clean.
@@ -84,13 +84,13 @@ This proves that both platforms accepted and used the same exact committed depen
 From a clean checkout of the current PR #68 head:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\prepare-and-validate-nxb-150-windows.ps1
+pwsh -NoProfile -File .\scripts\prepare-and-validate-bsl-150-windows.ps1
 ```
 
 Prepare tools without starting the full validation matrix:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\prepare-and-validate-nxb-150-windows.ps1 -PrepareOnly
+pwsh -NoProfile -File .\scripts\prepare-and-validate-bsl-150-windows.ps1 -PrepareOnly
 ```
 
 Prerequisites:
@@ -104,13 +104,13 @@ Prerequisites:
 From a clean checkout of the same current PR #68 head:
 
 ```bash
-bash scripts/prepare-and-validate-nxb-150-linux.sh
+bash scripts/prepare-and-validate-bsl-150-linux.sh
 ```
 
 Prepare tools without starting the full validation matrix:
 
 ```bash
-NXB_PREPARE_ONLY=1 bash scripts/prepare-and-validate-nxb-150-linux.sh
+BSL_PREPARE_ONLY=1 bash scripts/prepare-and-validate-bsl-150-linux.sh
 ```
 
 Prerequisites:
@@ -125,7 +125,7 @@ Prerequisites:
 Successful preparation writes an ignored local JSON receipt under:
 
 ```text
-target/nxb-validation/nxb-150-tooling-<platform>-<exact-head>.json
+target/bsl-validation/bsl-150-tooling-<platform>-<exact-head>.json
 ```
 
 The receipt records:
@@ -152,8 +152,8 @@ rustup run 1.97.1 cargo
 Security checks invoke only these exact local binaries:
 
 ```text
-target/nxb-tools/bin/cargo-audit[.exe]
-target/nxb-tools/bin/cargo-deny[.exe]
+target/bsl-tools/bin/cargo-audit[.exe]
+target/bsl-tools/bin/cargo-deny[.exe]
 ```
 
 The harness rejects:

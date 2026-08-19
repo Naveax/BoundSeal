@@ -143,7 +143,7 @@ fn validate_session_state(
 
 fn validate_secret_identity(
     manifest: &SessionInjectionManifest,
-    metadata: &nxb_vault::SecretMetadata,
+    metadata: &bsl_vault::SecretMetadata,
     now_epoch_seconds: i64,
 ) -> Result<(), SessionInjectionError> {
     if metadata

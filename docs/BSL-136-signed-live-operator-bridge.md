@@ -1,19 +1,19 @@
-# NXB-136 — Signed live operator bridge
+# BSL-136 — Signed live operator bridge
 
-NXB-136 connects the exact one-request live orchestrator to the bounded operator and reporting pipeline without broadening the live authorization model.
+BSL-136 connects the exact one-request live orchestrator to the bounded operator and reporting pipeline without broadening the live authorization model.
 
 ## Command
 
 The bridge is a separate feature-gated binary:
 
 ```text
-cargo run -p nxb-core --bin nxb-live-scan --features live-network -- \
+cargo run -p bsl-core --bin bsl-live-scan --features live-network -- \
   --policy program.toml \
   --plan live-plan.json \
   --activation activation.json \
   --public-key activation-public-key.hex \
-  --state-directory .nxb/live-state \
-  --output-directory target/nxb-live-scan \
+  --state-directory .bsl/live-state \
+  --output-directory target/bsl-live-scan \
   --enable-live
 ```
 
@@ -44,8 +44,8 @@ For a signed `GET` response with a non-empty body, the bridge:
 5. emits deterministic JSON, Markdown, and HackerOne manual-review artifacts;
 6. emits `live-scan-receipt.json`, binding the activation, live receipt, scheduler, coverage, report, and export manifest hashes.
 
-Every follow-up candidate requires a new exact live plan and a new one-use activation. NXB-136 never turns one activation into a crawl authorization.
+Every follow-up candidate requires a new exact live plan and a new one-use activation. BSL-136 never turns one activation into a crawl authorization.
 
 ## Remaining boundaries
 
-Later milestones may add separately signed multi-request discovery sessions and explicit vault-backed session injection. Those capabilities are not part of NXB-136 and must not be inferred from its report or scheduler output.
+Later milestones may add separately signed multi-request discovery sessions and explicit vault-backed session injection. Those capabilities are not part of BSL-136 and must not be inferred from its report or scheduler output.

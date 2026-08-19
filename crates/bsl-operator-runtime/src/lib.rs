@@ -8,22 +8,22 @@ use std::{
     time::Duration,
 };
 
-use nxb_executor::ExecutionControl;
-use nxb_live_adapter::{
+use bsl_executor::ExecutionControl;
+use bsl_live_adapter::{
     LiveAuthenticatedResult, LivePassivePipeline, LivePassiveRequest, LiveSessionInjection,
     PassiveMethod,
 };
-use nxb_operator_state::{
+use bsl_operator_state::{
     CheckpointUpdate, OperatorCheckpoint, OperatorCounters, OperatorRunStatus, OperatorStateStore,
     RecoveredOperatorState,
 };
-use nxb_session::SessionBroker;
-use nxb_session_injection::BoundSessionInjection;
-use nxb_stream::StreamControl;
-use nxb_transport::{ConnectionAttempt, TransportScheme};
-use nxb_unified_operator::{ConsumedUnifiedOperatorActivation, UnifiedOperatorPlan};
-use nxb_vault::InMemorySecretVault;
-use nxb_vault_provider::{
+use bsl_session::SessionBroker;
+use bsl_session_injection::BoundSessionInjection;
+use bsl_stream::StreamControl;
+use bsl_transport::{ConnectionAttempt, TransportScheme};
+use bsl_unified_operator::{ConsumedUnifiedOperatorActivation, UnifiedOperatorPlan};
+use bsl_vault::InMemorySecretVault;
+use bsl_vault_provider::{
     deprovision_external_session, ExternalVaultTeardownReceipt, ProvisionedExternalSession,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -33,7 +33,7 @@ use thiserror::Error;
 pub const OPERATOR_RUNTIME_VERSION: u32 = 1;
 pub const MAX_RUNTIME_OUTCOME_BYTES: u64 = 16 * 1024;
 pub const RUNTIME_COMMIT_RESERVATION_BYTES: u64 = 4 * 1024;
-const RUNTIME_LOCK_FILE: &str = ".nxb-operator-runtime.lock";
+const RUNTIME_LOCK_FILE: &str = ".bsl-operator-runtime.lock";
 const PREPARED_SUFFIX: &str = "-prepared.json";
 const OUTCOME_SUFFIX: &str = "-outcome.json";
 const COMMIT_SUFFIX: &str = "-commit.json";
@@ -1362,21 +1362,21 @@ pub enum RuntimeError {
     #[error("runtime I/O failed: {0}")]
     Io(String),
     #[error(transparent)]
-    State(#[from] nxb_operator_state::OperatorStateError),
+    State(#[from] bsl_operator_state::OperatorStateError),
     #[error(transparent)]
-    Live(#[from] nxb_live_adapter::LiveAuthenticatedError),
+    Live(#[from] bsl_live_adapter::LiveAuthenticatedError),
     #[error(transparent)]
-    LiveAdapter(#[from] nxb_live_adapter::LiveAdapterError),
+    LiveAdapter(#[from] bsl_live_adapter::LiveAdapterError),
     #[error(transparent)]
-    Injection(#[from] nxb_session_injection::SessionInjectionError),
+    Injection(#[from] bsl_session_injection::SessionInjectionError),
     #[error(transparent)]
-    VaultProvider(#[from] nxb_vault_provider::VaultProviderError),
+    VaultProvider(#[from] bsl_vault_provider::VaultProviderError),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nxb_unified_operator::{
+    use bsl_unified_operator::{
         consume_activation_once, UnifiedComponentBinding, UnifiedOperatorActivationCertificate,
         UnifiedOperatorActivationPayload, UnifiedOperatorPlanParameters,
     };
@@ -1442,7 +1442,7 @@ mod tests {
             .expect("clock")
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "nxb-runtime-{label}-{}-{nanos}",
+            "bsl-runtime-{label}-{}-{nanos}",
             std::process::id()
         ))
     }

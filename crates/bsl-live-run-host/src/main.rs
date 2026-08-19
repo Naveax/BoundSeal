@@ -8,19 +8,19 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use chrono::{DateTime, Utc};
-use clap::{Parser, Subcommand};
-use nxb_live_adapter::LiveAdapterConfig;
-use nxb_live_run_host::{
+use bsl_live_adapter::LiveAdapterConfig;
+use bsl_live_run_host::{
     consume_launch_activation_once, LiveRunLaunchActivationCertificate,
     LiveRunLaunchActivationPayload, LiveRunLaunchBundle, LiveRunLaunchBundleParameters,
 };
-use nxb_operator::OperatorConfig;
-use nxb_policy::TargetPolicy;
-use nxb_resumable_runner::RunnerManifest;
-use nxb_session_injection::SessionInjectionManifest;
-use nxb_unified_operator::UnifiedOperatorPlan;
-use nxb_vault_provider::{ExternalVaultBootstrapReceipt, ExternalVaultSessionPlan};
+use bsl_operator::OperatorConfig;
+use bsl_policy::TargetPolicy;
+use bsl_resumable_runner::RunnerManifest;
+use bsl_session_injection::SessionInjectionManifest;
+use bsl_unified_operator::UnifiedOperatorPlan;
+use bsl_vault_provider::{ExternalVaultBootstrapReceipt, ExternalVaultSessionPlan};
+use chrono::{DateTime, Utc};
+use clap::{Parser, Subcommand};
 use serde::{de::DeserializeOwned, Serialize};
 
 const MAX_ARTIFACT_BYTES: u64 = 16 * 1024 * 1024;
@@ -28,9 +28,9 @@ const MAX_KEY_HEX_BYTES: usize = 4 * 1024;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "nxb-live-run-host",
+    name = "bsl-live-run-host",
     version,
-    about = "NXB-145 signed live-run launch control plane"
+    about = "BSL-145 signed live-run launch control plane"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -129,7 +129,7 @@ struct Artifacts {
     external_vault_plan: ExternalVaultSessionPlan,
     external_bootstrap_receipt: ExternalVaultBootstrapReceipt,
     injection_manifest: SessionInjectionManifest,
-    policy: nxb_policy::CompiledPolicy,
+    policy: bsl_policy::CompiledPolicy,
     operator_config: OperatorConfig,
     adapter_config: LiveAdapterConfig,
 }

@@ -6,14 +6,14 @@ rust_toolchain="1.97.1"
 cargo_audit_version="0.22.2"
 cargo_deny_version="0.20.2"
 expected_lock_sha256="f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff"
-tools_bin="$repo_root/target/nxb-tools/bin"
+tools_bin="$repo_root/target/bsl-tools/bin"
 audit_path="$tools_bin/cargo-audit"
 deny_path="$tools_bin/cargo-deny"
 
 cd "$repo_root"
 
 fail() {
-    printf 'NXB-150 Linux validation failed: %s\n' "$1" >&2
+    printf 'BSL-150 Linux validation failed: %s\n' "$1" >&2
     exit 1
 }
 
@@ -36,7 +36,7 @@ tool_version() {
     local expected="$2"
     local label="$3"
     [[ -x "$path" ]] ||
-        fail "$label is unavailable at $path; run prepare-and-validate-nxb-150-linux.sh first"
+        fail "$label is unavailable at $path; run prepare-and-validate-bsl-150-linux.sh first"
     local value
     value="$($path --version)" || fail "$label version could not be resolved"
     printf '%s\n' "$value" | grep -Eq "(^|[[:space:]])${expected}($|[[:space:]])" ||
@@ -70,10 +70,10 @@ cargo_run metadata --format-version 1 --locked --no-deps >/dev/null
 git diff --exit-code -- Cargo.lock >/dev/null || fail 'Cargo.lock changed during cargo metadata --locked'
 
 cargo_run fmt --all -- --check
-cargo_run check -p nxb-evidence-key-provider-process --all-features --locked
-cargo_run clippy -p nxb-evidence-key-provider-process --all-targets --all-features --locked -- -D warnings
-cargo_run test -p nxb-evidence-key-provider-process --all-features --locked -- --test-threads=1
-cargo_run test -p nxb-vault-provider --locked -- --test-threads=1
+cargo_run check -p bsl-evidence-key-provider-process --all-features --locked
+cargo_run clippy -p bsl-evidence-key-provider-process --all-targets --all-features --locked -- -D warnings
+cargo_run test -p bsl-evidence-key-provider-process --all-features --locked -- --test-threads=1
+cargo_run test -p bsl-vault-provider --locked -- --test-threads=1
 
 cargo_run check --workspace --all-targets --all-features --locked
 cargo_run clippy --workspace --all-targets --all-features --locked -- -D warnings
@@ -86,9 +86,9 @@ final_head="$(git rev-parse HEAD)"
 [[ "$final_head" == "$head_sha" ]] || fail 'Git HEAD changed during validation'
 [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]] || fail 'working tree changed during validation'
 
-validation_directory="$repo_root/target/nxb-validation"
+validation_directory="$repo_root/target/bsl-validation"
 mkdir -p "$validation_directory"
-evidence_path="$validation_directory/nxb-150-linux-$head_sha.json"
+evidence_path="$validation_directory/bsl-150-linux-$head_sha.json"
 validated_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
 rustc_json="$(json_escape "$rustc_version")"
@@ -99,7 +99,7 @@ deny_json="$(json_escape "$deny_version")"
 cat > "$evidence_path" <<JSON
 {
   "schema_version": 2,
-  "milestone": "NXB-150",
+  "milestone": "BSL-150",
   "gate": "pinned_process_evidence_key_provider",
   "platform": "linux",
   "head_sha": "$head_sha",
@@ -122,7 +122,7 @@ cat > "$evidence_path" <<JSON
 }
 JSON
 
-printf 'NXB-150 Linux validation passed.\n'
+printf 'BSL-150 Linux validation passed.\n'
 printf 'HEAD: %s\n' "$head_sha"
 printf 'Cargo.lock SHA-256: %s\n' "$lock_sha256"
 printf 'Evidence: %s\n' "$evidence_path"

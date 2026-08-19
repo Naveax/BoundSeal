@@ -1,6 +1,6 @@
-use nxb_stream::{BoundedByteStream, ByteStreamBackend, StreamControl};
-use nxb_tls::TlsSessionGrant;
-use nxb_vault::SecretHeaderLease;
+use bsl_stream::{BoundedByteStream, ByteStreamBackend, StreamControl};
+use bsl_tls::TlsSessionGrant;
+use bsl_vault::SecretHeaderLease;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -248,7 +248,7 @@ impl<B: ByteStreamBackend> Http1Codec<B> {
 fn is_networkless_fixture_backend<B: ByteStreamBackend>() -> bool {
     #[cfg(feature = "networkless-fixture")]
     {
-        std::any::type_name::<B>() == "nxb_stream_fixture::InMemoryDuplex"
+        std::any::type_name::<B>() == "bsl_stream_fixture::InMemoryDuplex"
     }
     #[cfg(not(feature = "networkless-fixture"))]
     {

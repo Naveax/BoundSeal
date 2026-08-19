@@ -1,5 +1,5 @@
 {
-  "schema": "nxb.event.v1",
+  "schema": "bsl.event.v1",
   "event_id": "evt-example-001",
   "run_id": "run-example-001",
   "source": "fixture",
@@ -11,7 +11,7 @@
     "path_template": "/api/me"
   },
   "provenance": {
-    "tool_name": "nxb-fixture",
+    "tool_name": "bsl-fixture",
     "tool_version": "0.1.0",
     "tool_commit": "abcdef0",
     "policy_decision_id": "decision-example-001"

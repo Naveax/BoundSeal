@@ -1,6 +1,6 @@
-# nxb-session
+# bsl-session
 
-`nxb-session` binds authenticated HTTP execution to one run, worker, account, tenant, role, host and scheme.
+`bsl-session` binds authenticated HTTP execution to one run, worker, account, tenant, role, host and scheme.
 
 A session contains only opaque `SecretHandle` values. It never owns or exposes raw cookies, bearer tokens, API keys or CSRF values. Each HTTP exchange requests a short-lived vault lease and immediately consumes a one-use secret-header lease through `Http1Codec`.
 

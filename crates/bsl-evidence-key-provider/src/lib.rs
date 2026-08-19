@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use nxb_evidence_sealer::{EvidenceSealingKey, ProductionEvidenceSealer};
+use bsl_evidence_sealer::{EvidenceSealingKey, ProductionEvidenceSealer};
 use ring::signature::{UnparsedPublicKey, ED25519};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -15,7 +15,7 @@ pub const EVIDENCE_KEY_RECEIPT_VERSION: u32 = 1;
 pub const MAX_PLAN_LIFETIME_SECONDS: i64 = 15 * 60;
 pub const EVIDENCE_SEALING_KEY_BYTES: usize = 32;
 
-const ACTIVATION_DOMAIN: &str = "nxb-evidence-key-activation-v1";
+const ACTIVATION_DOMAIN: &str = "bsl-evidence-key-activation-v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]

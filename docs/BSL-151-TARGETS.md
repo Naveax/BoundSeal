@@ -1,8 +1,8 @@
-# NXB-151 Fail-Closed Authorization-Bound Target Profiles
+# BSL-151 Fail-Closed Authorization-Bound Target Profiles
 
 ## Purpose
 
-The `nxb target` command group turns one operator-approved HTTPS origin, bounded path prefixes, a validated target policy and an external authorization document into an immutable local target profile.
+The `bsl target` command group turns one operator-approved HTTPS origin, bounded path prefixes, a validated target policy and an external authorization document into an immutable local target profile.
 
 Target management is networkless. It performs no DNS lookup, socket creation, HTTP request, browser discovery, proxy import or credential access.
 
@@ -11,7 +11,7 @@ The profile does not claim that authorization is true. It records the exact SHA-
 ## Supported commands
 
 ```text
-nxb target create \
+bsl target create \
   --workspace <absolute-workspace> \
   --id <lowercase-slug> \
   --name <display-name> \
@@ -23,24 +23,24 @@ nxb target create \
   --policy <target-policy.toml> \
   [--json]
 
-nxb target validate \
+bsl target validate \
   --workspace <absolute-workspace> \
   --id <lowercase-slug> \
   --authorization-document <local-file> \
   --policy <target-policy.toml> \
   [--json]
 
-nxb target list \
+bsl target list \
   --workspace <absolute-workspace> \
   [--include-disabled] \
   [--json]
 
-nxb target show \
+bsl target show \
   --workspace <absolute-workspace> \
   --id <lowercase-slug> \
   [--json]
 
-nxb target disable \
+bsl target disable \
   --workspace <absolute-workspace> \
   --id <lowercase-slug> \
   --reason <operator-hold|program-ended|scope-removed|authorization-expired> \
@@ -51,13 +51,13 @@ nxb target disable \
 
 | Operation | Failure code | Diagnostic code |
 |---|---:|---|
-| Target create | 50 | `NXB151-TARGET-CREATE-REJECTED` |
-| Target list | 51 | `NXB151-TARGET-LIST-INVALID` |
-| Target show | 52 | `NXB151-TARGET-SHOW-INVALID` |
-| Target disable | 53 | `NXB151-TARGET-DISABLE-REJECTED` |
-| Target validate | 54 | `NXB151-TARGET-VALIDATE-INVALID` |
+| Target create | 50 | `BSL151-TARGET-CREATE-REJECTED` |
+| Target list | 51 | `BSL151-TARGET-LIST-INVALID` |
+| Target show | 52 | `BSL151-TARGET-SHOW-INVALID` |
+| Target disable | 53 | `BSL151-TARGET-DISABLE-REJECTED` |
+| Target validate | 54 | `BSL151-TARGET-VALIDATE-INVALID` |
 
-With `--json`, failures are written only to stderr as bounded machine-readable diagnostic JSON. Text mode retains the stable `NXB-TARGET-<exit-code>` prefix.
+With `--json`, failures are written only to stderr as bounded machine-readable diagnostic JSON. Text mode retains the stable `BSL-TARGET-<exit-code>` prefix.
 
 ## Immutable schema-v2 profile
 
@@ -196,11 +196,11 @@ Unit and CLI integration tests cover:
 Platform acceptance harnesses:
 
 ```text
-bash scripts/validate-nxb-151-target-linux.sh
-pwsh -NoProfile -File .\scripts\validate-nxb-151-target-windows.ps1
+bash scripts/validate-bsl-151-target-linux.sh
+pwsh -NoProfile -File .\scripts\validate-bsl-151-target-windows.ps1
 ```
 
-The Linux harness additionally checks private file modes. The Windows harness injects a broad Everyone allow ACE and requires fail-closed rejection. Successful harnesses bind their result to the exact Git head and single `nxb` executable SHA-256 under `target/nxb-validation/`.
+The Linux harness additionally checks private file modes. The Windows harness injects a broad Everyone allow ACE and requires fail-closed rejection. Successful harnesses bind their result to the exact Git head and single `bsl` executable SHA-256 under `target/bsl-validation/`.
 
 ## Explicit non-goals
 
@@ -219,4 +219,4 @@ A disabled target remains disabled because its immutable receipt is never delete
 
 ## Validation status
 
-Source, unit tests, CLI integration tests, documentation and local harnesses are present on the NXB-151 draft branch. No compiler, Clippy, Windows or Linux acceptance pass is claimed until pinned Rust 1.97.1 and all platform harnesses complete on the same exact head.
+Source, unit tests, CLI integration tests, documentation and local harnesses are present on the BSL-151 draft branch. No compiler, Clippy, Windows or Linux acceptance pass is claimed until pinned Rust 1.97.1 and all platform harnesses complete on the same exact head.

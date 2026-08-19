@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use nxb_knowledge_reporting::{EvidenceInput, EvidenceRecord};
+use bsl_knowledge_reporting::{EvidenceInput, EvidenceRecord};
 use ring::{
     aead,
     rand::{SecureRandom, SystemRandom},
@@ -20,7 +20,7 @@ use zeroize::Zeroize;
 
 pub const SEALED_EVIDENCE_VERSION: u32 = 1;
 pub const SEALED_EVIDENCE_ALGORITHM: &str = "aes-256-gcm";
-pub const SEALED_EVIDENCE_SUFFIX: &str = ".nxbseal";
+pub const SEALED_EVIDENCE_SUFFIX: &str = ".bslseal";
 pub const MAX_SEALED_EVIDENCE_BYTES: usize = 1024 * 1024;
 pub const MAX_STORE_BYTES: u64 = 1024 * 1024 * 1024 * 1024;
 const AES_256_KEY_BYTES: usize = 32;
@@ -818,7 +818,7 @@ pub enum EvidenceSealerError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nxb_knowledge_reporting::{EvidenceClass, EvidenceStore};
+    use bsl_knowledge_reporting::{EvidenceClass, EvidenceStore};
     use std::{
         collections::BTreeMap,
         sync::atomic::{AtomicU64, Ordering},
@@ -837,7 +837,7 @@ mod tests {
     fn temporary_directory(label: &str) -> PathBuf {
         let sequence = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
         std::env::temp_dir().join(format!(
-            "nxb-evidence-sealer-{label}-{}-{sequence}",
+            "bsl-evidence-sealer-{label}-{}-{sequence}",
             std::process::id()
         ))
     }

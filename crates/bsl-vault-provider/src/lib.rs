@@ -6,8 +6,8 @@ use std::{
     path::Path,
 };
 
-use nxb_session::{SessionBroker, SessionError, SessionMetadata, SessionProfile};
-use nxb_vault::{
+use bsl_session::{SessionBroker, SessionError, SessionMetadata, SessionProfile};
+use bsl_vault::{
     CookieMetadata, InMemorySecretVault, SecretBinding, SecretDelivery, SecretHandle, SecretInput,
     SecretKind, VaultError, MAX_SECRET_BYTES,
 };

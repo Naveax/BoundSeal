@@ -1,4 +1,4 @@
-# NXB-121 — Resource-Derived Finding Capacity
+# BSL-121 — Resource-Derived Finding Capacity
 
 ## Decision
 
@@ -135,7 +135,7 @@ This receipt distinguishes “no finding observed” from “not tested” and �
 
 ## Required order
 
-1. Merge NXB-121 resource-derived capacity.
+1. Merge BSL-121 resource-derived capacity.
 2. Add append-only encrypted finding sink.
 3. Add exact disk-backed dedup and root-cause correlation.
 4. Add coverage receipt and saturation telemetry.

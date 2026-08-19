@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use nxb_lifecycle_governance::LifecycleClosureCertificate;
+use bsl_lifecycle_governance::LifecycleClosureCertificate;
 use serde::{Deserialize, Serialize};
 
 use crate::{

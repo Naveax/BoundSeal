@@ -3,8 +3,8 @@ use std::{
     fmt,
 };
 
-use nxb_stream::StreamGrant;
-use nxb_tls::TlsSessionGrant;
+use bsl_stream::StreamGrant;
+use bsl_tls::TlsSessionGrant;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;

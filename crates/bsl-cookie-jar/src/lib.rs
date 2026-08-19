@@ -5,7 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use nxb_vault::{
+use bsl_vault::{
     CookieMetadata, InMemorySecretVault, SameSitePolicy, SecretBinding, SecretDelivery,
     SecretDeliveryMetadata, SecretHandle, SecretInput, SecretKind, VaultError,
 };
@@ -165,7 +165,7 @@ pub struct CookieJarAuditChain {
 impl CookieJarAuditChain {
     fn new(jar_id: &str) -> Self {
         let genesis_hash = lower_hex(&Sha256::digest(
-            format!("nxb-cookie-jar:{jar_id}").as_bytes(),
+            format!("bsl-cookie-jar:{jar_id}").as_bytes(),
         ));
         Self {
             tail_hash: genesis_hash.clone(),

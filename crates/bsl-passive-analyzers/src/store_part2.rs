@@ -37,7 +37,7 @@ impl<S: SegmentSealer> AppendOnlyEncryptedFindingSink<S> {
         let manifest_tail = manifest
             .last()
             .map(|record| record.record_hash.clone())
-            .unwrap_or_else(|| hash_bytes(format!("nxb-finding-store:{store_id}").as_bytes()));
+            .unwrap_or_else(|| hash_bytes(format!("bsl-finding-store:{store_id}").as_bytes()));
         let committed_findings = manifest
             .iter()
             .fold(0_u64, |sum, record| sum.saturating_add(record.finding_count));
@@ -139,7 +139,7 @@ impl<S: SegmentSealer> AppendOnlyEncryptedFindingSink<S> {
             plaintext_bytes,
         };
         let file_bytes = serde_json::to_vec(&segment_file).map_err(serialization_error)?;
-        let file_name = format!("segment-{sequence:020}.nxb");
+        let file_name = format!("segment-{sequence:020}.bsl");
         let file_sha256 = hash_bytes(&file_bytes);
 
         let mut record = SegmentManifestRecord {

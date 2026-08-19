@@ -58,63 +58,63 @@ try {
 
     & cargo fmt --all -- --check
     if ($LASTEXITCODE -ne 0) { throw "cargo fmt failed." }
-    & cargo check -p nxb-core --all-targets --all-features --locked
+    & cargo check -p bsl-core --all-targets --all-features --locked
     if ($LASTEXITCODE -ne 0) { throw "cargo check failed." }
-    & cargo clippy -p nxb-core --all-targets --all-features --locked -- -D warnings
+    & cargo clippy -p bsl-core --all-targets --all-features --locked -- -D warnings
     if ($LASTEXITCODE -ne 0) { throw "cargo clippy failed." }
-    & cargo test -p nxb-core --all-features --locked -- --test-threads=1
+    & cargo test -p bsl-core --all-features --locked -- --test-threads=1
     if ($LASTEXITCODE -ne 0) { throw "cargo test failed." }
-    & cargo build -p nxb-core --bin nxb --all-features --locked
+    & cargo build -p bsl-core --bin bsl --all-features --locked
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed." }
 
-    $nxb = Join-Path $RepoRoot "target\debug\nxb.exe"
-    $policy = Join-Path $RepoRoot "fixtures\nxb-151\synthetic-policy.toml"
-    $authorization = Join-Path $RepoRoot "fixtures\nxb-151\synthetic-authorization.txt"
-    if (-not (Test-Path -LiteralPath $nxb -PathType Leaf) -or
+    $bsl = Join-Path $RepoRoot "target\debug\bsl.exe"
+    $policy = Join-Path $RepoRoot "fixtures\bsl-151\synthetic-policy.toml"
+    $authorization = Join-Path $RepoRoot "fixtures\bsl-151\synthetic-authorization.txt"
+    if (-not (Test-Path -LiteralPath $bsl -PathType Leaf) -or
         -not (Test-Path -LiteralPath $policy -PathType Leaf) -or
         -not (Test-Path -LiteralPath $authorization -PathType Leaf)) {
         throw "Synthetic acceptance inputs are missing."
     }
 
     $nonce = [Guid]::NewGuid().ToString("N")
-    $workspace = Join-Path ([IO.Path]::GetTempPath()) "nxb-151-synthetic-$nonce"
-    $outputDirectory = Join-Path ([IO.Path]::GetTempPath()) "nxb-151-synthetic-output-$nonce"
+    $workspace = Join-Path ([IO.Path]::GetTempPath()) "bsl-151-synthetic-$nonce"
+    $outputDirectory = Join-Path ([IO.Path]::GetTempPath()) "bsl-151-synthetic-output-$nonce"
     New-Item -ItemType Directory -Path $outputDirectory | Out-Null
     $scanOutput = Join-Path $workspace "reports\synthetic-run"
     $demoReceipt = Join-Path $workspace "reports\demo-receipt.json"
     $now = "2026-08-05T12:00:00Z"
 
-    $initialized = Invoke-NativeJson -FilePath $nxb -Name "init" -Arguments @(
+    $initialized = Invoke-NativeJson -FilePath $bsl -Name "init" -Arguments @(
         "workspace", "init", "--workspace", $workspace,
-        "--name", "NXB Synthetic Product", "--json"
+        "--name", "BSL Synthetic Product", "--json"
     )
-    $doctorBefore = Invoke-NativeJson -FilePath $nxb -Name "doctor-before" -Arguments @(
+    $doctorBefore = Invoke-NativeJson -FilePath $bsl -Name "doctor-before" -Arguments @(
         "workspace", "doctor", "--workspace", $workspace, "--json"
     )
-    $target = Invoke-NativeJson -FilePath $nxb -Name "target" -Arguments @(
+    $target = Invoke-NativeJson -FilePath $bsl -Name "target" -Arguments @(
         "target", "create", "--workspace", $workspace,
         "--id", "synthetic-example", "--name", "Synthetic Example",
         "--origin", "https://example.org",
         "--include-path", "/", "--exclude-path", "/logout",
-        "--authorization-reference", "local_fixture/nxb-151#synthetic",
+        "--authorization-reference", "local_fixture/bsl-151#synthetic",
         "--authorization-document", $authorization,
         "--policy", $policy,
         "--json"
     )
-    $targetValidation = Invoke-NativeJson -FilePath $nxb -Name "target-validate" -Arguments @(
+    $targetValidation = Invoke-NativeJson -FilePath $bsl -Name "target-validate" -Arguments @(
         "target", "validate", "--workspace", $workspace,
         "--id", "synthetic-example",
         "--authorization-document", $authorization,
         "--policy", $policy,
         "--json"
     )
-    $targetList = Invoke-NativeJson -FilePath $nxb -Name "target-list" -Arguments @(
+    $targetList = Invoke-NativeJson -FilePath $bsl -Name "target-list" -Arguments @(
         "target", "list", "--workspace", $workspace, "--json"
     )
-    $policyText = Invoke-NativeText -FilePath $nxb -Name "policy" -Arguments @(
+    $policyText = Invoke-NativeText -FilePath $bsl -Name "policy" -Arguments @(
         "validate-policy", $policy, "--now", $now
     )
-    $scanText = Invoke-NativeText -FilePath $nxb -Name "scan" -Arguments @(
+    $scanText = Invoke-NativeText -FilePath $bsl -Name "scan" -Arguments @(
         "scan", "--program", $policy,
         "--target", "https://example.org/",
         "--output-directory", $scanOutput,
@@ -125,19 +125,19 @@ try {
         "--dry-run", "true",
         "--now", $now
     )
-    [void](Invoke-NativeText -FilePath $nxb -Name "demo" -Arguments @(
+    [void](Invoke-NativeText -FilePath $bsl -Name "demo" -Arguments @(
         "demo-run", "--output", $demoReceipt
     ))
-    $verifyDemoText = Invoke-NativeText -FilePath $nxb -Name "verify-demo" -Arguments @(
+    $verifyDemoText = Invoke-NativeText -FilePath $bsl -Name "verify-demo" -Arguments @(
         "verify-demo", $demoReceipt
     )
-    $doctorAfter = Invoke-NativeJson -FilePath $nxb -Name "doctor-after" -Arguments @(
+    $doctorAfter = Invoke-NativeJson -FilePath $bsl -Name "doctor-after" -Arguments @(
         "workspace", "doctor", "--workspace", $workspace, "--json"
     )
-    $workspaceStatus = Invoke-NativeJson -FilePath $nxb -Name "status" -Arguments @(
+    $workspaceStatus = Invoke-NativeJson -FilePath $bsl -Name "status" -Arguments @(
         "workspace", "status", "--workspace", $workspace, "--json"
     )
-    $systemText = Invoke-NativeText -FilePath $nxb -Name "system-status" -Arguments @(
+    $systemText = Invoke-NativeText -FilePath $bsl -Name "system-status" -Arguments @(
         "system-status"
     )
 
@@ -179,7 +179,7 @@ try {
         $target.origin -ne "https://example.org" -or
         $target.network_activity -ne "none" -or
         $target.program.platform -ne "local_fixture" -or
-        $target.authorization_reference -ne "local_fixture/nxb-151#synthetic" -or
+        $target.authorization_reference -ne "local_fixture/bsl-151#synthetic" -or
         $target.authorization_sha256.Length -ne 64 -or
         $target.policy_sha256.Length -ne 64 -or
         $target.identity_sha256.Length -ne 64 -or
@@ -219,22 +219,22 @@ try {
         throw "Synthetic command text contract is invalid."
     }
     $draftText = Get-Content -LiteralPath $hackerOneDraft -Raw
-    if ($draftText -notmatch 'NXB does not submit reports automatically' -or
+    if ($draftText -notmatch 'BSL does not submit reports automatically' -or
         $draftText -notmatch 'No candidate findings are available for submission') {
         throw "Manual HackerOne draft boundary is invalid."
     }
 
-    $validationDirectory = Join-Path $RepoRoot "target\nxb-validation"
+    $validationDirectory = Join-Path $RepoRoot "target\bsl-validation"
     New-Item -ItemType Directory -Path $validationDirectory -Force | Out-Null
-    $evidencePath = Join-Path $validationDirectory "nxb-151-synthetic-windows-$head.json"
+    $evidencePath = Join-Path $validationDirectory "bsl-151-synthetic-windows-$head.json"
     $evidence = [ordered]@{
         schema_version = 1
-        milestone = "NXB-151"
+        milestone = "BSL-151"
         gate = "synthetic_product_flow"
         platform = "windows"
         head_sha = $head
         rustc = $rustcVersion
-        binary_sha256 = (Get-FileHash -LiteralPath $nxb -Algorithm SHA256).Hash.ToLowerInvariant()
+        binary_sha256 = (Get-FileHash -LiteralPath $bsl -Algorithm SHA256).Hash.ToLowerInvariant()
         artifacts = [ordered]@{
             target_profile_sha256 = (Get-FileHash -LiteralPath $targetProfile -Algorithm SHA256).Hash.ToLowerInvariant()
             scan_plan_sha256 = (Get-FileHash -LiteralPath $planPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -261,7 +261,7 @@ try {
         [Text.UTF8Encoding]::new($false)
     )
 
-    Write-Host "NXB-151 synthetic Windows validation passed."
+    Write-Host "BSL-151 synthetic Windows validation passed."
     Write-Host "HEAD: $head"
     Write-Host "Evidence: $evidencePath"
 }

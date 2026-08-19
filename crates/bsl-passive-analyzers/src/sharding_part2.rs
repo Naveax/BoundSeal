@@ -31,7 +31,7 @@ impl DeterministicShardCoordinator {
     ) -> Result<ShardAssignment, ShardingError> {
         validate_shard_sha256(origin_sha256)?;
         let digest = shard_hash_serializable(&(
-            "nxb-shard-v1",
+            "bsl-shard-v1",
             &self.run_partition_sha256,
             origin_sha256,
         ))?;

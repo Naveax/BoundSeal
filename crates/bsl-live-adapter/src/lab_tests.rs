@@ -7,13 +7,13 @@ use std::{
     time::Duration,
 };
 
-use nxb_executor::{
+use bsl_executor::{
     ExecutionControl, ExecutionLimits, ExecutionOutcome, ExecutorConfig, PermitExecutor,
 };
-use nxb_http1::{Http1Codec, Http1Error, Http1Limits};
-use nxb_stream::{BoundedByteStream, StreamControl, StreamLimits};
-use nxb_tls::LibraryVerifiedTlsBinder;
-use nxb_transport::{TransportPermit, TransportScheme};
+use bsl_http1::{Http1Codec, Http1Error, Http1Limits};
+use bsl_stream::{BoundedByteStream, StreamControl, StreamLimits};
+use bsl_tls::LibraryVerifiedTlsBinder;
+use bsl_transport::{TransportPermit, TransportScheme};
 use rcgen::{generate_simple_self_signed, CertifiedKey};
 use rustls::{
     pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
@@ -177,7 +177,7 @@ fn run_exchange(
         .map_err(|error| error.to_string())?;
     let mut executor = PermitExecutor::new(
         ExecutorConfig {
-            executor_id: "nxb130-lab".into(),
+            executor_id: "bsl130-lab".into(),
         },
         backend,
     )
@@ -217,7 +217,7 @@ fn run_exchange(
     )
     .map_err(|error| error.to_string())?;
     let verified_observation = tls_observation
-        .library_verified("nxb130-lab:rustls-webpki")
+        .library_verified("bsl130-lab:rustls-webpki")
         .map_err(|error| error.to_string())?;
     let mut tls_binder = LibraryVerifiedTlsBinder::new();
     let tls_grant = tls_binder
@@ -323,7 +323,7 @@ fn write_transcript(scenarios: Vec<LabScenarioReceipt>) {
         transcript_sha256: String::new(),
     };
     transcript.transcript_sha256 = hash_bytes(&serde_json::to_vec(&transcript).unwrap());
-    if let Ok(path) = std::env::var("NXB130_TRANSCRIPT_PATH") {
+    if let Ok(path) = std::env::var("BSL130_TRANSCRIPT_PATH") {
         let path = PathBuf::from(path);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).unwrap();
@@ -512,9 +512,9 @@ fn adversarial_local_lab_produces_sanitized_transcript() {
 fn production_constructor_still_rejects_loopback() {
     let mut backend = LiveConnectBackend::with_mozilla_roots().unwrap();
     let permit = logical_permit(LAB_HOST);
-    let report = nxb_executor::PermitBackend::execute(
+    let report = bsl_executor::PermitBackend::execute(
         &mut backend,
-        nxb_executor::PermitEndpoint {
+        bsl_executor::PermitEndpoint {
             ticket_id: &permit.ticket_id,
             decision_id: &permit.decision_id,
             dns_context_id: &permit.dns_context_id,

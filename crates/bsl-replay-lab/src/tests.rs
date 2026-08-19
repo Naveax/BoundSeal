@@ -1,4 +1,4 @@
-use nxb_adapter_boundary::{
+use bsl_adapter_boundary::{
     AdapterAction, AdapterAdmissionAuthority, AdapterAdmissionRequest, AdapterCapability,
     AdapterConformanceAuthority, AdapterEnvelope, AdapterGrant, AdapterManifest, AdapterOutcome,
     AdapterResourceLimits, AdapterResourceUsage, AdapterSession, FixtureObject, FixtureObjectKind,

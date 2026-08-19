@@ -59,14 +59,14 @@ mod tests {
         let second = endpoint(2);
         tracker.admit_endpoint(&first).unwrap();
         tracker.admit_endpoint(&second).unwrap();
-        tracker.enable_rule("NXB-RULE-A").unwrap();
-        tracker.enable_rule("NXB-RULE-B").unwrap();
+        tracker.enable_rule("BSL-RULE-A").unwrap();
+        tracker.enable_rule("BSL-RULE-B").unwrap();
 
         tracker
-            .record_execution(&first, "NXB-RULE-A", metrics(0))
+            .record_execution(&first, "BSL-RULE-A", metrics(0))
             .unwrap();
         tracker
-            .record_skip(&first, "NXB-RULE-B", PairSkipReason::NotApplicable)
+            .record_skip(&first, "BSL-RULE-B", PairSkipReason::NotApplicable)
             .unwrap();
 
         let receipt = tracker.receipt().unwrap();
@@ -90,14 +90,14 @@ mod tests {
             tracker.admit_endpoint(&endpoint(index)).unwrap();
         }
         for index in 0..100 {
-            tracker.enable_rule(&format!("NXB-RULE-{index:03}")).unwrap();
+            tracker.enable_rule(&format!("BSL-RULE-{index:03}")).unwrap();
         }
         for endpoint_index in 0..100 {
             for rule_index in 0..100 {
                 tracker
                     .record_skip(
                         &endpoint(endpoint_index),
-                        &format!("NXB-RULE-{rule_index:03}"),
+                        &format!("BSL-RULE-{rule_index:03}"),
                         PairSkipReason::NotApplicable,
                     )
                     .unwrap();
@@ -122,12 +122,12 @@ mod tests {
             yield_threshold_denominator: 10,
         };
         let mut tracker = CoverageTracker::new(limits(16), budget(), saturation).unwrap();
-        tracker.enable_rule("NXB-RULE-A").unwrap();
+        tracker.enable_rule("BSL-RULE-A").unwrap();
         for index in 0..6 {
             let current = endpoint(index);
             tracker.admit_endpoint(&current).unwrap();
             tracker
-                .record_execution(&current, "NXB-RULE-A", metrics(0))
+                .record_execution(&current, "BSL-RULE-A", metrics(0))
                 .unwrap();
             if index < 5 {
                 assert_eq!(tracker.stop_reason(), None);
@@ -152,7 +152,7 @@ mod tests {
             yield_threshold_denominator: 10,
         };
         let mut tracker = CoverageTracker::new(limits(16), budget(), saturation).unwrap();
-        tracker.enable_rule("NXB-RULE-A").unwrap();
+        tracker.enable_rule("BSL-RULE-A").unwrap();
         tracker
             .set_queue_telemetry(QueueTelemetry {
                 high_priority_unexplored_pairs: 1,
@@ -164,7 +164,7 @@ mod tests {
             let current = endpoint(index);
             tracker.admit_endpoint(&current).unwrap();
             tracker
-                .record_execution(&current, "NXB-RULE-A", metrics(0))
+                .record_execution(&current, "BSL-RULE-A", metrics(0))
                 .unwrap();
         }
         assert_eq!(tracker.stop_reason(), None);
@@ -186,12 +186,12 @@ mod tests {
         let mut tracker = CoverageTracker::new(limits(4), constrained, policy()).unwrap();
         let current = endpoint(1);
         tracker.admit_endpoint(&current).unwrap();
-        tracker.enable_rule("NXB-RULE-A").unwrap();
+        tracker.enable_rule("BSL-RULE-A").unwrap();
         let mut over_budget = metrics(0);
         over_budget.resource_delta.requests = 2;
 
         assert_eq!(
-            tracker.record_execution(&current, "NXB-RULE-A", over_budget),
+            tracker.record_execution(&current, "BSL-RULE-A", over_budget),
             Err(CoverageError::ResourceBoundary(
                 RunStopReason::RequestBudget
             ))
@@ -209,15 +209,15 @@ mod tests {
         let mut first = CoverageTracker::new(limits(8), budget(), policy()).unwrap();
         first.admit_endpoint(&first_endpoint).unwrap();
         first.admit_endpoint(&second_endpoint).unwrap();
-        first.enable_rule("NXB-RULE-A").unwrap();
-        first.enable_rule("NXB-RULE-B").unwrap();
+        first.enable_rule("BSL-RULE-A").unwrap();
+        first.enable_rule("BSL-RULE-B").unwrap();
         first
-            .record_execution(&first_endpoint, "NXB-RULE-A", metrics(2))
+            .record_execution(&first_endpoint, "BSL-RULE-A", metrics(2))
             .unwrap();
         first
             .record_skip(
                 &second_endpoint,
-                "NXB-RULE-B",
+                "BSL-RULE-B",
                 PairSkipReason::NotApplicable,
             )
             .unwrap();
@@ -225,17 +225,17 @@ mod tests {
         let mut second = CoverageTracker::new(limits(8), budget(), policy()).unwrap();
         second.admit_endpoint(&second_endpoint).unwrap();
         second.admit_endpoint(&first_endpoint).unwrap();
-        second.enable_rule("NXB-RULE-B").unwrap();
-        second.enable_rule("NXB-RULE-A").unwrap();
+        second.enable_rule("BSL-RULE-B").unwrap();
+        second.enable_rule("BSL-RULE-A").unwrap();
         second
             .record_skip(
                 &second_endpoint,
-                "NXB-RULE-B",
+                "BSL-RULE-B",
                 PairSkipReason::NotApplicable,
             )
             .unwrap();
         second
-            .record_execution(&first_endpoint, "NXB-RULE-A", metrics(2))
+            .record_execution(&first_endpoint, "BSL-RULE-A", metrics(2))
             .unwrap();
 
         assert_eq!(first.receipt().unwrap(), second.receipt().unwrap());
@@ -246,10 +246,10 @@ mod tests {
         let mut tracker = CoverageTracker::new(limits(4), budget(), policy()).unwrap();
         let current = endpoint(1);
         tracker.admit_endpoint(&current).unwrap();
-        tracker.enable_rule("NXB-RULE-A").unwrap();
+        tracker.enable_rule("BSL-RULE-A").unwrap();
         assert_eq!(tracker.mark_completed(), Err(CoverageError::IncompleteCoverage));
         tracker
-            .record_execution(&current, "NXB-RULE-A", metrics(1))
+            .record_execution(&current, "BSL-RULE-A", metrics(1))
             .unwrap();
         tracker
             .set_queue_telemetry(QueueTelemetry {
@@ -271,9 +271,9 @@ mod tests {
         let mut tracker = CoverageTracker::new(limits(4), budget(), policy()).unwrap();
         let current = endpoint(1);
         tracker.admit_endpoint(&current).unwrap();
-        tracker.enable_rule("NXB-RULE-A").unwrap();
+        tracker.enable_rule("BSL-RULE-A").unwrap();
         tracker
-            .record_execution(&current, "NXB-RULE-A", metrics(1))
+            .record_execution(&current, "BSL-RULE-A", metrics(1))
             .unwrap();
         let mut receipt = tracker.receipt().unwrap();
         receipt.unique_findings = receipt.unique_findings.saturating_add(1);

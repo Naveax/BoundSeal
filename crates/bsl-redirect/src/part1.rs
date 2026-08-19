@@ -1,8 +1,8 @@
 use std::{collections::BTreeSet, fmt, net::IpAddr, time::Duration};
 
-use nxb_gateway::{DecisionOutcome, GatewayDecision, RequestIntent};
-use nxb_http1::Http1Response;
-use nxb_pinned_transport::{
+use bsl_gateway::{DecisionOutcome, GatewayDecision, RequestIntent};
+use bsl_http1::Http1Response;
+use bsl_pinned_transport::{
     ConnectionAuthorization, PinnedTransportCoordinator, PinnedTransportError,
 };
 use serde::{Deserialize, Serialize};

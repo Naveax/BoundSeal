@@ -1,8 +1,8 @@
-# NXB-9 — Cookie Jar and Session Rotation
+# BSL-9 — Cookie Jar and Session Rotation
 
 ## Purpose
 
-NXB-9 processes response `Set-Cookie` fields without allowing cookie values to escape the in-memory secret boundary. It adds deterministic cookie replacement, deletion and session-generation semantics above NXB-8.
+BSL-9 processes response `Set-Cookie` fields without allowing cookie values to escape the in-memory secret boundary. It adds deterministic cookie replacement, deletion and session-generation semantics above BSL-8.
 
 ## Processing order
 
@@ -10,7 +10,7 @@ NXB-9 processes response `Set-Cookie` fields without allowing cookie values to e
 2. Parse and validate every field before changing vault or jar state.
 3. Collapse repeated keys in response order; the last field for the same name/domain/path wins.
 4. Prevalidate all existing handles that will be replaced or deleted.
-5. Insert every new value into `nxb-vault` using zeroizing buffers.
+5. Insert every new value into `bsl-vault` using zeroizing buffers.
 6. Roll back newly inserted handles if staging fails.
 7. Revoke replaced/deleted handles.
 8. Commit jar metadata atomically.
@@ -36,7 +36,7 @@ The parser rejects:
 
 ## Vault and scope rules
 
-Cookie values exist only in a zeroizing parser buffer and `nxb-vault`. The jar stores opaque handles, metadata and value hashes. Host-only cookies receive an exact-host binding. Domain cookies are intersected with the session's already authorized host set; they cannot broaden it.
+Cookie values exist only in a zeroizing parser buffer and `bsl-vault`. The jar stores opaque handles, metadata and value hashes. Host-only cookies receive an exact-host binding. Domain cookies are intersected with the session's already authorized host set; they cannot broaden it.
 
 Cookie leases validate account, tenant, role, run, worker and expiry first. Authority/path filtering occurs during materialization, allowing a multi-host session to hold scoped cookies without causing unrelated requests to fail.
 
@@ -56,4 +56,4 @@ All parser, replacement, deletion, rotation, logout and redaction behavior is ex
 
 Cookie audit records contain counts, origin metadata, key hashes, generation transitions and vault audit anchors. Cookie values and complete `Set-Cookie` fields are excluded.
 
-NXB-9 does not add browser import, public-suffix downloads, disk persistence, login automation, sockets, public-network execution or scanner adapters.
+BSL-9 does not add browser import, public-suffix downloads, disk persistence, login automation, sockets, public-network execution or scanner adapters.

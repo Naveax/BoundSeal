@@ -1,10 +1,10 @@
-use nxb_adapter_boundary::{
+use bsl_adapter_boundary::{
     AdapterAction, AdapterAdmissionAuthority, AdapterAdmissionRequest, AdapterCapability,
     AdapterConformanceAuthority, AdapterEnvelope, AdapterGrant, AdapterManifest, AdapterOutcome,
     AdapterResourceLimits, AdapterResourceUsage, AdapterSession, FixtureObject, FixtureObjectKind,
     FixtureProfile, FixtureRegistry,
 };
-use nxb_replay_lab::{
+use bsl_replay_lab::{
     FaultPlan, ReplayBundle, ReplayEngine, ReplayInputRef, ReproducibilityAuthority,
 };
 
@@ -176,7 +176,7 @@ fn inventory() -> ComponentInventory {
             )
             .unwrap(),
             ComponentRecord::new(
-                "nxb-platform",
+                "bsl-platform",
                 ComponentKind::Binary,
                 "1.0.0",
                 hex('5'),

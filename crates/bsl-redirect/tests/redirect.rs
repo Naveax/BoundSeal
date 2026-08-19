@@ -1,11 +1,11 @@
 use std::{collections::BTreeSet, time::Duration};
 
+use bsl_gateway::ScopeGateway;
+use bsl_http1::{Http1Framing, Http1Header, Http1Response, Http1Version};
+use bsl_pinned_transport::PinnedTransportCoordinator;
+use bsl_policy::{AuthorizationPolicy, AutomationPolicy, ProgramPolicy, ScopePolicy, TargetPolicy};
+use bsl_redirect::*;
 use chrono::{TimeZone, Utc};
-use nxb_gateway::ScopeGateway;
-use nxb_http1::{Http1Framing, Http1Header, Http1Response, Http1Version};
-use nxb_pinned_transport::PinnedTransportCoordinator;
-use nxb_policy::{AuthorizationPolicy, AutomationPolicy, ProgramPolicy, ScopePolicy, TargetPolicy};
-use nxb_redirect::*;
 use sha2::{Digest, Sha256};
 use url::Url;
 
@@ -28,7 +28,7 @@ fn session(generation: u64) -> RedirectSessionSnapshot {
     }
 }
 
-fn policy(hosts: &[&str]) -> nxb_policy::CompiledPolicy {
+fn policy(hosts: &[&str]) -> bsl_policy::CompiledPolicy {
     TargetPolicy {
         schema_version: 1,
         program: ProgramPolicy {

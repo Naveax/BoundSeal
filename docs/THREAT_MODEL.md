@@ -7,7 +7,7 @@
 - target and account identities;
 - raw requests, responses, traces and evidence;
 - scanner source revisions and rule packs;
-- NXBounty decision and audit logs.
+- BoundSeal decision and audit logs.
 
 ## Primary threats
 

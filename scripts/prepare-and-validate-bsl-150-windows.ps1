@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 $rustToolchain = '1.97.1'
 $cargoAuditVersion = '0.22.2'
 $cargoDenyVersion = '0.20.2'
-$toolsRoot = Join-Path $RepoRoot 'target\nxb-tools'
+$toolsRoot = Join-Path $RepoRoot 'target\bsl-tools'
 $toolsBin = Join-Path $toolsRoot 'bin'
 
 function Invoke-NativeChecked {
@@ -72,7 +72,7 @@ try {
     $denyPath = Join-Path $toolsBin 'cargo-deny.exe'
 
     $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) (
-        'nxb-150-tool-bootstrap-' + [Guid]::NewGuid().ToString('N')
+        'bsl-150-tool-bootstrap-' + [Guid]::NewGuid().ToString('N')
     )
     New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
     try {
@@ -107,12 +107,12 @@ try {
         throw 'Pinned validation tools were not installed correctly.'
     }
 
-    $receiptDirectory = Join-Path $RepoRoot 'target\nxb-validation'
+    $receiptDirectory = Join-Path $RepoRoot 'target\bsl-validation'
     New-Item -ItemType Directory -Path $receiptDirectory -Force | Out-Null
-    $receiptPath = Join-Path $receiptDirectory "nxb-150-tooling-windows-$headSha.json"
+    $receiptPath = Join-Path $receiptDirectory "bsl-150-tooling-windows-$headSha.json"
     $receipt = [ordered]@{
         schema_version = 1
-        milestone = 'NXB-150'
+        milestone = 'BSL-150'
         gate = 'validation_tool_bootstrap'
         platform = 'windows'
         head_sha = $headSha
@@ -121,7 +121,7 @@ try {
         cargo_audit_sha256 = (Get-FileHash -LiteralPath $auditPath -Algorithm SHA256).Hash.ToLowerInvariant()
         cargo_deny = $denyVersion
         cargo_deny_sha256 = (Get-FileHash -LiteralPath $denyPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        tools_root = 'target/nxb-tools'
+        tools_root = 'target/bsl-tools'
         network_activity = 'rustup_and_crates_io_tool_installation_only'
         prepared_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
     }
@@ -131,12 +131,12 @@ try {
         [Text.UTF8Encoding]::new($false)
     )
 
-    Write-Host 'NXB-150 pinned Windows validation tools are ready.'
+    Write-Host 'BSL-150 pinned Windows validation tools are ready.'
     Write-Host "HEAD: $headSha"
     Write-Host "Tooling receipt: $receiptPath"
 
     if (-not $PrepareOnly) {
-        & (Join-Path $PSScriptRoot 'validate-nxb-150-windows.ps1') -RepoRoot $RepoRoot
+        & (Join-Path $PSScriptRoot 'validate-bsl-150-windows.ps1') -RepoRoot $RepoRoot
     }
 }
 finally {

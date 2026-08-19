@@ -1,8 +1,8 @@
-# NXB-127 — Deterministic Sharded Execution
+# BSL-127 — Deterministic Sharded Execution
 
 ## Purpose
 
-NXB-127 partitions finite, already-authorized endpoint-rule work into deterministic, origin-isolated shards. The coordinator provides exact ownership, shard-local and global resource accounting, exact-once leases, global emergency stop and deterministic finding merge.
+BSL-127 partitions finite, already-authorized endpoint-rule work into deterministic, origin-isolated shards. The coordinator provides exact ownership, shard-local and global resource accounting, exact-once leases, global emergency stop and deterministic finding merge.
 
 It does not provide a distributed transport or execute network requests.
 
@@ -11,7 +11,7 @@ It does not provide a distributed transport or execute network requests.
 An origin is assigned from:
 
 ```text
-SHA-256("nxb-shard-v1", run_partition_sha256, origin_sha256)
+SHA-256("bsl-shard-v1", run_partition_sha256, origin_sha256)
 ```
 
 The first 64-bit digest prefix is reduced modulo the configured shard count. Endpoint identity is not part of the partition key, so every pair belonging to the same normalized origin remains in the same shard.
@@ -85,7 +85,7 @@ Shard results contain only exact finding IDs and resource usage. The coordinator
 
 ## Stop behavior
 
-Any terminal NXB-125 run reason blocks new enqueue and lease operations.
+Any terminal BSL-125 run reason blocks new enqueue and lease operations.
 
 Global emergency stop additionally:
 
@@ -126,4 +126,4 @@ Tests verify:
 
 ## Next stage
 
-NXB-128 may introduce a scope-controlled live adapter MVP only after this layer remains green. Any live adapter must consume existing policy, destination, DNS pinning, permit, executor, stream, TLS, HTTP, scheduler, sharding and coverage contracts rather than bypassing them.
+BSL-128 may introduce a scope-controlled live adapter MVP only after this layer remains green. Any live adapter must consume existing policy, destination, DNS pinning, permit, executor, stream, TLS, HTTP, scheduler, sharding and coverage contracts rather than bypassing them.

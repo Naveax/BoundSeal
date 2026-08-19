@@ -15,7 +15,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "nxb123-{label}-{}-{now}-{sequence}",
+            "bsl123-{label}-{}-{now}-{sequence}",
             std::process::id()
         ))
     }

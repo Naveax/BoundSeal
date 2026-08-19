@@ -1,16 +1,16 @@
 use std::time::Duration;
 
-use nxb_evidence_key_provider_process::{
+use bsl_evidence_key_provider_process::{
     bundled_windows_credential_config, ProcessEvidenceKeyProviderError,
     WINDOWS_CREDENTIAL_CAPABILITY_V1, WINDOWS_CREDENTIAL_HELPER_FILE_NAME,
     WINDOWS_CREDENTIAL_PROVIDER_ID, WINDOWS_CREDENTIAL_TARGET_PREFIX,
 };
-use nxb_vault_provider_process::sha256_hex;
+use bsl_vault_provider_process::sha256_hex;
 
 fn absolute_install_root() -> std::path::PathBuf {
     std::env::current_dir()
         .expect("current directory")
-        .join("nxb-pass-d-bundled-install-root")
+        .join("bsl-pass-d-bundled-install-root")
 }
 
 #[test]

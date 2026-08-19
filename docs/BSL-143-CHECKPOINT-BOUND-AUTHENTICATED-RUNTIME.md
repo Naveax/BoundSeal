@@ -1,6 +1,6 @@
-# NXB-143 — Checkpoint-bound authenticated runtime
+# BSL-143 — Checkpoint-bound authenticated runtime
 
-NXB-143 connects the signed NXB-141 operator contract, the NXB-142 checkpoint store and the existing authenticated live-adapter boundary without introducing automatic broad crawling or destructive methods.
+BSL-143 connects the signed BSL-141 operator contract, the BSL-142 checkpoint store and the existing authenticated live-adapter boundary without introducing automatic broad crawling or destructive methods.
 
 ## Execution boundary
 
@@ -56,4 +56,4 @@ If external-session teardown fails, the runtime attempts an emergency vault purg
 
 ## Explicit limitations
 
-NXB-143 does not mint scope decisions or transport tickets and does not broaden the signed plan. It does not automatically follow redirects, submit reports, retry indeterminate requests, execute JavaScript or enable destructive HTTP methods.
+BSL-143 does not mint scope decisions or transport tickets and does not broaden the signed plan. It does not automatically follow redirects, submit reports, retry indeterminate requests, execute JavaScript or enable destructive HTTP methods.

@@ -1,12 +1,12 @@
 use std::time::Duration;
 
-use nxb_executor::{ExecutionControl, ExecutionOutcome, ExecutorConfig, PermitExecutor};
-use nxb_http1::Http1Codec;
-use nxb_pinned_transport::PinnedTransportCoordinator;
-use nxb_session::SessionExchangeOptions;
-use nxb_stream::{BoundedByteStream, StreamControl};
-use nxb_tls::LibraryVerifiedTlsBinder;
-use nxb_transport::{ConnectionAttempt, TicketUseOutcome, TransportScheme};
+use bsl_executor::{ExecutionControl, ExecutionOutcome, ExecutorConfig, PermitExecutor};
+use bsl_http1::Http1Codec;
+use bsl_pinned_transport::PinnedTransportCoordinator;
+use bsl_session::SessionExchangeOptions;
+use bsl_stream::{BoundedByteStream, StreamControl};
+use bsl_tls::LibraryVerifiedTlsBinder;
+use bsl_transport::{ConnectionAttempt, TicketUseOutcome, TransportScheme};
 
 use crate::{
     authenticated::{LiveAuthenticatedError, LiveAuthenticatedResult, LiveSessionInjection},

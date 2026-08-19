@@ -8,22 +8,22 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use chrono::{DateTime, Utc};
-use clap::{Parser, Subcommand, ValueEnum};
-use nxb_operator_runtime::RuntimeMethod;
-use nxb_resumable_runner::{
+use bsl_operator_runtime::RuntimeMethod;
+use bsl_resumable_runner::{
     inspect_runner, request_emergency_stop_at, RunnerCandidate, RunnerManifest,
 };
-use nxb_unified_operator::UnifiedOperatorPlan;
+use bsl_unified_operator::UnifiedOperatorPlan;
+use chrono::{DateTime, Utc};
+use clap::{Parser, Subcommand, ValueEnum};
 use serde::{de::DeserializeOwned, Serialize};
 
 const MAX_CONTROL_ARTIFACT_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "nxb-resumable-runner",
+    name = "bsl-resumable-runner",
     version,
-    about = "NXB-144 resumable bounded live-runner control plane"
+    about = "BSL-144 resumable bounded live-runner control plane"
 )]
 struct Cli {
     #[command(subcommand)]

@@ -1,4 +1,4 @@
-# nxb-workflow-graph
+# bsl-workflow-graph
 
 Networkless P6 contracts for capability graphs, non-executing risk-chain synthesis, typed workflow DAGs, exact-once step leases, compensation, oracle quorum and final run certification.
 

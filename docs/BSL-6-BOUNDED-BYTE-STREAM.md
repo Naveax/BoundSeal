@@ -1,8 +1,8 @@
-# NXB-6 — Bounded Byte-Stream Fixture
+# BSL-6 — Bounded Byte-Stream Fixture
 
 ## Purpose
 
-NXB-6 introduces a deterministic byte-stream boundary without enabling operating-system sockets or public network access.
+BSL-6 introduces a deterministic byte-stream boundary without enabling operating-system sockets or public network access.
 
 A stream cannot be opened from a URL, hostname, IP address, proxy configuration or arbitrary executor receipt. Opening requires all of the following:
 
@@ -70,7 +70,7 @@ Conservative defaults:
 
 ## Fixture backend
 
-`nxb-stream-fixture` provides `InMemoryDuplex`. It has no socket, resolver, TLS or HTTP implementation. It can deterministically model:
+`bsl-stream-fixture` provides `InMemoryDuplex`. It has no socket, resolver, TLS or HTTP implementation. It can deterministically model:
 
 - fragmented reads;
 - partial writes;
@@ -86,7 +86,7 @@ The fixture records requested sizes and deadlines. Captured write payloads exist
 
 ## Explicitly excluded
 
-NXB-6 does not add:
+BSL-6 does not add:
 
 - TCP, UDP or QUIC sockets;
 - TLS handshakes or certificate validation;

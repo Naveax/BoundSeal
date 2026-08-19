@@ -1,6 +1,6 @@
-# nxb-lifecycle-governance
+# bsl-lifecycle-governance
 
-Deterministic local-only contracts for NXB-84 through NXB-101.
+Deterministic local-only contracts for BSL-84 through BSL-101.
 
 - P13 governs post-freeze maintenance proposals, impact analysis, bounded windows, canonical patch admission and maintenance release certification.
 - P14 provides metadata-only archives, bounded retention and redaction, diverse recovery rehearsals and continuity certification.

@@ -3,8 +3,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use nxb_session::{SessionProfile, SessionStatus};
-use nxb_vault::{CookieMetadata, SameSitePolicy, SecretBinding, SecretDelivery, SecretInput};
+use bsl_session::{SessionProfile, SessionStatus};
+use bsl_vault::{CookieMetadata, SameSitePolicy, SecretBinding, SecretDelivery, SecretInput};
 use ring::signature::{Ed25519KeyPair, KeyPair};
 
 use super::*;
@@ -153,7 +153,7 @@ fn unique_state_directory(label: &str) -> std::path::PathBuf {
         .unwrap()
         .as_nanos();
     env::temp_dir().join(format!(
-        "nxb-session-injection-{label}-{}-{unique}",
+        "bsl-session-injection-{label}-{}-{unique}",
         std::process::id()
     ))
 }

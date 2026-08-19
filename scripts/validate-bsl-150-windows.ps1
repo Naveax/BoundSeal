@@ -10,11 +10,11 @@ $rustToolchain = '1.97.1'
 $cargoAuditVersion = '0.22.2'
 $cargoDenyVersion = '0.20.2'
 $expectedCargoLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
-$toolsBin = Join-Path $RepoRoot 'target\nxb-tools\bin'
+$toolsBin = Join-Path $RepoRoot 'target\bsl-tools\bin'
 $auditPath = Join-Path $toolsBin 'cargo-audit.exe'
 $denyPath = Join-Path $toolsBin 'cargo-deny.exe'
 
-function Invoke-NxbCargo {
+function Invoke-BslCargo {
     param(
         [Parameter(Mandatory = $true)][string[]]$Arguments,
         [Parameter(Mandatory = $true)][string]$Label
@@ -26,7 +26,7 @@ function Invoke-NxbCargo {
     }
 }
 
-function Invoke-NxbTool {
+function Invoke-BslTool {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$Arguments,
@@ -39,7 +39,7 @@ function Invoke-NxbTool {
     }
 }
 
-function Get-NxbToolVersion {
+function Get-BslToolVersion {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string]$ExpectedVersion,
@@ -47,7 +47,7 @@ function Get-NxbToolVersion {
     )
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        throw "$Label is unavailable at $Path. Run prepare-and-validate-nxb-150-windows.ps1 first."
+        throw "$Label is unavailable at $Path. Run prepare-and-validate-bsl-150-windows.ps1 first."
     }
     $value = (& $Path --version | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $value -notmatch ('(^|\s)' + [regex]::Escape($ExpectedVersion) + '($|\s)')) {
@@ -81,11 +81,11 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw 'Could not resolve pinned Cargo version.'
     }
-    $auditVersion = Get-NxbToolVersion `
+    $auditVersion = Get-BslToolVersion `
         -Path $auditPath `
         -ExpectedVersion $cargoAuditVersion `
         -Label 'cargo-audit'
-    $denyVersion = Get-NxbToolVersion `
+    $denyVersion = Get-BslToolVersion `
         -Path $denyPath `
         -ExpectedVersion $cargoDenyVersion `
         -Label 'cargo-deny'
@@ -105,7 +105,7 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw 'Committed Cargo.lock differs before locked validation.'
     }
-    Invoke-NxbCargo `
+    Invoke-BslCargo `
         -Arguments @('metadata', '--format-version', '1', '--locked', '--no-deps') `
         -Label 'cargo metadata --locked'
     git diff --exit-code -- Cargo.lock
@@ -113,51 +113,51 @@ try {
         throw 'Cargo.lock changed during cargo metadata --locked.'
     }
 
-    Invoke-NxbCargo `
+    Invoke-BslCargo `
         -Arguments @('fmt', '--all', '--', '--check') `
         -Label 'cargo fmt'
-    Invoke-NxbCargo `
+    Invoke-BslCargo `
         -Arguments @(
-            'check', '-p', 'nxb-evidence-key-provider-process', '--all-features', '--locked'
+            'check', '-p', 'bsl-evidence-key-provider-process', '--all-features', '--locked'
         ) `
         -Label 'package cargo check'
-    Invoke-NxbCargo `
+    Invoke-BslCargo `
         -Arguments @(
-            'clippy', '-p', 'nxb-evidence-key-provider-process',
+            'clippy', '-p', 'bsl-evidence-key-provider-process',
             '--all-targets', '--all-features', '--locked', '--', '-D', 'warnings'
         ) `
         -Label 'package cargo clippy'
-    Invoke-NxbCargo `
+    Invoke-BslCargo `
         -Arguments @(
-            'test', '-p', 'nxb-evidence-key-provider-process',
+            'test', '-p', 'bsl-evidence-key-provider-process',
             '--all-features', '--locked', '--', '--test-threads=1'
         ) `
         -Label 'serial process-adapter tests'
-    Invoke-NxbCargo `
+    Invoke-BslCargo `
         -Arguments @(
-            'test', '-p', 'nxb-vault-provider', '--locked', '--', '--test-threads=1'
+            'test', '-p', 'bsl-vault-provider', '--locked', '--', '--test-threads=1'
         ) `
         -Label 'vault-provider regression tests'
 
-    Invoke-NxbCargo `
+    Invoke-BslCargo `
         -Arguments @(
             'check', '--workspace', '--all-targets', '--all-features', '--locked'
         ) `
         -Label 'workspace cargo check'
-    Invoke-NxbCargo `
+    Invoke-BslCargo `
         -Arguments @(
             'clippy', '--workspace', '--all-targets', '--all-features',
             '--locked', '--', '-D', 'warnings'
         ) `
         -Label 'workspace cargo clippy'
-    Invoke-NxbCargo `
+    Invoke-BslCargo `
         -Arguments @(
             'test', '--workspace', '--all-features', '--locked', '--', '--test-threads=1'
         ) `
         -Label 'workspace cargo test'
 
-    Invoke-NxbTool -Path $auditPath -Arguments @('audit') -Label 'RustSec cargo audit'
-    Invoke-NxbTool -Path $denyPath -Arguments @('check') -Label 'cargo-deny checks'
+    Invoke-BslTool -Path $auditPath -Arguments @('audit') -Label 'RustSec cargo audit'
+    Invoke-BslTool -Path $denyPath -Arguments @('check') -Label 'cargo-deny checks'
 
     $finalHead = (git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0 -or $finalHead -ne $headSha) {
@@ -168,12 +168,12 @@ try {
         throw 'Working tree changed during validation.'
     }
 
-    $validationDirectory = Join-Path $RepoRoot 'target\nxb-validation'
+    $validationDirectory = Join-Path $RepoRoot 'target\bsl-validation'
     New-Item -ItemType Directory -Path $validationDirectory -Force | Out-Null
-    $evidencePath = Join-Path $validationDirectory "nxb-150-windows-$headSha.json"
+    $evidencePath = Join-Path $validationDirectory "bsl-150-windows-$headSha.json"
     $evidence = [ordered]@{
         schema_version = 2
-        milestone = 'NXB-150'
+        milestone = 'BSL-150'
         gate = 'pinned_process_evidence_key_provider'
         platform = 'windows'
         head_sha = $headSha
@@ -200,7 +200,7 @@ try {
         [Text.UTF8Encoding]::new($false)
     )
 
-    Write-Host 'NXB-150 Windows validation passed.'
+    Write-Host 'BSL-150 Windows validation passed.'
     Write-Host "HEAD: $headSha"
     Write-Host "Cargo.lock SHA-256: $lockSha256"
     Write-Host "Evidence: $evidencePath"

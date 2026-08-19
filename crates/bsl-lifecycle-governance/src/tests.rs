@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use nxb_platform_assurance::{FinalAssuranceCertificate, RoadmapClosureCertificate};
+use bsl_platform_assurance::{FinalAssuranceCertificate, RoadmapClosureCertificate};
 
 use crate::*;
 

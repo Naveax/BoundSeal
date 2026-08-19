@@ -8,16 +8,16 @@ use std::{
     time::Duration,
 };
 
-use nxb_session::SessionBroker;
-use nxb_vault::{InMemorySecretVault, SecretKind};
-use nxb_vault_provider::{
+use bsl_session::SessionBroker;
+use bsl_vault::{InMemorySecretVault, SecretKind};
+use bsl_vault_provider::{
     bootstrap_external_session, consume_activation_once, deprovision_external_session,
     ExternalVaultActivationCertificate, ExternalVaultActivationPayload,
     ExternalVaultPlanParameters, ExternalVaultProvider, ExternalVaultSessionPlan,
     ProviderDeliverySpec, ProviderIdentity, ProviderSecretRequest, ProviderSecretSpec,
     ProviderSessionOutcome, ProviderSessionRequest,
 };
-use nxb_vault_provider_process::{
+use bsl_vault_provider_process::{
     fixture, sha256_file, sha256_hex, ProcessVaultProvider, ProcessVaultProviderConfig,
     ProcessVaultProviderError,
 };
@@ -26,7 +26,7 @@ use ring::signature::{Ed25519KeyPair, KeyPair};
 const NOW: i64 = 1_900_000_000;
 
 fn fixture_executable() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_nxb-vault-provider-fixture"))
+    PathBuf::from(env!("CARGO_BIN_EXE_bsl-vault-provider-fixture"))
 }
 
 fn fixture_identity(executable_sha256: &str) -> ProviderIdentity {
@@ -51,7 +51,7 @@ fn provider_config(timeout: Duration) -> ProcessVaultProviderConfig {
 fn plan(public_key: &[u8], identity: ProviderIdentity) -> ExternalVaultSessionPlan {
     ExternalVaultSessionPlan::build(ExternalVaultPlanParameters {
         bootstrap_id: "bootstrap-process-1".into(),
-        discovery_plan_sha256: sha256_hex(b"nxb140-discovery-plan"),
+        discovery_plan_sha256: sha256_hex(b"bsl140-discovery-plan"),
         target_origin_sha256: sha256_hex(b"https://app.example.com:443"),
         authority: "app.example.com".into(),
         run_id: "run-process-1".into(),
@@ -96,7 +96,7 @@ fn certificate(
 fn unique_state_directory(label: &str) -> PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(1);
     std::env::temp_dir().join(format!(
-        "nxb140-process-provider-{label}-{}-{}",
+        "bsl140-process-provider-{label}-{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ))
@@ -156,7 +156,7 @@ fn pinned_process_provider_bootstraps_and_tears_down() {
     assert_eq!(vault.secret_count(), 1);
     assert_eq!(provisioned.session().profile.secret_handles.len(), 1);
     let debug = format!("{provider:?}");
-    assert!(!debug.contains("nxb140-test-secret"));
+    assert!(!debug.contains("bsl140-test-secret"));
     assert!(!debug.contains(&executable_display));
 
     let teardown =

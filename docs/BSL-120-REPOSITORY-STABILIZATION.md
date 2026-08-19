@@ -1,6 +1,6 @@
-# NXB-120 Repository Stabilization
+# BSL-120 Repository Stabilization
 
-This maintenance batch turns the NXB-0 through NXB-119 contract program into a reproducible, understandable and executable networkless checkpoint.
+This maintenance batch turns the BSL-0 through BSL-119 contract program into a reproducible, understandable and executable networkless checkpoint.
 
 ## Scope
 

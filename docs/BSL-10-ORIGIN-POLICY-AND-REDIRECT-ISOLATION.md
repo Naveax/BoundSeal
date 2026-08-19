@@ -1,8 +1,8 @@
-# NXB-10 — Origin Policy and Redirect Isolation
+# BSL-10 — Origin Policy and Redirect Isolation
 
 ## Purpose
 
-NXB-10 turns redirects into a sequence of independently authorized requests. A previous HTTP response cannot grant permission for its `Location` destination.
+BSL-10 turns redirects into a sequence of independently authorized requests. A previous HTTP response cannot grant permission for its `Location` destination.
 
 ## Hop contract
 
@@ -52,4 +52,4 @@ Formatting, Clippy and tests run across the complete workspace. Redirect fixture
 
 ## Exclusions
 
-NXB-10 does not add a resolver, socket backend, TLS client, browser, proxy, login automation, scanner adapter or public-network execution. Tests use only synthetic HTTP responses and public-address fixtures.
+BSL-10 does not add a resolver, socket backend, TLS client, browser, proxy, login automation, scanner adapter or public-network execution. Tests use only synthetic HTTP responses and public-address fixtures.

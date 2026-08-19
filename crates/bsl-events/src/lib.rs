@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-pub const EVENT_SCHEMA: &str = "nxb.event.v1";
+pub const EVENT_SCHEMA: &str = "bsl.event.v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -137,7 +137,7 @@ mod tests {
             asset: "https://app.example.com".into(),
             data: json!({"method": "GET", "path": "/api/me"}),
             provenance: Provenance {
-                tool_name: "nxb-fixture".into(),
+                tool_name: "bsl-fixture".into(),
                 tool_version: "0.1.0".into(),
                 tool_commit: Some("abcdef0".into()),
                 policy_decision_id: "decision-001".into(),
@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn rejects_wrong_schema() {
         let mut event = event();
-        event.schema = "nxb.event.v2".into();
+        event.schema = "bsl.event.v2".into();
         assert!(event.validate().is_err());
     }
 

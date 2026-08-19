@@ -6,9 +6,9 @@ use std::{
     time::Duration,
 };
 
-use nxb_vault::MAX_SECRET_BYTES;
-use nxb_vault_provider::ProviderIdentity;
-use nxb_vault_provider_process::{
+use bsl_vault::MAX_SECRET_BYTES;
+use bsl_vault_provider::ProviderIdentity;
+use bsl_vault_provider_process::{
     protocol::{read_host_message, write_provider_message},
     sha256_file, sha256_hex, HostMessage, ProviderMessage, MAX_PROCESS_METADATA_BYTES,
     PROCESS_PROVIDER_PROTOCOL_VERSION,
@@ -16,7 +16,7 @@ use nxb_vault_provider_process::{
 use zeroize::Zeroizing;
 
 const FIXTURE_PROVIDER_ID: &str = "fixture-evidence-key-provider";
-const FIXTURE_CAPABILITY: &[u8] = b"nxb150-pinned-process-evidence-key-fixture";
+const FIXTURE_CAPABILITY: &[u8] = b"bsl150-pinned-process-evidence-key-fixture";
 const FIXTURE_VERSION_ID: &str = "fixture-evidence-key-version-1";
 const FIXTURE_KEY_BYTES: usize = 32;
 
@@ -26,7 +26,7 @@ fn main() {
     }
 }
 
-fn run() -> Result<(), nxb_vault_provider_process::ProcessVaultProviderError> {
+fn run() -> Result<(), bsl_vault_provider_process::ProcessVaultProviderError> {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut reader = stdin.lock();
@@ -34,7 +34,7 @@ fn run() -> Result<(), nxb_vault_provider_process::ProcessVaultProviderError> {
 
     let (hello, secret) = read_host_message(&mut reader)?;
     if !secret.is_empty() {
-        return Err(nxb_vault_provider_process::ProcessVaultProviderError::ProtocolViolation);
+        return Err(bsl_vault_provider_process::ProcessVaultProviderError::ProtocolViolation);
     }
     let nonce_hex = match hello {
         HostMessage::Hello {
@@ -48,10 +48,10 @@ fn run() -> Result<(), nxb_vault_provider_process::ProcessVaultProviderError> {
         {
             nonce_hex
         }
-        _ => return Err(nxb_vault_provider_process::ProcessVaultProviderError::ProtocolViolation),
+        _ => return Err(bsl_vault_provider_process::ProcessVaultProviderError::ProtocolViolation),
     };
     let executable = std::env::current_exe().map_err(|_| {
-        nxb_vault_provider_process::ProcessVaultProviderError::ExecutableNotRegularFile
+        bsl_vault_provider_process::ProcessVaultProviderError::ExecutableNotRegularFile
     })?;
     let identity = ProviderIdentity {
         provider_id: FIXTURE_PROVIDER_ID.into(),
@@ -72,7 +72,7 @@ fn run() -> Result<(), nxb_vault_provider_process::ProcessVaultProviderError> {
     loop {
         let (message, secret) = read_host_message(&mut reader)?;
         if !secret.is_empty() {
-            return Err(nxb_vault_provider_process::ProcessVaultProviderError::ProtocolViolation);
+            return Err(bsl_vault_provider_process::ProcessVaultProviderError::ProtocolViolation);
         }
         match message {
             HostMessage::Begin { sequence, .. } if !active => {
@@ -146,7 +146,7 @@ fn run() -> Result<(), nxb_vault_provider_process::ProcessVaultProviderError> {
             }
             _ => {
                 return Err(
-                    nxb_vault_provider_process::ProcessVaultProviderError::ProtocolViolation,
+                    bsl_vault_provider_process::ProcessVaultProviderError::ProtocolViolation,
                 )
             }
         }

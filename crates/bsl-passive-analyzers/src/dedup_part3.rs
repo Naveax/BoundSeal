@@ -56,7 +56,7 @@ fn load_and_verify_dedup_manifest(
 ) -> Result<Vec<DedupRunRecord>, ExactDedupError> {
     let content = fs::read_to_string(manifest_path).map_err(dedup_io_error)?;
     let mut records = Vec::new();
-    let mut previous_hash = dedup_hash(format!("nxb-exact-dedup:{index_id}").as_bytes());
+    let mut previous_hash = dedup_hash(format!("bsl-exact-dedup:{index_id}").as_bytes());
     for (index, line) in content.lines().enumerate() {
         if line.trim().is_empty() {
             continue;

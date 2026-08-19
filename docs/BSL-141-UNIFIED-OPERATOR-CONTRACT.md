@@ -1,11 +1,11 @@
-# NXB-141 — Unified authenticated operator contract
+# BSL-141 — Unified authenticated operator contract
 
 ## Status
 
-The first NXB-141 block provides:
+The first BSL-141 block provides:
 
 - a signed unified execution contract;
-- a networkless NXB-137/138/139/140 artifact binder CLI;
+- a networkless BSL-137/138/139/140 artifact binder CLI;
 - one-use external Ed25519 activation consumption.
 
 This block performs no network request and does not start the process vault provider. It is the authorization and artifact-integrity boundary required before a bounded live execution command can be introduced.
@@ -25,11 +25,11 @@ The binding records:
 - the earliest component expiration;
 - checkpoint cadence and maximum workspace bytes.
 
-The signed provider-instance digest can refer to the NXB-140 pinned process-provider executable. The binder does not launch or trust a process by path alone.
+The signed provider-instance digest can refer to the BSL-140 pinned process-provider executable. The binder does not launch or trust a process by path alone.
 
 ## Networkless binder CLI
 
-`nxb-unified-operator` provides:
+`bsl-unified-operator` provides:
 
 ```text
 plan
@@ -85,9 +85,9 @@ Plan and activation-template artifacts are published through a no-clobber tempor
 - workspace check and Clippy with all targets/features and warnings denied;
 - full workspace tests;
 - unified contract and binder CLI tests;
-- NXB-140 process-provider tests on Ubuntu and Windows through the current `main` merge result;
+- BSL-140 process-provider tests on Ubuntu and Windows through the current `main` merge result;
 - RustSec, cargo-deny, adversarial lab and release evidence.
 
-## Next NXB-141 block
+## Next BSL-141 block
 
 The next block will attach checkpointed, bounded execution state to this verified contract. The live loop will remain disabled until checkpoint recovery, workspace quota enforcement, exact provider startup, authenticated request injection and teardown ordering are all verified together.

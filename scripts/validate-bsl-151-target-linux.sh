@@ -21,17 +21,17 @@ rustc_version="$(rustc --version)"
 }
 
 cargo fmt --all -- --check
-cargo check -p nxb-core --all-targets --all-features --locked
-cargo clippy -p nxb-core --all-targets --all-features --locked -- -D warnings
-cargo test -p nxb-core --all-features --locked -- --test-threads=1
-cargo build -p nxb-core --bin nxb --all-features --locked
+cargo check -p bsl-core --all-targets --all-features --locked
+cargo clippy -p bsl-core --all-targets --all-features --locked -- -D warnings
+cargo test -p bsl-core --all-features --locked -- --test-threads=1
+cargo build -p bsl-core --bin bsl --all-features --locked
 
-nxb="$repo_root/target/debug/nxb"
-[[ -x "$nxb" ]] || { echo 'nxb binary is missing' >&2; exit 1; }
+bsl="$repo_root/target/debug/bsl"
+[[ -x "$bsl" ]] || { echo 'bsl binary is missing' >&2; exit 1; }
 
-workspace="$(mktemp -d -t nxb-151-target-XXXXXX)"
+workspace="$(mktemp -d -t bsl-151-target-XXXXXX)"
 rmdir -- "$workspace"
-output_dir="$(mktemp -d -t nxb-151-target-output-XXXXXX)"
+output_dir="$(mktemp -d -t bsl-151-target-output-XXXXXX)"
 policy="$output_dir/target-policy.toml"
 authorization="$output_dir/authorization.txt"
 
@@ -87,12 +87,12 @@ create_args=(
   --policy "$policy"
 )
 
-"$nxb" workspace init \
+"$bsl" workspace init \
   --workspace "$workspace" \
   --name 'Target Linux Acceptance' \
   --json >"$output_dir/init.json"
 
-"$nxb" target create \
+"$bsl" target create \
   --workspace "$workspace" \
   --id example-app \
   --name 'Example App' \
@@ -101,14 +101,14 @@ create_args=(
   --exclude-path /api/logout \
   "${create_args[@]}" \
   --json >"$output_dir/create.json"
-"$nxb" target validate \
+"$bsl" target validate \
   --workspace "$workspace" \
   --id example-app \
   --authorization-document "$authorization" \
   --policy "$policy" \
   --json >"$output_dir/validate.json"
-"$nxb" target list --workspace "$workspace" --json >"$output_dir/list.json"
-"$nxb" target show --workspace "$workspace" --id example-app --json >"$output_dir/show.json"
+"$bsl" target list --workspace "$workspace" --json >"$output_dir/list.json"
+"$bsl" target show --workspace "$workspace" --id example-app --json >"$output_dir/show.json"
 
 python3 - "$output_dir" <<'PY'
 import json, pathlib, sys
@@ -150,7 +150,7 @@ for origin in \
   'https://127.0.0.1' \
   'https://service.internal' \
   'https://*.example.org'; do
-  expect_exit 50 "$nxb" target create \
+  expect_exit 50 "$bsl" target create \
     --workspace "$workspace" \
     --id invalid-origin \
     --name 'Invalid Origin' \
@@ -158,7 +158,7 @@ for origin in \
     "${create_args[@]}" \
     --json
 done
-expect_exit 50 "$nxb" target create \
+expect_exit 50 "$bsl" target create \
   --workspace "$workspace" \
   --id invalid-path \
   --name 'Invalid Path' \
@@ -166,7 +166,7 @@ expect_exit 50 "$nxb" target create \
   --include-path '/api%2fadmin' \
   "${create_args[@]}" \
   --json
-expect_exit 50 "$nxb" target create \
+expect_exit 50 "$bsl" target create \
   --workspace "$workspace" \
   --id invalid-reference \
   --name 'Invalid Reference' \
@@ -185,13 +185,13 @@ value['name'] = 'Tampered Target'
 path.write_text(json.dumps(value, indent=2) + '\n')
 PY
 chmod 600 "$profile"
-expect_exit 52 "$nxb" target show --workspace "$workspace" --id example-app --json
+expect_exit 52 "$bsl" target show --workspace "$workspace" --id example-app --json
 cp -- "$output_dir/profile.original" "$profile"
 chmod 600 "$profile"
 
 cp -- "$authorization" "$output_dir/authorization.original"
 printf 'different authorization\n' >"$authorization"
-expect_exit 54 "$nxb" target validate \
+expect_exit 54 "$bsl" target validate \
   --workspace "$workspace" \
   --id example-app \
   --authorization-document "$authorization" \
@@ -199,13 +199,13 @@ expect_exit 54 "$nxb" target validate \
   --json
 cp -- "$output_dir/authorization.original" "$authorization"
 
-"$nxb" target disable \
+"$bsl" target disable \
   --workspace "$workspace" \
   --id example-app \
   --reason operator-hold \
   --json >"$output_dir/disable.json"
-"$nxb" target list --workspace "$workspace" --json >"$output_dir/active.json"
-"$nxb" target list --workspace "$workspace" --include-disabled --json >"$output_dir/all.json"
+"$bsl" target list --workspace "$workspace" --json >"$output_dir/active.json"
+"$bsl" target list --workspace "$workspace" --include-disabled --json >"$output_dir/all.json"
 [[ "$(stat -c '%a' "$receipt")" == '600' ]] || { echo 'disable receipt mode is not 0600' >&2; exit 1; }
 
 python3 - "$output_dir" <<'PY'
@@ -230,25 +230,25 @@ value['profile_sha256'] = '0' * 64
 path.write_text(json.dumps(value, indent=2) + '\n')
 PY
 chmod 600 "$receipt"
-expect_exit 52 "$nxb" target show --workspace "$workspace" --id example-app --json
+expect_exit 52 "$bsl" target show --workspace "$workspace" --id example-app --json
 cp -- "$output_dir/receipt.original" "$receipt"
 chmod 600 "$receipt"
 
 printf '{}\n' >"$workspace/state/migration-active.json"
 chmod 600 "$workspace/state/migration-active.json"
-expect_exit 51 "$nxb" target list --workspace "$workspace" --json
+expect_exit 51 "$bsl" target list --workspace "$workspace" --json
 rm -f -- "$workspace/state/migration-active.json"
-"$nxb" target show --workspace "$workspace" --id example-app --json >/dev/null
+"$bsl" target show --workspace "$workspace" --id example-app --json >/dev/null
 
-validation_dir="$repo_root/target/nxb-validation"
+validation_dir="$repo_root/target/bsl-validation"
 mkdir -p -- "$validation_dir"
-evidence="$validation_dir/nxb-151-target-linux-$head_sha.json"
-python3 - "$evidence" "$head_sha" "$rustc_version" "$nxb" <<'PY'
+evidence="$validation_dir/bsl-151-target-linux-$head_sha.json"
+python3 - "$evidence" "$head_sha" "$rustc_version" "$bsl" <<'PY'
 import hashlib, json, pathlib, sys
 output, head, rustc, binary = sys.argv[1:]
 value = {
     'schema_version': 1,
-    'milestone': 'NXB-151',
+    'milestone': 'BSL-151',
     'gate': 'authorization_bound_target_profiles',
     'platform': 'linux',
     'head_sha': head,
@@ -270,6 +270,6 @@ value = {
 pathlib.Path(output).write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
 PY
 
-printf 'NXB-151 authorization-bound target Linux validation passed.\n'
+printf 'BSL-151 authorization-bound target Linux validation passed.\n'
 printf 'HEAD: %s\n' "$head_sha"
 printf 'Evidence: %s\n' "$evidence"

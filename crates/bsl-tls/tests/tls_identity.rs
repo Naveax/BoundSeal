@@ -1,18 +1,18 @@
 use std::{collections::BTreeSet, time::Duration};
 
-use chrono::{Duration as ChronoDuration, Utc};
-use nxb_executor::{
+use bsl_executor::{
     ExecutionControl, ExecutionLimits, ExecutorConfig, PermitExecutor, SyntheticBackend,
     SyntheticScenario,
 };
-use nxb_gateway::{RequestIntent, ScopeGateway};
-use nxb_local_executor::LocalExecutionPipeline;
-use nxb_pinned_transport::PinnedTransportCoordinator;
-use nxb_policy::{AuthorizationPolicy, AutomationPolicy, ProgramPolicy, ScopePolicy, TargetPolicy};
-use nxb_stream::{BoundedByteStream, StreamLimits};
-use nxb_stream_fixture::InMemoryDuplex;
-use nxb_tls::*;
-use nxb_transport::{ConnectionAttempt, ConnectionTicket};
+use bsl_gateway::{RequestIntent, ScopeGateway};
+use bsl_local_executor::LocalExecutionPipeline;
+use bsl_pinned_transport::PinnedTransportCoordinator;
+use bsl_policy::{AuthorizationPolicy, AutomationPolicy, ProgramPolicy, ScopePolicy, TargetPolicy};
+use bsl_stream::{BoundedByteStream, StreamLimits};
+use bsl_stream_fixture::InMemoryDuplex;
+use bsl_tls::*;
+use bsl_transport::{ConnectionAttempt, ConnectionTicket};
+use chrono::{Duration as ChronoDuration, Utc};
 
 const NOW: i64 = 1_800_000_000;
 

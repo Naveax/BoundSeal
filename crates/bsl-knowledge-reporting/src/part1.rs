@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use nxb_active_validation::{PromotionState, ValidatedFinding};
-use nxb_passive_analyzers::{Confidence, Finding, Severity};
+use bsl_active_validation::{PromotionState, ValidatedFinding};
+use bsl_passive_analyzers::{Confidence, Finding, Severity};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;

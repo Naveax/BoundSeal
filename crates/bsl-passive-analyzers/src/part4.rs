@@ -19,7 +19,7 @@ impl RedirectAnalyzer {
         if from.scheme() == "https" && to.scheme() == "http" {
             push_finding(
                 &mut findings,
-                "NXB-REDIRECT-001",
+                "BSL-REDIRECT-001",
                 "HTTPS redirect downgrades to HTTP",
                 Severity::High,
                 Confidence::High,
@@ -33,7 +33,7 @@ impl RedirectAnalyzer {
         if cross_origin && observation.credential_headers_forwarded {
             push_finding(
                 &mut findings,
-                "NXB-REDIRECT-002",
+                "BSL-REDIRECT-002",
                 "Cross-origin redirect forwards credential headers",
                 Severity::High,
                 Confidence::High,
@@ -47,7 +47,7 @@ impl RedirectAnalyzer {
         if cross_origin && observation.body_preserved {
             push_finding(
                 &mut findings,
-                "NXB-REDIRECT-003",
+                "BSL-REDIRECT-003",
                 "Cross-origin redirect preserves request body",
                 Severity::High,
                 Confidence::High,
@@ -61,7 +61,7 @@ impl RedirectAnalyzer {
         if observation.loop_detected || observation.chain_depth > 8 {
             push_finding(
                 &mut findings,
-                "NXB-REDIRECT-004",
+                "BSL-REDIRECT-004",
                 "Redirect loop or excessive chain depth",
                 Severity::Low,
                 Confidence::High,
@@ -80,7 +80,7 @@ impl RedirectAnalyzer {
         if observation.session_generation_after != expected_generation {
             push_finding(
                 &mut findings,
-                "NXB-REDIRECT-005",
+                "BSL-REDIRECT-005",
                 "Redirect session generation transition is inconsistent",
                 Severity::Medium,
                 Confidence::High,
@@ -115,7 +115,7 @@ impl PassiveAnalyzer for CorsAnalyzer {
         if allow_origin.as_deref() == Some("*") && allow_credentials {
             push_finding(
                 &mut findings,
-                "NXB-CORS-001",
+                "BSL-CORS-001",
                 "CORS combines wildcard origin with credentials",
                 Severity::High,
                 Confidence::High,
@@ -129,7 +129,7 @@ impl PassiveAnalyzer for CorsAnalyzer {
         if allow_origin.as_deref() == Some("null") {
             push_finding(
                 &mut findings,
-                "NXB-CORS-002",
+                "BSL-CORS-002",
                 "CORS explicitly allows the null origin",
                 Severity::Medium,
                 Confidence::High,
@@ -151,7 +151,7 @@ impl PassiveAnalyzer for CorsAnalyzer {
         {
             push_finding(
                 &mut findings,
-                "NXB-CORS-003",
+                "BSL-CORS-003",
                 "Dynamic CORS response lacks Vary: Origin",
                 Severity::Medium,
                 Confidence::Medium,
@@ -165,7 +165,7 @@ impl PassiveAnalyzer for CorsAnalyzer {
         if response.values("access-control-allow-origin").len() > 1 {
             push_finding(
                 &mut findings,
-                "NXB-CORS-004",
+                "BSL-CORS-004",
                 "CORS allow-origin header is duplicated",
                 Severity::Medium,
                 Confidence::High,

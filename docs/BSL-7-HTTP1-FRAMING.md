@@ -1,8 +1,8 @@
-# NXB-7 — Bounded HTTP/1 Framing Contract
+# BSL-7 — Bounded HTTP/1 Framing Contract
 
 ## Purpose
 
-NXB-7 introduces a deterministic HTTP/1.1 codec above `BoundedByteStream`. It does not resolve names, choose destinations, create sockets, negotiate TLS, follow redirects, manage sessions, or run scanners.
+BSL-7 introduces a deterministic HTTP/1.1 codec above `BoundedByteStream`. It does not resolve names, choose destinations, create sockets, negotiate TLS, follow redirects, manage sessions, or run scanners.
 
 The codec accepts only an already-open bounded stream. The HTTP `Host` authority is derived from the immutable `StreamGrant`; callers cannot provide or override it.
 
@@ -67,7 +67,7 @@ Raw request bodies, response bodies, cookies, tokens and header values are not f
 
 ## Explicit exclusions
 
-NXB-7 does not add:
+BSL-7 does not add:
 
 - real TCP, UDP or QUIC I/O
 - TLS handshakes or certificate verification

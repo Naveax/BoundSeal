@@ -1,13 +1,13 @@
-# NXB-8 — Secret Vault and Session Boundary
+# BSL-8 — Secret Vault and Session Boundary
 
 ## Purpose
 
 Authenticated testing requires cookies, bearer tokens, API keys and CSRF values, but these values must not become ordinary strings that scanner, audit, error or reporting code can copy freely.
 
-NXB-8 introduces two boundaries:
+BSL-8 introduces two boundaries:
 
-- `nxb-vault` owns raw secret bytes and issues opaque handles and short-lived leases.
-- `nxb-session` binds those handles to one run, worker, account, tenant, role, authority and scheme.
+- `bsl-vault` owns raw secret bytes and issues opaque handles and short-lived leases.
+- `bsl-session` binds those handles to one run, worker, account, tenant, role, authority and scheme.
 
 ## Secret lifecycle
 
@@ -56,7 +56,7 @@ A header lease already materialized inside an active exchange cannot be recalled
 
 ## Explicit exclusions
 
-NXB-8 does not add:
+BSL-8 does not add:
 
 - disk persistence
 - environment-variable import

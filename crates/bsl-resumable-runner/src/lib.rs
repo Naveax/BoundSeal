@@ -8,24 +8,24 @@ use std::{
     time::Duration,
 };
 
-use nxb_executor::ExecutionControl;
-use nxb_live_adapter::{
+use bsl_executor::ExecutionControl;
+use bsl_live_adapter::{
     LiveAuthenticatedResult, LivePassivePipeline, LivePassiveRequest, LiveSessionInjection,
     PassiveMethod,
 };
-use nxb_operator::{discover_response, OperatorConfig};
-use nxb_operator_runtime::{
+use bsl_operator::{discover_response, OperatorConfig};
+use bsl_operator_runtime::{
     CheckpointBoundRuntime, RuntimeClock, RuntimeCommittedRequest, RuntimeError,
     RuntimeExecutionReceipt, RuntimeMethod, RuntimeRecovery, RuntimeRequestSpec,
 };
-use nxb_operator_state::{OperatorRunStatus, RecoveredOperatorState};
-use nxb_policy::CompiledPolicy;
-use nxb_session::SessionBroker;
-use nxb_session_injection::BoundSessionInjection;
-use nxb_stream::StreamControl;
-use nxb_transport::ConnectionAttempt;
-use nxb_unified_operator::UnifiedOperatorPlan;
-use nxb_vault::InMemorySecretVault;
+use bsl_operator_state::{OperatorRunStatus, RecoveredOperatorState};
+use bsl_policy::CompiledPolicy;
+use bsl_session::SessionBroker;
+use bsl_session_injection::BoundSessionInjection;
+use bsl_stream::StreamControl;
+use bsl_transport::ConnectionAttempt;
+use bsl_unified_operator::UnifiedOperatorPlan;
+use bsl_vault::InMemorySecretVault;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -36,7 +36,7 @@ pub const MAX_RUNNER_QUEUE_ENTRIES: usize = 512;
 pub const MAX_RUNNER_CHECKPOINT_BYTES: u64 = 4 * 1024 * 1024;
 pub const RUNNER_TERMINAL_RESERVATION_BYTES: u64 = 64 * 1024;
 const RUNNER_MANIFEST_FILE: &str = "runner-manifest.json";
-const RUNNER_LOCK_FILE: &str = ".nxb-resumable-runner.lock";
+const RUNNER_LOCK_FILE: &str = ".bsl-resumable-runner.lock";
 const EMERGENCY_STOP_FILE: &str = "EMERGENCY_STOP";
 const CHECKPOINT_PREFIX: &str = "runner-checkpoint-";
 const CHECKPOINT_SUFFIX: &str = ".json";
@@ -1504,22 +1504,22 @@ pub enum RunnerError {
     #[error("runner I/O failed: {0}")]
     Io(String),
     #[error(transparent)]
-    Operator(#[from] nxb_operator::OperatorError),
+    Operator(#[from] bsl_operator::OperatorError),
     #[error(transparent)]
     Runtime(#[from] RuntimeError),
     #[error(transparent)]
-    Unified(#[from] nxb_unified_operator::UnifiedOperatorError),
+    Unified(#[from] bsl_unified_operator::UnifiedOperatorError),
     #[error(transparent)]
-    Live(#[from] nxb_live_adapter::LiveAuthenticatedError),
+    Live(#[from] bsl_live_adapter::LiveAuthenticatedError),
     #[error(transparent)]
-    LiveAdapter(#[from] nxb_live_adapter::LiveAdapterError),
+    LiveAdapter(#[from] bsl_live_adapter::LiveAdapterError),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nxb_operator_runtime::RuntimeExecutionReceipt;
-    use nxb_unified_operator::{
+    use bsl_operator_runtime::RuntimeExecutionReceipt;
+    use bsl_unified_operator::{
         consume_activation_once, UnifiedComponentBinding, UnifiedOperatorActivationCertificate,
         UnifiedOperatorActivationPayload, UnifiedOperatorPlanParameters,
     };
@@ -1584,7 +1584,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        std::env::temp_dir().join(format!("nxb-runner-{label}-{}-{nanos}", std::process::id()))
+        std::env::temp_dir().join(format!("bsl-runner-{label}-{}-{nanos}", std::process::id()))
     }
 
     fn setup(
@@ -1592,7 +1592,7 @@ mod tests {
     ) -> (
         PathBuf,
         UnifiedOperatorPlan,
-        nxb_unified_operator::ConsumedUnifiedOperatorActivation,
+        bsl_unified_operator::ConsumedUnifiedOperatorActivation,
     ) {
         let root = unique_root(label);
         let plan = plan();
@@ -1628,7 +1628,7 @@ mod tests {
 
     fn fake_receipt(spec: &RuntimeRequestSpec, clock: RuntimeClock) -> RuntimeExecutionReceipt {
         let mut receipt = RuntimeExecutionReceipt {
-            version: nxb_operator_runtime::OPERATOR_RUNTIME_VERSION,
+            version: bsl_operator_runtime::OPERATOR_RUNTIME_VERSION,
             request_method: spec.method.code().into(),
             request_target_sha256: hash_bytes(spec.target.as_bytes()),
             response_status: 200,

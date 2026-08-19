@@ -17,7 +17,7 @@ $rootStore = $null
 $publisherStore = $null
 
 $helperFileName =
-    'nxb-windows-credential-evidence-key-helper.exe'
+    'bsl-windows-credential-evidence-key-helper.exe'
 
 function Get-OpenSslPath {
     $command =
@@ -380,7 +380,7 @@ function New-SignedReleasePackage {
         Out-Null
 
     $candidateBinary =
-        Join-Path $PackageRoot 'nxb.exe'
+        Join-Path $PackageRoot 'bsl.exe'
 
     Copy-Item `
         -LiteralPath $SourceBinary `
@@ -394,7 +394,7 @@ function New-SignedReleasePackage {
 
     if ($authenticode.Status.ToString() -ne 'Valid') {
         throw (
-            'Could not create a valid nxb.exe ' +
+            'Could not create a valid bsl.exe ' +
             'Authenticode signature.'
         )
     }
@@ -446,7 +446,7 @@ function New-SignedReleasePackage {
     }
 
     $sbomPath =
-        Join-Path $PackageRoot 'nxb.cdx.json'
+        Join-Path $PackageRoot 'bsl.cdx.json'
 
     $sbom = [ordered]@{
         bomFormat = 'CycloneDX'
@@ -455,19 +455,19 @@ function New-SignedReleasePackage {
         metadata = [ordered]@{
             component = [ordered]@{
                 type = 'application'
-                name = 'NXBounty'
+                name = 'BoundSeal'
                 version = '0.1.0'
                 properties = @(
                     [ordered]@{
-                        name = 'nxb:source_commit'
+                        name = 'bsl:source_commit'
                         value = $SourceCommit
                     },
                     [ordered]@{
-                        name = 'nxb:release_sequence'
+                        name = 'bsl:release_sequence'
                         value = [string]$ReleaseSequence
                     },
                     [ordered]@{
-                        name = 'nxb:bundled_windows_credential_helper'
+                        name = 'bsl:bundled_windows_credential_helper'
                         value = [string]$bundled
                     }
                 )
@@ -499,8 +499,8 @@ function New-SignedReleasePackage {
     ).Hash.ToLowerInvariant()
 
     $checksumLines = @(
-        "$binarySha  nxb.exe",
-        "$sbomSha  nxb.cdx.json"
+        "$binarySha  bsl.exe",
+        "$sbomSha  bsl.cdx.json"
     )
 
     if ($bundled) {
@@ -531,7 +531,7 @@ function New-SignedReleasePackage {
     $manifestPath =
         Join-Path `
             $PackageRoot `
-            'nxb-release-manifest.json'
+            'bsl-release-manifest.json'
 
     $generatedAt =
         [DateTime]::UtcNow.ToString(
@@ -545,7 +545,7 @@ function New-SignedReleasePackage {
         release `
         manifest-template `
         --release-id `
-            "v0.1.0-r$sequenceText-nxb152-d2" `
+            "v0.1.0-r$sequenceText-bsl152-d2" `
         --release-sequence `
             $sequenceText `
         --source-commit `
@@ -765,27 +765,27 @@ try {
         (
             Join-Path `
                 $RepoRoot `
-                'scripts\nxb-installer-common.ps1'
+                'scripts\bsl-installer-common.ps1'
         ),
         (
             Join-Path `
                 $RepoRoot `
-                'scripts\install-nxb-windows.ps1'
+                'scripts\install-bsl-windows.ps1'
         ),
         (
             Join-Path `
                 $RepoRoot `
-                'scripts\rollback-nxb-windows.ps1'
+                'scripts\rollback-bsl-windows.ps1'
         ),
         (
             Join-Path `
                 $RepoRoot `
-                'scripts\uninstall-nxb-windows.ps1'
+                'scripts\uninstall-bsl-windows.ps1'
         ),
         (
             Join-Path `
                 $RepoRoot `
-                'scripts\validate-nxb-152-bundled-installer-windows.ps1'
+                'scripts\validate-bsl-152-bundled-installer-windows.ps1'
         )
     )
 
@@ -797,7 +797,7 @@ try {
         Join-Path `
             ([IO.Path]::GetTempPath()) `
             (
-                'nxb152-d2-' +
+                'bsl152-d2-' +
                 [Guid]::NewGuid().ToString('N')
             )
 
@@ -838,7 +838,7 @@ try {
         @(
             'check',
             '-p',
-            'nxb-evidence-key-provider-process',
+            'bsl-evidence-key-provider-process',
             '--all-features',
             '--all-targets',
             '--locked'
@@ -851,7 +851,7 @@ try {
         @(
             'clippy',
             '-p',
-            'nxb-evidence-key-provider-process',
+            'bsl-evidence-key-provider-process',
             '--all-features',
             '--all-targets',
             '--locked',
@@ -867,7 +867,7 @@ try {
         @(
             'test',
             '-p',
-            'nxb-evidence-key-provider-process',
+            'bsl-evidence-key-provider-process',
             '--all-features',
             '--locked',
             '--',
@@ -881,12 +881,12 @@ try {
         @(
             'check',
             '-p',
-            'nxb-core',
+            'bsl-core',
             '--all-targets',
             '--all-features',
             '--locked'
         ) `
-        'nxb-core check'
+        'bsl-core check'
 
     Invoke-Cargo `
         $RepoRoot `
@@ -894,7 +894,7 @@ try {
         @(
             'clippy',
             '-p',
-            'nxb-core',
+            'bsl-core',
             '--all-targets',
             '--all-features',
             '--locked',
@@ -902,7 +902,7 @@ try {
             '-D',
             'warnings'
         ) `
-        'nxb-core clippy'
+        'bsl-core clippy'
 
     Invoke-Cargo `
         $RepoRoot `
@@ -910,13 +910,13 @@ try {
         @(
             'test',
             '-p',
-            'nxb-core',
+            'bsl-core',
             '--all-features',
             '--locked',
             '--',
             '--test-threads=1'
         ) `
-        'nxb-core tests'
+        'bsl-core tests'
 
     Invoke-Cargo `
         $RepoRoot `
@@ -924,14 +924,14 @@ try {
         @(
             'build',
             '-p',
-            'nxb-core',
+            'bsl-core',
             '--bin',
-            'nxb',
+            'bsl',
             '--release',
             '--all-features',
             '--locked'
         ) `
-        'current nxb release build'
+        'current bsl release build'
 
     Invoke-Cargo `
         $RepoRoot `
@@ -939,9 +939,9 @@ try {
         @(
             'build',
             '-p',
-            'nxb-evidence-key-provider-process',
+            'bsl-evidence-key-provider-process',
             '--bin',
-            'nxb-windows-credential-evidence-key-helper',
+            'bsl-windows-credential-evidence-key-helper',
             '--release',
             '--locked'
         ) `
@@ -962,29 +962,29 @@ try {
         @(
             'build',
             '-p',
-            'nxb-core',
+            'bsl-core',
             '--bin',
-            'nxb',
+            'bsl',
             '--release',
             '--all-features',
             '--locked'
         ) `
-        'legacy nxb release build'
+        'legacy bsl release build'
 
     $currentBinary =
         Join-Path `
             $currentTarget `
-            'release\nxb.exe'
+            'release\bsl.exe'
 
     $currentHelper =
         Join-Path `
             $currentTarget `
-            'release\nxb-windows-credential-evidence-key-helper.exe'
+            'release\bsl-windows-credential-evidence-key-helper.exe'
 
     $legacyBinary =
         Join-Path `
             $legacyTarget `
-            'release\nxb.exe'
+            'release\bsl.exe'
 
     foreach ($binary in @(
         $currentBinary,
@@ -1006,7 +1006,7 @@ try {
     $certificate =
         New-SelfSignedCertificate `
             -Type CodeSigningCert `
-            -Subject 'CN=NXBounty D2 Validation' `
+            -Subject 'CN=BoundSeal D2 Validation' `
             -CertStoreLocation 'Cert:\CurrentUser\My' `
             -KeyExportPolicy Exportable `
             -NotAfter (Get-Date).AddDays(2)
@@ -1153,7 +1153,7 @@ try {
     $installRoot =
         Join-Path `
             $temporaryRoot `
-            'install\NXBounty'
+            'install\BoundSeal'
 
     $previousRoot =
         $installRoot + '.previous'
@@ -1161,25 +1161,25 @@ try {
     $dataRoot =
         Join-Path `
             $temporaryRoot `
-            'data\NXBounty'
+            'data\BoundSeal'
 
     $legacyInstallScript =
         Join-Path `
             $legacyWorktree `
-            'scripts\install-nxb-windows.ps1'
+            'scripts\install-bsl-windows.ps1'
 
     $currentInstallScript =
         Join-Path `
             $RepoRoot `
-            'scripts\install-nxb-windows.ps1'
+            'scripts\install-bsl-windows.ps1'
 
     $rollbackScript =
         Join-Path `
             $RepoRoot `
-            'scripts\rollback-nxb-windows.ps1'
+            'scripts\rollback-bsl-windows.ps1'
 
     #
-    # First establish a real legacy NXB-151 installation
+    # First establish a real legacy BSL-151 installation
     # using the legacy installer itself.
     #
 
@@ -1284,7 +1284,7 @@ try {
 
     #
     # Tampered candidate helper must fail even though
-    # nxb.exe + manifest themselves remain untouched.
+    # bsl.exe + manifest themselves remain untouched.
     #
 
     $tamperedPackageRoot =
@@ -1466,7 +1466,7 @@ try {
     $uninstallScript =
         Join-Path `
             $dataRoot `
-            'installer\uninstall-nxb-windows.ps1'
+            'installer\uninstall-bsl-windows.ps1'
 
     $uninstalled =
         Invoke-InstallerJson `
@@ -1510,7 +1510,7 @@ try {
     $validationDirectory =
         Join-Path `
             $RepoRoot `
-            'target\nxb-validation'
+            'target\bsl-validation'
 
     New-Item `
         -ItemType Directory `
@@ -1521,11 +1521,11 @@ try {
     $evidencePath =
         Join-Path `
             $validationDirectory `
-            "nxb-152-pass-d2-installer-windows-$head.json"
+            "bsl-152-pass-d2-installer-windows-$head.json"
 
     $evidence = [ordered]@{
         schema_version = 1
-        milestone = 'NXB-152'
+        milestone = 'BSL-152'
         gate = 'pass_d2_bundled_windows_installer'
         platform = 'windows'
         head_sha = $head
@@ -1570,9 +1570,9 @@ try {
             process_provider_check = 'passed'
             process_provider_clippy = 'passed'
             process_provider_tests = 'passed'
-            nxb_core_check = 'passed'
-            nxb_core_clippy = 'passed'
-            nxb_core_tests = 'passed'
+            bsl_core_check = 'passed'
+            bsl_core_clippy = 'passed'
+            bsl_core_tests = 'passed'
             legacy_clean_install = 'passed'
             legacy_to_bundled_upgrade = 'passed'
             bundled_idempotent_install = 'passed'
@@ -1598,7 +1598,7 @@ try {
     )
 
     Write-Host ""
-    Write-Host "NXB-152 Pass D2 Windows validation passed."
+    Write-Host "BSL-152 Pass D2 Windows validation passed."
     Write-Host "HEAD: $head"
     Write-Host "LEGACY: $legacy"
     Write-Host (

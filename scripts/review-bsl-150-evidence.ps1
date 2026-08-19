@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
-    [string]$EvidenceDirectory = (Join-Path $RepoRoot 'target\nxb-validation')
+    [string]$EvidenceDirectory = (Join-Path $RepoRoot 'target\bsl-validation')
 )
 
 Set-StrictMode -Version Latest
@@ -132,7 +132,7 @@ function Read-Evidence {
     Assert-ExactTypes -Evidence $evidence -Label "$ExpectedPlatform evidence"
 
     if ($evidence.schema_version -ne 2 -or
-        $evidence.milestone -cne 'NXB-150' -or
+        $evidence.milestone -cne 'BSL-150' -or
         $evidence.gate -cne 'pinned_process_evidence_key_provider' -or
         $evidence.platform -cne $ExpectedPlatform -or
         $evidence.head_sha -cne $ExpectedHead) {
@@ -229,8 +229,8 @@ try {
         Assert-NoReparseComponents -Path $EvidenceDirectory -Label 'evidence directory'
     }
 
-    $windowsPath = Join-Path $EvidenceDirectory "nxb-150-windows-$headSha.json"
-    $linuxPath = Join-Path $EvidenceDirectory "nxb-150-linux-$headSha.json"
+    $windowsPath = Join-Path $EvidenceDirectory "bsl-150-windows-$headSha.json"
+    $linuxPath = Join-Path $EvidenceDirectory "bsl-150-linux-$headSha.json"
     $windows = Read-Evidence -Path $windowsPath -ExpectedPlatform 'windows' -ExpectedHead $headSha
     $linux = Read-Evidence -Path $linuxPath -ExpectedPlatform 'linux' -ExpectedHead $headSha
 
@@ -242,7 +242,7 @@ try {
 
     $closure = [ordered]@{
         schema_version = 1
-        milestone = 'NXB-150'
+        milestone = 'BSL-150'
         gate = 'dual_platform_evidence_closure'
         status = 'ready_for_manual_pr_review'
         head_sha = $headSha
@@ -264,7 +264,7 @@ try {
         network_activity = 'none'
     }
 
-    $closurePath = Join-Path $EvidenceDirectory "nxb-150-closure-$headSha.json"
+    $closurePath = Join-Path $EvidenceDirectory "bsl-150-closure-$headSha.json"
     $pendingPath = "$closurePath.pending"
     Assert-NoReparseComponents -Path $closurePath -Label 'closure evidence'
     if (Test-Path -LiteralPath $closurePath) {
@@ -310,7 +310,7 @@ try {
         Move-Item -LiteralPath $pendingPath -Destination $closurePath
     }
 
-    Write-Host 'NXB-150 dual-platform evidence closure passed.'
+    Write-Host 'BSL-150 dual-platform evidence closure passed.'
     Write-Host "HEAD: $headSha"
     Write-Host "Cargo.lock SHA-256: $lockSha256"
     Write-Host "Closure: $closurePath"

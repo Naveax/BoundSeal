@@ -615,10 +615,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-active-validation"
+name = "bsl-active-validation"
 version = "0.1.0"
 dependencies = [
- "nxb-planner",
+ "bsl-planner",
  "serde",
  "serde_json",
  "sha2",
@@ -627,7 +627,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-adapter-boundary"
+name = "bsl-adapter-boundary"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -637,7 +637,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-audit"
+name = "bsl-audit"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -647,29 +647,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-budget"
+name = "bsl-budget"
 version = "0.1.0"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
-name = "nxb-channel-contracts"
+name = "bsl-channel-contracts"
 version = "0.1.0"
 dependencies = [
- "nxb-stream",
- "nxb-tls",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "url",
-]
-
-[[package]]
-name = "nxb-content-analysis"
-version = "0.1.0"
-dependencies = [
+ "bsl-stream",
+ "bsl-tls",
  "serde",
  "serde_json",
  "sha2",
@@ -678,11 +667,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-cookie-jar"
+name = "bsl-content-analysis"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "url",
+]
+
+[[package]]
+name = "bsl-cookie-jar"
 version = "0.1.0"
 dependencies = [
  "httpdate",
- "nxb-vault",
+ "bsl-vault",
  "serde",
  "serde_json",
  "sha2",
@@ -691,25 +691,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-core"
+name = "bsl-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
  "clap",
- "nxb-events",
- "nxb-executor",
- "nxb-gateway",
- "nxb-live-adapter",
- "nxb-operator",
- "nxb-passive-analyzers",
- "nxb-pinned-transport",
- "nxb-policy",
- "nxb-session-injection",
- "nxb-stream",
- "nxb-transport",
- "nxb-unified-operator",
- "nxb-vault-provider",
+ "bsl-events",
+ "bsl-executor",
+ "bsl-gateway",
+ "bsl-live-adapter",
+ "bsl-operator",
+ "bsl-passive-analyzers",
+ "bsl-pinned-transport",
+ "bsl-policy",
+ "bsl-session-injection",
+ "bsl-stream",
+ "bsl-transport",
+ "bsl-unified-operator",
+ "bsl-vault-provider",
  "ring",
  "serde",
  "serde_json",
@@ -718,14 +718,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-destination"
+name = "bsl-destination"
 version = "0.1.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
-name = "nxb-dns"
+name = "bsl-dns"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -733,7 +733,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-events"
+name = "bsl-events"
 version = "0.1.0"
 dependencies = [
  "chrono",
@@ -743,10 +743,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-evidence-key-provider"
+name = "bsl-evidence-key-provider"
 version = "0.1.0"
 dependencies = [
- "nxb-evidence-sealer",
+ "bsl-evidence-sealer",
  "ring",
  "serde",
  "serde_json",
@@ -756,13 +756,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-evidence-key-provider-process"
+name = "bsl-evidence-key-provider-process"
 version = "0.1.0"
 dependencies = [
- "nxb-evidence-key-provider",
- "nxb-vault",
- "nxb-vault-provider",
- "nxb-vault-provider-process",
+ "bsl-evidence-key-provider",
+ "bsl-vault",
+ "bsl-vault-provider",
+ "bsl-vault-provider-process",
  "ring",
  "serde",
  "serde_json",
@@ -771,10 +771,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-evidence-sealer"
+name = "bsl-evidence-sealer"
 version = "0.1.0"
 dependencies = [
- "nxb-knowledge-reporting",
+ "bsl-knowledge-reporting",
  "ring",
  "serde",
  "serde_json",
@@ -784,10 +784,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-executor"
+name = "bsl-executor"
 version = "0.1.0"
 dependencies = [
- "nxb-transport",
+ "bsl-transport",
  "serde",
  "serde_json",
  "sha2",
@@ -795,28 +795,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-gateway"
+name = "bsl-gateway"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "nxb-audit",
- "nxb-budget",
- "nxb-destination",
- "nxb-dns",
- "nxb-policy",
+ "bsl-audit",
+ "bsl-budget",
+ "bsl-destination",
+ "bsl-dns",
+ "bsl-policy",
  "serde",
  "thiserror",
  "url",
 ]
 
 [[package]]
-name = "nxb-http1"
+name = "bsl-http1"
 version = "0.1.0"
 dependencies = [
- "nxb-stream",
- "nxb-stream-fixture",
- "nxb-tls",
- "nxb-vault",
+ "bsl-stream",
+ "bsl-stream-fixture",
+ "bsl-tls",
+ "bsl-vault",
  "serde",
  "serde_json",
  "sha2",
@@ -824,23 +824,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-http1-fixture"
+name = "bsl-http1-fixture"
 version = "0.1.0"
 dependencies = [
- "nxb-executor",
- "nxb-http1",
- "nxb-stream",
- "nxb-stream-fixture",
- "nxb-transport",
+ "bsl-executor",
+ "bsl-http1",
+ "bsl-stream",
+ "bsl-stream-fixture",
+ "bsl-transport",
  "serde_json",
 ]
 
 [[package]]
-name = "nxb-knowledge-reporting"
+name = "bsl-knowledge-reporting"
 version = "0.1.0"
 dependencies = [
- "nxb-active-validation",
- "nxb-passive-analyzers",
+ "bsl-active-validation",
+ "bsl-passive-analyzers",
  "serde",
  "serde_json",
  "sha2",
@@ -848,10 +848,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-lifecycle-governance"
+name = "bsl-lifecycle-governance"
 version = "0.1.0"
 dependencies = [
- "nxb-platform-assurance",
+ "bsl-platform-assurance",
  "serde",
  "serde_json",
  "sha2",
@@ -859,22 +859,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-live-adapter"
+name = "bsl-live-adapter"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "nxb-destination",
- "nxb-executor",
- "nxb-gateway",
- "nxb-http1",
- "nxb-pinned-transport",
- "nxb-policy",
- "nxb-session",
- "nxb-session-injection",
- "nxb-stream",
- "nxb-tls",
- "nxb-transport",
- "nxb-vault",
+ "bsl-destination",
+ "bsl-executor",
+ "bsl-gateway",
+ "bsl-http1",
+ "bsl-pinned-transport",
+ "bsl-policy",
+ "bsl-session",
+ "bsl-session-injection",
+ "bsl-stream",
+ "bsl-tls",
+ "bsl-transport",
+ "bsl-vault",
  "rcgen",
  "rustls",
  "serde",
@@ -886,28 +886,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-live-run-host"
+name = "bsl-live-run-host"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
  "clap",
- "nxb-executor",
- "nxb-gateway",
- "nxb-live-adapter",
- "nxb-operator",
- "nxb-operator-runtime",
- "nxb-operator-state",
- "nxb-pinned-transport",
- "nxb-policy",
- "nxb-resumable-runner",
- "nxb-session",
- "nxb-session-injection",
- "nxb-stream",
- "nxb-transport",
- "nxb-unified-operator",
- "nxb-vault",
- "nxb-vault-provider",
+ "bsl-executor",
+ "bsl-gateway",
+ "bsl-live-adapter",
+ "bsl-operator",
+ "bsl-operator-runtime",
+ "bsl-operator-state",
+ "bsl-pinned-transport",
+ "bsl-policy",
+ "bsl-resumable-runner",
+ "bsl-session",
+ "bsl-session-injection",
+ "bsl-stream",
+ "bsl-transport",
+ "bsl-unified-operator",
+ "bsl-vault",
+ "bsl-vault-provider",
  "ring",
  "serde",
  "serde_json",
@@ -918,32 +918,32 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-local-executor"
+name = "bsl-local-executor"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "nxb-executor",
- "nxb-gateway",
- "nxb-pinned-transport",
- "nxb-policy",
- "nxb-transport",
+ "bsl-executor",
+ "bsl-gateway",
+ "bsl-pinned-transport",
+ "bsl-policy",
+ "bsl-transport",
  "serde",
  "thiserror",
  "url",
 ]
 
 [[package]]
-name = "nxb-manual-submission-handoff"
+name = "bsl-manual-submission-handoff"
 version = "0.1.0"
 dependencies = [
- "nxb-knowledge-reporting",
- "nxb-live-run-host",
- "nxb-operator-runtime",
- "nxb-operator-state",
- "nxb-passive-analyzers",
- "nxb-resumable-runner",
- "nxb-run-closure",
- "nxb-unified-operator",
+ "bsl-knowledge-reporting",
+ "bsl-live-run-host",
+ "bsl-operator-runtime",
+ "bsl-operator-state",
+ "bsl-passive-analyzers",
+ "bsl-resumable-runner",
+ "bsl-run-closure",
+ "bsl-unified-operator",
  "ring",
  "serde",
  "serde_json",
@@ -952,13 +952,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-operator"
+name = "bsl-operator"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "nxb-content-analysis",
- "nxb-passive-analyzers",
- "nxb-policy",
+ "bsl-content-analysis",
+ "bsl-passive-analyzers",
+ "bsl-policy",
  "serde",
  "serde_json",
  "sha2",
@@ -967,19 +967,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-operator-runtime"
+name = "bsl-operator-runtime"
 version = "0.1.0"
 dependencies = [
- "nxb-executor",
- "nxb-live-adapter",
- "nxb-operator-state",
- "nxb-session",
- "nxb-session-injection",
- "nxb-stream",
- "nxb-transport",
- "nxb-unified-operator",
- "nxb-vault",
- "nxb-vault-provider",
+ "bsl-executor",
+ "bsl-live-adapter",
+ "bsl-operator-state",
+ "bsl-session",
+ "bsl-session-injection",
+ "bsl-stream",
+ "bsl-transport",
+ "bsl-unified-operator",
+ "bsl-vault",
+ "bsl-vault-provider",
  "ring",
  "serde",
  "serde_json",
@@ -988,10 +988,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-operator-state"
+name = "bsl-operator-state"
 version = "0.1.0"
 dependencies = [
- "nxb-unified-operator",
+ "bsl-unified-operator",
  "ring",
  "serde",
  "serde_json",
@@ -1000,7 +1000,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-passive-analyzers"
+name = "bsl-passive-analyzers"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -1011,13 +1011,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-pinned-transport"
+name = "bsl-pinned-transport"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "nxb-gateway",
- "nxb-policy",
- "nxb-transport",
+ "bsl-gateway",
+ "bsl-policy",
+ "bsl-transport",
  "serde",
  "serde_json",
  "sha2",
@@ -1026,7 +1026,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-planner"
+name = "bsl-planner"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -1037,12 +1037,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-platform-assurance"
+name = "bsl-platform-assurance"
 version = "0.1.0"
 dependencies = [
- "nxb-adapter-boundary",
- "nxb-release-governance",
- "nxb-replay-lab",
+ "bsl-adapter-boundary",
+ "bsl-release-governance",
+ "bsl-replay-lab",
  "serde",
  "serde_json",
  "sha2",
@@ -1050,7 +1050,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-policy"
+name = "bsl-policy"
 version = "0.1.0"
 dependencies = [
  "chrono",
@@ -1061,10 +1061,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-post-closure-governance"
+name = "bsl-post-closure-governance"
 version = "0.1.0"
 dependencies = [
- "nxb-lifecycle-governance",
+ "bsl-lifecycle-governance",
  "serde",
  "serde_json",
  "sha2",
@@ -1072,14 +1072,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-redirect"
+name = "bsl-redirect"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "nxb-gateway",
- "nxb-http1",
- "nxb-pinned-transport",
- "nxb-policy",
+ "bsl-gateway",
+ "bsl-http1",
+ "bsl-pinned-transport",
+ "bsl-policy",
  "serde",
  "serde_json",
  "sha2",
@@ -1088,11 +1088,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-release-governance"
+name = "bsl-release-governance"
 version = "0.1.0"
 dependencies = [
- "nxb-adapter-boundary",
- "nxb-replay-lab",
+ "bsl-adapter-boundary",
+ "bsl-replay-lab",
  "serde",
  "serde_json",
  "sha2",
@@ -1100,10 +1100,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-replay-lab"
+name = "bsl-replay-lab"
 version = "0.1.0"
 dependencies = [
- "nxb-adapter-boundary",
+ "bsl-adapter-boundary",
  "serde",
  "serde_json",
  "sha2",
@@ -1111,24 +1111,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-resumable-runner"
+name = "bsl-resumable-runner"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
  "clap",
- "nxb-executor",
- "nxb-live-adapter",
- "nxb-operator",
- "nxb-operator-runtime",
- "nxb-operator-state",
- "nxb-policy",
- "nxb-session",
- "nxb-session-injection",
- "nxb-stream",
- "nxb-transport",
- "nxb-unified-operator",
- "nxb-vault",
+ "bsl-executor",
+ "bsl-live-adapter",
+ "bsl-operator",
+ "bsl-operator-runtime",
+ "bsl-operator-state",
+ "bsl-policy",
+ "bsl-session",
+ "bsl-session-injection",
+ "bsl-stream",
+ "bsl-transport",
+ "bsl-unified-operator",
+ "bsl-vault",
  "ring",
  "serde",
  "serde_json",
@@ -1138,15 +1138,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-run-closure"
+name = "bsl-run-closure"
 version = "0.1.0"
 dependencies = [
- "nxb-knowledge-reporting",
- "nxb-live-run-host",
- "nxb-operator-runtime",
- "nxb-operator-state",
- "nxb-resumable-runner",
- "nxb-unified-operator",
+ "bsl-knowledge-reporting",
+ "bsl-live-run-host",
+ "bsl-operator-runtime",
+ "bsl-operator-state",
+ "bsl-resumable-runner",
+ "bsl-unified-operator",
  "ring",
  "serde",
  "serde_json",
@@ -1155,16 +1155,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-session"
+name = "bsl-session"
 version = "0.1.0"
 dependencies = [
- "nxb-cookie-jar",
- "nxb-executor",
- "nxb-http1",
- "nxb-stream",
- "nxb-stream-fixture",
- "nxb-transport",
- "nxb-vault",
+ "bsl-cookie-jar",
+ "bsl-executor",
+ "bsl-http1",
+ "bsl-stream",
+ "bsl-stream-fixture",
+ "bsl-transport",
+ "bsl-vault",
  "serde",
  "serde_json",
  "sha2",
@@ -1172,11 +1172,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-session-injection"
+name = "bsl-session-injection"
 version = "0.1.0"
 dependencies = [
- "nxb-session",
- "nxb-vault",
+ "bsl-session",
+ "bsl-vault",
  "ring",
  "serde",
  "serde_json",
@@ -1185,11 +1185,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-stream"
+name = "bsl-stream"
 version = "0.1.0"
 dependencies = [
- "nxb-executor",
- "nxb-transport",
+ "bsl-executor",
+ "bsl-transport",
  "serde",
  "serde_json",
  "sha2",
@@ -1197,27 +1197,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-stream-fixture"
+name = "bsl-stream-fixture"
 version = "0.1.0"
 dependencies = [
- "nxb-executor",
- "nxb-stream",
- "nxb-transport",
+ "bsl-executor",
+ "bsl-stream",
+ "bsl-transport",
 ]
 
 [[package]]
-name = "nxb-tls"
+name = "bsl-tls"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "nxb-executor",
- "nxb-gateway",
- "nxb-local-executor",
- "nxb-pinned-transport",
- "nxb-policy",
- "nxb-stream",
- "nxb-stream-fixture",
- "nxb-transport",
+ "bsl-executor",
+ "bsl-gateway",
+ "bsl-local-executor",
+ "bsl-pinned-transport",
+ "bsl-policy",
+ "bsl-stream",
+ "bsl-stream-fixture",
+ "bsl-transport",
  "serde",
  "serde_json",
  "sha2",
@@ -1226,7 +1226,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-transport"
+name = "bsl-transport"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -1235,7 +1235,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-unified-operator"
+name = "bsl-unified-operator"
 version = "0.1.0"
 dependencies = [
  "ring",
@@ -1246,7 +1246,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-vault"
+name = "bsl-vault"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -1257,11 +1257,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-vault-provider"
+name = "bsl-vault-provider"
 version = "0.1.0"
 dependencies = [
- "nxb-session",
- "nxb-vault",
+ "bsl-session",
+ "bsl-vault",
  "ring",
  "serde",
  "serde_json",
@@ -1271,12 +1271,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-vault-provider-process"
+name = "bsl-vault-provider-process"
 version = "0.1.0"
 dependencies = [
- "nxb-session",
- "nxb-vault",
- "nxb-vault-provider",
+ "bsl-session",
+ "bsl-vault",
+ "bsl-vault-provider",
  "ring",
  "serde",
  "serde_json",
@@ -1286,12 +1286,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-workflow-graph"
+name = "bsl-workflow-graph"
 version = "0.1.0"
 dependencies = [
- "nxb-active-validation",
- "nxb-knowledge-reporting",
- "nxb-planner",
+ "bsl-active-validation",
+ "bsl-knowledge-reporting",
+ "bsl-planner",
  "serde",
  "serde_json",
  "sha2",

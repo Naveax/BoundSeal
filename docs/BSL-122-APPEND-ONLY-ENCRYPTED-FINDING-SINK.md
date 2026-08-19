@@ -1,8 +1,8 @@
-# NXB-122 — Append-Only Encrypted Finding Sink
+# BSL-122 — Append-Only Encrypted Finding Sink
 
 ## Scope
 
-NXB-122 replaces unbounded in-memory retention as the only persistence path with an append-only, segment-oriented encrypted sink contract.
+BSL-122 replaces unbounded in-memory retention as the only persistence path with an append-only, segment-oriented encrypted sink contract.
 
 ## Commit sequence
 
@@ -75,4 +75,4 @@ The regression suite covers:
 
 ## Next stage
 
-NXB-123 places an exact disk-backed deduplication index in front of this sink. Bloom filters may accelerate negative lookups but can never suppress a finding without exact confirmation.
+BSL-123 places an exact disk-backed deduplication index in front of this sink. Bloom filters may accelerate negative lookups but can never suppress a finding without exact confirmation.

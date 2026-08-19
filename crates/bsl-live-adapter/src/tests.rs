@@ -7,14 +7,14 @@ use std::{
     time::Duration,
 };
 
-use nxb_executor::{
+use bsl_executor::{
     ExecutionControl, ExecutionLimits, ExecutionOutcome, ExecutorConfig, PermitBackend,
     PermitEndpoint, PermitExecutor,
 };
-use nxb_http1::{Http1Codec, Http1Limits};
-use nxb_stream::{BoundedByteStream, StreamControl, StreamLimits};
-use nxb_tls::LibraryVerifiedTlsBinder;
-use nxb_transport::{TransportPermit, TransportScheme};
+use bsl_http1::{Http1Codec, Http1Limits};
+use bsl_stream::{BoundedByteStream, StreamControl, StreamLimits};
+use bsl_tls::LibraryVerifiedTlsBinder;
+use bsl_transport::{TransportPermit, TransportScheme};
 use rcgen::{generate_simple_self_signed, CertifiedKey};
 use rustls::{
     pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer},
@@ -110,7 +110,7 @@ fn executor_cancellation_never_invokes_live_socket_backend() {
     let backend = LiveConnectBackend::with_mozilla_roots().unwrap();
     let mut executor = PermitExecutor::new(
         ExecutorConfig {
-            executor_id: "nxb-live-test".into(),
+            executor_id: "bsl-live-test".into(),
         },
         backend,
     )
@@ -239,7 +239,7 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
     let backend = LiveConnectBackend::with_test_roots(roots).unwrap();
     let mut executor = PermitExecutor::new(
         ExecutorConfig {
-            executor_id: "nxb-live-local-tls".into(),
+            executor_id: "bsl-live-local-tls".into(),
         },
         backend,
     )
@@ -285,7 +285,7 @@ fn local_tls_http_exchange_uses_verified_certificate_and_http1() {
     )
     .unwrap();
     let verified_observation = observation
-        .library_verified("nxb-live-local-tls:rustls-webpki")
+        .library_verified("bsl-live-local-tls:rustls-webpki")
         .unwrap();
     let mut tls_binder = LibraryVerifiedTlsBinder::new();
     let tls_grant = tls_binder.bind(&stream, &verified_observation).unwrap();

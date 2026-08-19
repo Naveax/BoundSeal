@@ -488,7 +488,7 @@ fn binding_hash(
         .collect::<Vec<_>>()
         .join(",");
     let material = format!(
-        "nxb.transport.v1\n{ticket_id}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{pinned}\n{}\n{}\n{issued_at_milliseconds}\n{expires_at_milliseconds}\n{audit_anchor}",
+        "bsl.transport.v1\n{ticket_id}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{pinned}\n{}\n{}\n{issued_at_milliseconds}\n{expires_at_milliseconds}\n{audit_anchor}",
         binding.decision_id,
         binding.dns_context_id,
         binding.host,

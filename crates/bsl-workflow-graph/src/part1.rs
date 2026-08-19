@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use nxb_active_validation::OracleDecision;
-use nxb_knowledge_reporting::FindingState;
+use bsl_active_validation::OracleDecision;
+use bsl_knowledge_reporting::FindingState;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;

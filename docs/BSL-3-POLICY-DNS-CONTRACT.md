@@ -1,8 +1,8 @@
-# NXB-3 Policy Narrowing and DNS Pinning Contract
+# BSL-3 Policy Narrowing and DNS Pinning Contract
 
 ## Scope
 
-NXB-3 remains a networkless decision layer. It does not resolve DNS, open sockets, follow redirects, or contact a target. Callers supply synthetic or externally obtained DNS observations to the gateway.
+BSL-3 remains a networkless decision layer. It does not resolve DNS, open sockets, follow redirects, or contact a target. Callers supply synthetic or externally obtained DNS observations to the gateway.
 
 ## Child-policy invariant
 
@@ -81,7 +81,7 @@ These fields are included in the existing SHA-256 audit chain. Modifying DNS pro
 
 ## Explicit non-goals
 
-NXB-3 does not yet provide:
+BSL-3 does not yet provide:
 
 - an operating-system DNS resolver;
 - DNSSEC validation;

@@ -11,11 +11,11 @@ if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
 
 $expectedParent = '92915afbb7a92ff4c591028017686d9b7e6fdb89'
 $expectedLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
-$branch = 'nxb-152-windows-credential-helper'
-$helperFileName = 'nxb-windows-credential-evidence-key-helper.exe'
-$storeId = 'nxb152-d3-validation'
+$branch = 'bsl-152-windows-credential-helper'
+$helperFileName = 'bsl-windows-credential-evidence-key-helper.exe'
+$storeId = 'bsl152-d3-validation'
 $keyId = 'temporary-key'
-$credentialTarget = "Naveax_NXBounty_EvidenceKey::${storeId}::${keyId}"
+$credentialTarget = "Naveax_BoundSeal_EvidenceKey::${storeId}::${keyId}"
 
 $temporaryRoot = $null
 $certificate = $null
@@ -196,7 +196,7 @@ function New-SignedPackage {
     )
 
     New-Item -ItemType Directory -Path $PackageRoot | Out-Null
-    $binary = Join-Path $PackageRoot 'nxb.exe'
+    $binary = Join-Path $PackageRoot 'bsl.exe'
     $helper = Join-Path $PackageRoot $helperFileName
     Copy-Item -LiteralPath $SourceBinary -Destination $binary
     Copy-Item -LiteralPath $SourceHelper -Destination $helper
@@ -208,7 +208,7 @@ function New-SignedPackage {
         }
     }
 
-    $sbomPath = Join-Path $PackageRoot 'nxb.cdx.json'
+    $sbomPath = Join-Path $PackageRoot 'bsl.cdx.json'
     $sbom = [ordered]@{
         bomFormat = 'CycloneDX'
         specVersion = '1.6'
@@ -216,12 +216,12 @@ function New-SignedPackage {
         metadata = [ordered]@{
             component = [ordered]@{
                 type = 'application'
-                name = 'NXBounty'
+                name = 'BoundSeal'
                 version = '0.1.0'
                 properties = @(
-                    [ordered]@{ name = 'nxb:source_commit'; value = $SourceCommit },
-                    [ordered]@{ name = 'nxb:release_sequence'; value = '3' },
-                    [ordered]@{ name = 'nxb:bundled_windows_credential_helper'; value = 'true' }
+                    [ordered]@{ name = 'bsl:source_commit'; value = $SourceCommit },
+                    [ordered]@{ name = 'bsl:release_sequence'; value = '3' },
+                    [ordered]@{ name = 'bsl:bundled_windows_credential_helper'; value = 'true' }
                 )
             }
         }
@@ -238,7 +238,7 @@ function New-SignedPackage {
     $checksumsPath = Join-Path $PackageRoot 'SHA256SUMS'
     [IO.File]::WriteAllText(
         $checksumsPath,
-        "$binarySha  nxb.exe`n$sbomSha  nxb.cdx.json`n$helperSha  $helperFileName`n",
+        "$binarySha  bsl.exe`n$sbomSha  bsl.cdx.json`n$helperSha  $helperFileName`n",
         [Text.UTF8Encoding]::new($false)
     )
 
@@ -249,10 +249,10 @@ function New-SignedPackage {
         [Text.UTF8Encoding]::new($false)
     )
 
-    $manifestPath = Join-Path $PackageRoot 'nxb-release-manifest.json'
+    $manifestPath = Join-Path $PackageRoot 'bsl-release-manifest.json'
     $generatedAt = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
     & $binary release manifest-template `
-        --release-id 'v0.1.0-r3-nxb152-d3' `
+        --release-id 'v0.1.0-r3-bsl152-d3' `
         --release-sequence 3 `
         --source-commit $SourceCommit `
         --platform windows `
@@ -312,16 +312,16 @@ function New-D3Harness {
     $repo = $RepoRoot.Replace('\', '/')
     $manifest = @"
 [package]
-name = "nxb152-d3-harness"
+name = "bsl152-d3-harness"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [dependencies]
-nxb-evidence-key-provider = { path = "$repo/crates/nxb-evidence-key-provider" }
-nxb-evidence-key-provider-process = { path = "$repo/crates/nxb-evidence-key-provider-process" }
-nxb-evidence-sealer = { path = "$repo/crates/nxb-evidence-sealer" }
-nxb-knowledge-reporting = { path = "$repo/crates/nxb-knowledge-reporting" }
+bsl-evidence-key-provider = { path = "$repo/crates/bsl-evidence-key-provider" }
+bsl-evidence-key-provider-process = { path = "$repo/crates/bsl-evidence-key-provider-process" }
+bsl-evidence-sealer = { path = "$repo/crates/bsl-evidence-sealer" }
+bsl-knowledge-reporting = { path = "$repo/crates/bsl-knowledge-reporting" }
 ring = "0.17"
 serde_json = "1.0"
 sha2 = "0.10"
@@ -335,15 +335,15 @@ sha2 = "0.10"
     $source = @'
 use std::{collections::BTreeMap, env, path::PathBuf, process, time::{Duration, SystemTime, UNIX_EPOCH}};
 
-use nxb_evidence_key_provider::{
+use bsl_evidence_key_provider::{
     acquire_evidence_sealer, EvidenceKeyActivation, EvidenceKeyPlan, EvidenceKeyPlanInput,
     EvidenceKeyProviderError,
 };
-use nxb_evidence_key_provider_process::{
+use bsl_evidence_key_provider_process::{
     bundled_windows_credential_config, ProcessEvidenceKeyProvider,
 };
-use nxb_evidence_sealer::{EncryptedEvidenceStore, ProductionEvidenceSealer};
-use nxb_knowledge_reporting::{EvidenceClass, EvidenceInput, EvidenceStore};
+use bsl_evidence_sealer::{EncryptedEvidenceStore, ProductionEvidenceSealer};
+use bsl_knowledge_reporting::{EvidenceClass, EvidenceInput, EvidenceStore};
 use ring::{
     rand::SystemRandom,
     signature::{Ed25519KeyPair, KeyPair},
@@ -468,8 +468,8 @@ fn run() -> Result<(), String> {
             let record = logical
                 .insert(EvidenceInput {
                     class: EvidenceClass::Observation,
-                    subject_id: "nxb152-d3-subject".into(),
-                    summary: "NXB-152 D3 clean-install evidence round trip".into(),
+                    subject_id: "bsl152-d3-subject".into(),
+                    summary: "BSL-152 D3 clean-install evidence round trip".into(),
                     metadata: BTreeMap::from([("gate".into(), "pass-d3".into())]),
                     provenance_sha256: "c".repeat(64),
                     policy_snapshot_sha256: policy.clone(),
@@ -507,7 +507,7 @@ fn run() -> Result<(), String> {
             .map_err(|error| error.to_string())?;
             let recovered = encrypted.open(evidence_id).map_err(|error| error.to_string())?;
             if recovered.content_sha256 != *expected_content_sha256
-                || recovered.summary != "NXB-152 D3 clean-install evidence round trip"
+                || recovered.summary != "BSL-152 D3 clean-install evidence round trip"
             {
                 return Err("recovered_evidence_binding_mismatch".into());
             }
@@ -616,28 +616,28 @@ try {
     }
 
     foreach ($script in @(
-        (Join-Path $RepoRoot 'scripts\nxb-installer-common.ps1'),
-        (Join-Path $RepoRoot 'scripts\install-nxb-windows.ps1'),
-        (Join-Path $RepoRoot 'scripts\uninstall-nxb-windows.ps1'),
-        (Join-Path $RepoRoot 'scripts\validate-nxb-152-clean-install-evidence-windows.ps1')
+        (Join-Path $RepoRoot 'scripts\bsl-installer-common.ps1'),
+        (Join-Path $RepoRoot 'scripts\install-bsl-windows.ps1'),
+        (Join-Path $RepoRoot 'scripts\uninstall-bsl-windows.ps1'),
+        (Join-Path $RepoRoot 'scripts\validate-bsl-152-clean-install-evidence-windows.ps1')
     )) {
         Assert-PowerShellScriptParses $script
     }
 
-    $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ('nxb152-d3-' + [Guid]::NewGuid().ToString('N'))
+    $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ('bsl152-d3-' + [Guid]::NewGuid().ToString('N'))
     $buildTarget = Join-Path $temporaryRoot 'build-target'
     New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
 
     Invoke-Cargo $RepoRoot $buildTarget @('fmt', '--all', '--', '--check') 'cargo fmt'
-    foreach ($package in @('nxb-evidence-sealer', 'nxb-evidence-key-provider', 'nxb-evidence-key-provider-process')) {
+    foreach ($package in @('bsl-evidence-sealer', 'bsl-evidence-key-provider', 'bsl-evidence-key-provider-process')) {
         Invoke-Cargo $RepoRoot $buildTarget @('check', '-p', $package, '--all-targets', '--all-features', '--locked') "$package check"
         Invoke-Cargo $RepoRoot $buildTarget @('clippy', '-p', $package, '--all-targets', '--all-features', '--locked', '--', '-D', 'warnings') "$package clippy"
         Invoke-Cargo $RepoRoot $buildTarget @('test', '-p', $package, '--all-features', '--locked', '--', '--test-threads=1') "$package tests"
     }
-    Invoke-Cargo $RepoRoot $buildTarget @('build', '-p', 'nxb-core', '--bin', 'nxb', '--release', '--all-features', '--locked') 'nxb release build'
-    Invoke-Cargo $RepoRoot $buildTarget @('build', '-p', 'nxb-evidence-key-provider-process', '--bin', 'nxb-windows-credential-evidence-key-helper', '--release', '--locked') 'helper release build'
+    Invoke-Cargo $RepoRoot $buildTarget @('build', '-p', 'bsl-core', '--bin', 'bsl', '--release', '--all-features', '--locked') 'bsl release build'
+    Invoke-Cargo $RepoRoot $buildTarget @('build', '-p', 'bsl-evidence-key-provider-process', '--bin', 'bsl-windows-credential-evidence-key-helper', '--release', '--locked') 'helper release build'
 
-    $sourceBinary = Join-Path $buildTarget 'release\nxb.exe'
+    $sourceBinary = Join-Path $buildTarget 'release\bsl.exe'
     $sourceHelper = Join-Path $buildTarget "release\$helperFileName"
     if (-not (Test-Path -LiteralPath $sourceBinary -PathType Leaf) -or
         -not (Test-Path -LiteralPath $sourceHelper -PathType Leaf)) {
@@ -647,7 +647,7 @@ try {
     $openssl = Get-OpenSslPath
     $certificate = New-SelfSignedCertificate `
         -Type CodeSigningCert `
-        -Subject 'CN=NXBounty D3 Validation' `
+        -Subject 'CN=BoundSeal D3 Validation' `
         -CertStoreLocation 'Cert:\CurrentUser\My' `
         -KeyExportPolicy Exportable `
         -NotAfter (Get-Date).AddDays(2)
@@ -682,9 +682,9 @@ try {
 
     $publisherThumbprint = $certificate.Thumbprint.ToLowerInvariant()
     $publicKeySha = (Get-FileHash -LiteralPath $package.PublicKey -Algorithm SHA256).Hash.ToLowerInvariant()
-    $installRoot = Join-Path $temporaryRoot 'install\NXBounty'
-    $dataRoot = Join-Path $temporaryRoot 'data\NXBounty'
-    $installScript = Join-Path $RepoRoot 'scripts\install-nxb-windows.ps1'
+    $installRoot = Join-Path $temporaryRoot 'install\BoundSeal'
+    $dataRoot = Join-Path $temporaryRoot 'data\BoundSeal'
+    $installScript = Join-Path $RepoRoot 'scripts\install-bsl-windows.ps1'
     $installed = Invoke-InstallerJson $installScript @{
         PackageDirectory = $package.Root
         InstallRoot = $installRoot
@@ -768,7 +768,7 @@ try {
 
     $sentinel = Join-Path $dataRoot 'd3-data-sentinel.txt'
     [IO.File]::WriteAllText($sentinel, 'preserve-data', [Text.UTF8Encoding]::new($false))
-    $uninstallScript = Join-Path $dataRoot 'installer\uninstall-nxb-windows.ps1'
+    $uninstallScript = Join-Path $dataRoot 'installer\uninstall-bsl-windows.ps1'
     $uninstalled = Invoke-InstallerJson $uninstallScript @{
         InstallRoot = $installRoot
         DataRoot = $dataRoot
@@ -782,7 +782,7 @@ try {
 
     $afterUninstall = Invoke-Lifecycle $preservedHelper @('status', '--store-id', $storeId, '--key-id', $keyId) 'status'
     if (-not $afterUninstall.present -or $afterUninstall.version_id -ne $version2) {
-        throw 'NXB uninstall destroyed or changed the Credential Manager evidence key.'
+        throw 'BSL uninstall destroyed or changed the Credential Manager evidence key.'
     }
 
     $deleted = Invoke-Lifecycle $preservedHelper @('delete', '--store-id', $storeId, '--key-id', $keyId, '--confirm-target', $credentialTarget) 'delete'
@@ -797,12 +797,12 @@ try {
         throw 'D3 changed repository authority or the canonical lockfile.'
     }
 
-    $evidenceDirectory = Join-Path $RepoRoot 'target\nxb-validation'
+    $evidenceDirectory = Join-Path $RepoRoot 'target\bsl-validation'
     New-Item -ItemType Directory -Path $evidenceDirectory -Force | Out-Null
-    $evidencePath = Join-Path $evidenceDirectory "nxb-152-pass-d3-windows-$head.json"
+    $evidencePath = Join-Path $evidenceDirectory "bsl-152-pass-d3-windows-$head.json"
     $evidence = [ordered]@{
         schema_version = 1
-        milestone = 'NXB-152'
+        milestone = 'BSL-152'
         gate = 'pass_d3_clean_install_seal_recover'
         platform = 'windows'
         head_sha = $head
@@ -841,7 +841,7 @@ try {
         [Text.UTF8Encoding]::new($false)
     )
 
-    Write-Host 'NXB-152 Pass D3 clean-install evidence validation passed.'
+    Write-Host 'BSL-152 Pass D3 clean-install evidence validation passed.'
     Write-Host "HEAD: $head"
     Write-Host "HELPER SHA256: $($package.HelperSha256)"
     Write-Host "EVIDENCE: $evidencePath"

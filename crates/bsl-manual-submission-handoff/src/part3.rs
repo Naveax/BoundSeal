@@ -284,7 +284,7 @@ pub enum ManualHandoffError {
     #[error("handoff serialization failed: {0}")]
     Serialization(String),
     #[error(transparent)]
-    Closure(#[from] nxb_run_closure::RunClosureError),
+    Closure(#[from] bsl_run_closure::RunClosureError),
     #[error(transparent)]
-    Knowledge(#[from] nxb_knowledge_reporting::KnowledgeError),
+    Knowledge(#[from] bsl_knowledge_reporting::KnowledgeError),
 }

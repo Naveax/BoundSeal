@@ -1,4 +1,4 @@
-# NXB-123 — Disk-Backed Exact Deduplication
+# BSL-123 — Disk-Backed Exact Deduplication
 
 ## Decision
 
@@ -60,4 +60,4 @@ Opening the index verifies manifest sequence, previous-hash linkage, record hash
 
 ## Integration
 
-NXB-124 will add semantic and root-cause correlation above this exact layer. Exact finding-ID dedup remains the authoritative first stage and cannot be bypassed by correlation heuristics.
+BSL-124 will add semantic and root-cause correlation above this exact layer. Exact finding-ID dedup remains the authoritative first stage and cannot be bypassed by correlation heuristics.

@@ -1,23 +1,23 @@
-# NXB-151 Signed Single-Binary Release Manifest
+# BSL-151 Signed Single-Binary Release Manifest
 
 ## Purpose
 
-The signed release manifest binds one exact `nxb` executable, CycloneDX SBOM, checksum manifest, source Git commit and monotonic release sequence into one externally signed Ed25519 document.
+The signed release manifest binds one exact `bsl` executable, CycloneDX SBOM, checksum manifest, source Git commit and monotonic release sequence into one externally signed Ed25519 document.
 
-The product never generates, imports or stores a release private key. Signing occurs in an external trusted process. `nxb` only creates canonical signing bytes and verifies a supplied signature against an operator-selected public key.
+The product never generates, imports or stores a release private key. Signing occurs in an external trusted process. `bsl` only creates canonical signing bytes and verifies a supplied signature against an operator-selected public key.
 
 ## Commands
 
 Create an unsigned canonical template:
 
 ```text
-nxb release manifest-template \
+bsl release manifest-template \
   --release-id <lowercase-release-id> \
   --release-sequence <positive-u64> \
   --source-commit <40-character-git-sha> \
   --platform <windows|linux> \
   --architecture x86-64 \
-  --binary <nxb.exe|nxb> \
+  --binary <bsl.exe|bsl> \
   --sbom <cyclonedx-json> \
   --checksums <SHA256SUMS> \
   --generated-at <UTC-RFC3339> \
@@ -37,10 +37,10 @@ The external signer signs the exact decoded `signing_payload_hex` bytes with Ed2
 Verify the signed document and artifacts:
 
 ```text
-nxb release verify-manifest \
+bsl release verify-manifest \
   --document <signed-release-manifest.json> \
   --public-key <ed25519-public-key.hex> \
-  --binary <nxb.exe|nxb> \
+  --binary <bsl.exe|bsl> \
   --sbom <cyclonedx-json> \
   --checksums <SHA256SUMS> \
   [--json]
@@ -50,8 +50,8 @@ nxb release verify-manifest \
 
 | Operation | Failure code | Diagnostic code |
 |---|---:|---|
-| Manifest template | 60 | `NXB151-RELEASE-MANIFEST-TEMPLATE-FAILED` |
-| Manifest verification | 61 | `NXB151-RELEASE-MANIFEST-VERIFY-FAILED` |
+| Manifest template | 60 | `BSL151-RELEASE-MANIFEST-TEMPLATE-FAILED` |
+| Manifest verification | 61 | `BSL151-RELEASE-MANIFEST-VERIFY-FAILED` |
 
 JSON failures are emitted only to stderr through the bounded diagnostic schema.
 
@@ -62,7 +62,7 @@ The manifest binds:
 - manifest schema version `2`;
 - canonical release ID;
 - positive `release_sequence`;
-- product identity `NXBounty`;
+- product identity `BoundSeal`;
 - exact Cargo package version;
 - exact lowercase 40-character source commit;
 - platform and architecture;
@@ -72,7 +72,7 @@ The manifest binds:
 - operator-supplied UTC generation timestamp;
 - self-consistent manifest SHA-256.
 
-The Linux binary must be named exactly `nxb`. The Windows binary must be named exactly `nxb.exe`. A helper or second executable cannot be substituted.
+The Linux binary must be named exactly `bsl`. The Windows binary must be named exactly `bsl.exe`. A helper or second executable cannot be substituted.
 
 ## Release sequence
 
@@ -106,7 +106,7 @@ The release authority is responsible for allocating each sequence exactly once f
 
 | Artifact | Maximum size |
 |---|---:|
-| `nxb` / `nxb.exe` | 512 MiB |
+| `bsl` / `bsl.exe` | 512 MiB |
 | CycloneDX SBOM | 32 MiB |
 | checksum manifest | 1 MiB |
 | signed release document | 64 KiB |
@@ -146,7 +146,7 @@ Verification requires:
 - canonical pretty JSON with one trailing LF;
 - exact local artifact equality.
 
-The public key is the external trust anchor selected by the installer, release verifier or operator. The private key never enters the NXBounty process.
+The public key is the external trust anchor selected by the installer, release verifier or operator. The private key never enters the BoundSeal process.
 
 ## Installer requirement
 
@@ -191,4 +191,4 @@ Those operations remain external and may proceed only after manifest verificatio
 
 ## Validation status
 
-Source, tests and documentation are present on the NXB-151 draft branch. No compiler, Clippy, Linux, Windows or installer pass is claimed until the pinned matrix completes on one unchanged final head.
+Source, tests and documentation are present on the BSL-151 draft branch. No compiler, Clippy, Linux, Windows or installer pass is claimed until the pinned matrix completes on one unchanged final head.

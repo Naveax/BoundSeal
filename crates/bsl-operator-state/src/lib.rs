@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use nxb_unified_operator::{ConsumedUnifiedOperatorActivation, UnifiedOperatorPlan};
+use bsl_unified_operator::{ConsumedUnifiedOperatorActivation, UnifiedOperatorPlan};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -687,13 +687,13 @@ pub enum OperatorStateError {
     #[error("state I/O failed: {0}")]
     Io(String),
     #[error(transparent)]
-    Unified(#[from] nxb_unified_operator::UnifiedOperatorError),
+    Unified(#[from] bsl_unified_operator::UnifiedOperatorError),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nxb_unified_operator::{
+    use bsl_unified_operator::{
         consume_activation_once, UnifiedComponentBinding, UnifiedOperatorActivationCertificate,
         UnifiedOperatorActivationPayload, UnifiedOperatorPlanParameters,
     };
@@ -775,7 +775,7 @@ mod tests {
             .expect("clock")
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "nxb-operator-state-{label}-{}-{nanos}",
+            "bsl-operator-state-{label}-{}-{nanos}",
             std::process::id()
         ))
     }

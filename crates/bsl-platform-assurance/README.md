@@ -1,6 +1,6 @@
-# nxb-platform-assurance
+# bsl-platform-assurance
 
-Deterministic contracts for NXB-66 through NXB-83.
+Deterministic contracts for BSL-66 through BSL-83.
 
 The crate provides three connected layers:
 

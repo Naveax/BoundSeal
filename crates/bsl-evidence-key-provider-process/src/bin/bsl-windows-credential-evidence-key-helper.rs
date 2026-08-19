@@ -2,23 +2,23 @@
 
 use std::io::{self, BufWriter};
 
-use nxb_evidence_key_provider::EVIDENCE_SEALING_KEY_BYTES;
-use nxb_vault::SecretKind;
-use nxb_vault_provider::ProviderIdentity;
-use nxb_vault_provider_process::{
+use bsl_evidence_key_provider::EVIDENCE_SEALING_KEY_BYTES;
+use bsl_vault::SecretKind;
+use bsl_vault_provider::ProviderIdentity;
+use bsl_vault_provider_process::{
     protocol::{read_host_message, write_provider_message},
     sha256_file, sha256_hex, HostMessage, ProcessVaultProviderError, ProviderMessage,
     MAX_PROCESS_METADATA_BYTES, PROCESS_PROVIDER_PROTOCOL_VERSION,
 };
 use zeroize::Zeroizing;
 
-#[path = "nxb-windows-credential-evidence-key-helper/lifecycle.rs"]
+#[path = "bsl-windows-credential-evidence-key-helper/lifecycle.rs"]
 mod lifecycle;
 
-const PROVIDER_ID: &str = nxb_evidence_key_provider_process::WINDOWS_CREDENTIAL_PROVIDER_ID;
-const CAPABILITY_V1: &[u8] = nxb_evidence_key_provider_process::WINDOWS_CREDENTIAL_CAPABILITY_V1;
-const TARGET_PREFIX: &str = nxb_evidence_key_provider_process::WINDOWS_CREDENTIAL_TARGET_PREFIX;
-const VERSION_COMMENT_PREFIX: &str = "NXB_EVIDENCE_KEY_VERSION:";
+const PROVIDER_ID: &str = bsl_evidence_key_provider_process::WINDOWS_CREDENTIAL_PROVIDER_ID;
+const CAPABILITY_V1: &[u8] = bsl_evidence_key_provider_process::WINDOWS_CREDENTIAL_CAPABILITY_V1;
+const TARGET_PREFIX: &str = bsl_evidence_key_provider_process::WINDOWS_CREDENTIAL_TARGET_PREFIX;
+const VERSION_COMMENT_PREFIX: &str = "BSL_EVIDENCE_KEY_VERSION:";
 const SYNTHETIC_AUTHORITY: &str = "evidence-key-provider.invalid";
 const ADAPTER_WORKER_ID: &str = "evidence-key-process";
 const ADAPTER_TENANT_ID: &str = "evidence-key-store";
@@ -59,7 +59,7 @@ fn main() {
         run()
     } else {
         lifecycle::run().map_err(|code| {
-            eprintln!("NXB_ERROR={code}");
+            eprintln!("BSL_ERROR={code}");
             HelperError
         })
     };
@@ -87,7 +87,7 @@ fn run() -> Result<(), HelperError> {
             maximum_secret_bytes,
         } if protocol_version == PROCESS_PROVIDER_PROTOCOL_VERSION
             && maximum_metadata_bytes == MAX_PROCESS_METADATA_BYTES as u64
-            && maximum_secret_bytes == nxb_vault::MAX_SECRET_BYTES as u64 =>
+            && maximum_secret_bytes == bsl_vault::MAX_SECRET_BYTES as u64 =>
         {
             nonce_hex
         }
@@ -444,7 +444,7 @@ mod tests {
     fn target_mapping_is_exact_and_deterministic() {
         assert_eq!(
             target_name("default-store", "evidence-key-1").as_deref(),
-            Some("Naveax_NXBounty_EvidenceKey::default-store::evidence-key-1")
+            Some("Naveax_BoundSeal_EvidenceKey::default-store::evidence-key-1")
         );
     }
 
@@ -467,6 +467,6 @@ mod tests {
 
     #[test]
     fn target_prefix_matches_pass_a_contract() {
-        assert_eq!(TARGET_PREFIX, "Naveax_NXBounty_EvidenceKey::");
+        assert_eq!(TARGET_PREFIX, "Naveax_BoundSeal_EvidenceKey::");
     }
 }

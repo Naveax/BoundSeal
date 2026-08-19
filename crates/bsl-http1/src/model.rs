@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use nxb_stream::{StreamAuditError, StreamError, StreamOperationOutcome, StreamState};
+use bsl_stream::{StreamAuditError, StreamError, StreamOperationOutcome, StreamState};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -303,7 +303,7 @@ pub enum Http1Error {
     #[error("HTTP/1 codec can perform only one connection-close exchange")]
     ExchangeAlreadyCompleted,
     #[error("HTTP/1 secret-header lease failed: {0}")]
-    SecretHeaders(#[from] nxb_vault::VaultError),
+    SecretHeaders(#[from] bsl_vault::VaultError),
     #[error("HTTP/1 audit chain is invalid: {0}")]
     Audit(#[from] Http1AuditError),
     #[error("HTTP/1 stream audit chain is invalid: {0}")]

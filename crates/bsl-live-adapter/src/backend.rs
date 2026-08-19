@@ -6,14 +6,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use nxb_destination::is_public_destination;
-use nxb_executor::{
+use bsl_destination::is_public_destination;
+use bsl_executor::{
     BackendReport, ExecutionControl, ExecutionLimits, PermitBackend, PermitEndpoint,
 };
-use nxb_stream::{
+use bsl_stream::{
     BackendReadReport, BackendReadStatus, BackendWriteReport, BackendWriteStatus, ByteStreamBackend,
 };
-use nxb_transport::TransportScheme;
+use bsl_transport::TransportScheme;
 use rustls::{
     client::Resumption,
     pki_types::{CertificateDer, ServerName},

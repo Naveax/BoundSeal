@@ -1,6 +1,6 @@
-# NXB-139 — External vault-provider lifecycle
+# BSL-139 — External vault-provider lifecycle
 
-NXB-139 adds the production-facing contract that can provision NXBounty's existing in-memory vault and session broker from an external secret provider without placing secret values in command-line arguments, JSON/TOML plans, receipts, debug output, or persistent state.
+BSL-139 adds the production-facing contract that can provision BoundSeal's existing in-memory vault and session broker from an external secret provider without placing secret values in command-line arguments, JSON/TOML plans, receipts, debug output, or persistent state.
 
 It intentionally does not implement a concrete HashiCorp Vault, AWS Secrets Manager, Azure Key Vault, 1Password, browser-profile, or operating-system credential-store adapter. Concrete providers implement the bounded `ExternalVaultProvider` trait and remain unable to widen the signed plan.
 
@@ -8,7 +8,7 @@ It intentionally does not implement a concrete HashiCorp Vault, AWS Secrets Mana
 
 `ExternalVaultSessionPlan` binds one exact provider bootstrap to:
 
-- the NXB-137 discovery-plan SHA-256;
+- the BSL-137 discovery-plan SHA-256;
 - the normalized HTTPS origin SHA-256 and exact DNS authority;
 - run, worker, account, tenant and role partitions;
 - one provider ID, provider-instance digest and capability digest;
@@ -62,7 +62,7 @@ The bootstrap receipt stores provider/version/handle hashes, counts, binding roo
 
 ## Deliberately excluded
 
-NXB-139 does not add:
+BSL-139 does not add:
 
 - plaintext secret files or command-line secret values;
 - browser cookie-database extraction;

@@ -86,31 +86,56 @@ impl Fixture {
             ),
         )
         .unwrap();
-        Self { root, binary, sbom, checksums, document, public_key }
+        Self {
+            root,
+            binary,
+            sbom,
+            checksums,
+            document,
+            public_key,
+        }
     }
 
     fn template(&self, sequence: u64) -> Output {
         run(&[
-            "release", "manifest-template",
-            "--release-id", "v0.1.0-cli-test",
-            "--release-sequence", &sequence.to_string(),
-            "--source-commit", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "--platform", if cfg!(windows) { "windows" } else { "linux" },
-            "--architecture", "x86-64",
-            "--binary", self.binary.to_str().unwrap(),
-            "--sbom", self.sbom.to_str().unwrap(),
-            "--checksums", self.checksums.to_str().unwrap(),
-            "--generated-at", "2026-08-05T15:00:00Z",
-            "--output", self.document.to_str().unwrap(),
+            "release",
+            "manifest-template",
+            "--release-id",
+            "v0.1.0-cli-test",
+            "--release-sequence",
+            &sequence.to_string(),
+            "--source-commit",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "--platform",
+            if cfg!(windows) { "windows" } else { "linux" },
+            "--architecture",
+            "x86-64",
+            "--binary",
+            self.binary.to_str().unwrap(),
+            "--sbom",
+            self.sbom.to_str().unwrap(),
+            "--checksums",
+            self.checksums.to_str().unwrap(),
+            "--generated-at",
+            "2026-08-05T15:00:00Z",
+            "--output",
+            self.document.to_str().unwrap(),
             "--json",
         ])
     }
 
     fn sign(&self) -> Value {
         let template = self.template(9);
-        assert!(template.status.success(), "template failed: {}", String::from_utf8_lossy(&template.stderr));
+        assert!(
+            template.status.success(),
+            "template failed: {}",
+            String::from_utf8_lossy(&template.stderr)
+        );
         let mut value: Value = serde_json::from_slice(&fs::read(&self.document).unwrap()).unwrap();
-        let payload_hex = value.get("signing_payload_hex").and_then(Value::as_str).unwrap();
+        let payload_hex = value
+            .get("signing_payload_hex")
+            .and_then(Value::as_str)
+            .unwrap();
         let mut payload = Vec::with_capacity(payload_hex.len() / 2);
         for pair in payload_hex.as_bytes().chunks_exact(2) {
             let text = std::str::from_utf8(pair).unwrap();
@@ -129,17 +154,25 @@ impl Fixture {
 }
 
 impl Drop for Fixture {
-    fn drop(&mut self) { let _ = fs::remove_dir_all(&self.root); }
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
 }
 
 fn verify(fixture: &Fixture) -> Output {
     run(&[
-        "release", "verify-manifest",
-        "--document", fixture.document.to_str().unwrap(),
-        "--public-key", fixture.public_key.to_str().unwrap(),
-        "--binary", fixture.binary.to_str().unwrap(),
-        "--sbom", fixture.sbom.to_str().unwrap(),
-        "--checksums", fixture.checksums.to_str().unwrap(),
+        "release",
+        "verify-manifest",
+        "--document",
+        fixture.document.to_str().unwrap(),
+        "--public-key",
+        fixture.public_key.to_str().unwrap(),
+        "--binary",
+        fixture.binary.to_str().unwrap(),
+        "--sbom",
+        fixture.sbom.to_str().unwrap(),
+        "--checksums",
+        fixture.checksums.to_str().unwrap(),
         "--json",
     ])
 }
@@ -150,7 +183,10 @@ fn assert_json_error(output: &Output, exit_code: i32, code: &str) {
     assert_eq!(value.get("schema_version").and_then(Value::as_u64), Some(1));
     assert_eq!(value.get("status").and_then(Value::as_str), Some("error"));
     assert_eq!(value.get("code").and_then(Value::as_str), Some(code));
-    assert_eq!(value.get("exit_code").and_then(Value::as_i64), Some(i64::from(exit_code)));
+    assert_eq!(
+        value.get("exit_code").and_then(Value::as_i64),
+        Some(i64::from(exit_code))
+    );
 }
 
 #[test]
@@ -158,35 +194,67 @@ fn template_then_external_signature_verifies() {
     let fixture = Fixture::new();
     let value = fixture.sign();
     assert_eq!(
-        value.pointer("/manifest/release_sequence").and_then(Value::as_u64),
+        value
+            .pointer("/manifest/release_sequence")
+            .and_then(Value::as_u64),
         Some(9)
     );
     let output = verify(&fixture);
-    assert!(output.status.success(), "verify failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "verify failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let result: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(result.get("status").and_then(Value::as_str), Some("valid"));
-    assert_eq!(result.get("release_sequence").and_then(Value::as_u64), Some(9));
-    assert_eq!(result.get("network_activity").and_then(Value::as_str), Some("none"));
+    assert_eq!(
+        result.get("release_sequence").and_then(Value::as_u64),
+        Some(9)
+    );
+    assert_eq!(
+        result.get("network_activity").and_then(Value::as_str),
+        Some("none")
+    );
 }
 
 #[test]
 fn tampered_signature_and_artifact_are_rejected_with_stable_diagnostics() {
     let fixture = Fixture::new();
     let mut value = fixture.sign();
-    let original = value.get("signature_hex").and_then(Value::as_str).unwrap().to_owned();
+    let original = value
+        .get("signature_hex")
+        .and_then(Value::as_str)
+        .unwrap()
+        .to_owned();
     let mut bytes = original.into_bytes();
     bytes[0] = if bytes[0] == b'0' { b'1' } else { b'0' };
     value["signature_hex"] = Value::String(String::from_utf8(bytes).unwrap());
-    fs::write(&fixture.document, format!("{}\n", serde_json::to_string_pretty(&value).unwrap())).unwrap();
-    assert_json_error(&verify(&fixture), 61, "BSL151-RELEASE-MANIFEST-VERIFY-FAILED");
+    fs::write(
+        &fixture.document,
+        format!("{}\n", serde_json::to_string_pretty(&value).unwrap()),
+    )
+    .unwrap();
+    assert_json_error(
+        &verify(&fixture),
+        61,
+        "BSL151-RELEASE-MANIFEST-VERIFY-FAILED",
+    );
 
     fixture.sign();
     fs::write(&fixture.binary, b"tampered release binary").unwrap();
-    assert_json_error(&verify(&fixture), 61, "BSL151-RELEASE-MANIFEST-VERIFY-FAILED");
+    assert_json_error(
+        &verify(&fixture),
+        61,
+        "BSL151-RELEASE-MANIFEST-VERIFY-FAILED",
+    );
 }
 
 #[test]
 fn zero_sequence_is_rejected_with_template_diagnostic() {
     let fixture = Fixture::new();
-    assert_json_error(&fixture.template(0), 60, "BSL151-RELEASE-MANIFEST-TEMPLATE-FAILED");
+    assert_json_error(
+        &fixture.template(0),
+        60,
+        "BSL151-RELEASE-MANIFEST-TEMPLATE-FAILED",
+    );
 }

@@ -1,10 +1,10 @@
-# NXB-142 — Checkpointed bounded operator state
+# BSL-142 — Checkpointed bounded operator state
 
-NXB-142 adds the networkless state and crash-recovery boundary required before the unified authenticated operator may execute live requests.
+BSL-142 adds the networkless state and crash-recovery boundary required before the unified authenticated operator may execute live requests.
 
 ## Security boundary
 
-The state engine does not perform DNS, TLS, HTTP, provider startup, secret injection or report submission. It records and validates the bounded execution state associated with one verified NXB-141 unified operator plan and one consumed activation certificate.
+The state engine does not perform DNS, TLS, HTTP, provider startup, secret injection or report submission. It records and validates the bounded execution state associated with one verified BSL-141 unified operator plan and one consumed activation certificate.
 
 A state store is bound to:
 
@@ -64,6 +64,6 @@ The caller must enter `teardown_pending` or `aborted` before provider/session/va
 
 ## Validation
 
-The permanent NXB-142 state-hardening workflow runs targeted check, all-target/all-feature Clippy and deterministic state tests on Ubuntu, plus state/recovery tests on Windows.
+The permanent BSL-142 state-hardening workflow runs targeted check, all-target/all-feature Clippy and deterministic state tests on Ubuntu, plus state/recovery tests on Windows.
 
-The independent NXB-142 full-verification workflow also verifies the canonical lockfile, full workspace check/Clippy/tests, synthetic demo, RustSec, cargo-deny, release binary, deterministic CycloneDX SBOM, SHA-256 checksums and immutable secret-scanned evidence on Ubuntu-slim. Repository-wide CI and operator release-hardening remain additional independent gates.
+The independent BSL-142 full-verification workflow also verifies the canonical lockfile, full workspace check/Clippy/tests, synthetic demo, RustSec, cargo-deny, release binary, deterministic CycloneDX SBOM, SHA-256 checksums and immutable secret-scanned evidence on Ubuntu-slim. Repository-wide CI and operator release-hardening remain additional independent gates.

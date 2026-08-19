@@ -1,20 +1,20 @@
-# NXB-150 — Pinned process evidence-key provider
+# BSL-150 — Pinned process evidence-key provider
 
 ## Status
 
-NXB-150 is implemented. Source integration, the real child-process fixture, adversarial tests, the canonical committed lockfile, exact-head Linux and Windows validation harnesses and deterministic dual-platform evidence closure are part of the milestone contract.
+BSL-150 is implemented. Source integration, the real child-process fixture, adversarial tests, the canonical committed lockfile, exact-head Linux and Windows validation harnesses and deterministic dual-platform evidence closure are part of the milestone contract.
 
 A final PR head is merge-eligible only after both platforms validate that same unchanged head and the closure reports `ready_for_manual_pr_review`. Any later commit invalidates the earlier exact-head evidence and requires a fresh platform pair and closure.
 
 ## Purpose
 
-NXB-150 implements the first concrete adapter for the NXB-149 signed evidence-key provider lifecycle. It reuses the existing NXB-140 process-provider transport instead of introducing a second executable protocol.
+BSL-150 implements the first concrete adapter for the BSL-149 signed evidence-key provider lifecycle. It reuses the existing BSL-140 process-provider transport instead of introducing a second executable protocol.
 
 The adapter is intended for a small, separately reviewed helper executable that talks to a password manager, OS credential store, cloud KMS, HSM or another secret source. The repository does not bundle any provider-specific helper.
 
 ## Security boundary
 
-The adapter preserves the NXB-140 process controls:
+The adapter preserves the BSL-140 process controls:
 
 - absolute executable path;
 - regular-file and symbolic-link checks;
@@ -28,16 +28,16 @@ The adapter preserves the NXB-140 process controls:
 - bounded operation timeout;
 - fail-closed child termination and clean-exit enforcement.
 
-Adapter construction is side-effect free. `ProcessEvidenceKeyProvider::new` validates configuration and derives the capability identity without opening a process. The NXB-149 host first validates the plan, Ed25519 activation and exact provider identity. Only the subsequent provider `begin` call consumes the stored process configuration, validates the pinned executable and performs the process handshake.
+Adapter construction is side-effect free. `ProcessEvidenceKeyProvider::new` validates configuration and derives the capability identity without opening a process. The BSL-149 host first validates the plan, Ed25519 activation and exact provider identity. Only the subsequent provider `begin` call consumes the stored process configuration, validates the pinned executable and performs the process handshake.
 
 The underlying `ProcessVaultProvider` Drop implementation terminates every child that did not reach `Finished`. Therefore begin failure, caller abandonment and incomplete teardown cannot leave an unmanaged helper process running. Store mismatch is rejected before process creation.
 
 ## Capability identity
 
-The NXB-149 `EvidenceKeyProviderIdentity` returned by the adapter uses backend kind `pinned-process`. Its capability SHA-256 binds a canonical descriptor containing:
+The BSL-149 `EvidenceKeyProviderIdentity` returned by the adapter uses backend kind `pinned-process`. Its capability SHA-256 binds a canonical descriptor containing:
 
 - adapter protocol version;
-- NXB-140 process protocol version;
+- BSL-140 process protocol version;
 - exact process provider identity;
 - exact executable SHA-256;
 - exact evidence store ID;
@@ -47,16 +47,16 @@ The NXB-149 `EvidenceKeyProviderIdentity` returned by the adapter uses backend k
 - transport session expiry;
 - exact bounded operation timeout in nanoseconds.
 
-The timeout is encoded without unit truncation. Distinct sub-millisecond `Duration` values must produce distinct capability SHA-256 identities. This prevents a signed NXB-149 plan from being reused with a different executable, provider instance, key mapping, timeout or version policy.
+The timeout is encoded without unit truncation. Distinct sub-millisecond `Duration` values must produce distinct capability SHA-256 identities. This prevents a signed BSL-149 plan from being reused with a different executable, provider instance, key mapping, timeout or version policy.
 
-The configured transport session expiry is a capability-bound compatibility envelope for the process protocol. It is not the authorization source for evidence sealing. NXB-149 validates the signed plan time window and independently requires returned key material to remain valid through that plan.
+The configured transport session expiry is a capability-bound compatibility envelope for the process protocol. It is not the authorization source for evidence sealing. BSL-149 validates the signed plan time window and independently requires returned key material to remain valid through that plan.
 
 ## Lifecycle mapping
 
-The adapter maps one NXB-149 acquisition to one NXB-140 process session:
+The adapter maps one BSL-149 acquisition to one BSL-140 process session:
 
-1. validate adapter configuration and derive the content-bound NXB-149 provider identity without spawning;
-2. let NXB-149 validate the exact plan, active time window, Ed25519 activation and provider identity;
+1. validate adapter configuration and derive the content-bound BSL-149 provider identity without spawning;
+2. let BSL-149 validate the exact plan, active time window, Ed25519 activation and provider identity;
 3. validate the exact store-bound begin request before process creation;
 4. consume the process configuration, validate the executable and complete the nonce-bound process handshake;
 5. open one process-provider session;
@@ -64,10 +64,10 @@ The adapter maps one NXB-149 acquisition to one NXB-140 process session:
 7. issue one process secret fetch with a 32-byte maximum;
 8. validate optional provider-version pinning locally even if the helper ignores the requested pin;
 9. transfer the zeroizing process secret into `ProviderKeyMaterial`;
-10. map completed or aborted NXB-149 teardown to committed or aborted process teardown;
+10. map completed or aborted BSL-149 teardown to committed or aborted process teardown;
 11. return success only after the process exits cleanly.
 
-The process provider handle is required by the child protocol but is never included in adapter `Debug` output, receipts or capability plaintext. Only its SHA-256 is capability-bound. Invalid-length key material is zeroized by the NXB-149 material constructor before rejection.
+The process provider handle is required by the child protocol but is never included in adapter `Debug` output, receipts or capability plaintext. Only its SHA-256 is capability-bound. Invalid-length key material is zeroized by the BSL-149 material constructor before rejection.
 
 ## Fixture and adversarial coverage
 
@@ -94,13 +94,13 @@ These cases are executed serially by the platform harnesses against the real chi
 Linux:
 
 ```text
-bash scripts/validate-nxb-150-linux.sh
+bash scripts/validate-bsl-150-linux.sh
 ```
 
 Windows:
 
 ```text
-pwsh -NoProfile -File .\scripts\validate-nxb-150-windows.ps1
+pwsh -NoProfile -File .\scripts\validate-bsl-150-windows.ps1
 ```
 
 Both harnesses require:
@@ -111,7 +111,7 @@ Both harnesses require:
 - committed `Cargo.lock` SHA-256 `f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff`;
 - locked Cargo metadata resolution;
 - package format, check, all-target Clippy and serial real-process tests;
-- `nxb-vault-provider` regression tests;
+- `bsl-vault-provider` regression tests;
 - full workspace check, all-target/all-feature Clippy and serial tests;
 - RustSec audit;
 - cargo-deny advisories, licenses, bans and source checks.
@@ -119,7 +119,7 @@ Both harnesses require:
 A successful run writes platform-specific schema-v2 JSON under:
 
 ```text
-target/nxb-validation/
+target/bsl-validation/
 ```
 
 Evidence binds the exact head, Rust/Cargo and supply-chain tool versions, security-tool executable hashes, canonical lockfile SHA-256 and each completed gate. It contains no provider handle, secret material, authorization data or private signing key.
@@ -133,10 +133,10 @@ The harnesses emit no success document if the expected SHA-256 differs, the work
 ```text
 cargo metadata --locked
 cargo fmt --all -- --check
-cargo check -p nxb-evidence-key-provider-process --all-features --locked
-cargo clippy -p nxb-evidence-key-provider-process --all-targets --all-features --locked -- -D warnings
-cargo test -p nxb-evidence-key-provider-process --all-features --locked -- --test-threads=1
-cargo test -p nxb-vault-provider --locked -- --test-threads=1
+cargo check -p bsl-evidence-key-provider-process --all-features --locked
+cargo clippy -p bsl-evidence-key-provider-process --all-targets --all-features --locked -- -D warnings
+cargo test -p bsl-evidence-key-provider-process --all-features --locked -- --test-threads=1
+cargo test -p bsl-vault-provider --locked -- --test-threads=1
 cargo check --workspace --all-targets --all-features --locked
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --all-features --locked -- --test-threads=1
@@ -151,7 +151,7 @@ The Linux and Windows evidence documents must describe the same exact head, cano
 Successful review creates:
 
 ```text
-target/nxb-validation/nxb-150-closure-<HEAD>.json
+target/bsl-validation/bsl-150-closure-<HEAD>.json
 ```
 
 with status:
@@ -164,7 +164,7 @@ That status authorizes manual PR review only. It is not an automatic merge instr
 
 ## Explicit exclusions
 
-NXB-150 does not include:
+BSL-150 does not include:
 
 - a password-manager-specific helper;
 - Windows Credential Manager, macOS Keychain or Linux Secret Service integration;

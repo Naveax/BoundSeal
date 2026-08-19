@@ -1,11 +1,11 @@
-# NXB-151 Windows Installer Lifecycle
+# BSL-151 Windows Installer Lifecycle
 
 ## Purpose
 
-The Windows lifecycle installs the single `nxb.exe` product only after two independent trust checks:
+The Windows lifecycle installs the single `bsl.exe` product only after two independent trust checks:
 
 1. Windows Authenticode validation against a pinned publisher certificate thumbprint.
-2. NXBounty Ed25519 manifest-v2 validation against a pinned release-public-key file SHA-256.
+2. BoundSeal Ed25519 manifest-v2 validation against a pinned release-public-key file SHA-256.
 
 The candidate executable is never run before its Authenticode signature and exact publisher certificate are validated. After that bootstrap check, the candidate executes its networkless `release verify-manifest` command to verify its own bytes, CycloneDX SBOM, checksum manifest, source commit, monotonic release sequence and external Ed25519 signature.
 
@@ -16,10 +16,10 @@ No installer operation downloads files or contacts a network service.
 `-PackageDirectory` must contain exactly five private regular files:
 
 ```text
-nxb.exe
-nxb.cdx.json
+bsl.exe
+bsl.cdx.json
 SHA256SUMS
-nxb-release-manifest.json
+bsl-release-manifest.json
 release-public-key.hex
 ```
 
@@ -28,7 +28,7 @@ Nested directories, extra files, symlinks, junctions and reparse points are reje
 ## Install command
 
 ```powershell
-.\scripts\install-nxb-windows.ps1 `
+.\scripts\install-bsl-windows.ps1 `
   -PackageDirectory C:\path\to\release `
   -ExpectedPublisherThumbprint <40-hex-cert-thumbprint> `
   -ExpectedReleasePublicKeySha256 <64-hex-file-sha256>
@@ -37,8 +37,8 @@ Nested directories, extra files, symlinks, junctions and reparse points are reje
 Defaults:
 
 ```text
-Install root: %LOCALAPPDATA%\Programs\NXBounty
-Data root:    %LOCALAPPDATA%\NXBounty
+Install root: %LOCALAPPDATA%\Programs\BoundSeal
+Data root:    %LOCALAPPDATA%\BoundSeal
 ```
 
 Optional integration:
@@ -56,11 +56,11 @@ Before publication, the installer requires:
 
 - exact five-file layout;
 - no reparse point in any path component;
-- valid Authenticode status for `nxb.exe`;
+- valid Authenticode status for `bsl.exe`;
 - exact signer-certificate thumbprint;
 - exact release-public-key file SHA-256;
 - 32-byte lowercase hexadecimal Ed25519 public key;
-- Windows x86_64 NXBounty manifest schema `2`;
+- Windows x86_64 BoundSeal manifest schema `2`;
 - positive bounded release sequence;
 - successful networkless `verify-manifest` result.
 
@@ -122,10 +122,10 @@ An idempotent reinstall uses pending and backup files for `install-state.json`. 
 The install root contains exactly:
 
 ```text
-nxb.exe
-nxb.cdx.json
+bsl.exe
+bsl.cdx.json
 SHA256SUMS
-nxb-release-manifest.json
+bsl-release-manifest.json
 release-public-key.hex
 install-state.json
 ```
@@ -142,7 +142,7 @@ Unexpected entries are rejected. State schema `2` records:
 ## Rollback
 
 ```powershell
-.\scripts\rollback-nxb-windows.ps1 `
+.\scripts\rollback-bsl-windows.ps1 `
   -ExpectedPublisherThumbprint <thumbprint> `
   -ExpectedReleasePublicKeySha256 <sha256>
 ```
@@ -175,7 +175,7 @@ The receipt records both SemVer values, release sequences, source commits and ma
 ## Uninstall
 
 ```powershell
-.\scripts\uninstall-nxb-windows.ps1 `
+.\scripts\uninstall-bsl-windows.ps1 `
   -ExpectedPublisherThumbprint <thumbprint> `
   -ExpectedReleasePublicKeySha256 <sha256>
 ```
@@ -186,7 +186,7 @@ Active and rollback installations are verified before deactivation.
 
 1. Move the active root to a unique tombstone.
 2. Move the previous slot to its own tombstone.
-3. Remove only the NXBounty PATH entry, shortcut and HKCU uninstall record.
+3. Remove only the BoundSeal PATH entry, shortcut and HKCU uninstall record.
 
 Any failure in this phase restores both roots and the exact integration policy.
 
@@ -221,15 +221,15 @@ Install, rollback and maintenance directories receive protected per-user ACLs gr
 When enabled, integration consists of:
 
 - one exact user PATH entry;
-- one NXBounty Start Menu shortcut;
+- one BoundSeal Start Menu shortcut;
 - one HKCU uninstall record including `DisplayVersion` and `ReleaseSequence`.
 
-Uninstall removes only NXBounty-owned entries.
+Uninstall removes only BoundSeal-owned entries.
 
 ## Two-revision acceptance harness
 
 ```powershell
-pwsh -NoProfile -File .\scripts\validate-nxb-151-installer-windows.ps1
+pwsh -NoProfile -File .\scripts\validate-bsl-151-installer-windows.ps1
 ```
 
 The default previous source is:

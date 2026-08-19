@@ -5,25 +5,24 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use chrono::{TimeZone, Utc};
-use nxb_executor::ExecutionControl;
-use nxb_live_adapter::LiveAdapterConfig;
-use nxb_operator::OperatorConfig;
-use nxb_operator_runtime::{RuntimeClock, RuntimeMethod};
-use nxb_policy::{AuthorizationPolicy, AutomationPolicy, ProgramPolicy, ScopePolicy, TargetPolicy};
-use nxb_resumable_runner::{RunnerCandidate, RunnerManifest};
-use nxb_session::{SessionBroker, SessionStatus};
-use nxb_session_injection::{
+use bsl_executor::ExecutionControl;
+use bsl_live_adapter::LiveAdapterConfig;
+use bsl_operator::OperatorConfig;
+use bsl_operator_runtime::{RuntimeClock, RuntimeMethod};
+use bsl_policy::{AuthorizationPolicy, AutomationPolicy, ProgramPolicy, ScopePolicy, TargetPolicy};
+use bsl_resumable_runner::{RunnerCandidate, RunnerManifest};
+use bsl_session::{SessionBroker, SessionStatus};
+use bsl_session_injection::{
     CsrfBinding, SessionInjectionActivationCertificate, SessionInjectionActivationPayload,
     SessionInjectionManifest, SessionInjectionManifestParameters,
 };
-use nxb_stream::StreamControl;
-use nxb_unified_operator::{
+use bsl_stream::StreamControl;
+use bsl_unified_operator::{
     UnifiedComponentBinding, UnifiedOperatorActivationCertificate,
     UnifiedOperatorActivationPayload, UnifiedOperatorPlan, UnifiedOperatorPlanParameters,
 };
-use nxb_vault::{InMemorySecretVault, SecretKind};
-use nxb_vault_provider::{
+use bsl_vault::{InMemorySecretVault, SecretKind};
+use bsl_vault_provider::{
     bootstrap_external_session, consume_activation_once as consume_external_activation,
     ExternalVaultActivationCertificate, ExternalVaultActivationPayload,
     ExternalVaultPlanParameters, ExternalVaultProvider, ExternalVaultSessionPlan,
@@ -31,6 +30,7 @@ use nxb_vault_provider::{
     ProviderSecretRequest, ProviderSecretSpec, ProviderSessionOutcome, ProviderSessionRequest,
     ProvisionedExternalSession,
 };
+use chrono::{TimeZone, Utc};
 use ring::signature::{Ed25519KeyPair, KeyPair};
 use sha2::{Digest, Sha256};
 
@@ -107,7 +107,7 @@ struct Fixture {
     injection_manifest: SessionInjectionManifest,
     injection_activation: SessionInjectionActivationCertificate,
     injection_public_key: Vec<u8>,
-    policy: nxb_policy::CompiledPolicy,
+    policy: bsl_policy::CompiledPolicy,
     operator_config: OperatorConfig,
     adapter_config: LiveAdapterConfig,
     broker: SessionBroker,
@@ -137,7 +137,7 @@ fn unique_root(label: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("clock")
         .as_nanos();
-    std::env::temp_dir().join(format!("nxb145-{label}-{}-{nanos}", std::process::id()))
+    std::env::temp_dir().join(format!("bsl145-{label}-{}-{nanos}", std::process::id()))
 }
 
 fn clock(seconds: i64) -> RuntimeClock {
@@ -550,7 +550,7 @@ fn invalid_dns_result_enters_teardown_before_returning_error() {
     assert!(matches!(error, LiveRunHostError::InvalidDnsResult(_)));
     assert_eq!(
         host.runner().latest_checkpoint().status,
-        nxb_resumable_runner::RunnerStatus::TeardownPending
+        bsl_resumable_runner::RunnerStatus::TeardownPending
     );
     let teardown = host.teardown(clock(1_222)).expect("teardown");
     assert!(matches!(teardown, LiveRunTeardownOutcome::Completed { .. }));

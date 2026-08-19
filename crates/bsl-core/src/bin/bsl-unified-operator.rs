@@ -19,12 +19,12 @@ use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 use discovery_session::DiscoverySessionPlan;
-use nxb_session_injection::SessionInjectionManifest;
-use nxb_unified_operator::{
+use bsl_session_injection::SessionInjectionManifest;
+use bsl_unified_operator::{
     consume_activation_once, UnifiedComponentBinding, UnifiedOperatorActivationCertificate,
     UnifiedOperatorActivationPayload, UnifiedOperatorPlan, UnifiedOperatorPlanParameters,
 };
-use nxb_vault_provider::{
+use bsl_vault_provider::{
     ExternalVaultBootstrapReceipt, ExternalVaultSessionPlan, ProviderDeliverySpec,
 };
 use serde::{de::DeserializeOwned, Serialize};
@@ -35,9 +35,9 @@ const MAX_UNIFIED_KEY_FILE_BYTES: u64 = 4 * 1024;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "nxb-unified-operator",
+    name = "bsl-unified-operator",
     version,
-    about = "Networkless NXB-141 unified operator artifact binder"
+    about = "Networkless BSL-141 unified operator artifact binder"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -46,7 +46,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Verify NXB-137/138/139 artifacts and emit one signed-activation-ready plan.
+    /// Verify BSL-137/138/139 artifacts and emit one signed-activation-ready plan.
     Plan {
         #[arg(long)]
         discovery_plan: PathBuf,
@@ -527,7 +527,7 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
         bail!("refusing to overwrite existing output {}", path.display());
     }
     let bytes = serde_json::to_vec_pretty(value).context("could not serialize JSON output")?;
-    let temporary_path = parent.join(format!(".{file_name}.{}.nxb.tmp", std::process::id()));
+    let temporary_path = parent.join(format!(".{file_name}.{}.bsl.tmp", std::process::id()));
     let publication = (|| -> Result<()> {
         let mut file = OpenOptions::new()
             .write(true)
@@ -662,7 +662,7 @@ mod tests {
     fn oversized_artifact_is_rejected_before_parsing() {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let directory = std::env::temp_dir().join(format!(
-            "nxb141-unified-input-{}-{}",
+            "bsl141-unified-input-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
@@ -682,7 +682,7 @@ mod tests {
     fn artifact_publication_is_complete_and_no_clobber() {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let directory = std::env::temp_dir().join(format!(
-            "nxb141-unified-output-{}-{}",
+            "bsl141-unified-output-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));

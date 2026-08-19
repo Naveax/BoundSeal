@@ -1,8 +1,8 @@
-# NXB-5 — Permit-Only Local Executor Contract
+# BSL-5 — Permit-Only Local Executor Contract
 
 ## Amaç
 
-NXB-5, gelecekteki gerçek transport backend'lerinden önce bağlantı yürütme sınırını dondurur. Bu aşama hiçbir socket, DNS resolver, TLS el sıkışması, HTTP istemcisi, proxy veya gerçek hedef bağlantısı içermez.
+BSL-5, gelecekteki gerçek transport backend'lerinden önce bağlantı yürütme sınırını dondurur. Bu aşama hiçbir socket, DNS resolver, TLS el sıkışması, HTTP istemcisi, proxy veya gerçek hedef bağlantısı içermez.
 
 ## Zorunlu akış
 
@@ -76,7 +76,7 @@ Her çalışma tek bir terminal state üretir.
 
 ## Cancellation ve emergency-stop
 
-NXB-5 deterministik kontratta cancellation ve emergency-stop sinyallerini çalıştırma başlamadan uygular. Emergency-stop cancellation'dan önceliklidir. Gelecekte async backend eklendiğinde aynı outcome sözleşmesi periyodik kontrol noktalarına taşınacaktır.
+BSL-5 deterministik kontratta cancellation ve emergency-stop sinyallerini çalıştırma başlamadan uygular. Emergency-stop cancellation'dan önceliklidir. Gelecekte async backend eklendiğinde aynı outcome sözleşmesi periyodik kontrol noktalarına taşınacaktır.
 
 ## Audit bağlama
 
@@ -99,7 +99,7 @@ Executor audit zinciri SHA-256 append-only kayıtlarından oluşur. Transport au
 
 ## Gateway bütçe yaşam döngüsü
 
-Başarılı ticket tüketimi bir gateway in-flight slotuna sahiptir. `nxb-local-executor` şu terminal durumların tamamında slotu tam bir kez bırakır:
+Başarılı ticket tüketimi bir gateway in-flight slotuna sahiptir. `bsl-local-executor` şu terminal durumların tamamında slotu tam bir kez bırakır:
 
 - completed
 - cancelled

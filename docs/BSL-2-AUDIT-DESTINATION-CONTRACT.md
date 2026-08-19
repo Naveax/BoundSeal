@@ -1,4 +1,4 @@
-# NXB-2 — Audit and Destination Contract
+# BSL-2 — Audit and Destination Contract
 
 ## Status
 

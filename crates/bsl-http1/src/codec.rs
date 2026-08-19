@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use nxb_stream::{BoundedByteStream, ByteStreamBackend, StreamControl, StreamOperationOutcome};
-use nxb_vault::SecretHeaderLease;
+use bsl_stream::{BoundedByteStream, ByteStreamBackend, StreamControl, StreamOperationOutcome};
+use bsl_vault::SecretHeaderLease;
 use sha2::{Digest, Sha256};
 
 use crate::{

@@ -1,17 +1,17 @@
-# NXB-137 — Signed bounded discovery sessions
+# BSL-137 — Signed bounded discovery sessions
 
-NXB-137 extends the NXB-136 single-request bridge with a separately signed, strictly bounded passive discovery session. It does not change or broaden the NXB-136 one-request contract.
+BSL-137 extends the BSL-136 single-request bridge with a separately signed, strictly bounded passive discovery session. It does not change or broaden the BSL-136 one-request contract.
 
 ## Commands
 
-The `nxb-discovery-session` binary provides networkless planning and verification plus a feature-gated live runner:
+The `bsl-discovery-session` binary provides networkless planning and verification plus a feature-gated live runner:
 
 ```text
-cargo run -p nxb-core --bin nxb-discovery-session -- plan ...
-cargo run -p nxb-core --bin nxb-discovery-session -- activation-template ...
-cargo run -p nxb-core --bin nxb-discovery-session -- verify-plan ...
-cargo run -p nxb-core --bin nxb-discovery-session -- verify-activation ...
-cargo run -p nxb-core --bin nxb-discovery-session --features live-network -- run ... --enable-live
+cargo run -p bsl-core --bin bsl-discovery-session -- plan ...
+cargo run -p bsl-core --bin bsl-discovery-session -- activation-template ...
+cargo run -p bsl-core --bin bsl-discovery-session -- verify-plan ...
+cargo run -p bsl-core --bin bsl-discovery-session -- verify-activation ...
+cargo run -p bsl-core --bin bsl-discovery-session --features live-network -- run ... --enable-live
 ```
 
 ## Signed plan boundary
@@ -53,7 +53,7 @@ The live runner:
 
 ## Hard denials
 
-NXB-137 does not:
+BSL-137 does not:
 
 - follow redirects;
 - send query-bearing requests;
@@ -65,4 +65,4 @@ NXB-137 does not:
 - persist raw response bodies;
 - retry a consumed activation after a crash.
 
-Crash recovery is deliberately fail-closed in NXB-137. A crashed run requires a fresh plan and activation. Durable deterministic resume remains a later operator milestone.
+Crash recovery is deliberately fail-closed in BSL-137. A crashed run requires a fresh plan and activation. Durable deterministic resume remains a later operator milestone.

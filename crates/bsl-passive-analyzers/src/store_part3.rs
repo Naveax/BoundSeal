@@ -115,7 +115,7 @@ fn load_and_verify_manifest(
     let file = File::open(manifest_path).map_err(io_error)?;
     let reader = BufReader::new(file);
     let mut manifest = Vec::new();
-    let mut previous_hash = hash_bytes(format!("nxb-finding-store:{store_id}").as_bytes());
+    let mut previous_hash = hash_bytes(format!("bsl-finding-store:{store_id}").as_bytes());
 
     for (index, line) in reader.lines().enumerate() {
         let line = line.map_err(io_error)?;
@@ -196,7 +196,7 @@ fn reject_orphan_segments(
             return Err(FindingStoreError::OrphanSegment(name));
         }
         if name.starts_with("segment-")
-            && name.ends_with(".nxb")
+            && name.ends_with(".bsl")
             && !referenced.contains(name.as_str())
         {
             return Err(FindingStoreError::OrphanSegment(name));

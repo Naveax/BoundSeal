@@ -11,14 +11,14 @@ use std::{
     time::Duration,
 };
 
-use nxb_evidence_key_provider::{
+use bsl_evidence_key_provider::{
     acquire_evidence_sealer, EvidenceKeyActivation, EvidenceKeyPlan, EvidenceKeyPlanInput,
     EvidenceKeyProviderError,
 };
-use nxb_evidence_key_provider_process::{
+use bsl_evidence_key_provider_process::{
     bundled_windows_credential_config, ProcessEvidenceKeyProvider, WINDOWS_CREDENTIAL_TARGET_PREFIX,
 };
-use nxb_vault_provider_process::{sha256_file, sha256_hex};
+use bsl_vault_provider_process::{sha256_file, sha256_hex};
 use ring::signature::{Ed25519KeyPair, KeyPair};
 use serde_json::Value;
 
@@ -28,7 +28,7 @@ const CRED_PERSIST_LOCAL_MACHINE: u32 = 2;
 
 fn helper_executable() -> PathBuf {
     PathBuf::from(env!(
-        "CARGO_BIN_EXE_nxb-windows-credential-evidence-key-helper"
+        "CARGO_BIN_EXE_bsl-windows-credential-evidence-key-helper"
     ))
 }
 
@@ -47,7 +47,7 @@ fn unique_ids(label: &str) -> (String, String) {
     static NEXT: AtomicU64 = AtomicU64::new(1);
     let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
     (
-        format!("nxb152-e-{label}-{}-{sequence}", std::process::id()),
+        format!("bsl152-e-{label}-{}-{sequence}", std::process::id()),
         "temporary-key".into(),
     )
 }
@@ -144,7 +144,7 @@ impl Drop for CredentialCleanup {
 }
 
 fn signed_plan(
-    identity: nxb_evidence_key_provider::EvidenceKeyProviderIdentity,
+    identity: bsl_evidence_key_provider::EvidenceKeyProviderIdentity,
     store_id: &str,
     key_id: &str,
 ) -> (EvidenceKeyPlan, EvidenceKeyActivation) {
@@ -169,7 +169,7 @@ fn signed_plan(
 }
 
 fn acquire_error(
-    config: nxb_evidence_key_provider_process::ProcessEvidenceKeyProviderConfig,
+    config: bsl_evidence_key_provider_process::ProcessEvidenceKeyProviderConfig,
 ) -> EvidenceKeyProviderError {
     let identity = config.evidence_identity().expect("evidence identity");
     let store_id = config.store_id.clone();
@@ -184,7 +184,7 @@ fn base_config(
     store_id: &str,
     key_id: &str,
     required_version_sha256: Option<String>,
-) -> nxb_evidence_key_provider_process::ProcessEvidenceKeyProviderConfig {
+) -> bsl_evidence_key_provider_process::ProcessEvidenceKeyProviderConfig {
     bundled_windows_credential_config(
         &install_root(),
         &helper_sha256(),
@@ -287,7 +287,7 @@ fn lifecycle_failures_are_exact_and_metadata_remains_non_secret() {
     assert!(rotate_missing.stdout.is_empty());
     assert_eq!(
         String::from_utf8_lossy(&rotate_missing.stderr).trim(),
-        "NXB_ERROR=windows_credential_missing"
+        "BSL_ERROR=windows_credential_missing"
     );
 
     let delete_missing = helper_output(&lifecycle_mutation_arguments("delete", &store_id, &key_id));
@@ -295,7 +295,7 @@ fn lifecycle_failures_are_exact_and_metadata_remains_non_secret() {
     assert!(delete_missing.stdout.is_empty());
     assert_eq!(
         String::from_utf8_lossy(&delete_missing.stderr).trim(),
-        "NXB_ERROR=windows_credential_missing"
+        "BSL_ERROR=windows_credential_missing"
     );
 
     let mut wrong_confirmation = lifecycle_arguments("create", &store_id, &key_id);
@@ -306,7 +306,7 @@ fn lifecycle_failures_are_exact_and_metadata_remains_non_secret() {
     assert!(confirmation.stdout.is_empty());
     assert_eq!(
         String::from_utf8_lossy(&confirmation.stderr).trim(),
-        "NXB_ERROR=windows_credential_confirmation_required"
+        "BSL_ERROR=windows_credential_confirmation_required"
     );
 
     create_valid_credential(&store_id, &key_id);
@@ -315,7 +315,7 @@ fn lifecycle_failures_are_exact_and_metadata_remains_non_secret() {
     assert!(duplicate.stdout.is_empty());
     assert_eq!(
         String::from_utf8_lossy(&duplicate.stderr).trim(),
-        "NXB_ERROR=windows_credential_already_exists"
+        "BSL_ERROR=windows_credential_already_exists"
     );
 
     let status = lifecycle_json(&lifecycle_arguments("status", &store_id, &key_id));
@@ -326,7 +326,7 @@ fn lifecycle_failures_are_exact_and_metadata_remains_non_secret() {
 
 #[test]
 fn malformed_and_truncated_protocol_inputs_fail_without_output() {
-    for bytes in [b"NXB1".as_slice(), b"BAD!\0\0\0\0\0\0\0\0".as_slice()] {
+    for bytes in [b"BSL1".as_slice(), b"BAD!\0\0\0\0\0\0\0\0".as_slice()] {
         let mut child = Command::new(helper_executable())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -382,7 +382,7 @@ unsafe extern "system" {
 
 fn write_corrupt_credential(target: &str) {
     let mut wide_target = wide_nul(target);
-    let mut wide_comment = wide_nul("NXB_EVIDENCE_KEY_VERSION:v1-00000000000000000000000000000000");
+    let mut wide_comment = wide_nul("BSL_EVIDENCE_KEY_VERSION:v1-00000000000000000000000000000000");
     let mut non_secret_corrupt_sentinel = [0xa5_u8; 31];
     let credential = CredentialW {
         flags: 0,

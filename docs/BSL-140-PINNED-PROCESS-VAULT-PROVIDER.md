@@ -1,6 +1,6 @@
-# NXB-140 pinned process vault-provider backend
+# BSL-140 pinned process vault-provider backend
 
-NXB-140 supplies the first concrete backend for the NXB-139 external vault-provider contract. It launches one explicitly selected provider executable and exchanges bounded provider messages over anonymous standard-input and standard-output pipes.
+BSL-140 supplies the first concrete backend for the BSL-139 external vault-provider contract. It launches one explicitly selected provider executable and exchanges bounded provider messages over anonymous standard-input and standard-output pipes.
 
 It is not a shell adapter and it is not a password manager. The child executable remains responsible for reading exact handles from its own OS credential store, HSM, password manager or remote vault.
 
@@ -17,7 +17,7 @@ It is not a shell adapter and it is not a password manager. The child executable
 - Child stderr is discarded rather than captured into logs or evidence.
 - One backend instance owns one child process and at most one active provider session.
 - Every request and response after the handshake is bound to a strictly increasing sequence number.
-- Operation timeouts terminate the child. A killed active session remains locally abortable so NXB-139 rollback preserves the original failure.
+- Operation timeouts terminate the child. A killed active session remains locally abortable so BSL-139 rollback preserves the original failure.
 - Secret payloads are held in `Zeroizing<Vec<u8>>` buffers and are transferred into `SecretInput` without an intermediate secret copy.
 - Debug implementations omit the executable path and never include secret payloads.
 
@@ -27,7 +27,7 @@ Each frame uses this fixed header:
 
 | Field | Size | Meaning |
 |---|---:|---|
-| Magic | 4 bytes | ASCII `NXB1` |
+| Magic | 4 bytes | ASCII `BSL1` |
 | Metadata length | 4 bytes | Big-endian unsigned length |
 | Secret length | 4 bytes | Big-endian unsigned length |
 
@@ -60,17 +60,17 @@ The fixture and integration tests verify:
 
 - exact executable digest enforcement before spawn;
 - exact handshake identity and capability enforcement;
-- full NXB-139 bootstrap and teardown through the process backend;
+- full BSL-139 bootstrap and teardown through the process backend;
 - operation timeout, child termination and upstream abort completion;
 - logical provider failure followed by explicit abort;
 - absence of fixture secret material and executable paths from debug/log output.
 
-The permanent adversarial workflow runs the NXB-140 suite and records a SHA-256 of its sanitized log in the immutable local-lab status artifact.
+The permanent adversarial workflow runs the BSL-140 suite and records a SHA-256 of its sanitized log in the immutable local-lab status artifact.
 
 ## Explicit limitations
 
-- NXB-140 does not provide a Bitwarden, 1Password, KeePass, Windows Credential Manager, HSM or cloud-vault implementation.
+- BSL-140 does not provide a Bitwarden, 1Password, KeePass, Windows Credential Manager, HSM or cloud-vault implementation.
 - It does not sandbox the child with namespaces, seccomp, AppContainer, job objects or a restricted token.
 - Pre-spawn and post-handshake hashing narrows executable replacement risk but cannot provide a portable, race-free proof of the exact image loaded by every operating-system loader.
 - The provider executable must keep all metadata fields secret-free and must enforce read-only exact-handle access internally.
-- Unified authenticated operator CLI wiring is not part of NXB-140.
+- Unified authenticated operator CLI wiring is not part of BSL-140.

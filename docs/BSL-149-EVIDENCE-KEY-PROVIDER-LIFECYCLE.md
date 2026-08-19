@@ -1,8 +1,8 @@
-# NXB-149 — Signed evidence key-provider lifecycle
+# BSL-149 — Signed evidence key-provider lifecycle
 
 ## Purpose
 
-NXB-149 defines the provider-neutral boundary used to acquire the 256-bit key consumed by the NXB-148 production evidence sealer. It separates evidence persistence from concrete password-manager, OS credential-store, cloud KMS and HSM implementations.
+BSL-149 defines the provider-neutral boundary used to acquire the 256-bit key consumed by the BSL-148 production evidence sealer. It separates evidence persistence from concrete password-manager, OS credential-store, cloud KMS and HSM implementations.
 
 The lifecycle is networkless by contract. A future adapter may communicate with an external provider, but the adapter must implement this exact plan, activation, fetch and teardown boundary.
 
@@ -64,7 +64,7 @@ No provider method is invoked before activation and identity validation. No seco
 
 The key bytes are never serializable and are redacted from `Debug`. Invalid-length input is overwritten before rejection. Valid material must match the plan key ID and remain valid through the complete plan lifetime.
 
-The host copies the exact 32 bytes into `EvidenceSealingKey`, constructs `ProductionEvidenceSealer`, and relies on the NXB-148 source-key zeroization boundary during construction.
+The host copies the exact 32 bytes into `EvidenceSealingKey`, constructs `ProductionEvidenceSealer`, and relies on the BSL-148 source-key zeroization boundary during construction.
 
 ## Receipt
 
@@ -81,7 +81,7 @@ No key bytes, key-derived plaintext, provider credentials or secret-bearing diag
 
 ## Fail-closed cases
 
-NXB-149 rejects:
+BSL-149 rejects:
 
 - malformed or expired plans;
 - plan digest drift;
@@ -95,9 +95,9 @@ NXB-149 rejects:
 
 ## Validation record
 
-GitHub-hosted Actions are disabled for the repository, so NXB-149 does not leave a workflow enabled after merge.
+GitHub-hosted Actions are disabled for the repository, so BSL-149 does not leave a workflow enabled after merge.
 
-Before the temporary workflow was removed, GitHub Actions run `30991875053` (`NXB-149 evidence key-provider lifecycle`, run number 50) validated the implementation against the updated `main` base. Both Ubuntu and Windows completed successfully with:
+Before the temporary workflow was removed, GitHub Actions run `30991875053` (`BSL-149 evidence key-provider lifecycle`, run number 50) validated the implementation against the updated `main` base. Both Ubuntu and Windows completed successfully with:
 
 - canonical committed `Cargo.lock` verification;
 - Rust formatting verification on Ubuntu;
@@ -113,14 +113,14 @@ The crate can be reproduced locally or through an external orchestrator with:
 cargo generate-lockfile
 git diff --exit-code -- Cargo.lock
 cargo fmt --all -- --check
-cargo check -p nxb-evidence-key-provider --all-features --locked
-cargo clippy -p nxb-evidence-key-provider --all-targets --all-features --locked -- -D warnings
-cargo test -p nxb-evidence-key-provider --all-features --locked -- --test-threads=1
+cargo check -p bsl-evidence-key-provider --all-features --locked
+cargo clippy -p bsl-evidence-key-provider --all-targets --all-features --locked -- -D warnings
+cargo test -p bsl-evidence-key-provider --all-features --locked -- --test-threads=1
 ```
 
 ## Explicit exclusions
 
-NXB-149 does not implement a concrete:
+BSL-149 does not implement a concrete:
 
 - password-manager adapter;
 - Windows Credential Manager or macOS Keychain adapter;

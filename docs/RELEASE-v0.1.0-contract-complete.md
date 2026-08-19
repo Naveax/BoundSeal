@@ -2,7 +2,7 @@
 
 ## Meaning
 
-This release candidate records completion of the NXB-0 through NXB-147 contract architecture. It is a bounded security-automation contract checkpoint, not a claim of unrestricted autonomous scanning.
+This release candidate records completion of the BSL-0 through BSL-147 contract architecture. It is a bounded security-automation contract checkpoint, not a claim of unrestricted autonomous scanning.
 
 ## Included chain
 

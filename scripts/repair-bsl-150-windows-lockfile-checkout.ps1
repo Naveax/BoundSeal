@@ -34,7 +34,7 @@ try {
 
     $attribute = (git check-attr eol -- Cargo.lock | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $attribute -cne 'Cargo.lock: eol: lf') {
-        throw "Cargo.lock checkout contract is unavailable. Expected 'Cargo.lock: eol: lf', found '$attribute'. Pull the current NXB-150 branch first."
+        throw "Cargo.lock checkout contract is unavailable. Expected 'Cargo.lock: eol: lf', found '$attribute'. Pull the current BSL-150 branch first."
     }
 
     $lockPath = Join-Path $RepoRoot 'Cargo.lock'
@@ -44,7 +44,7 @@ try {
 
     $beforeSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($beforeSha256 -ceq $expectedCargoLockSha256) {
-        Write-Host 'NXB-150 Cargo.lock checkout is already canonical.'
+        Write-Host 'BSL-150 Cargo.lock checkout is already canonical.'
         Write-Host "HEAD: $headSha"
         Write-Host "Cargo.lock SHA-256: $beforeSha256"
         return
@@ -90,7 +90,7 @@ try {
         throw "Working tree changed during lockfile checkout repair.`n$($finalStatus -join [Environment]::NewLine)"
     }
 
-    Write-Host 'NXB-150 Cargo.lock checkout repair passed.'
+    Write-Host 'BSL-150 Cargo.lock checkout repair passed.'
     Write-Host "HEAD: $headSha"
     Write-Host "Previous SHA-256: $beforeSha256"
     Write-Host "Canonical SHA-256: $afterSha256"

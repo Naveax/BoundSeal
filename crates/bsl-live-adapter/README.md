@@ -1,6 +1,6 @@
-# nxb-live-adapter
+# bsl-live-adapter
 
-`nxb-live-adapter` is the first scope-controlled live transport implementation in NXB.
+`bsl-live-adapter` is the first scope-controlled live transport implementation in BSL.
 
 It performs one passive HTTPS exchange only after an existing `PinnedTransportCoordinator` has issued and consumed an exact transport permit.
 
@@ -39,4 +39,4 @@ The gateway in-flight reservation covers the entire connection, TLS and HTTP exc
 
 ## Status
 
-NXB-128 intentionally exposes no public CLI command. The existing `nxb-core` CLI cannot invoke this adapter. NXB-129 will provide the policy-driven orchestration and explicit operator interface after this adapter is merged and remains green.
+BSL-128 intentionally exposes no public CLI command. The existing `bsl-core` CLI cannot invoke this adapter. BSL-129 will provide the policy-driven orchestration and explicit operator interface after this adapter is merged and remains green.

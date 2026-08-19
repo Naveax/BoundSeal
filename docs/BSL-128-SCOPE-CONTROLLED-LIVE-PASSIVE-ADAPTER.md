@@ -1,8 +1,8 @@
-# NXB-128 — Scope-Controlled Live Passive Adapter
+# BSL-128 — Scope-Controlled Live Passive Adapter
 
 ## Objective
 
-NXB-128 introduces the first production network implementation without turning NXB into an unrestricted scanner. It executes one bounded passive HTTPS request only after upstream policy, scope, DNS pinning, ticket and permit controls have already approved an exact endpoint.
+BSL-128 introduces the first production network implementation without turning BSL into an unrestricted scanner. It executes one bounded passive HTTPS request only after upstream policy, scope, DNS pinning, ticket and permit controls have already approved an exact endpoint.
 
 ## Non-bypassable admission chain
 
@@ -28,7 +28,7 @@ Production connections require:
 - scheme `https`;
 - port `443`;
 - redirect depth `0`;
-- a destination classified as public by `nxb-destination`;
+- a destination classified as public by `bsl-destination`;
 - exact remote IP from the permit;
 - exact SNI matching the HTTP authority;
 - one TCP connection created with `TcpStream::connect_timeout`;
@@ -66,11 +66,11 @@ The caller cannot provide arbitrary headers. The adapter emits only:
 - `Host`, derived from the stream grant;
 - `Accept: */*`;
 - `Accept-Encoding: identity`;
-- a fixed NXB passive-research user agent;
+- a fixed BSL passive-research user agent;
 - `Content-Length: 0`;
 - `Connection: close`.
 
-Cookies, authorization data, request bodies and vault leases are not accepted in NXB-128.
+Cookies, authorization data, request bodies and vault leases are not accepted in BSL-128.
 
 ## Response handling
 
@@ -129,7 +129,7 @@ A local rustls HTTP/1 fixture additionally exercises a real verified TLS handsha
 
 ## Explicit exclusions
 
-NXB-128 does not include:
+BSL-128 does not include:
 
 - target discovery or crawling;
 - redirects;

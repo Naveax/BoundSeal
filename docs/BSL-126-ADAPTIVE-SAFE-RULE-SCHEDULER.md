@@ -1,8 +1,8 @@
-# NXB-126 — Adaptive Safe-Rule Scheduler
+# BSL-126 — Adaptive Safe-Rule Scheduler
 
 ## Purpose
 
-NXB-126 reorders finite, already-authorized endpoint-rule work so the available request, mutation, time and evidence budgets are spent on rules with the highest observed useful yield.
+BSL-126 reorders finite, already-authorized endpoint-rule work so the available request, mutation, time and evidence budgets are spent on rules with the highest observed useful yield.
 
 The scheduler does not authorize targets, create capabilities or execute requests. Every queued item must already carry:
 
@@ -103,4 +103,4 @@ Tests verify:
 
 ## Next stage
 
-NXB-127 will partition authorized work into deterministic origin-isolated shards. Each shard will receive explicit local budgets while a global coordinator preserves exact pair ownership, global emergency stop and deterministic finding merge.
+BSL-127 will partition authorized work into deterministic origin-isolated shards. Each shard will receive explicit local budgets while a global coordinator preserves exact pair ownership, global emergency stop and deterministic finding merge.

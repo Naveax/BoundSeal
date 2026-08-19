@@ -8,9 +8,9 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
+use bsl_policy::{CompiledPolicy, TargetPolicy};
 use chrono::Utc;
 use clap::{Args, Subcommand, ValueEnum};
-use bsl_policy::{CompiledPolicy, TargetPolicy};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::{Host, Url};
@@ -265,25 +265,44 @@ pub(crate) fn run(args: TargetArgs) -> ExitCode {
             )
             .and_then(|value| emit_value(&value, json)),
         ),
-        TargetCommand::List { workspace, include_disabled, json } => (
+        TargetCommand::List {
+            workspace,
+            include_disabled,
+            json,
+        } => (
             LIST_EXIT_CODE,
             LIST_DIAGNOSTIC,
             json,
             list_value(&workspace, include_disabled).and_then(|value| emit_value(&value, json)),
         ),
-        TargetCommand::Show { workspace, id, json } => (
+        TargetCommand::Show {
+            workspace,
+            id,
+            json,
+        } => (
             SHOW_EXIT_CODE,
             SHOW_DIAGNOSTIC,
             json,
             show_value(&workspace, &id).and_then(|value| emit_value(&value, json)),
         ),
-        TargetCommand::Disable { workspace, id, reason, json } => (
+        TargetCommand::Disable {
+            workspace,
+            id,
+            reason,
+            json,
+        } => (
             DISABLE_EXIT_CODE,
             DISABLE_DIAGNOSTIC,
             json,
             disable_value(&workspace, &id, reason).and_then(|value| emit_value(&value, json)),
         ),
-        TargetCommand::Validate { workspace, id, authorization_document, policy, json } => (
+        TargetCommand::Validate {
+            workspace,
+            id,
+            authorization_document,
+            policy,
+            json,
+        } => (
             VALIDATE_EXIT_CODE,
             VALIDATE_DIAGNOSTIC,
             json,
@@ -369,7 +388,9 @@ fn list_value(workspace_path: &Path, include_disabled: bool) -> Result<Value> {
     let profiles = load_profiles(&targets_directory(&root)?)?;
     let mut targets = Vec::with_capacity(profiles.len());
     for (profile, receipt) in profiles.into_values() {
-        if receipt.is_some() && !include_disabled { continue; }
+        if receipt.is_some() && !include_disabled {
+            continue;
+        }
         targets.push(effective_target(profile, receipt));
     }
     serde_json::to_value(TargetList {
@@ -398,11 +419,15 @@ fn disable_value(workspace_path: &Path, id: &str, reason: DisableReason) -> Resu
     validate_target_id(id)?;
     let profile_path = profile_path(&targets, id);
     let profile_bytes = workspace::read_document(&profile_path, "target profile")?;
-    let profile: TargetProfile = serde_json::from_slice(&profile_bytes)
-        .context("target profile is invalid JSON")?;
+    let profile: TargetProfile =
+        serde_json::from_slice(&profile_bytes).context("target profile is invalid JSON")?;
     validate_profile(&profile)?;
-    if profile_bytes != canonical_json(&profile)? { bail!("target profile is not canonical JSON"); }
-    if profile.target_id != id { bail!("target profile identity does not match its file name"); }
+    if profile_bytes != canonical_json(&profile)? {
+        bail!("target profile is not canonical JSON");
+    }
+    if profile.target_id != id {
+        bail!("target profile identity does not match its file name");
+    }
     let receipt_path = disable_path(&targets, id);
     if workspace::safe_exists(&receipt_path)? {
         let existing = read_receipt(&receipt_path, &profile)?;
@@ -483,12 +508,16 @@ fn targets_directory(root: &Path) -> Result<PathBuf> {
     let targets = root.join("targets");
     workspace::reject_path_indirections(&targets, "target directory")?;
     let metadata = fs::metadata(&targets).context("target directory is missing")?;
-    if !metadata.is_dir() { bail!("target path is not a directory"); }
+    if !metadata.is_dir() {
+        bail!("target path is not a directory");
+    }
     workspace::validate_private_permissions(&targets, true)?;
     Ok(targets)
 }
 
-fn load_profiles(targets: &Path) -> Result<BTreeMap<String, (TargetProfile, Option<DisableReceipt>)>> {
+fn load_profiles(
+    targets: &Path,
+) -> Result<BTreeMap<String, (TargetProfile, Option<DisableReceipt>)>> {
     let mut profile_files = BTreeMap::<String, PathBuf>::new();
     let mut receipt_files = BTreeMap::<String, PathBuf>::new();
     let mut entries = 0_usize;
@@ -496,29 +525,55 @@ fn load_profiles(targets: &Path) -> Result<BTreeMap<String, (TargetProfile, Opti
         let path = entry?.path();
         workspace::reject_path_indirections(&path, "target record")?;
         let metadata = fs::symlink_metadata(&path)?;
-        if !metadata.is_file() { bail!("target directory contains a non-file entry: {}", path.display()); }
+        if !metadata.is_file() {
+            bail!(
+                "target directory contains a non-file entry: {}",
+                path.display()
+            );
+        }
         workspace::validate_private_permissions(&path, false)?;
-        entries = entries.checked_add(1).ok_or_else(|| anyhow::anyhow!("target record count overflow"))?;
-        if entries > MAX_TARGET_PROFILES.saturating_mul(2) { bail!("target record count exceeds the supported limit"); }
-        let name = path.file_name().and_then(|value| value.to_str())
+        entries = entries
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("target record count overflow"))?;
+        if entries > MAX_TARGET_PROFILES.saturating_mul(2) {
+            bail!("target record count exceeds the supported limit");
+        }
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
             .ok_or_else(|| anyhow::anyhow!("target record file name is invalid"))?;
         if let Some(id) = name.strip_suffix(".disabled.json") {
             validate_target_id(id)?;
-            if receipt_files.insert(id.to_owned(), path).is_some() { bail!("duplicate target disable receipt"); }
+            if receipt_files.insert(id.to_owned(), path).is_some() {
+                bail!("duplicate target disable receipt");
+            }
         } else if let Some(id) = name.strip_suffix(".json") {
             validate_target_id(id)?;
-            if profile_files.insert(id.to_owned(), path).is_some() { bail!("duplicate target profile"); }
-        } else { bail!("target directory contains an unsupported record: {name}"); }
+            if profile_files.insert(id.to_owned(), path).is_some() {
+                bail!("duplicate target profile");
+            }
+        } else {
+            bail!("target directory contains an unsupported record: {name}");
+        }
     }
-    if profile_files.len() > MAX_TARGET_PROFILES { bail!("target profile count exceeds the supported limit"); }
+    if profile_files.len() > MAX_TARGET_PROFILES {
+        bail!("target profile count exceeds the supported limit");
+    }
     for id in receipt_files.keys() {
-        if !profile_files.contains_key(id) { bail!("disable receipt exists without its target profile: {id}"); }
+        if !profile_files.contains_key(id) {
+            bail!("disable receipt exists without its target profile: {id}");
+        }
     }
     let mut profiles = BTreeMap::new();
     for (id, path) in profile_files {
         let profile = read_profile(&path)?;
-        if profile.target_id != id { bail!("target profile identity does not match its file name"); }
-        let receipt = match receipt_files.get(&id) { Some(path) => Some(read_receipt(path, &profile)?), None => None };
+        if profile.target_id != id {
+            bail!("target profile identity does not match its file name");
+        }
+        let receipt = match receipt_files.get(&id) {
+            Some(path) => Some(read_receipt(path, &profile)?),
+            None => None,
+        };
         profiles.insert(id, (profile, receipt));
     }
     Ok(profiles)
@@ -526,51 +581,77 @@ fn load_profiles(targets: &Path) -> Result<BTreeMap<String, (TargetProfile, Opti
 
 fn read_profile(path: &Path) -> Result<TargetProfile> {
     let bytes = workspace::read_document(path, "target profile")?;
-    let profile: TargetProfile = serde_json::from_slice(&bytes).context("target profile is invalid JSON")?;
+    let profile: TargetProfile =
+        serde_json::from_slice(&bytes).context("target profile is invalid JSON")?;
     validate_profile(&profile)?;
-    if bytes != canonical_json(&profile)? { bail!("target profile is not canonical JSON"); }
+    if bytes != canonical_json(&profile)? {
+        bail!("target profile is not canonical JSON");
+    }
     Ok(profile)
 }
 
 fn read_optional_receipt(path: &Path, profile: &TargetProfile) -> Result<Option<DisableReceipt>> {
-    if workspace::safe_exists(path)? { Ok(Some(read_receipt(path, profile)?)) } else { Ok(None) }
+    if workspace::safe_exists(path)? {
+        Ok(Some(read_receipt(path, profile)?))
+    } else {
+        Ok(None)
+    }
 }
 
 fn read_receipt(path: &Path, profile: &TargetProfile) -> Result<DisableReceipt> {
     let profile_bytes = canonical_json(profile)?;
     let receipt_bytes = workspace::read_document(path, "target disable receipt")?;
-    let receipt: DisableReceipt = serde_json::from_slice(&receipt_bytes)
-        .context("target disable receipt is invalid JSON")?;
+    let receipt: DisableReceipt =
+        serde_json::from_slice(&receipt_bytes).context("target disable receipt is invalid JSON")?;
     validate_receipt(&receipt, profile, &profile_bytes)?;
-    if receipt_bytes != canonical_json(&receipt)? { bail!("target disable receipt is not canonical JSON"); }
+    if receipt_bytes != canonical_json(&receipt)? {
+        bail!("target disable receipt is not canonical JSON");
+    }
     Ok(receipt)
 }
 
 fn validate_profile(profile: &TargetProfile) -> Result<()> {
-    if profile.schema_version != PROFILE_SCHEMA_VERSION { bail!("unsupported target profile schema"); }
+    if profile.schema_version != PROFILE_SCHEMA_VERSION {
+        bail!("unsupported target profile schema");
+    }
     validate_target_id(&profile.target_id)?;
     validate_target_name(&profile.name)?;
-    if canonical_origin(&profile.origin)? != profile.origin { bail!("target origin is not canonical"); }
+    if canonical_origin(&profile.origin)? != profile.origin {
+        bail!("target origin is not canonical");
+    }
     let includes = canonical_paths(profile.include_paths.clone(), true)?;
     let excludes = canonical_paths(profile.exclude_paths.clone(), false)?;
-    if includes != profile.include_paths || excludes != profile.exclude_paths { bail!("target path rules are not canonical"); }
+    if includes != profile.include_paths || excludes != profile.exclude_paths {
+        bail!("target path rules are not canonical");
+    }
     validate_path_relationships(&includes, &excludes)?;
     validate_allowed_methods(&profile.allowed_methods)?;
     validate_program_metadata(&profile.program)?;
     validate_safe_reference(&profile.authorization.reference, "authorization reference")?;
-    workspace::validate_sha(&profile.authorization.document_sha256, "authorization document SHA-256")?;
+    workspace::validate_sha(
+        &profile.authorization.document_sha256,
+        "authorization document SHA-256",
+    )?;
     workspace::validate_sha(&profile.policy_sha256, "target policy SHA-256")?;
     workspace::validate_sha(&profile.identity_sha256, "target identity SHA-256")?;
     validate_time(&profile.created_at, "created_at")?;
-    if profile_identity_sha256(profile)? != profile.identity_sha256 { bail!("target profile identity digest does not match its content"); }
+    if profile_identity_sha256(profile)? != profile.identity_sha256 {
+        bail!("target profile identity digest does not match its content");
+    }
     Ok(())
 }
 
-fn validate_receipt(receipt: &DisableReceipt, profile: &TargetProfile, profile_bytes: &[u8]) -> Result<()> {
+fn validate_receipt(
+    receipt: &DisableReceipt,
+    profile: &TargetProfile,
+    profile_bytes: &[u8],
+) -> Result<()> {
     if receipt.receipt_version != DISABLE_RECEIPT_VERSION
         || receipt.target_id != profile.target_id
         || receipt.profile_sha256 != workspace::sha256(profile_bytes)
-    { bail!("target disable receipt does not match its immutable profile"); }
+    {
+        bail!("target disable receipt does not match its immutable profile");
+    }
     workspace::validate_sha(&receipt.profile_sha256, "profile_sha256")?;
     validate_time(&receipt.disabled_at, "disabled_at")
 }
@@ -595,21 +676,36 @@ fn validate_program_metadata(metadata: &ProgramMetadata) -> Result<()> {
     if metadata.platform.is_empty()
         || metadata.platform.len() > 64
         || metadata.platform.to_ascii_lowercase() != metadata.platform
-        || !metadata.platform.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
-    { bail!("program platform must be a lowercase ASCII identifier"); }
-    if let Some(reference) = &metadata.reference { validate_safe_reference(reference, "program reference")?; }
+        || !metadata
+            .platform
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        bail!("program platform must be a lowercase ASCII identifier");
+    }
+    if let Some(reference) = &metadata.reference {
+        validate_safe_reference(reference, "program reference")?;
+    }
     Ok(())
 }
 
 fn validate_policy_binding(compiled: &CompiledPolicy, origin: &str) -> Result<Vec<String>> {
     let url = Url::parse(origin).context("canonical target origin is invalid")?;
-    let host = url.host_str().ok_or_else(|| anyhow::anyhow!("canonical target origin has no host"))?;
-    if !compiled.allows_host(host) { bail!("target origin host is not permitted by the supplied policy"); }
-    let allowed = READ_ONLY_METHODS.iter()
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("canonical target origin has no host"))?;
+    if !compiled.allows_host(host) {
+        bail!("target origin host is not permitted by the supplied policy");
+    }
+    let allowed = READ_ONLY_METHODS
+        .iter()
         .filter(|method| compiled.allows_request(&url, method))
         .map(|method| (*method).to_owned())
         .collect::<Vec<_>>();
-    if !allowed.iter().any(|method| matches!(method.as_str(), "GET" | "HEAD")) {
+    if !allowed
+        .iter()
+        .any(|method| matches!(method.as_str(), "GET" | "HEAD"))
+    {
         bail!("target policy does not permit GET or HEAD for the exact origin");
     }
     validate_allowed_methods(&allowed)?;
@@ -620,8 +716,12 @@ fn validate_allowed_methods(methods: &[String]) -> Result<()> {
     if methods.is_empty()
         || methods.len() > READ_ONLY_METHODS.len()
         || methods.windows(2).any(|pair| pair[0] >= pair[1])
-        || methods.iter().any(|method| !READ_ONLY_METHODS.contains(&method.as_str()))
-    { bail!("target methods exceed the read-only product boundary or are not canonical"); }
+        || methods
+            .iter()
+            .any(|method| !READ_ONLY_METHODS.contains(&method.as_str()))
+    {
+        bail!("target methods exceed the read-only product boundary or are not canonical");
+    }
     Ok(())
 }
 
@@ -646,7 +746,9 @@ fn canonical_origin(input: &str) -> Result<String> {
     if input.trim() != input || input.len() > 512 || input.chars().any(char::is_control) {
         bail!("target origin contains invalid whitespace or control characters");
     }
-    if input.contains('*') || input.contains('\\') { bail!("target origin must not contain wildcards or backslashes"); }
+    if input.contains('*') || input.contains('\\') {
+        bail!("target origin must not contain wildcards or backslashes");
+    }
     let parsed = Url::parse(input).context("target origin is not a valid URL")?;
     if parsed.scheme() != "https"
         || parsed.cannot_be_a_base()
@@ -655,15 +757,23 @@ fn canonical_origin(input: &str) -> Result<String> {
         || parsed.query().is_some()
         || parsed.fragment().is_some()
         || parsed.path() != "/"
-    { bail!("target origin must be an HTTPS origin without credentials, path, query or fragment"); }
+    {
+        bail!("target origin must be an HTTPS origin without credentials, path, query or fragment");
+    }
     let host = match parsed.host() {
         Some(Host::Domain(value)) => value.to_ascii_lowercase(),
-        Some(Host::Ipv4(_)) | Some(Host::Ipv6(_)) => bail!("target origin must not use an IP literal"),
+        Some(Host::Ipv4(_)) | Some(Host::Ipv6(_)) => {
+            bail!("target origin must not use an IP literal")
+        }
         None => bail!("target origin is missing a host"),
     };
     validate_public_domain(&host)?;
     let port = parsed.port().unwrap_or(443);
-    Ok(if port == 443 { format!("https://{host}") } else { format!("https://{host}:{port}") })
+    Ok(if port == 443 {
+        format!("https://{host}")
+    } else {
+        format!("https://{host}:{port}")
+    })
 }
 
 fn validate_public_domain(host: &str) -> Result<()> {
@@ -672,28 +782,55 @@ fn validate_public_domain(host: &str) -> Result<()> {
         || host.starts_with('.')
         || host.ends_with('.')
         || host.split('.').any(|label| {
-            label.is_empty() || label.len() > 63 || label.starts_with('-') || label.ends_with('-')
-                || !label.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+            label.is_empty()
+                || label.len() > 63
+                || label.starts_with('-')
+                || label.ends_with('-')
+                || !label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
         })
-    { bail!("target origin host is not a canonical public DNS name"); }
-    const DENIED_SUFFIXES: &[&str] = &[".localhost", ".local", ".internal", ".invalid", ".test", ".example", ".home.arpa"];
+    {
+        bail!("target origin host is not a canonical public DNS name");
+    }
+    const DENIED_SUFFIXES: &[&str] = &[
+        ".localhost",
+        ".local",
+        ".internal",
+        ".invalid",
+        ".test",
+        ".example",
+        ".home.arpa",
+    ];
     if host == "localhost" || DENIED_SUFFIXES.iter().any(|suffix| host.ends_with(suffix)) {
         bail!("target origin host uses a reserved or local DNS suffix");
     }
-    if host.parse::<IpAddr>().is_ok() { bail!("target origin host must not be an IP literal"); }
+    if host.parse::<IpAddr>().is_ok() {
+        bail!("target origin host must not be an IP literal");
+    }
     Ok(())
 }
 
 fn canonical_paths(mut paths: Vec<String>, include: bool) -> Result<Vec<String>> {
-    if include && paths.is_empty() { paths.push("/".to_owned()); }
-    if paths.len() > MAX_PATH_RULES { bail!("target path rule count exceeds the supported limit"); }
+    if include && paths.is_empty() {
+        paths.push("/".to_owned());
+    }
+    if paths.len() > MAX_PATH_RULES {
+        bail!("target path rule count exceeds the supported limit");
+    }
     let mut canonical = BTreeSet::new();
     for path in paths {
         validate_scope_path(&path)?;
-        if !include && path == "/" { bail!("excluding the root path would leave no usable target scope"); }
-        if !canonical.insert(path) { bail!("target path rules must not contain duplicates"); }
+        if !include && path == "/" {
+            bail!("excluding the root path would leave no usable target scope");
+        }
+        if !canonical.insert(path) {
+            bail!("target path rules must not contain duplicates");
+        }
     }
-    if include && canonical.is_empty() { bail!("target must include at least one path prefix"); }
+    if include && canonical.is_empty() {
+        bail!("target must include at least one path prefix");
+    }
     Ok(canonical.into_iter().collect())
 }
 
@@ -708,10 +845,16 @@ fn validate_scope_path(path: &str) -> Result<()> {
         || path.contains('%')
         || path.contains('*')
         || (path != "/" && path.ends_with('/'))
-        || path.chars().any(|value| value.is_control() || value.is_whitespace())
-    { bail!("target path prefix is not canonical"); }
+        || path
+            .chars()
+            .any(|value| value.is_control() || value.is_whitespace())
+    {
+        bail!("target path prefix is not canonical");
+    }
     for segment in path.split('/') {
-        if matches!(segment, "." | "..") { bail!("target path prefix contains dot traversal"); }
+        if matches!(segment, "." | "..") {
+            bail!("target path prefix contains dot traversal");
+        }
     }
     Ok(())
 }
@@ -721,7 +864,10 @@ fn validate_path_relationships(includes: &[String], excludes: &[String]) -> Resu
         if includes.iter().any(|included| included == excluded) {
             bail!("an excluded path must not remove an entire included prefix");
         }
-        if !includes.iter().any(|included| path_is_within(excluded, included)) {
+        if !includes
+            .iter()
+            .any(|included| path_is_within(excluded, included))
+        {
             bail!("excluded path is outside every included path prefix");
         }
     }
@@ -729,23 +875,34 @@ fn validate_path_relationships(includes: &[String], excludes: &[String]) -> Resu
 }
 
 fn path_is_within(candidate: &str, prefix: &str) -> bool {
-    prefix == "/" || candidate == prefix
-        || candidate.strip_prefix(prefix).is_some_and(|suffix| suffix.starts_with('/'))
+    prefix == "/"
+        || candidate == prefix
+        || candidate
+            .strip_prefix(prefix)
+            .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
 fn validate_target_id(value: &str) -> Result<()> {
     let bytes = value.as_bytes();
     if !(3..=64).contains(&bytes.len())
         || (!bytes[0].is_ascii_lowercase() && !bytes[0].is_ascii_digit())
-        || !bytes.iter().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'-')
+        || !bytes
+            .iter()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'-')
         || value.ends_with('-')
         || value.contains("--")
-    { bail!("target id must be a 3-64 character lowercase slug"); }
+    {
+        bail!("target id must be a 3-64 character lowercase slug");
+    }
     Ok(())
 }
 
 fn validate_target_name(value: &str) -> Result<()> {
-    if value.trim() != value || value.is_empty() || value.len() > 96 || value.chars().any(char::is_control) {
+    if value.trim() != value
+        || value.is_empty()
+        || value.len() > 96
+        || value.chars().any(char::is_control)
+    {
         bail!("target name must contain 1-96 printable characters without edge whitespace");
     }
     Ok(())
@@ -756,11 +913,19 @@ fn validate_safe_reference(value: &str, field: &str) -> Result<()> {
         || value.len() > 256
         || value.trim() != value
         || !value.is_ascii()
-        || !value.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':' | b'/' | b'#'))
-    { bail!("{field} must be a bounded non-secret reference without query, credentials or whitespace"); }
+        || !value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':' | b'/' | b'#')
+        })
+    {
+        bail!("{field} must be a bounded non-secret reference without query, credentials or whitespace");
+    }
     if value.starts_with("https://") {
         let url = Url::parse(value).with_context(|| format!("{field} is not a valid HTTPS URL"))?;
-        if !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {
+        if !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+        {
             bail!("{field} URL must not contain credentials, query or fragment");
         }
     }
@@ -768,24 +933,42 @@ fn validate_safe_reference(value: &str, field: &str) -> Result<()> {
 }
 
 fn validate_time(value: &str, field: &str) -> Result<()> {
-    let parsed = chrono::DateTime::parse_from_rfc3339(value).with_context(|| format!("{field} is invalid"))?;
-    if parsed.offset().local_minus_utc() != 0 { bail!("{field} must use UTC"); }
+    let parsed = chrono::DateTime::parse_from_rfc3339(value)
+        .with_context(|| format!("{field} is invalid"))?;
+    if parsed.offset().local_minus_utc() != 0 {
+        bail!("{field} must use UTC");
+    }
     Ok(())
 }
 
 fn read_bounded_source(path: &Path, label: &str, maximum: u64) -> Result<Vec<u8>> {
     workspace::reject_path_indirections(path, label)?;
-    let metadata = fs::metadata(path).with_context(|| format!("{label} is missing: {}", path.display()))?;
-    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > maximum { bail!("{label} size or type is invalid"); }
+    let metadata =
+        fs::metadata(path).with_context(|| format!("{label} is missing: {}", path.display()))?;
+    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > maximum {
+        bail!("{label} size or type is invalid");
+    }
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    File::open(path)?.take(maximum + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > maximum { bail!("{label} exceeds the supported size limit"); }
+    File::open(path)?
+        .take(maximum + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > maximum {
+        bail!("{label} exceeds the supported size limit");
+    }
     Ok(bytes)
 }
 
-fn profile_path(targets: &Path, id: &str) -> PathBuf { targets.join(format!("{id}.json")) }
-fn disable_path(targets: &Path, id: &str) -> PathBuf { targets.join(format!("{id}.disabled.json")) }
-fn canonical_json<T: Serialize>(value: &T) -> Result<Vec<u8>> { let mut bytes = serde_json::to_vec_pretty(value)?; bytes.push(b'\n'); Ok(bytes) }
+fn profile_path(targets: &Path, id: &str) -> PathBuf {
+    targets.join(format!("{id}.json"))
+}
+fn disable_path(targets: &Path, id: &str) -> PathBuf {
+    targets.join(format!("{id}.disabled.json"))
+}
+fn canonical_json<T: Serialize>(value: &T) -> Result<Vec<u8>> {
+    let mut bytes = serde_json::to_vec_pretty(value)?;
+    bytes.push(b'\n');
+    Ok(bytes)
+}
 
 fn effective_target(profile: TargetProfile, receipt: Option<DisableReceipt>) -> EffectiveTarget {
     EffectiveTarget {
@@ -801,7 +984,11 @@ fn effective_target(profile: TargetProfile, receipt: Option<DisableReceipt>) -> 
         policy_sha256: profile.policy_sha256,
         identity_sha256: profile.identity_sha256,
         created_at: profile.created_at,
-        status: if receipt.is_some() { "disabled" } else { "active" },
+        status: if receipt.is_some() {
+            "disabled"
+        } else {
+            "active"
+        },
         disabled_reason: receipt.as_ref().map(|value| value.reason),
         disabled_at: receipt.map(|value| value.disabled_at),
         network_activity: "none",
@@ -814,7 +1001,9 @@ fn emit_value(value: &Value, json_output: bool) -> Result<()> {
     } else if let Some(object) = value.as_object() {
         for (key, item) in object {
             match item {
-                Value::Array(_) | Value::Object(_) => println!("{key}: {}", serde_json::to_string(item)?),
+                Value::Array(_) | Value::Object(_) => {
+                    println!("{key}: {}", serde_json::to_string(item)?)
+                }
                 Value::String(item) => println!("{key}: {item}"),
                 other => println!("{key}: {other}"),
             }
@@ -829,7 +1018,11 @@ fn emit_value(value: &Value, json_output: bool) -> Result<()> {
 mod tests {
     use super::*;
 
-    struct Fixture { root: PathBuf, policy: PathBuf, authorization: PathBuf }
+    struct Fixture {
+        root: PathBuf,
+        policy: PathBuf,
+        authorization: PathBuf,
+    }
 
     impl Fixture {
         fn new() -> Self {
@@ -871,8 +1064,16 @@ policy_snapshot_sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 expires_at = 2099-01-01T00:00:00Z
 "#;
             workspace::create_document(&policy, policy_text.as_bytes()).unwrap();
-            workspace::create_document(&authorization, b"Bearer secret-that-must-never-be-persisted\n").unwrap();
-            Self { root, policy, authorization }
+            workspace::create_document(
+                &authorization,
+                b"Bearer secret-that-must-never-be-persisted\n",
+            )
+            .unwrap();
+            Self {
+                root,
+                policy,
+                authorization,
+            }
         }
 
         fn create(&self) -> Value {
@@ -891,28 +1092,61 @@ expires_at = 2099-01-01T00:00:00Z
         }
     }
 
-    impl Drop for Fixture { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.root); } }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
 
     #[test]
     fn creates_validates_lists_shows_and_disables_target() {
         let fixture = Fixture::new();
         let created = fixture.create();
-        assert_eq!(created.get("status").and_then(Value::as_str), Some("active"));
         assert_eq!(
-            validate_value(&fixture.root, "example-app", &fixture.authorization, &fixture.policy)
-                .unwrap().pointer("/validation/status").and_then(Value::as_str),
+            created.get("status").and_then(Value::as_str),
+            Some("active")
+        );
+        assert_eq!(
+            validate_value(
+                &fixture.root,
+                "example-app",
+                &fixture.authorization,
+                &fixture.policy
+            )
+            .unwrap()
+            .pointer("/validation/status")
+            .and_then(Value::as_str),
             Some("valid")
         );
-        assert_eq!(list_value(&fixture.root, false).unwrap().get("count").and_then(Value::as_u64), Some(1));
-        assert_eq!(show_value(&fixture.root, "example-app").unwrap().get("policy_sha256").and_then(Value::as_str).map(str::len), Some(64));
-        let disabled = disable_value(&fixture.root, "example-app", DisableReason::OperatorHold).unwrap();
-        assert_eq!(disabled.get("status").and_then(Value::as_str), Some("disabled"));
+        assert_eq!(
+            list_value(&fixture.root, false)
+                .unwrap()
+                .get("count")
+                .and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            show_value(&fixture.root, "example-app")
+                .unwrap()
+                .get("policy_sha256")
+                .and_then(Value::as_str)
+                .map(str::len),
+            Some(64)
+        );
+        let disabled =
+            disable_value(&fixture.root, "example-app", DisableReason::OperatorHold).unwrap();
+        assert_eq!(
+            disabled.get("status").and_then(Value::as_str),
+            Some("disabled")
+        );
     }
 
     #[test]
     fn secret_source_bytes_and_paths_are_not_persisted() {
-        let fixture = Fixture::new(); fixture.create();
-        let text = fs::read_to_string(fixture.root.join("targets").join("example-app.json")).unwrap();
+        let fixture = Fixture::new();
+        fixture.create();
+        let text =
+            fs::read_to_string(fixture.root.join("targets").join("example-app.json")).unwrap();
         assert!(!text.contains("Bearer"));
         assert!(!text.contains("secret-that-must-never-be-persisted"));
         assert!(!text.contains(fixture.policy.to_string_lossy().as_ref()));
@@ -922,34 +1156,91 @@ expires_at = 2099-01-01T00:00:00Z
     #[test]
     fn rejects_unsafe_origin_path_reference_and_policy_scope() {
         let fixture = Fixture::new();
-        assert!(create_value(&fixture.root,"unsafe-origin","Unsafe","https://user@example.org",vec!["/".into()],Vec::new(),"hackerone/program/example#scope-2026",&fixture.authorization,&fixture.policy).is_err());
-        assert!(create_value(&fixture.root,"unsafe-path","Unsafe","https://example.org",vec!["/api%2fadmin".into()],Vec::new(),"hackerone/program/example#scope-2026",&fixture.authorization,&fixture.policy).is_err());
-        assert!(create_value(&fixture.root,"unsafe-reference","Unsafe","https://example.org",vec!["/".into()],Vec::new(),"https://example.org/scope?token=secret",&fixture.authorization,&fixture.policy).is_err());
-        assert!(create_value(&fixture.root,"outside-policy","Unsafe","https://other.example.org",vec!["/".into()],Vec::new(),"hackerone/program/example#scope-2026",&fixture.authorization,&fixture.policy).is_err());
+        assert!(create_value(
+            &fixture.root,
+            "unsafe-origin",
+            "Unsafe",
+            "https://user@example.org",
+            vec!["/".into()],
+            Vec::new(),
+            "hackerone/program/example#scope-2026",
+            &fixture.authorization,
+            &fixture.policy
+        )
+        .is_err());
+        assert!(create_value(
+            &fixture.root,
+            "unsafe-path",
+            "Unsafe",
+            "https://example.org",
+            vec!["/api%2fadmin".into()],
+            Vec::new(),
+            "hackerone/program/example#scope-2026",
+            &fixture.authorization,
+            &fixture.policy
+        )
+        .is_err());
+        assert!(create_value(
+            &fixture.root,
+            "unsafe-reference",
+            "Unsafe",
+            "https://example.org",
+            vec!["/".into()],
+            Vec::new(),
+            "https://example.org/scope?token=secret",
+            &fixture.authorization,
+            &fixture.policy
+        )
+        .is_err());
+        assert!(create_value(
+            &fixture.root,
+            "outside-policy",
+            "Unsafe",
+            "https://other.example.org",
+            vec!["/".into()],
+            Vec::new(),
+            "hackerone/program/example#scope-2026",
+            &fixture.authorization,
+            &fixture.policy
+        )
+        .is_err());
     }
 
     #[test]
     fn active_profile_tamper_is_rejected_by_identity_digest() {
-        let fixture = Fixture::new(); fixture.create();
+        let fixture = Fixture::new();
+        fixture.create();
         let path = fixture.root.join("targets").join("example-app.json");
         let mut value: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         value["name"] = Value::String("Tampered Name".into());
-        let mut bytes = serde_json::to_vec_pretty(&value).unwrap(); bytes.push(b'\n');
+        let mut bytes = serde_json::to_vec_pretty(&value).unwrap();
+        bytes.push(b'\n');
         workspace::replace_document(&path, &bytes).unwrap();
         assert!(show_value(&fixture.root, "example-app").is_err());
     }
 
     #[test]
     fn source_digest_drift_is_rejected() {
-        let fixture = Fixture::new(); fixture.create();
+        let fixture = Fixture::new();
+        fixture.create();
         workspace::replace_document(&fixture.authorization, b"different authorization\n").unwrap();
-        assert!(validate_value(&fixture.root,"example-app",&fixture.authorization,&fixture.policy).is_err());
+        assert!(validate_value(
+            &fixture.root,
+            "example-app",
+            &fixture.authorization,
+            &fixture.policy
+        )
+        .is_err());
     }
 
     #[test]
     fn pending_migration_blocks_target_operations() {
         let fixture = Fixture::new();
-        workspace::create_document(&fixture.root.join("state").join("migration-active.json"), b"{}\n").unwrap();
+        workspace::create_document(
+            &fixture.root.join("state").join("migration-active.json"),
+            b"{}\n",
+        )
+        .unwrap();
         assert!(list_value(&fixture.root, false).is_err());
     }
 }

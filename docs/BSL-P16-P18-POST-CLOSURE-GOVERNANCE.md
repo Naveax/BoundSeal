@@ -1,17 +1,17 @@
-# NXB P16–P18 Post-Closure Governance
+# BSL P16–P18 Post-Closure Governance
 
-This batch completes NXB-102 through NXB-119 as deterministic, local-only governance contracts.
+This batch completes BSL-102 through BSL-119 as deterministic, local-only governance contracts.
 
-## P16 — NXB-102 through NXB-107
+## P16 — BSL-102 through BSL-107
 
-1. Successor identity anchored to the NXB-101 lifecycle closure.
+1. Successor identity anchored to the BSL-101 lifecycle closure.
 2. Compatibility envelope with exact schema roots, affected components and invariant roots.
 3. Metadata-only state-transfer manifest with bounded byte accounting and redaction root.
 4. Canonical, organization-separated cutover plan.
 5. Exact step receipts, rollback verification and zero unresolved objects.
 6. Succession certificate bound to policy, lifecycle, compatibility, transfer and cutover audit roots.
 
-## P17 — NXB-108 through NXB-113
+## P17 — BSL-108 through BSL-113
 
 1. Independent review panel with protocol, safety and audit roles.
 2. Deterministic evidence sampling from content-addressed roots.
@@ -20,7 +20,7 @@ This batch completes NXB-102 through NXB-119 as deterministic, local-only govern
 5. Zero-open-finding remediation closure.
 6. Renewal certificate bound to succession, review, assignments, findings and remediation.
 
-## P18 — NXB-114 through NXB-119
+## P18 — BSL-114 through BSL-119
 
 1. Secret-free public verification bundle.
 2. Bounded SHA-256-only trust epoch with zero private keys.

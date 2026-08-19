@@ -44,8 +44,8 @@ mod tests {
         ]);
         let headers = HeaderSecurityAnalyzer.analyze(&observed).unwrap();
         let cache = CachePolicyAnalyzer.analyze(&observed).unwrap();
-        assert!(headers.iter().any(|finding| finding.rule_id == "NXB-HDR-001"));
-        assert!(cache.iter().any(|finding| finding.rule_id == "NXB-CACHE-001"));
+        assert!(headers.iter().any(|finding| finding.rule_id == "BSL-HDR-001"));
+        assert!(cache.iter().any(|finding| finding.rule_id == "BSL-CACHE-001"));
         let serialized = serde_json::to_string(&(headers, cache)).unwrap();
         assert!(!serialized.contains("Example/1.2"));
     }
@@ -59,8 +59,8 @@ mod tests {
         )
         .unwrap()]);
         let findings = CookieSecurityAnalyzer.analyze(&observed).unwrap();
-        assert!(findings.iter().any(|finding| finding.rule_id == "NXB-COOKIE-001"));
-        assert!(findings.iter().any(|finding| finding.rule_id == "NXB-COOKIE-002"));
+        assert!(findings.iter().any(|finding| finding.rule_id == "BSL-COOKIE-001"));
+        assert!(findings.iter().any(|finding| finding.rule_id == "BSL-COOKIE-002"));
         assert!(!serde_json::to_string(&findings).unwrap().contains(secret));
     }
 
@@ -74,7 +74,7 @@ mod tests {
             .analyze(&observed)
             .unwrap()
             .iter()
-            .any(|finding| finding.rule_id == "NXB-CORS-001"));
+            .any(|finding| finding.rule_id == "BSL-CORS-001"));
         let redirect = RedirectAnalyzer
             .analyze_redirect(&RedirectObservation {
                 from_url: "https://app.example.com/start".into(),
@@ -91,7 +91,7 @@ mod tests {
                 loop_detected: false,
             })
             .unwrap();
-        assert!(redirect.iter().any(|finding| finding.rule_id == "NXB-REDIRECT-001"));
-        assert!(redirect.iter().any(|finding| finding.rule_id == "NXB-REDIRECT-002"));
+        assert!(redirect.iter().any(|finding| finding.rule_id == "BSL-REDIRECT-001"));
+        assert!(redirect.iter().any(|finding| finding.rule_id == "BSL-REDIRECT-002"));
     }
 }

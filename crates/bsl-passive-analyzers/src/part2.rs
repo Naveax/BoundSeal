@@ -12,7 +12,7 @@ impl PassiveAnalyzer for HeaderSecurityAnalyzer {
         if response.url.scheme() == "https" && !present.contains("strict-transport-security") {
             push_finding(
                 &mut findings,
-                "NXB-HDR-001",
+                "BSL-HDR-001",
                 "HTTPS response lacks HSTS",
                 Severity::Medium,
                 Confidence::High,
@@ -26,25 +26,25 @@ impl PassiveAnalyzer for HeaderSecurityAnalyzer {
         for (name, rule, title, severity) in [
             (
                 "content-security-policy",
-                "NXB-HDR-002",
+                "BSL-HDR-002",
                 "Content Security Policy is absent",
                 Severity::Low,
             ),
             (
                 "x-content-type-options",
-                "NXB-HDR-003",
+                "BSL-HDR-003",
                 "MIME sniffing protection is absent",
                 Severity::Low,
             ),
             (
                 "referrer-policy",
-                "NXB-HDR-004",
+                "BSL-HDR-004",
                 "Referrer Policy is absent",
                 Severity::Low,
             ),
             (
                 "permissions-policy",
-                "NXB-HDR-005",
+                "BSL-HDR-005",
                 "Permissions Policy is absent",
                 Severity::Info,
             ),
@@ -68,7 +68,7 @@ impl PassiveAnalyzer for HeaderSecurityAnalyzer {
             if server.chars().any(|character| character.is_ascii_digit()) {
                 push_finding(
                     &mut findings,
-                    "NXB-HDR-006",
+                    "BSL-HDR-006",
                     "Server header discloses version-like metadata",
                     Severity::Info,
                     Confidence::Medium,
@@ -90,7 +90,7 @@ impl PassiveAnalyzer for HeaderSecurityAnalyzer {
             ) {
                 push_finding(
                     &mut findings,
-                    "NXB-HDR-007",
+                    "BSL-HDR-007",
                     "Security header is duplicated",
                     Severity::Low,
                     Confidence::High,
@@ -125,7 +125,7 @@ impl PassiveAnalyzer for CookieSecurityAnalyzer {
             if response.url.scheme() == "https" && !cookie.secure {
                 push_finding(
                     &mut findings,
-                    "NXB-COOKIE-001",
+                    "BSL-COOKIE-001",
                     "Cookie lacks Secure on an HTTPS response",
                     Severity::Medium,
                     Confidence::High,
@@ -139,7 +139,7 @@ impl PassiveAnalyzer for CookieSecurityAnalyzer {
             if !cookie.http_only {
                 push_finding(
                     &mut findings,
-                    "NXB-COOKIE-002",
+                    "BSL-COOKIE-002",
                     "Cookie lacks HttpOnly",
                     Severity::Low,
                     Confidence::High,
@@ -153,7 +153,7 @@ impl PassiveAnalyzer for CookieSecurityAnalyzer {
             match cookie.same_site.as_deref() {
                 None => push_finding(
                     &mut findings,
-                    "NXB-COOKIE-003",
+                    "BSL-COOKIE-003",
                     "Cookie lacks SameSite",
                     Severity::Low,
                     Confidence::High,
@@ -165,7 +165,7 @@ impl PassiveAnalyzer for CookieSecurityAnalyzer {
                 )?,
                 Some("none") if !cookie.secure => push_finding(
                     &mut findings,
-                    "NXB-COOKIE-004",
+                    "BSL-COOKIE-004",
                     "SameSite=None cookie lacks Secure",
                     Severity::Medium,
                     Confidence::High,
@@ -186,7 +186,7 @@ impl PassiveAnalyzer for CookieSecurityAnalyzer {
                 metadata.insert("domain_scope".into(), "broader_than_origin_host".into());
                 push_finding(
                     &mut findings,
-                    "NXB-COOKIE-005",
+                    "BSL-COOKIE-005",
                     "Cookie Domain broadens host scope",
                     Severity::Low,
                     Confidence::Medium,

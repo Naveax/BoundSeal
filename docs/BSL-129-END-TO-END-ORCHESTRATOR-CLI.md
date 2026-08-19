@@ -1,6 +1,6 @@
-# NXB-129 — End-to-End Orchestrator and CLI
+# BSL-129 — End-to-End Orchestrator and CLI
 
-NXB-129 binds the NXB-128 live passive adapter to a CLI workflow without enabling network access by default.
+BSL-129 binds the BSL-128 live passive adapter to a CLI workflow without enabling network access by default.
 
 ## Default-build commands
 
@@ -13,7 +13,7 @@ These commands never open a network connection.
 
 ## Live command
 
-`live-run` exists only when `nxb-core` is compiled with `--features live-network`. It additionally requires:
+`live-run` exists only when `bsl-core` is compiled with `--features live-network`. It additionally requires:
 
 - explicit `--enable-live`;
 - an unexpired signed activation certificate;
@@ -29,13 +29,13 @@ The command does not follow redirects, send credentials, send cookies, send requ
 
 The live output includes:
 
-- the NXB-128 metadata-only receipt;
+- the BSL-128 metadata-only receipt;
 - header, cookie and cache-policy findings;
 - finding IDs and orchestrator receipt hashes;
 - no response body, cookie value, authorization value or other secret.
 
-Full TLS analyzer integration remains blocked until the controlled integration lab exports certificate validity and trusted-root metadata. That is assigned to NXB-130.
+Full TLS analyzer integration remains blocked until the controlled integration lab exports certificate validity and trusted-root metadata. That is assigned to BSL-130.
 
 ## Release limitation
 
-A controlled live smoke transcript has not yet been produced. NXB-129 must remain a draft until that transcript and the NXB-130 adversarial lab pass.
+A controlled live smoke transcript has not yet been produced. BSL-129 must remain a draft until that transcript and the BSL-130 adversarial lab pass.

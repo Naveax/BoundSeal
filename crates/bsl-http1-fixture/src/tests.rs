@@ -1,13 +1,13 @@
 use std::collections::VecDeque;
 
-use nxb_executor::{
+use bsl_executor::{
     ExecutionControl, ExecutionLimits, ExecutorConfig, PermitExecutor, SyntheticBackend,
     SyntheticScenario,
 };
-use nxb_http1::{Http1Codec, Http1Error, Http1Framing, Http1Header, Http1Limits, Http1Request};
-use nxb_stream::{BoundedByteStream, StreamLimits};
-use nxb_stream_fixture::{FixtureReadEvent, FixtureWriteEvent, InMemoryDuplex};
-use nxb_transport::{TransportPermit, TransportScheme};
+use bsl_http1::{Http1Codec, Http1Error, Http1Framing, Http1Header, Http1Limits, Http1Request};
+use bsl_stream::{BoundedByteStream, StreamLimits};
+use bsl_stream_fixture::{FixtureReadEvent, FixtureWriteEvent, InMemoryDuplex};
+use bsl_transport::{TransportPermit, TransportScheme};
 
 use crate::{conversation_fixture, scripted_fixture, Http1FixtureConfig};
 

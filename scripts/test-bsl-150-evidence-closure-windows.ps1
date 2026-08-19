@@ -7,7 +7,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $expectedLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
-$closureSource = Join-Path $RepoRoot 'scripts\review-nxb-150-evidence.ps1'
+$closureSource = Join-Path $RepoRoot 'scripts\review-bsl-150-evidence.ps1'
 $attributesSource = Join-Path $RepoRoot '.gitattributes'
 
 function Assert-LastExitCode {
@@ -46,7 +46,7 @@ function Expect-Failure {
         # Expected fail-closed result.
     }
     if ($unexpectedPass) {
-        throw "NXB-150 closure self-test case '$Label' unexpectedly passed."
+        throw "BSL-150 closure self-test case '$Label' unexpectedly passed."
     }
 }
 
@@ -73,11 +73,11 @@ if ($actualLockSha256 -cne $expectedLockSha256) {
     throw "Cargo.lock SHA-256 mismatch: expected $expectedLockSha256, found $actualLockSha256"
 }
 
-$sandbox = Join-Path ([IO.Path]::GetTempPath()) ("nxb-150-closure-self-test-" + [Guid]::NewGuid().ToString('N'))
+$sandbox = Join-Path ([IO.Path]::GetTempPath()) ("bsl-150-closure-self-test-" + [Guid]::NewGuid().ToString('N'))
 $fixtureRepo = Join-Path $sandbox 'repository'
 $fixtureScripts = Join-Path $fixtureRepo 'scripts'
 $evidenceDirectory = Join-Path $sandbox 'evidence'
-$fixtureClosure = Join-Path $fixtureScripts 'review-nxb-150-evidence.ps1'
+$fixtureClosure = Join-Path $fixtureScripts 'review-bsl-150-evidence.ps1'
 
 try {
     New-Item -ItemType Directory -Path $fixtureScripts -Force | Out-Null
@@ -88,13 +88,13 @@ try {
 
     & git -C $fixtureRepo init -q
     Assert-LastExitCode -Operation 'git init'
-    & git -C $fixtureRepo config user.name 'NXB Closure Self-Test'
+    & git -C $fixtureRepo config user.name 'BSL Closure Self-Test'
     Assert-LastExitCode -Operation 'git config user.name'
-    & git -C $fixtureRepo config user.email 'nxb-closure-self-test@example.invalid'
+    & git -C $fixtureRepo config user.email 'bsl-closure-self-test@example.invalid'
     Assert-LastExitCode -Operation 'git config user.email'
-    & git -C $fixtureRepo add .gitattributes Cargo.lock scripts/review-nxb-150-evidence.ps1
+    & git -C $fixtureRepo add .gitattributes Cargo.lock scripts/review-bsl-150-evidence.ps1
     Assert-LastExitCode -Operation 'git add'
-    & git -C $fixtureRepo commit -qm 'Create NXB-150 closure fixture'
+    & git -C $fixtureRepo commit -qm 'Create BSL-150 closure fixture'
     Assert-LastExitCode -Operation 'git commit'
     $headSha = (& git -C $fixtureRepo rev-parse HEAD).Trim()
     Assert-LastExitCode -Operation 'git rev-parse HEAD'
@@ -102,7 +102,7 @@ try {
         throw 'Fixture Git head is invalid.'
     }
 
-    $closurePath = Join-Path $evidenceDirectory "nxb-150-closure-$headSha.json"
+    $closurePath = Join-Path $evidenceDirectory "bsl-150-closure-$headSha.json"
     $pendingPath = "$closurePath.pending"
 
     function Write-ValidEvidence {
@@ -119,7 +119,7 @@ try {
             $denyMarker = if ($platform -ceq 'linux') { '3' } else { '4' }
             $evidence = [ordered]@{
                 schema_version = 2
-                milestone = 'NXB-150'
+                milestone = 'BSL-150'
                 gate = 'pinned_process_evidence_key_provider'
                 platform = $platform
                 head_sha = $headSha
@@ -140,7 +140,7 @@ try {
                 network_activity = 'dependency_and_advisory_sources_only'
                 validated_at = $validatedAt
             }
-            Write-JsonDocument -Path (Join-Path $evidenceDirectory "nxb-150-$platform-$headSha.json") -Value $evidence
+            Write-JsonDocument -Path (Join-Path $evidenceDirectory "bsl-150-$platform-$headSha.json") -Value $evidence
         }
     }
 
@@ -150,7 +150,7 @@ try {
             [Parameter(Mandatory = $true)][string]$Operation
         )
 
-        $path = Join-Path $evidenceDirectory "nxb-150-$Platform-$headSha.json"
+        $path = Join-Path $evidenceDirectory "bsl-150-$Platform-$headSha.json"
         $evidence = [IO.File]::ReadAllText(
             $path,
             [Text.UTF8Encoding]::new($false, $true)
@@ -201,7 +201,7 @@ try {
     }
 
     Write-ValidEvidence
-    $windowsEvidencePath = Join-Path $evidenceDirectory "nxb-150-windows-$headSha.json"
+    $windowsEvidencePath = Join-Path $evidenceDirectory "bsl-150-windows-$headSha.json"
     Remove-Item -LiteralPath $windowsEvidencePath -Force
     New-Item -ItemType Directory -Path $windowsEvidencePath | Out-Null
     Expect-Failure -Label 'evidence-non-file' -Action { Invoke-Closure }
@@ -238,7 +238,7 @@ try {
     New-Item -ItemType Directory -Path $pendingPath | Out-Null
     Expect-Failure -Label 'pending-non-file' -Action { Invoke-Closure }
 
-    Write-Host 'NXB-150 Windows evidence closure self-test passed.'
+    Write-Host 'BSL-150 Windows evidence closure self-test passed.'
     Write-Host "Fixture HEAD: $headSha"
     Write-Host 'Cases: success, idempotency, mixed head, unknown field, wrong type, future time, failed gate, evidence non-file, evidence-directory junction, closure non-file, closure tamper, orphan pending and pending non-file.'
 }

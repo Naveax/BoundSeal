@@ -66,18 +66,18 @@ clippy_version="$(cargo clippy --version)"
 
 results_file="$(mktemp)"
 record_gate cargo_fmt cargo fmt --all -- --check
-record_gate cargo_check cargo check -p nxb-core --all-targets --all-features --locked
-record_gate cargo_clippy cargo clippy -p nxb-core --all-targets --all-features --locked -- -D warnings
-record_gate cargo_test cargo test -p nxb-core --all-features --locked -- --test-threads=1
-record_gate cargo_build_nxb cargo build -p nxb-core --bin nxb --all-features --locked
+record_gate cargo_check cargo check -p bsl-core --all-targets --all-features --locked
+record_gate cargo_clippy cargo clippy -p bsl-core --all-targets --all-features --locked -- -D warnings
+record_gate cargo_test cargo test -p bsl-core --all-features --locked -- --test-threads=1
+record_gate cargo_build_bsl cargo build -p bsl-core --bin bsl --all-features --locked
 
-binary="$repo_root/target/debug/nxb"
-[[ -x "$binary" ]] || { printf 'nxb binary is missing: %s\n' "$binary" >&2; exit 1; }
+binary="$repo_root/target/debug/bsl"
+[[ -x "$binary" ]] || { printf 'bsl binary is missing: %s\n' "$binary" >&2; exit 1; }
 
-workspace="$(mktemp -d -t nxb-151-XXXXXX)"
+workspace="$(mktemp -d -t bsl-151-XXXXXX)"
 rmdir -- "$workspace"
-nonempty_workspace="$(mktemp -d -t nxb-151-nonempty-XXXXXX)"
-broken_workspace="$(mktemp -d -t nxb-151-broken-XXXXXX)"
+nonempty_workspace="$(mktemp -d -t bsl-151-nonempty-XXXXXX)"
+broken_workspace="$(mktemp -d -t bsl-151-broken-XXXXXX)"
 rmdir -- "$broken_workspace"
 
 record_gate workspace_init "$binary" workspace init --workspace "$workspace" --name 'Linux Acceptance' --json
@@ -92,9 +92,9 @@ rm -rf -- "$broken_workspace/evidence"
 record_expected_failure doctor_detects_missing_directory 20 "$binary" workspace doctor --workspace "$broken_workspace" --json
 
 binary_sha256="$(sha256sum "$binary" | awk '{print $1}')"
-evidence_directory="$repo_root/target/nxb-validation"
+evidence_directory="$repo_root/target/bsl-validation"
 mkdir -p -- "$evidence_directory"
-evidence_path="$evidence_directory/nxb-151-linux-$head_sha.json"
+evidence_path="$evidence_directory/bsl-151-linux-$head_sha.json"
 
 python3 - "$results_file" "$evidence_path" "$head_sha" "$rustc_version" "$cargo_version" "$rustfmt_version" "$clippy_version" "$binary_sha256" <<'PY'
 import csv
@@ -120,7 +120,7 @@ with open(results_path, newline='', encoding='utf-8') as handle:
 
 evidence = {
     'schema_version': 1,
-    'milestone': 'NXB-151',
+    'milestone': 'BSL-151',
     'platform': 'linux',
     'head_sha': head,
     'generated_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
@@ -130,7 +130,7 @@ evidence = {
         'rustfmt': rustfmt,
         'clippy': clippy,
     },
-    'nxb_binary_sha256': binary_sha,
+    'bsl_binary_sha256': binary_sha,
     'results': results,
 }
 with open(output_path, 'w', encoding='utf-8', newline='\n') as handle:
@@ -138,6 +138,6 @@ with open(output_path, 'w', encoding='utf-8', newline='\n') as handle:
     handle.write('\n')
 PY
 
-printf 'NXB-151 single-binary Linux workspace validation passed.\n'
+printf 'BSL-151 single-binary Linux workspace validation passed.\n'
 printf 'HEAD: %s\n' "$head_sha"
 printf 'Evidence: %s\n' "$evidence_path"

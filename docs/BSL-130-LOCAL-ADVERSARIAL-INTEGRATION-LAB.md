@@ -1,6 +1,6 @@
-# NXB-130 — Local Adversarial Integration Lab
+# BSL-130 — Local Adversarial Integration Lab
 
-NXB-130 certifies the NXB-128 live passive transport and HTTP path without contacting a public target.
+BSL-130 certifies the BSL-128 live passive transport and HTTP path without contacting a public target.
 
 ## Test-only socket mapping
 
@@ -10,7 +10,7 @@ The lab uses the valid logical DNS name `lab.example`; it does not relax product
 
 ## Verified TLS-to-HTTP handoff
 
-Rustls/webpki performs the certificate-chain and hostname verification. NXB then binds that verified observation to the exact bounded stream and commits the binding to the TLS audit chain. HTTP/1.1 can only open through `Http1Codec::new_verified_tls` with the resulting `TlsSessionGrant`.
+Rustls/webpki performs the certificate-chain and hostname verification. BSL then binds that verified observation to the exact bounded stream and commits the binding to the TLS audit chain. HTTP/1.1 can only open through `Http1Codec::new_verified_tls` with the resulting `TlsSessionGrant`.
 
 The binding rejects:
 
@@ -47,4 +47,4 @@ It contains no certificate bytes, response body, request bytes, socket port, key
 
 ## Merge order
 
-NXB-130 is stacked on NXB-129. NXB-129 is merged first after the combined workspace CI and loopback lab are green. NXB-130 is then retargeted to `main`, rechecked and merged.
+BSL-130 is stacked on BSL-129. BSL-129 is merged first after the combined workspace CI and loopback lab are green. BSL-130 is then retargeted to `main`, rechecked and merged.

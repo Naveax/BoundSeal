@@ -1,8 +1,8 @@
-use nxb_executor::{ExecutionLimits, ExecutionReceipt};
-use nxb_http1::{Http1Exchange, Http1Header, Http1Limits, Http1Request};
-use nxb_stream::{StreamLimits, StreamReceipt};
-use nxb_tls::{LibraryVerifiedTlsObservation, TlsProtocolVersion};
-use nxb_transport::TicketUseResult;
+use bsl_executor::{ExecutionLimits, ExecutionReceipt};
+use bsl_http1::{Http1Exchange, Http1Header, Http1Limits, Http1Request};
+use bsl_stream::{StreamLimits, StreamReceipt};
+use bsl_tls::{LibraryVerifiedTlsObservation, TlsProtocolVersion};
+use bsl_transport::TicketUseResult;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -101,7 +101,7 @@ impl LivePassiveRequest {
             .push(Http1Header::new("Accept-Encoding", b"identity".to_vec()));
         request.headers.push(Http1Header::new(
             "User-Agent",
-            b"NXB/0.1 passive-security-research".to_vec(),
+            b"BSL/0.1 passive-security-research".to_vec(),
         ));
         request
     }
@@ -328,15 +328,15 @@ pub enum LiveAdapterError {
     #[error("live execution did not complete successfully")]
     ExecutionNotCompleted,
     #[error("pinned transport rejected live execution: {0}")]
-    Transport(#[from] nxb_pinned_transport::PinnedTransportError),
+    Transport(#[from] bsl_pinned_transport::PinnedTransportError),
     #[error("permit executor rejected live execution: {0}")]
-    Executor(#[from] nxb_executor::ExecutorError),
+    Executor(#[from] bsl_executor::ExecutorError),
     #[error("bounded stream rejected live execution: {0}")]
-    StreamOpen(#[from] nxb_stream::StreamOpenError),
+    StreamOpen(#[from] bsl_stream::StreamOpenError),
     #[error("verified TLS stream binding failed: {0}")]
-    TlsBinding(#[from] nxb_tls::LibraryVerifiedTlsError),
+    TlsBinding(#[from] bsl_tls::LibraryVerifiedTlsError),
     #[error("HTTP/1 exchange rejected live execution: {0}")]
-    Http(#[from] nxb_http1::Http1Error),
+    Http(#[from] bsl_http1::Http1Error),
     #[error("live receipt serialization failed: {0}")]
     Serialization(String),
     #[error("live receipt digest mismatch")]

@@ -1,6 +1,6 @@
-use nxb_session::SessionBroker;
-use nxb_session_injection::{BoundSessionInjection, InjectionUseAuthorization};
-use nxb_vault::InMemorySecretVault;
+use bsl_session::SessionBroker;
+use bsl_session_injection::{BoundSessionInjection, InjectionUseAuthorization};
+use bsl_vault::InMemorySecretVault;
 use thiserror::Error;
 
 use crate::{LiveAdapterError, LivePassiveResult};
@@ -52,9 +52,9 @@ pub enum LiveAuthenticatedError {
     #[error("live adapter rejected authenticated execution: {0}")]
     Live(#[from] LiveAdapterError),
     #[error("session broker rejected authenticated execution: {0}")]
-    Session(#[from] nxb_session::SessionError),
+    Session(#[from] bsl_session::SessionError),
     #[error("session injection boundary rejected authenticated execution: {0}")]
-    Injection(#[from] nxb_session_injection::SessionInjectionError),
+    Injection(#[from] bsl_session_injection::SessionInjectionError),
 }
 
 fn sha256(bytes: &[u8]) -> String {

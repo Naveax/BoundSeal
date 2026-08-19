@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use nxb_stream::{BoundedByteStream, ByteStreamBackend};
+use bsl_stream::{BoundedByteStream, ByteStreamBackend};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -21,7 +21,7 @@ pub enum LibraryVerifiedTlsError {
 /// Metadata emitted by a TLS library after it has cryptographically verified the
 /// certificate chain and server name. This bridge does not perform a second
 /// certificate verification; it binds an already-verified library session to
-/// the exact NXB bounded stream and commits that binding to the TLS audit chain.
+/// the exact BSL bounded stream and commits that binding to the TLS audit chain.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LibraryVerifiedTlsObservation {
     pub verifier_id: String,

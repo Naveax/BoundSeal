@@ -1,8 +1,8 @@
-use nxb_executor::{
+use bsl_executor::{
     ExecutionControl, ExecutionLimits, ExecutionReceipt, ExecutorConfig, PermitExecutor,
     SyntheticBackend, SyntheticScenario,
 };
-use nxb_transport::{TransportPermit, TransportScheme};
+use bsl_transport::{TransportPermit, TransportScheme};
 
 use crate::{
     BackendReadReport, BackendReadStatus, BackendWriteReport, BackendWriteStatus,
@@ -109,7 +109,7 @@ fn rejects_mismatched_binding_hash() {
 #[test]
 fn rejects_non_completed_execution_receipt() {
     let (permit, mut receipt, executor) = execution();
-    receipt.outcome = nxb_executor::ExecutionOutcome::Cancelled;
+    receipt.outcome = bsl_executor::ExecutionOutcome::Cancelled;
 
     let result = BoundedByteStream::open(
         &permit,

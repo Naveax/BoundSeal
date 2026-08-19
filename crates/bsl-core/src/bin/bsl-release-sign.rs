@@ -12,16 +12,16 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 const SIGNATURE_VERSION: u32 = 1;
-const SIGNATURE_DOMAIN: &str = "nxb-release-checksums-v1";
+const SIGNATURE_DOMAIN: &str = "bsl-release-checksums-v1";
 const MAX_CHECKSUM_FILE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_CHECKSUM_LINES: usize = 10_000;
 const MAX_PRIVATE_KEY_FILE_BYTES: u64 = 16 * 1024;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "nxb-release-sign",
+    name = "bsl-release-sign",
     version,
-    about = "Offline Ed25519 signing and verification for NXB SHA256SUMS files"
+    about = "Offline Ed25519 signing and verification for BSL SHA256SUMS files"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -173,7 +173,7 @@ fn validate_payload(payload: &SignaturePayload) -> Result<()> {
         || !is_sha256(&payload.checksums_sha256)
         || !is_sha256(&payload.signer_key_id_sha256)
     {
-        bail!("signature payload is outside the NXB release-signing contract");
+        bail!("signature payload is outside the BSL release-signing contract");
     }
     Ok(())
 }
@@ -270,7 +270,7 @@ fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<()> {
         .context("signature output path has no parent")?;
     fs::create_dir_all(parent).with_context(|| format!("could not create {}", parent.display()))?;
     let temporary = parent.join(format!(
-        ".nxb-release-sign-{}.tmp",
+        ".bsl-release-sign-{}.tmp",
         &hash_bytes(&bytes)[..16]
     ));
     if temporary.exists() {
@@ -381,13 +381,13 @@ mod tests {
     #[test]
     fn signed_checksums_verify_and_tampering_fails() {
         let root =
-            std::env::temp_dir().join(format!("nxb-release-sign-test-{}", std::process::id()));
+            std::env::temp_dir().join(format!("bsl-release-sign-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         let checksums = root.join("SHA256SUMS");
         fs::write(
             &checksums,
-            format!("{}  nxb-linux-x86_64\n", "a".repeat(64)),
+            format!("{}  bsl-linux-x86_64\n", "a".repeat(64)),
         )
         .unwrap();
 
@@ -405,7 +405,7 @@ mod tests {
 
         fs::write(
             &checksums,
-            format!("{}  nxb-linux-x86_64\n", "b".repeat(64)),
+            format!("{}  bsl-linux-x86_64\n", "b".repeat(64)),
         )
         .unwrap();
         assert!(verify_file(&checksums, &certificate).is_err());
@@ -414,8 +414,8 @@ mod tests {
 
     #[test]
     fn unsafe_checksum_paths_are_rejected() {
-        assert!(validate_checksum_lines(&format!("{}  ../nxb\n", "a".repeat(64))).is_err());
-        assert!(validate_checksum_lines(&format!("{}  /tmp/nxb\n", "a".repeat(64))).is_err());
-        assert!(validate_checksum_lines(&format!("{}  bin\\nxb.exe\n", "a".repeat(64))).is_err());
+        assert!(validate_checksum_lines(&format!("{}  ../bsl\n", "a".repeat(64))).is_err());
+        assert!(validate_checksum_lines(&format!("{}  /tmp/bsl\n", "a".repeat(64))).is_err());
+        assert!(validate_checksum_lines(&format!("{}  bin\\bsl.exe\n", "a".repeat(64))).is_err());
     }
 }

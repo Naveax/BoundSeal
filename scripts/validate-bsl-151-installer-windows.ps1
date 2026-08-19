@@ -96,7 +96,7 @@ function Expect-InstallerFailure {
     }
 }
 
-function Open-NxbRenameBlocker {
+function Open-BslRenameBlocker {
     param([Parameter(Mandatory = $true)][string]$Path)
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -110,7 +110,7 @@ function Open-NxbRenameBlocker {
     )
 }
 
-function Assert-NxbInstalledRevision {
+function Assert-BslInstalledRevision {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
         [Parameter(Mandatory = $true)][uint64]$ExpectedSequence,
@@ -125,7 +125,7 @@ function Assert-NxbInstalledRevision {
     $state = [IO.File]::ReadAllText($statePath) | ConvertFrom-Json
     if ([uint64]$state.release_sequence -ne $ExpectedSequence -or
         $state.source_commit -ne $ExpectedCommit -or
-        -not (Test-Path -LiteralPath (Join-Path $Root 'nxb.exe') -PathType Leaf)) {
+        -not (Test-Path -LiteralPath (Join-Path $Root 'bsl.exe') -PathType Leaf)) {
         throw "$Label does not contain the expected signed revision."
     }
 }
@@ -195,7 +195,7 @@ function New-SignedReleasePackage {
     }
     New-Item -ItemType Directory -Path $PackageRoot | Out-Null
 
-    $candidateBinary = Join-Path $PackageRoot 'nxb.exe'
+    $candidateBinary = Join-Path $PackageRoot 'bsl.exe'
     Copy-Item -LiteralPath $SourceBinary -Destination $candidateBinary
     $authenticode = Set-AuthenticodeSignature `
         -LiteralPath $candidateBinary `
@@ -205,7 +205,7 @@ function New-SignedReleasePackage {
         throw "Could not create a valid Authenticode signature: $($authenticode.Status)"
     }
 
-    $sbomPath = Join-Path $PackageRoot 'nxb.cdx.json'
+    $sbomPath = Join-Path $PackageRoot 'bsl.cdx.json'
     $sbom = [ordered]@{
         bomFormat = 'CycloneDX'
         specVersion = '1.6'
@@ -213,11 +213,11 @@ function New-SignedReleasePackage {
         metadata = [ordered]@{
             component = [ordered]@{
                 type = 'application'
-                name = 'NXBounty'
+                name = 'BoundSeal'
                 version = '0.1.0'
                 properties = @(
-                    [ordered]@{ name = 'nxb:source_commit'; value = $SourceCommit },
-                    [ordered]@{ name = 'nxb:release_sequence'; value = [string]$ReleaseSequence }
+                    [ordered]@{ name = 'bsl:source_commit'; value = $SourceCommit },
+                    [ordered]@{ name = 'bsl:release_sequence'; value = [string]$ReleaseSequence }
                 )
             }
         }
@@ -233,7 +233,7 @@ function New-SignedReleasePackage {
     $sbomSha = (Get-FileHash -LiteralPath $sbomPath -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText(
         $checksumsPath,
-        "$binarySha  nxb.exe`n$sbomSha  nxb.cdx.json`n",
+        "$binarySha  bsl.exe`n$sbomSha  bsl.cdx.json`n",
         [Text.UTF8Encoding]::new($false)
     )
 
@@ -244,7 +244,7 @@ function New-SignedReleasePackage {
         [Text.UTF8Encoding]::new($false)
     )
 
-    $manifestPath = Join-Path $PackageRoot 'nxb-release-manifest.json'
+    $manifestPath = Join-Path $PackageRoot 'bsl-release-manifest.json'
     $generatedAt = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
     $sequenceText = [string]$ReleaseSequence
     & $candidateBinary release manifest-template `
@@ -340,34 +340,34 @@ try {
     }
 
     $scripts = @(
-        (Join-Path $RepoRoot 'scripts\nxb-installer-common.ps1'),
-        (Join-Path $RepoRoot 'scripts\install-nxb-windows.ps1'),
-        (Join-Path $RepoRoot 'scripts\rollback-nxb-windows.ps1'),
-        (Join-Path $RepoRoot 'scripts\uninstall-nxb-windows.ps1'),
-        (Join-Path $RepoRoot 'scripts\validate-nxb-151-installer-windows.ps1')
+        (Join-Path $RepoRoot 'scripts\bsl-installer-common.ps1'),
+        (Join-Path $RepoRoot 'scripts\install-bsl-windows.ps1'),
+        (Join-Path $RepoRoot 'scripts\rollback-bsl-windows.ps1'),
+        (Join-Path $RepoRoot 'scripts\uninstall-bsl-windows.ps1'),
+        (Join-Path $RepoRoot 'scripts\validate-bsl-151-installer-windows.ps1')
     )
     foreach ($script in $scripts) {
         Assert-PowerShellScriptParses $script
     }
 
-    $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ('nxb-installer-validation-' + [Guid]::NewGuid().ToString('N'))
+    $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ('bsl-installer-validation-' + [Guid]::NewGuid().ToString('N'))
     $previousWorktree = Join-Path $temporaryRoot 'previous-source'
     $currentTarget = Join-Path $temporaryRoot 'current-target'
     $previousTarget = Join-Path $temporaryRoot 'previous-target'
     New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
 
     Invoke-Cargo $RepoRoot $currentTarget @('fmt', '--all', '--', '--check') 'cargo fmt'
-    Invoke-Cargo $RepoRoot $currentTarget @('check', '-p', 'nxb-core', '--all-targets', '--all-features', '--locked') 'cargo check'
-    Invoke-Cargo $RepoRoot $currentTarget @('clippy', '-p', 'nxb-core', '--all-targets', '--all-features', '--locked', '--', '-D', 'warnings') 'cargo clippy'
-    Invoke-Cargo $RepoRoot $currentTarget @('test', '-p', 'nxb-core', '--all-features', '--locked', '--', '--test-threads=1') 'cargo test'
-    Invoke-Cargo $RepoRoot $currentTarget @('build', '-p', 'nxb-core', '--bin', 'nxb', '--release', '--all-features', '--locked') 'current release build'
+    Invoke-Cargo $RepoRoot $currentTarget @('check', '-p', 'bsl-core', '--all-targets', '--all-features', '--locked') 'cargo check'
+    Invoke-Cargo $RepoRoot $currentTarget @('clippy', '-p', 'bsl-core', '--all-targets', '--all-features', '--locked', '--', '-D', 'warnings') 'cargo clippy'
+    Invoke-Cargo $RepoRoot $currentTarget @('test', '-p', 'bsl-core', '--all-features', '--locked', '--', '--test-threads=1') 'cargo test'
+    Invoke-Cargo $RepoRoot $currentTarget @('build', '-p', 'bsl-core', '--bin', 'bsl', '--release', '--all-features', '--locked') 'current release build'
 
     git worktree add --detach $previousWorktree $previous
     if ($LASTEXITCODE -ne 0) { throw 'Could not create previous-source worktree.' }
-    Invoke-Cargo $previousWorktree $previousTarget @('build', '-p', 'nxb-core', '--bin', 'nxb', '--release', '--all-features', '--locked') 'previous release build'
+    Invoke-Cargo $previousWorktree $previousTarget @('build', '-p', 'bsl-core', '--bin', 'bsl', '--release', '--all-features', '--locked') 'previous release build'
 
-    $currentBinary = Join-Path $currentTarget 'release\nxb.exe'
-    $previousBinary = Join-Path $previousTarget 'release\nxb.exe'
+    $currentBinary = Join-Path $currentTarget 'release\bsl.exe'
+    $previousBinary = Join-Path $previousTarget 'release\bsl.exe'
     foreach ($binary in @($currentBinary, $previousBinary)) {
         if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
             throw "Release binary is missing: $binary"
@@ -377,7 +377,7 @@ try {
     $openssl = Get-OpenSslPath
     $certificate = New-SelfSignedCertificate `
         -Type CodeSigningCert `
-        -Subject 'CN=NXBounty Installer Validation' `
+        -Subject 'CN=BoundSeal Installer Validation' `
         -CertStoreLocation 'Cert:\CurrentUser\My' `
         -KeyExportPolicy Exportable `
         -NotAfter (Get-Date).AddDays(2)
@@ -416,11 +416,11 @@ try {
     $publisherThumbprint = $certificate.Thumbprint.ToLowerInvariant()
     $publicKeyPath = Join-Path $previousPackage.Root 'release-public-key.hex'
     $publicKeySha = (Get-FileHash -LiteralPath $publicKeyPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    $installRoot = Join-Path $temporaryRoot 'install\NXBounty'
+    $installRoot = Join-Path $temporaryRoot 'install\BoundSeal'
     $previousRoot = $installRoot + '.previous'
-    $dataRoot = Join-Path $temporaryRoot 'data\NXBounty'
-    $installScript = Join-Path $RepoRoot 'scripts\install-nxb-windows.ps1'
-    $rollbackScript = Join-Path $RepoRoot 'scripts\rollback-nxb-windows.ps1'
+    $dataRoot = Join-Path $temporaryRoot 'data\BoundSeal'
+    $installScript = Join-Path $RepoRoot 'scripts\install-bsl-windows.ps1'
+    $rollbackScript = Join-Path $RepoRoot 'scripts\rollback-bsl-windows.ps1'
     $baseArguments = @{
         InstallRoot = $installRoot
         DataRoot = $dataRoot
@@ -455,20 +455,20 @@ try {
     # The state file remains readable, but its handle denies delete/rename sharing.
     $installRecovery = $baseArguments.Clone()
     $installRecovery.PackageDirectory = $recoveryPackage.Root
-    $blocker = Open-NxbRenameBlocker (Join-Path $installRoot 'install-state.json')
+    $blocker = Open-BslRenameBlocker (Join-Path $installRoot 'install-state.json')
     try {
         Expect-InstallerFailure $installScript $installRecovery
     }
     finally {
         $blocker.Dispose()
     }
-    Assert-NxbInstalledRevision $installRoot 2 $head 'active release after failed upgrade'
-    Assert-NxbInstalledRevision $previousRoot 1 $previous 'previous release after failed upgrade'
+    Assert-BslInstalledRevision $installRoot 2 $head 'active release after failed upgrade'
+    Assert-BslInstalledRevision $previousRoot 1 $previous 'previous release after failed upgrade'
     Assert-NoInstallerResidue $installRoot
 
     # Force rollback metadata publication to fail after both release slots were swapped.
     $currentInstallState = Join-Path $dataRoot 'installer\current-install.json'
-    $blocker = Open-NxbRenameBlocker $currentInstallState
+    $blocker = Open-BslRenameBlocker $currentInstallState
     try {
         Expect-InstallerFailure $rollbackScript @{
             InstallRoot = $installRoot
@@ -480,8 +480,8 @@ try {
     finally {
         $blocker.Dispose()
     }
-    Assert-NxbInstalledRevision $installRoot 2 $head 'active release after failed rollback'
-    Assert-NxbInstalledRevision $previousRoot 1 $previous 'previous release after failed rollback'
+    Assert-BslInstalledRevision $installRoot 2 $head 'active release after failed rollback'
+    Assert-BslInstalledRevision $previousRoot 1 $previous 'previous release after failed rollback'
     Assert-NoInstallerResidue $installRoot
 
     $rolledBack = Invoke-InstallerJson $rollbackScript @{
@@ -503,8 +503,8 @@ try {
 
     # Force uninstall to fail after the active root was moved to its tombstone.
     # Previous-slot validation can read this file, but the slot cannot be renamed.
-    $uninstallScript = Join-Path $dataRoot 'installer\uninstall-nxb-windows.ps1'
-    $blocker = Open-NxbRenameBlocker (Join-Path $previousRoot 'install-state.json')
+    $uninstallScript = Join-Path $dataRoot 'installer\uninstall-bsl-windows.ps1'
+    $blocker = Open-BslRenameBlocker (Join-Path $previousRoot 'install-state.json')
     try {
         Expect-InstallerFailure $uninstallScript @{
             InstallRoot = $installRoot
@@ -516,13 +516,13 @@ try {
     finally {
         $blocker.Dispose()
     }
-    Assert-NxbInstalledRevision $installRoot 2 $head 'active release after failed uninstall'
-    Assert-NxbInstalledRevision $previousRoot 1 $previous 'previous release after failed uninstall'
+    Assert-BslInstalledRevision $installRoot 2 $head 'active release after failed uninstall'
+    Assert-BslInstalledRevision $previousRoot 1 $previous 'previous release after failed uninstall'
     Assert-NoInstallerResidue $installRoot
 
     $tamperedPackageRoot = Join-Path $temporaryRoot 'tampered-package'
     Copy-Item -LiteralPath $currentPackage.Root -Destination $tamperedPackageRoot -Recurse
-    $tamperedBinary = Join-Path $tamperedPackageRoot 'nxb.exe'
+    $tamperedBinary = Join-Path $tamperedPackageRoot 'bsl.exe'
     $tamperedBytes = [IO.File]::ReadAllBytes($tamperedBinary)
     $tamperedBytes[$tamperedBytes.Length - 1] = $tamperedBytes[$tamperedBytes.Length - 1] -bxor 1
     [IO.File]::WriteAllBytes($tamperedBinary, $tamperedBytes)
@@ -550,12 +550,12 @@ try {
     }
     Assert-NoInstallerResidue $installRoot
 
-    $validationDirectory = Join-Path $RepoRoot 'target\nxb-validation'
+    $validationDirectory = Join-Path $RepoRoot 'target\bsl-validation'
     New-Item -ItemType Directory -Path $validationDirectory -Force | Out-Null
-    $evidencePath = Join-Path $validationDirectory "nxb-151-installer-windows-$head.json"
+    $evidencePath = Join-Path $validationDirectory "bsl-151-installer-windows-$head.json"
     $evidence = [ordered]@{
         schema_version = 2
-        milestone = 'NXB-151'
+        milestone = 'BSL-151'
         gate = 'windows_installer_lifecycle'
         platform = 'windows'
         head_sha = $head
@@ -602,7 +602,7 @@ try {
         [Text.UTF8Encoding]::new($false)
     )
 
-    Write-Host 'NXB-151 Windows installer lifecycle validation passed.'
+    Write-Host 'BSL-151 Windows installer lifecycle validation passed.'
     Write-Host "HEAD: $head"
     Write-Host "Previous source: $previous"
     Write-Host "Evidence: $evidencePath"

@@ -2,14 +2,14 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use nxb_knowledge_reporting::ExportManifest;
-use nxb_live_run_host::{LiveRunLaunchBundle, LiveRunTeardownOutcome};
-use nxb_operator_runtime::RuntimeRecovery;
-use nxb_operator_state::{OperatorRunStatus, OPERATOR_CHECKPOINT_VERSION};
-use nxb_resumable_runner::{
+use bsl_knowledge_reporting::ExportManifest;
+use bsl_live_run_host::{LiveRunLaunchBundle, LiveRunTeardownOutcome};
+use bsl_operator_runtime::RuntimeRecovery;
+use bsl_operator_state::{OperatorRunStatus, OPERATOR_CHECKPOINT_VERSION};
+use bsl_resumable_runner::{
     RunnerCheckpoint, RunnerManifest, RunnerStatus, RunnerStopReason, RESUMABLE_RUNNER_VERSION,
 };
-use nxb_unified_operator::UnifiedOperatorPlan;
+use bsl_unified_operator::UnifiedOperatorPlan;
 use ring::signature::{UnparsedPublicKey, ED25519};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -784,7 +784,7 @@ pub enum RunClosureError {
     ClosureIdMismatch,
     #[error("terminal component checkpoint digest mismatch")]
     ComponentDigestMismatch,
-    #[error("NXB-145 teardown outcome does not match terminal components")]
+    #[error("BSL-145 teardown outcome does not match terminal components")]
     TeardownOutcomeMismatch,
     #[error("closure public key does not match the signed plan")]
     PublicKeyMismatch,
@@ -793,11 +793,11 @@ pub enum RunClosureError {
     #[error("closure serialization failed: {0}")]
     Serialization(String),
     #[error(transparent)]
-    LiveHost(#[from] nxb_live_run_host::LiveRunHostError),
+    LiveHost(#[from] bsl_live_run_host::LiveRunHostError),
     #[error(transparent)]
-    Unified(#[from] nxb_unified_operator::UnifiedOperatorError),
+    Unified(#[from] bsl_unified_operator::UnifiedOperatorError),
     #[error(transparent)]
-    Runner(#[from] nxb_resumable_runner::RunnerError),
+    Runner(#[from] bsl_resumable_runner::RunnerError),
     #[error(transparent)]
-    Knowledge(#[from] nxb_knowledge_reporting::KnowledgeError),
+    Knowledge(#[from] bsl_knowledge_reporting::KnowledgeError),
 }

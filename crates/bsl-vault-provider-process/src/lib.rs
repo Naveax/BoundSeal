@@ -11,8 +11,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use nxb_vault::MAX_SECRET_BYTES;
-use nxb_vault_provider::{
+use bsl_vault::MAX_SECRET_BYTES;
+use bsl_vault_provider::{
     ExternalVaultProvider, ProviderFailure, ProviderIdentity, ProviderSecretMaterial,
     ProviderSecretRequest, ProviderSessionOutcome, ProviderSessionRequest,
 };
@@ -27,7 +27,7 @@ pub const MAX_PROCESS_METADATA_BYTES: usize = 64 * 1024;
 pub const MAX_PROCESS_EXECUTABLE_BYTES: u64 = 1024 * 1024 * 1024;
 pub const MAX_PROCESS_OPERATION_SECONDS: u64 = 30;
 
-const FRAME_MAGIC: [u8; 4] = *b"NXB1";
+const FRAME_MAGIC: [u8; 4] = *b"BSL1";
 const FRAME_HEADER_BYTES: usize = 12;
 const READER_CHANNEL_CAPACITY: usize = 1;
 const PROCESS_EXIT_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -248,7 +248,7 @@ impl ProcessVaultProvider {
             .stderr(Stdio::null())
             .env_clear()
             .env(
-                "NXB_PROVIDER_PROTOCOL_VERSION",
+                "BSL_PROVIDER_PROTOCOL_VERSION",
                 PROCESS_PROVIDER_PROTOCOL_VERSION.to_string(),
             );
         if let Some(parent) = executable_path.parent() {
@@ -705,7 +705,7 @@ fn spawn_reader(
     sender: SyncSender<Result<ReceivedFrame, ProcessVaultProviderError>>,
 ) -> Result<JoinHandle<()>, ProcessVaultProviderError> {
     thread::Builder::new()
-        .name("nxb-vault-provider-reader".into())
+        .name("bsl-vault-provider-reader".into())
         .spawn(move || {
             let mut reader = BufReader::new(stdout);
             loop {
@@ -815,9 +815,9 @@ pub mod fixture {
     use super::*;
 
     const FIXTURE_PROVIDER_ID: &str = "fixture-provider";
-    const FIXTURE_CAPABILITY: &[u8] = b"nxb140-read-only-process-fixture";
+    const FIXTURE_CAPABILITY: &[u8] = b"bsl140-read-only-process-fixture";
     const FIXTURE_VERSION_ID: &str = "fixture-version-1";
-    const FIXTURE_SECRET: &[u8] = b"nxb140-test-secret";
+    const FIXTURE_SECRET: &[u8] = b"bsl140-test-secret";
 
     pub fn expected_capability_sha256() -> String {
         sha256_hex(FIXTURE_CAPABILITY)

@@ -3,7 +3,7 @@ use std::{
     net::IpAddr,
 };
 
-use nxb_transport::{TransportPermit, TransportScheme};
+use bsl_transport::{TransportPermit, TransportScheme};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;

@@ -21,37 +21,37 @@ rustc_version="$(rustc --version)"
 }
 
 cargo fmt --all -- --check
-cargo check -p nxb-core --all-targets --all-features --locked
-cargo clippy -p nxb-core --all-targets --all-features --locked -- -D warnings
-cargo test -p nxb-core --all-features --locked -- --test-threads=1
-cargo build -p nxb-core --bin nxb --all-features --locked
+cargo check -p bsl-core --all-targets --all-features --locked
+cargo clippy -p bsl-core --all-targets --all-features --locked -- -D warnings
+cargo test -p bsl-core --all-features --locked -- --test-threads=1
+cargo build -p bsl-core --bin bsl --all-features --locked
 
-nxb="$repo_root/target/debug/nxb"
-[[ -x "$nxb" ]] || { printf 'required binary is missing: %s\n' "$nxb" >&2; exit 1; }
+bsl="$repo_root/target/debug/bsl"
+[[ -x "$bsl" ]] || { printf 'required binary is missing: %s\n' "$bsl" >&2; exit 1; }
 
-cargo metadata --no-deps --format-version 1 > "$repo_root/target/nxb-151-metadata.json"
-python3 - "$repo_root/target/nxb-151-metadata.json" <<'PY'
+cargo metadata --no-deps --format-version 1 > "$repo_root/target/bsl-151-metadata.json"
+python3 - "$repo_root/target/bsl-151-metadata.json" <<'PY'
 import json
 import pathlib
 import sys
 metadata = json.loads(pathlib.Path(sys.argv[1]).read_text())
-package = next(item for item in metadata['packages'] if item['name'] == 'nxb-core')
+package = next(item for item in metadata['packages'] if item['name'] == 'bsl-core')
 binaries = sorted(
     target['name']
     for target in package['targets']
     if 'bin' in target['kind']
 )
-assert binaries == ['nxb'], binaries
+assert binaries == ['bsl'], binaries
 PY
 
-workspace="$(mktemp -d -t nxb-151-entrypoint-XXXXXX)"
+workspace="$(mktemp -d -t bsl-151-entrypoint-XXXXXX)"
 rmdir -- "$workspace"
-output_dir="$(mktemp -d -t nxb-151-entrypoint-output-XXXXXX)"
+output_dir="$(mktemp -d -t bsl-151-entrypoint-output-XXXXXX)"
 
-"$nxb" workspace init --workspace "$workspace" --name 'Unified Linux Acceptance' --json > "$output_dir/init.json"
-"$nxb" workspace doctor --workspace "$workspace" --json > "$output_dir/doctor.json"
-"$nxb" workspace status --workspace "$workspace" --json > "$output_dir/status.json"
-"$nxb" workspace migrate status --workspace "$workspace" --json > "$output_dir/migration.json"
+"$bsl" workspace init --workspace "$workspace" --name 'Unified Linux Acceptance' --json > "$output_dir/init.json"
+"$bsl" workspace doctor --workspace "$workspace" --json > "$output_dir/doctor.json"
+"$bsl" workspace status --workspace "$workspace" --json > "$output_dir/status.json"
+"$bsl" workspace migrate status --workspace "$workspace" --json > "$output_dir/migration.json"
 
 python3 - "$output_dir" <<'PY'
 import json
@@ -72,9 +72,9 @@ PY
 printf '{}\n' > "$workspace/state/migration-active.json"
 chmod 0600 "$workspace/state/migration-active.json"
 set +e
-"$nxb" workspace doctor --workspace "$workspace" --json > "$output_dir/doctor-pending.json" 2> "$output_dir/doctor-pending.err"
+"$bsl" workspace doctor --workspace "$workspace" --json > "$output_dir/doctor-pending.json" 2> "$output_dir/doctor-pending.err"
 doctor_exit=$?
-"$nxb" workspace status --workspace "$workspace" --json > "$output_dir/status-pending.json" 2> "$output_dir/status-pending.err"
+"$bsl" workspace status --workspace "$workspace" --json > "$output_dir/status-pending.json" 2> "$output_dir/status-pending.err"
 status_exit=$?
 set -e
 [[ $doctor_exit -eq 20 ]] || { printf 'pending doctor returned %s; expected 20\n' "$doctor_exit" >&2; exit 1; }
@@ -93,12 +93,12 @@ assert status['status'] == 'recovery_required'
 assert status['migration']['status'] == 'recovery_required'
 PY
 rm -f -- "$workspace/state/migration-active.json"
-"$nxb" workspace doctor --workspace "$workspace" --json > /dev/null
+"$bsl" workspace doctor --workspace "$workspace" --json > /dev/null
 
-validation_dir="$repo_root/target/nxb-validation"
+validation_dir="$repo_root/target/bsl-validation"
 mkdir -p -- "$validation_dir"
-evidence="$validation_dir/nxb-151-entrypoint-linux-$head_sha.json"
-python3 - "$evidence" "$head_sha" "$rustc_version" "$nxb" <<'PY'
+evidence="$validation_dir/bsl-151-entrypoint-linux-$head_sha.json"
+python3 - "$evidence" "$head_sha" "$rustc_version" "$bsl" <<'PY'
 import hashlib
 import json
 import pathlib
@@ -106,7 +106,7 @@ import sys
 output, head, rustc, binary = sys.argv[1:]
 value = {
     'schema_version': 1,
-    'milestone': 'NXB-151',
+    'milestone': 'BSL-151',
     'gate': 'linked_single_binary_entrypoint',
     'platform': 'linux',
     'head_sha': head,
@@ -128,6 +128,6 @@ value = {
 pathlib.Path(output).write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
 PY
 
-printf 'NXB-151 linked single-binary Linux validation passed.\n'
+printf 'BSL-151 linked single-binary Linux validation passed.\n'
 printf 'HEAD: %s\n' "$head_sha"
 printf 'Evidence: %s\n' "$evidence"

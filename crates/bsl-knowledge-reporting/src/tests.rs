@@ -6,7 +6,7 @@ fn validated_finding() -> ValidatedFinding {
     ValidatedFinding {
         finding_id: "validated-1".into(),
         candidate_id: "candidate-1".into(),
-        rule_id: "NXB-VALID-001".into(),
+        rule_id: "BSL-VALID-001".into(),
         origin: "https://app.example.com:443".into(),
         endpoint_sha256: hex('a'),
         mutation_id: "mutation-1".into(),
@@ -110,7 +110,7 @@ fn evidence_store_rejects_secret_like_material_and_deduplicates() {
 fn deduplication_merges_same_policy_rule_origin_and_endpoint() {
     let passive = Finding {
         finding_id: "passive-1".into(),
-        rule_id: "NXB-VALID-001".into(),
+        rule_id: "BSL-VALID-001".into(),
         title: "Candidate".into(),
         severity: Severity::Medium,
         confidence: Confidence::Medium,
@@ -199,7 +199,7 @@ fn report_requires_validation_evidence_and_cleanup_clearance() {
         .build(manifest.root_sha256.clone(), registry.audit().tail_hash())
         .unwrap();
     assert!(bundle.markdown.contains("validated-1"));
-    assert!(bundle.json.contains("NXB-VALID-001"));
+    assert!(bundle.json.contains("BSL-VALID-001"));
     assert!(!bundle.markdown.to_ascii_lowercase().contains("authorization: bearer"));
     registry.audit().verify().unwrap();
 }

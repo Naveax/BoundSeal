@@ -5,13 +5,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use nxb_live_adapter::LiveAdapterConfig;
-use nxb_operator::OperatorConfig;
-use nxb_policy::CompiledPolicy;
-use nxb_resumable_runner::RunnerManifest;
-use nxb_session_injection::SessionInjectionManifest;
-use nxb_unified_operator::UnifiedOperatorPlan;
-use nxb_vault_provider::{ExternalVaultBootstrapReceipt, ExternalVaultSessionPlan};
+use bsl_live_adapter::LiveAdapterConfig;
+use bsl_operator::OperatorConfig;
+use bsl_policy::CompiledPolicy;
+use bsl_resumable_runner::RunnerManifest;
+use bsl_session_injection::SessionInjectionManifest;
+use bsl_unified_operator::UnifiedOperatorPlan;
+use bsl_vault_provider::{ExternalVaultBootstrapReceipt, ExternalVaultSessionPlan};
 use ring::signature::{UnparsedPublicKey, ED25519};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

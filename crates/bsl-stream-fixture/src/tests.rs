@@ -1,11 +1,11 @@
-use nxb_executor::{
+use bsl_executor::{
     ExecutionControl, ExecutionLimits, ExecutorConfig, PermitExecutor, SyntheticBackend,
     SyntheticScenario,
 };
-use nxb_stream::{
+use bsl_stream::{
     BoundedByteStream, StreamControl, StreamLimits, StreamOperationOutcome, StreamState,
 };
-use nxb_transport::{TransportPermit, TransportScheme};
+use bsl_transport::{TransportPermit, TransportScheme};
 
 use super::{FixtureReadEvent, FixtureWriteEvent, InMemoryDuplex};
 

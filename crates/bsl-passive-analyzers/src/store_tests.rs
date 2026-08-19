@@ -15,7 +15,7 @@ mod tests {
 
     impl FixtureSealer {
         fn new() -> Self {
-            let key = b"fixture-only-nxb122-key-material".to_vec();
+            let key = b"fixture-only-bsl122-key-material".to_vec();
             let key_id = hash_bytes(&key);
             Self { key, key_id }
         }
@@ -90,7 +90,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "nxb122-{label}-{}-{now}-{sequence}",
+            "bsl122-{label}-{}-{now}-{sequence}",
             std::process::id()
         ))
     }
@@ -107,7 +107,7 @@ mod tests {
     fn finding(index: u64) -> Finding {
         Finding {
             finding_id: format!("{index:064x}"),
-            rule_id: format!("NXB-FIXTURE-{index:06}"),
+            rule_id: format!("BSL-FIXTURE-{index:06}"),
             title: "Synthetic encrypted-store finding".into(),
             severity: Severity::Low,
             confidence: Confidence::High,
@@ -116,7 +116,7 @@ mod tests {
             evidence_sha256: format!("{:064x}", index.saturating_add(20_000)),
             summary: "Metadata-only append-only storage fixture.".into(),
             metadata: BTreeMap::from([
-                ("fixture".into(), "nxb122".into()),
+                ("fixture".into(), "bsl122".into()),
                 ("cookie_name_sha256".into(), "a".repeat(64)),
             ]),
         }
@@ -143,7 +143,7 @@ mod tests {
         for entry in fs::read_dir(&root).unwrap() {
             let entry = entry.unwrap();
             let name = entry.file_name().to_string_lossy().into_owned();
-            if name.ends_with(".nxb") {
+            if name.ends_with(".bsl") {
                 let bytes = fs::read(entry.path()).unwrap();
                 let text = String::from_utf8(bytes).unwrap();
                 assert!(!text.contains("Synthetic encrypted-store finding"));
@@ -200,7 +200,7 @@ mod tests {
         sink.append(&finding(1)).unwrap();
         sink.finish().unwrap();
 
-        let segment = root.join("segment-00000000000000000001.nxb");
+        let segment = root.join("segment-00000000000000000001.bsl");
         let mut bytes = fs::read(&segment).unwrap();
         let midpoint = bytes.len() / 2;
         bytes[midpoint] ^= 1;
@@ -261,7 +261,7 @@ mod tests {
         let root = temporary_root("orphan");
         fs::create_dir_all(&root).unwrap();
         fs::write(root.join("manifest.jsonl"), b"").unwrap();
-        fs::write(root.join("segment-00000000000000000001.nxb.tmp"), b"x").unwrap();
+        fs::write(root.join("segment-00000000000000000001.bsl.tmp"), b"x").unwrap();
 
         let error = AppendOnlyEncryptedFindingSink::open(
             config(root.clone()),

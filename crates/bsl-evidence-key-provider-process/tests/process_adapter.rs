@@ -3,28 +3,28 @@
 
 use std::{path::PathBuf, time::Duration};
 
-use nxb_evidence_key_provider::{
+use bsl_evidence_key_provider::{
     acquire_evidence_sealer, EvidenceKeyActivation, EvidenceKeyPlan, EvidenceKeyPlanInput,
     EvidenceKeyProvider, EvidenceKeyProviderError, ProviderKeyRequest, ProviderSessionDisposition,
     ProviderSessionOutcome, ProviderSessionRequest,
 };
-use nxb_evidence_key_provider_process::{
+use bsl_evidence_key_provider_process::{
     ProcessEvidenceKeyProvider, ProcessEvidenceKeyProviderConfig,
 };
-use nxb_vault_provider::ProviderIdentity;
-use nxb_vault_provider_process::{sha256_file, sha256_hex, ProcessVaultProviderConfig};
+use bsl_vault_provider::ProviderIdentity;
+use bsl_vault_provider_process::{sha256_file, sha256_hex, ProcessVaultProviderConfig};
 use ring::signature::{Ed25519KeyPair, KeyPair};
 
 const NOW: i64 = 2_000_000_000;
 const FIXTURE_PROVIDER_ID: &str = "fixture-evidence-key-provider";
-const FIXTURE_CAPABILITY: &[u8] = b"nxb150-pinned-process-evidence-key-fixture";
+const FIXTURE_CAPABILITY: &[u8] = b"bsl150-pinned-process-evidence-key-fixture";
 const FIXTURE_VERSION_ID: &str = "fixture-evidence-key-version-1";
 const STORE_ID: &str = "evidence-store-1";
 const KEY_ID: &str = "evidence-key-1";
 
 fn fixture_executable() -> PathBuf {
     PathBuf::from(env!(
-        "CARGO_BIN_EXE_nxb-evidence-key-provider-process-fixture"
+        "CARGO_BIN_EXE_bsl-evidence-key-provider-process-fixture"
     ))
 }
 
@@ -59,7 +59,7 @@ fn config(
 }
 
 fn signed_plan(
-    identity: nxb_evidence_key_provider::EvidenceKeyProviderIdentity,
+    identity: bsl_evidence_key_provider::EvidenceKeyProviderIdentity,
     store_id: &str,
 ) -> (EvidenceKeyPlan, EvidenceKeyActivation) {
     let key_pair = Ed25519KeyPair::from_seed_unchecked(&[50_u8; 32]).unwrap();
@@ -67,7 +67,7 @@ fn signed_plan(
         provider_identity: identity,
         key_id: KEY_ID.into(),
         store_id: store_id.into(),
-        policy_snapshot_sha256: sha256_hex(b"nxb150-policy-snapshot"),
+        policy_snapshot_sha256: sha256_hex(b"bsl150-policy-snapshot"),
         activation_public_key_hex: lower_hex(key_pair.public_key().as_ref()),
         issued_at_epoch_seconds: NOW - 5,
         expires_at_epoch_seconds: NOW + 120,

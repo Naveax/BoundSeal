@@ -19,7 +19,7 @@ impl PassiveAnalyzer for CachePolicyAnalyzer {
         {
             push_finding(
                 &mut findings,
-                "NXB-CACHE-001",
+                "BSL-CACHE-001",
                 "Authenticated response is not explicitly private or no-store",
                 Severity::Medium,
                 Confidence::High,
@@ -33,7 +33,7 @@ impl PassiveAnalyzer for CachePolicyAnalyzer {
         if directives.contains("public") && directives.contains("private") {
             push_finding(
                 &mut findings,
-                "NXB-CACHE-002",
+                "BSL-CACHE-002",
                 "Cache-Control contains public/private conflict",
                 Severity::Medium,
                 Confidence::High,
@@ -50,7 +50,7 @@ impl PassiveAnalyzer for CachePolicyAnalyzer {
         {
             push_finding(
                 &mut findings,
-                "NXB-CACHE-003",
+                "BSL-CACHE-003",
                 "Cookie-setting response is publicly cacheable",
                 Severity::High,
                 Confidence::High,
@@ -66,7 +66,7 @@ impl PassiveAnalyzer for CachePolicyAnalyzer {
         {
             push_finding(
                 &mut findings,
-                "NXB-CACHE-004",
+                "BSL-CACHE-004",
                 "Sensitive response lacks Vary metadata",
                 Severity::Low,
                 Confidence::Medium,

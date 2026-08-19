@@ -1,6 +1,6 @@
-# NXB-151 Validation Procedure
+# BSL-151 Validation Procedure
 
-NXB-151 validation is external to GitHub Actions. Repository workflows remain disabled. Evidence is accepted only when every required gate completes on one unchanged exact Git head.
+BSL-151 validation is external to GitHub Actions. Repository workflows remain disabled. Evidence is accepted only when every required gate completes on one unchanged exact Git head.
 
 ## Exact-head requirement
 
@@ -10,10 +10,10 @@ Required package gates:
 
 ```text
 cargo fmt --all -- --check
-cargo check -p nxb-core --all-targets --all-features --locked
-cargo clippy -p nxb-core --all-targets --all-features --locked -- -D warnings
-cargo test -p nxb-core --all-features --locked -- --test-threads=1
-cargo build -p nxb-core --bin nxb --all-features --locked
+cargo check -p bsl-core --all-targets --all-features --locked
+cargo clippy -p bsl-core --all-targets --all-features --locked -- -D warnings
+cargo test -p bsl-core --all-features --locked -- --test-threads=1
+cargo build -p bsl-core --bin bsl --all-features --locked
 ```
 
 Workspace-level check, Clippy and test regressions remain mandatory before merge.
@@ -23,7 +23,7 @@ Workspace-level check, Clippy and test regressions remain mandatory before merge
 Cargo metadata must expose exactly:
 
 ```json
-["nxb"]
+["bsl"]
 ```
 
 No helper, product, migration or temporary executable target is permitted.
@@ -31,8 +31,8 @@ No helper, product, migration or temporary executable target is permitted.
 ## Product workspace validation
 
 ```text
-bash scripts/validate-nxb-151-linux.sh
-pwsh -NoProfile -File .\scripts\validate-nxb-151-windows.ps1
+bash scripts/validate-bsl-151-linux.sh
+pwsh -NoProfile -File .\scripts\validate-bsl-151-windows.ps1
 ```
 
 These verify initialization, doctor, status, non-empty rejection, missing-directory detection, private permissions and single-binary behavior. Windows additionally covers protected ACLs, junction/reparse rejection and broad-ACE rejection. Linux covers private modes and durable publication.
@@ -40,17 +40,17 @@ These verify initialization, doctor, status, non-empty rejection, missing-direct
 ## Migration validation
 
 ```text
-bash scripts/validate-nxb-151-migration-linux.sh
-pwsh -NoProfile -File .\scripts\validate-nxb-151-migration-windows.ps1
+bash scripts/validate-bsl-151-migration-linux.sh
+pwsh -NoProfile -File .\scripts\validate-bsl-151-migration-windows.ps1
 ```
 
-These invoke migration only through `nxb workspace migrate ...` and verify schema `0 → 1`, immutable receipt publication, transient cleanup and recovery.
+These invoke migration only through `bsl workspace migrate ...` and verify schema `0 → 1`, immutable receipt publication, transient cleanup and recovery.
 
 ## Linked entry-point validation
 
 ```text
-bash scripts/validate-nxb-151-entrypoint-linux.sh
-pwsh -NoProfile -File .\scripts\validate-nxb-151-entrypoint-windows.ps1
+bash scripts/validate-bsl-151-entrypoint-linux.sh
+pwsh -NoProfile -File .\scripts\validate-bsl-151-entrypoint-windows.ps1
 ```
 
 These require exactly one Cargo binary target and migration-aware doctor/status behavior.
@@ -58,8 +58,8 @@ These require exactly one Cargo binary target and migration-aware doctor/status 
 ## Authorization-bound target validation
 
 ```text
-bash scripts/validate-nxb-151-target-linux.sh
-pwsh -NoProfile -File .\scripts\validate-nxb-151-target-windows.ps1
+bash scripts/validate-bsl-151-target-linux.sh
+pwsh -NoProfile -File .\scripts\validate-bsl-151-target-windows.ps1
 ```
 
 Required checks include:
@@ -84,8 +84,8 @@ Linux additionally verifies private `0600` modes. Windows injects a broad Everyo
 Mandatory Rust sources:
 
 ```text
-crates/nxb-core/src/release_manifest.rs
-crates/nxb-core/tests/release_manifest_cli.rs
+crates/bsl-core/src/release_manifest.rs
+crates/bsl-core/tests/release_manifest_cli.rs
 ```
 
 They verify:
@@ -109,9 +109,9 @@ The unit fixture must use valid CycloneDX JSON directly; parser failure is not a
 Mandatory integration tests:
 
 ```text
-crates/nxb-core/tests/product_diagnostics.rs
-crates/nxb-core/tests/target_cli.rs
-crates/nxb-core/tests/release_manifest_cli.rs
+crates/bsl-core/tests/product_diagnostics.rs
+crates/bsl-core/tests/target_cli.rs
+crates/bsl-core/tests/release_manifest_cli.rs
 ```
 
 They bind to structured schema, code, domain, operation and exit-code fields rather than message wording.
@@ -119,8 +119,8 @@ They bind to structured schema, code, domain, operation and exit-code fields rat
 ## Full synthetic product validation
 
 ```text
-bash scripts/validate-nxb-151-synthetic-linux.sh
-pwsh -NoProfile -File .\scripts\validate-nxb-151-synthetic-windows.ps1
+bash scripts/validate-bsl-151-synthetic-linux.sh
+pwsh -NoProfile -File .\scripts\validate-bsl-151-synthetic-windows.ps1
 ```
 
 These execute a complete networkless local product flow using synthetic policy and authorization fixtures, including workspace creation, target validation, bounded dry-run planning, manual report bundle, deterministic demo receipt and exact-head evidence.
@@ -128,7 +128,7 @@ These execute a complete networkless local product flow using synthetic policy a
 ## Windows installer validation
 
 ```text
-pwsh -NoProfile -File .\scripts\validate-nxb-151-installer-windows.ps1
+pwsh -NoProfile -File .\scripts\validate-bsl-151-installer-windows.ps1
 ```
 
 Default previous source revision:
@@ -142,7 +142,7 @@ The harness must verify:
 - every installer script passes the PowerShell parser;
 - current head passes Rust format, check, Clippy and tests;
 - current head and previous exact ancestor build with locked Rust 1.97.1;
-- both `nxb.exe` files receive valid Authenticode signatures from one pinned temporary publisher certificate;
+- both `bsl.exe` files receive valid Authenticode signatures from one pinned temporary publisher certificate;
 - all packages use one pinned external Ed25519 release key;
 - manifest schema `2` binds sequence `1` to the previous source and sequence `2` to the final head;
 - exact five-file package layout;
@@ -171,7 +171,7 @@ The previous source must be a distinct ancestor of the final head and must conta
 Successful runs create local files under:
 
 ```text
-target/nxb-validation/
+target/bsl-validation/
 ```
 
 Evidence contains milestone, platform, exact final head, pinned toolchain, explicit checks and single executable hashes. Installer evidence additionally contains:
@@ -190,9 +190,9 @@ Evidence must contain no workspace contents, credentials, tokens, source authori
 
 ## Acceptance rule
 
-NXB-151 can move out of draft only when:
+BSL-151 can move out of draft only when:
 
-- NXB-150 validates and merges;
+- BSL-150 validates and merges;
 - all Linux and Windows harnesses pass on one final head;
 - Cargo metadata confirms one binary target;
 - full workspace check, Clippy and tests pass;

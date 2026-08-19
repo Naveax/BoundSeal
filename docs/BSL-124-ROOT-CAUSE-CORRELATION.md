@@ -1,8 +1,8 @@
-# NXB-124 — Root-Cause Correlation
+# BSL-124 — Root-Cause Correlation
 
 ## Purpose
 
-NXB-124 groups exact unique findings into deterministic root-cause clusters without suppressing or deleting any original finding membership.
+BSL-124 groups exact unique findings into deterministic root-cause clusters without suppressing or deleting any original finding membership.
 
 A root cause is identified from:
 
@@ -29,7 +29,7 @@ Endpoint identity is intentionally excluded from the root-cause ID so equivalent
 
 ## Resource model
 
-Correlation capacity may be derived from explicit memory reservations and the upstream NXB-121 capacities:
+Correlation capacity may be derived from explicit memory reservations and the upstream BSL-121 capacities:
 
 ```text
 maximum_clusters = min(cluster_budget / 1024, source_unique_findings)
@@ -54,4 +54,4 @@ The test suite verifies:
 
 ## Next stage
 
-NXB-125 will add coverage and saturation receipts. Correlation is an organizational layer only; it never claims that untested endpoints are safe and never replaces exact finding persistence or exact disk-backed deduplication.
+BSL-125 will add coverage and saturation receipts. Correlation is an organizational layer only; it never claims that untested endpoints are safe and never replaces exact finding persistence or exact disk-backed deduplication.

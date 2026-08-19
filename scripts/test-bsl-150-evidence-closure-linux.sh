@@ -2,11 +2,11 @@
 set -euo pipefail
 
 repo_root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-closure_source="$repo_root/scripts/review-nxb-150-evidence-linux.sh"
+closure_source="$repo_root/scripts/review-bsl-150-evidence-linux.sh"
 expected_lock_sha256="f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff"
 
 fail() {
-    printf 'NXB-150 closure self-test failed: %s\n' "$1" >&2
+    printf 'BSL-150 closure self-test failed: %s\n' "$1" >&2
     exit 1
 }
 
@@ -25,16 +25,16 @@ fixture_repo="$sandbox/repository"
 evidence_directory="$sandbox/evidence"
 mkdir -p "$fixture_repo/scripts" "$evidence_directory"
 cp "$repo_root/Cargo.lock" "$fixture_repo/Cargo.lock"
-cp "$closure_source" "$fixture_repo/scripts/review-nxb-150-evidence-linux.sh"
-chmod +x "$fixture_repo/scripts/review-nxb-150-evidence-linux.sh"
+cp "$closure_source" "$fixture_repo/scripts/review-bsl-150-evidence-linux.sh"
+chmod +x "$fixture_repo/scripts/review-bsl-150-evidence-linux.sh"
 
 git -C "$fixture_repo" init -q
-git -C "$fixture_repo" config user.name 'NXB Closure Self-Test'
-git -C "$fixture_repo" config user.email 'nxb-closure-self-test@example.invalid'
-git -C "$fixture_repo" add Cargo.lock scripts/review-nxb-150-evidence-linux.sh
-git -C "$fixture_repo" commit -qm 'Create NXB-150 closure fixture'
+git -C "$fixture_repo" config user.name 'BSL Closure Self-Test'
+git -C "$fixture_repo" config user.email 'bsl-closure-self-test@example.invalid'
+git -C "$fixture_repo" add Cargo.lock scripts/review-bsl-150-evidence-linux.sh
+git -C "$fixture_repo" commit -qm 'Create BSL-150 closure fixture'
 head_sha="$(git -C "$fixture_repo" rev-parse HEAD)"
-closure_path="$evidence_directory/nxb-150-closure-$head_sha.json"
+closure_path="$evidence_directory/bsl-150-closure-$head_sha.json"
 pending_path="$closure_path.pending"
 
 write_valid_evidence() {
@@ -56,7 +56,7 @@ for platform, audit_marker, deny_marker in (
 ):
     evidence = {
         "schema_version": 2,
-        "milestone": "NXB-150",
+        "milestone": "BSL-150",
         "gate": "pinned_process_evidence_key_provider",
         "platform": platform,
         "head_sha": head_sha,
@@ -77,7 +77,7 @@ for platform, audit_marker, deny_marker in (
         "network_activity": "dependency_and_advisory_sources_only",
         "validated_at": validated_at,
     }
-    path = directory / f"nxb-150-{platform}-{head_sha}.json"
+    path = directory / f"bsl-150-{platform}-{head_sha}.json"
     path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
 PY
 }
@@ -85,7 +85,7 @@ PY
 mutate_evidence() {
     local platform="$1"
     local operation="$2"
-    python3 - "$evidence_directory/nxb-150-$platform-$head_sha.json" "$operation" <<'PY'
+    python3 - "$evidence_directory/bsl-150-$platform-$head_sha.json" "$operation" <<'PY'
 import datetime as dt
 import json
 import pathlib
@@ -113,14 +113,14 @@ PY
 }
 
 run_closure() {
-    bash "$fixture_repo/scripts/review-nxb-150-evidence-linux.sh" \
+    bash "$fixture_repo/scripts/review-bsl-150-evidence-linux.sh" \
         "$fixture_repo" \
         "$evidence_directory"
 }
 
 run_closure_with_directory() {
     local directory="$1"
-    bash "$fixture_repo/scripts/review-nxb-150-evidence-linux.sh" \
+    bash "$fixture_repo/scripts/review-bsl-150-evidence-linux.sh" \
         "$fixture_repo" \
         "$directory"
 }
@@ -148,7 +148,7 @@ for operation in mixed-head unknown-field wrong-type future-time failed-gate; do
 done
 
 write_valid_evidence
-linux_path="$evidence_directory/nxb-150-linux-$head_sha.json"
+linux_path="$evidence_directory/bsl-150-linux-$head_sha.json"
 mv "$linux_path" "$linux_path.real"
 ln -s "$(basename "$linux_path.real")" "$linux_path"
 expect_failure evidence-symlink run_closure
@@ -180,6 +180,6 @@ write_valid_evidence
 ln -s nowhere "$pending_path"
 expect_failure pending-symlink run_closure
 
-printf 'NXB-150 Linux evidence closure self-test passed.\n'
+printf 'BSL-150 Linux evidence closure self-test passed.\n'
 printf 'Fixture HEAD: %s\n' "$head_sha"
 printf '%s\n' 'Cases: success, idempotency, mixed head, unknown field, wrong type, future time, failed gate, evidence symlink, evidence-directory symlink, closure symlink, closure tamper, orphan pending, pending symlink.'

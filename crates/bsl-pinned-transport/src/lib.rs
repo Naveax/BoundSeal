@@ -1,7 +1,7 @@
 use std::{collections::BTreeSet, net::IpAddr, time::Duration};
 
-use nxb_gateway::{DecisionOutcome, GatewayDecision, GatewayError, RequestIntent, ScopeGateway};
-use nxb_transport::{
+use bsl_gateway::{DecisionOutcome, GatewayDecision, GatewayError, RequestIntent, ScopeGateway};
+use bsl_transport::{
     expected_http_host, ConnectionAttempt, ConnectionTicket, TicketAuthority, TicketBinding,
     TicketIssueError, TicketIssueRequest, TicketUseOutcome, TicketUseResult, TransportScheme,
 };
@@ -491,10 +491,10 @@ fn to_lower_hex(bytes: &[u8]) -> String {
 mod tests {
     use std::collections::BTreeSet;
 
-    use chrono::{Duration as ChronoDuration, Utc};
-    use nxb_policy::{
+    use bsl_policy::{
         AuthorizationPolicy, AutomationPolicy, ProgramPolicy, ScopePolicy, TargetPolicy,
     };
+    use chrono::{Duration as ChronoDuration, Utc};
 
     use super::*;
 

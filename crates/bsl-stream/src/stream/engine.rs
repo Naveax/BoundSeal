@@ -1,5 +1,5 @@
-use nxb_executor::{ExecutionReceipt, ExecutorAuditChain};
-use nxb_transport::TransportPermit;
+use bsl_executor::{ExecutionReceipt, ExecutorAuditChain};
+use bsl_transport::TransportPermit;
 use sha2::{Digest, Sha256};
 
 use super::{

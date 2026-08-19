@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use nxb_stream::{
+use bsl_stream::{
     BackendReadReport, BackendReadStatus, BackendWriteReport, BackendWriteStatus, ByteStreamBackend,
 };
 

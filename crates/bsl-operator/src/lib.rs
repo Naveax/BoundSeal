@@ -5,12 +5,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use nxb_content_analysis::{
+use bsl_content_analysis::{
     extract_structured, ContentClassification, ContentTypeAssessment, DiscoveryDisposition,
     DiscoveryGraph, ExtractionLimits,
 };
-use nxb_passive_analyzers::{Confidence, Finding, Severity};
-use nxb_policy::CompiledPolicy;
+use bsl_passive_analyzers::{Confidence, Finding, Severity};
+use bsl_policy::CompiledPolicy;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -1194,7 +1194,7 @@ impl ReportBundle {
 
 fn render_markdown(report: &OperatorReport) -> String {
     let mut output = String::new();
-    output.push_str("# NXB operator report\n\n");
+    output.push_str("# BSL operator report\n\n");
     output.push_str(&format!("- Run: `{}`\n", report.run_id));
     output.push_str(&format!(
         "- Program: {}\n",
@@ -1265,7 +1265,7 @@ fn render_markdown(report: &OperatorReport) -> String {
 fn render_hackerone_draft(report: &OperatorReport) -> String {
     let mut output = String::new();
     output.push_str("# HackerOne draft — manual review required\n\n");
-    output.push_str("This file is a draft only. NXB does not submit reports automatically.\n\n");
+    output.push_str("This file is a draft only. BSL does not submit reports automatically.\n\n");
     if report.findings.is_empty() {
         output.push_str("No candidate findings are available for submission.\n");
         return output;
@@ -1636,8 +1636,8 @@ fn hash_bytes(bytes: &[u8]) -> String {
 mod tests {
     use std::{collections::BTreeSet, fs};
 
+    use bsl_policy::TargetPolicy;
     use chrono::Utc;
-    use nxb_policy::TargetPolicy;
 
     use super::*;
 
@@ -1806,7 +1806,7 @@ expires_at = "2099-01-01T00:00:00Z"
 
     #[test]
     fn atomic_report_export_replaces_complete_files() {
-        let root = std::env::temp_dir().join(format!("nxb-operator-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("bsl-operator-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let report = OperatorReport::build(
             "run-export",

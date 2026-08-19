@@ -1,20 +1,20 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use nxb_knowledge_reporting::ExportManifest;
-use nxb_live_run_host::{
+use bsl_knowledge_reporting::ExportManifest;
+use bsl_live_run_host::{
     LiveRunLaunchBundle, LiveRunTeardownOutcome, LIVE_RUN_LAUNCH_BUNDLE_VERSION,
 };
-use nxb_operator_runtime::{RuntimeCommittedRequest, RuntimeMethod, RuntimeRecovery};
-use nxb_operator_state::{
+use bsl_operator_runtime::{RuntimeCommittedRequest, RuntimeMethod, RuntimeRecovery};
+use bsl_operator_state::{
     OperatorCheckpoint, OperatorCounters, OperatorRunStatus, OperatorStateIdentity,
     RecoveredOperatorState, OPERATOR_CHECKPOINT_VERSION,
 };
-use nxb_resumable_runner::{
+use bsl_resumable_runner::{
     RunnerCandidate, RunnerCheckpoint, RunnerManifest, RunnerStatus, RunnerStopReason,
     RESUMABLE_RUNNER_VERSION,
 };
-use nxb_run_closure::*;
-use nxb_unified_operator::{
+use bsl_run_closure::*;
+use bsl_unified_operator::{
     UnifiedComponentBinding, UnifiedOperatorPlan, UnifiedOperatorPlanParameters,
 };
 use ring::signature::{Ed25519KeyPair, KeyPair};

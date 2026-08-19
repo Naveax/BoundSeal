@@ -74,23 +74,23 @@ try {
 
     & cargo fmt --all -- --check
     if ($LASTEXITCODE -ne 0) { throw "cargo fmt failed." }
-    & cargo check -p nxb-core --all-targets --all-features --locked
+    & cargo check -p bsl-core --all-targets --all-features --locked
     if ($LASTEXITCODE -ne 0) { throw "cargo check failed." }
-    & cargo clippy -p nxb-core --all-targets --all-features --locked -- -D warnings
+    & cargo clippy -p bsl-core --all-targets --all-features --locked -- -D warnings
     if ($LASTEXITCODE -ne 0) { throw "cargo clippy failed." }
-    & cargo test -p nxb-core --all-features --locked -- --test-threads=1
+    & cargo test -p bsl-core --all-features --locked -- --test-threads=1
     if ($LASTEXITCODE -ne 0) { throw "cargo test failed." }
-    & cargo build -p nxb-core --bin nxb --all-features --locked
+    & cargo build -p bsl-core --bin bsl --all-features --locked
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed." }
 
-    $nxb = Join-Path $RepoRoot "target\debug\nxb.exe"
-    if (-not (Test-Path -LiteralPath $nxb -PathType Leaf)) {
-        throw "nxb.exe is missing."
+    $bsl = Join-Path $RepoRoot "target\debug\bsl.exe"
+    if (-not (Test-Path -LiteralPath $bsl -PathType Leaf)) {
+        throw "bsl.exe is missing."
     }
 
     $nonce = [Guid]::NewGuid().ToString("N")
-    $workspace = Join-Path ([IO.Path]::GetTempPath()) "nxb-151-target-$nonce"
-    $outputDirectory = Join-Path ([IO.Path]::GetTempPath()) "nxb-151-target-output-$nonce"
+    $workspace = Join-Path ([IO.Path]::GetTempPath()) "bsl-151-target-$nonce"
+    $outputDirectory = Join-Path ([IO.Path]::GetTempPath()) "bsl-151-target-output-$nonce"
     New-Item -ItemType Directory -Path $outputDirectory | Out-Null
 
     $policy = Join-Path $outputDirectory "target-policy.toml"
@@ -132,7 +132,7 @@ expires_at = 2099-01-01T00:00:00Z
         [Text.UTF8Encoding]::new($false)
     )
 
-    $initialized = Invoke-NativeJson -FilePath $nxb -Name "init" -Arguments @(
+    $initialized = Invoke-NativeJson -FilePath $bsl -Name "init" -Arguments @(
         "workspace", "init", "--workspace", $workspace,
         "--name", "Target Windows Acceptance", "--json"
     )
@@ -150,7 +150,7 @@ expires_at = 2099-01-01T00:00:00Z
         "--include-path", "/api",
         "--exclude-path", "/api/logout"
     ) + $bindingArguments + @("--json")
-    $created = Invoke-NativeJson -FilePath $nxb -Name "create" -Arguments $createArguments
+    $created = Invoke-NativeJson -FilePath $bsl -Name "create" -Arguments $createArguments
     if ($created.status -ne "active" -or
         $created.origin -ne "https://example.org" -or
         $created.program.platform -ne "hackerone" -or
@@ -165,7 +165,7 @@ expires_at = 2099-01-01T00:00:00Z
         throw "Created target digests or read-only methods are invalid."
     }
 
-    $validated = Invoke-NativeJson -FilePath $nxb -Name "validate" -Arguments @(
+    $validated = Invoke-NativeJson -FilePath $bsl -Name "validate" -Arguments @(
         "target", "validate", "--workspace", $workspace,
         "--id", "example-app",
         "--authorization-document", $authorization,
@@ -178,14 +178,14 @@ expires_at = 2099-01-01T00:00:00Z
         throw "Target source validation output is invalid."
     }
 
-    $listed = Invoke-NativeJson -FilePath $nxb -Name "list" -Arguments @(
+    $listed = Invoke-NativeJson -FilePath $bsl -Name "list" -Arguments @(
         "target", "list", "--workspace", $workspace, "--json"
     )
     if ($listed.count -ne 1 -or $listed.network_activity -ne "none") {
         throw "Target list output is invalid."
     }
 
-    $shown = Invoke-NativeJson -FilePath $nxb -Name "show" -Arguments @(
+    $shown = Invoke-NativeJson -FilePath $bsl -Name "show" -Arguments @(
         "target", "show", "--workspace", $workspace,
         "--id", "example-app", "--json"
     )
@@ -216,7 +216,7 @@ expires_at = 2099-01-01T00:00:00Z
             "--id", "invalid-$index", "--name", "Invalid Origin",
             "--origin", $invalidOrigins[$index]
         ) + $bindingArguments + @("--json")
-        Assert-NativeExit -Expected 50 -FilePath $nxb -Name "invalid-origin-$index" -Arguments $invalidOriginArguments
+        Assert-NativeExit -Expected 50 -FilePath $bsl -Name "invalid-origin-$index" -Arguments $invalidOriginArguments
     }
     $invalidPathArguments = @(
         "target", "create", "--workspace", $workspace,
@@ -224,8 +224,8 @@ expires_at = 2099-01-01T00:00:00Z
         "--origin", "https://example.org",
         "--include-path", "/api%2fadmin"
     ) + $bindingArguments + @("--json")
-    Assert-NativeExit -Expected 50 -FilePath $nxb -Name "invalid-path" -Arguments $invalidPathArguments
-    Assert-NativeExit -Expected 50 -FilePath $nxb -Name "invalid-reference" -Arguments @(
+    Assert-NativeExit -Expected 50 -FilePath $bsl -Name "invalid-path" -Arguments $invalidPathArguments
+    Assert-NativeExit -Expected 50 -FilePath $bsl -Name "invalid-reference" -Arguments @(
         "target", "create", "--workspace", $workspace,
         "--id", "invalid-reference", "--name", "Invalid Reference",
         "--origin", "https://example.org",
@@ -244,7 +244,7 @@ expires_at = 2099-01-01T00:00:00Z
         ($profileValue | ConvertTo-Json -Depth 64) + [Environment]::NewLine,
         [Text.UTF8Encoding]::new($false)
     )
-    Assert-NativeExit -Expected 52 -FilePath $nxb -Name "profile-tamper" -Arguments @(
+    Assert-NativeExit -Expected 52 -FilePath $bsl -Name "profile-tamper" -Arguments @(
         "target", "show", "--workspace", $workspace,
         "--id", "example-app", "--json"
     )
@@ -257,7 +257,7 @@ expires_at = 2099-01-01T00:00:00Z
         "different authorization" + [Environment]::NewLine,
         [Text.UTF8Encoding]::new($false)
     )
-    Assert-NativeExit -Expected 54 -FilePath $nxb -Name "authorization-drift" -Arguments @(
+    Assert-NativeExit -Expected 54 -FilePath $bsl -Name "authorization-drift" -Arguments @(
         "target", "validate", "--workspace", $workspace,
         "--id", "example-app",
         "--authorization-document", $authorization,
@@ -266,17 +266,17 @@ expires_at = 2099-01-01T00:00:00Z
     )
     [IO.File]::WriteAllBytes($authorization, [IO.File]::ReadAllBytes($authorizationBackup))
 
-    $disabled = Invoke-NativeJson -FilePath $nxb -Name "disable" -Arguments @(
+    $disabled = Invoke-NativeJson -FilePath $bsl -Name "disable" -Arguments @(
         "target", "disable", "--workspace", $workspace,
         "--id", "example-app", "--reason", "operator-hold", "--json"
     )
     if ($disabled.status -ne "disabled" -or $disabled.disabled_reason -ne "operator_hold") {
         throw "Target disable output is invalid."
     }
-    $active = Invoke-NativeJson -FilePath $nxb -Name "active" -Arguments @(
+    $active = Invoke-NativeJson -FilePath $bsl -Name "active" -Arguments @(
         "target", "list", "--workspace", $workspace, "--json"
     )
-    $all = Invoke-NativeJson -FilePath $nxb -Name "all" -Arguments @(
+    $all = Invoke-NativeJson -FilePath $bsl -Name "all" -Arguments @(
         "target", "list", "--workspace", $workspace,
         "--include-disabled", "--json"
     )
@@ -294,7 +294,7 @@ expires_at = 2099-01-01T00:00:00Z
         ($receiptValue | ConvertTo-Json -Depth 64) + [Environment]::NewLine,
         [Text.UTF8Encoding]::new($false)
     )
-    Assert-NativeExit -Expected 52 -FilePath $nxb -Name "receipt-tamper" -Arguments @(
+    Assert-NativeExit -Expected 52 -FilePath $bsl -Name "receipt-tamper" -Arguments @(
         "target", "show", "--workspace", $workspace,
         "--id", "example-app", "--json"
     )
@@ -306,7 +306,7 @@ expires_at = 2099-01-01T00:00:00Z
     if (-not (Test-Path -LiteralPath $icacls -PathType Leaf)) { throw "icacls.exe is missing." }
     & $icacls $profile "/grant" "*S-1-1-0:(R)" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Could not inject broad target-profile ACL." }
-    Assert-NativeExit -Expected 52 -FilePath $nxb -Name "profile-acl-tamper" -Arguments @(
+    Assert-NativeExit -Expected 52 -FilePath $bsl -Name "profile-acl-tamper" -Arguments @(
         "target", "show", "--workspace", $workspace,
         "--id", "example-app", "--json"
     )
@@ -315,11 +315,11 @@ expires_at = 2099-01-01T00:00:00Z
 
     $migrationActive = Join-Path $workspace "state\migration-active.json"
     [IO.File]::WriteAllText($migrationActive, "{}`n", [Text.UTF8Encoding]::new($false))
-    Assert-NativeExit -Expected 51 -FilePath $nxb -Name "pending-migration" -Arguments @(
+    Assert-NativeExit -Expected 51 -FilePath $bsl -Name "pending-migration" -Arguments @(
         "target", "list", "--workspace", $workspace, "--json"
     )
     Remove-Item -LiteralPath $migrationActive -Force
-    [void](Invoke-NativeJson -FilePath $nxb -Name "restored" -Arguments @(
+    [void](Invoke-NativeJson -FilePath $bsl -Name "restored" -Arguments @(
         "target", "validate", "--workspace", $workspace,
         "--id", "example-app",
         "--authorization-document", $authorization,
@@ -327,17 +327,17 @@ expires_at = 2099-01-01T00:00:00Z
         "--json"
     ))
 
-    $validationDirectory = Join-Path $RepoRoot "target\nxb-validation"
+    $validationDirectory = Join-Path $RepoRoot "target\bsl-validation"
     New-Item -ItemType Directory -Path $validationDirectory -Force | Out-Null
-    $evidencePath = Join-Path $validationDirectory "nxb-151-target-windows-$head.json"
+    $evidencePath = Join-Path $validationDirectory "bsl-151-target-windows-$head.json"
     $evidence = [ordered]@{
         schema_version = 1
-        milestone = "NXB-151"
+        milestone = "BSL-151"
         gate = "authorization_bound_target_profiles"
         platform = "windows"
         head_sha = $head
         rustc = $rustcVersion
-        binary_sha256 = (Get-FileHash -LiteralPath $nxb -Algorithm SHA256).Hash.ToLowerInvariant()
+        binary_sha256 = (Get-FileHash -LiteralPath $bsl -Algorithm SHA256).Hash.ToLowerInvariant()
         checks = [ordered]@{
             create_validate_list_show_disable = "passed"
             authorization_and_policy_binding = "passed"
@@ -357,7 +357,7 @@ expires_at = 2099-01-01T00:00:00Z
         [Text.UTF8Encoding]::new($false)
     )
 
-    Write-Host "NXB-151 authorization-bound target Windows validation passed."
+    Write-Host "BSL-151 authorization-bound target Windows validation passed."
     Write-Host "HEAD: $head"
     Write-Host "Evidence: $evidencePath"
 }

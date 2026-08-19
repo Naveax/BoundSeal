@@ -56,29 +56,29 @@ pub enum LiveRunHostError {
     #[error("live-run filesystem operation failed: {0}")]
     Io(String),
     #[error(transparent)]
-    Unified(#[from] nxb_unified_operator::UnifiedOperatorError),
+    Unified(#[from] bsl_unified_operator::UnifiedOperatorError),
     #[error(transparent)]
-    Runner(#[from] nxb_resumable_runner::RunnerError),
+    Runner(#[from] bsl_resumable_runner::RunnerError),
     #[error(transparent)]
-    Runtime(#[from] nxb_operator_runtime::RuntimeError),
+    Runtime(#[from] bsl_operator_runtime::RuntimeError),
     #[error(transparent)]
-    Provider(#[from] nxb_vault_provider::VaultProviderError),
+    Provider(#[from] bsl_vault_provider::VaultProviderError),
     #[error(transparent)]
-    Injection(#[from] nxb_session_injection::SessionInjectionError),
+    Injection(#[from] bsl_session_injection::SessionInjectionError),
     #[error(transparent)]
-    Policy(#[from] nxb_policy::PolicyError),
+    Policy(#[from] bsl_policy::PolicyError),
     #[error(transparent)]
-    Gateway(#[from] nxb_gateway::GatewayError),
+    Gateway(#[from] bsl_gateway::GatewayError),
     #[error(transparent)]
-    Transport(#[from] nxb_pinned_transport::PinnedTransportError),
+    Transport(#[from] bsl_pinned_transport::PinnedTransportError),
     #[error(transparent)]
-    Adapter(#[from] nxb_live_adapter::LiveAdapterError),
+    Adapter(#[from] bsl_live_adapter::LiveAdapterError),
     #[error(transparent)]
-    AuthenticatedAdapter(#[from] nxb_live_adapter::LiveAuthenticatedError),
+    AuthenticatedAdapter(#[from] bsl_live_adapter::LiveAuthenticatedError),
     #[error(transparent)]
-    Session(#[from] nxb_session::SessionError),
+    Session(#[from] bsl_session::SessionError),
     #[error(transparent)]
-    Vault(#[from] nxb_vault::VaultError),
+    Vault(#[from] bsl_vault::VaultError),
     #[error(transparent)]
-    Operator(#[from] nxb_operator::OperatorError),
+    Operator(#[from] bsl_operator::OperatorError),
 }

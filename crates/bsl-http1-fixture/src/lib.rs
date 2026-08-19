@@ -1,4 +1,4 @@
-use nxb_stream_fixture::{FixtureReadEvent, FixtureWriteEvent, InMemoryDuplex};
+use bsl_stream_fixture::{FixtureReadEvent, FixtureWriteEvent, InMemoryDuplex};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Http1FixtureConfig {

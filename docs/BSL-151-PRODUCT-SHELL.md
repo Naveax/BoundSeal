@@ -1,15 +1,15 @@
-# NXB-151 — Single-binary product shell
+# BSL-151 — Single-binary product shell
 
 ## Status
 
-Draft implementation stacked on NXB-150. Source scope is complete through workspace, migration, authorization-bound targets, machine-readable diagnostics, synthetic product flow, signed release manifest v2 and Windows installer lifecycle. Release readiness still requires pinned Rust, Linux and Windows evidence.
+Draft implementation stacked on BSL-150. Source scope is complete through workspace, migration, authorization-bound targets, machine-readable diagnostics, synthetic product flow, signed release manifest v2 and Windows installer lifecycle. Release readiness still requires pinned Rust, Linux and Windows evidence.
 
 ## Executable model
 
 The product declares exactly one Cargo binary target:
 
 ```text
-nxb -> crates/nxb-core/src/nxb.rs
+bsl -> crates/bsl-core/src/bsl.rs
 ```
 
 Cargo automatic binary discovery is disabled. Workspace, migration, target and release modules are linked directly into the same Rust process. PowerShell installer files are maintenance/orchestration sources rather than additional product executables.
@@ -17,11 +17,11 @@ Cargo automatic binary discovery is disabled. Workspace, migration, target and r
 ## Command surface
 
 ```text
-nxb workspace init|doctor|status ...
-nxb workspace migrate apply|recover|status ...
-nxb target create|validate|list|show|disable ...
-nxb release manifest-template|verify-manifest ...
-nxb scan ...
+bsl workspace init|doctor|status ...
+bsl workspace migrate apply|recover|status ...
+bsl target create|validate|list|show|disable ...
+bsl release manifest-template|verify-manifest ...
+bsl scan ...
 ```
 
 Existing policy, event, demo, activation and feature-gated live-run commands remain available.
@@ -77,7 +77,7 @@ Manifest schema `2` binds:
 - Cargo SemVer;
 - positive monotonic `release_sequence`;
 - platform and architecture;
-- exact `nxb` or `nxb.exe` bytes;
+- exact `bsl` or `bsl.exe` bytes;
 - CycloneDX SBOM;
 - checksum manifest;
 - external Ed25519 signature.
@@ -95,10 +95,10 @@ Equal order is idempotent only for the same signed manifest. Lower order is deni
 The fixed release payload is:
 
 ```text
-nxb.exe
-nxb.cdx.json
+bsl.exe
+bsl.cdx.json
 SHA256SUMS
-nxb-release-manifest.json
+bsl-release-manifest.json
 release-public-key.hex
 ```
 
@@ -121,4 +121,4 @@ Linux and Windows harnesses cover:
 - complete synthetic product flow;
 - Windows signed installer lifecycle.
 
-No compiler, Clippy, test or platform success is claimed by source presence. PR #70 remains draft until all required evidence passes on one unchanged exact head and NXB-150 is validated and merged.
+No compiler, Clippy, test or platform success is claimed by source presence. PR #70 remains draft until all required evidence passes on one unchanged exact head and BSL-150 is validated and merged.

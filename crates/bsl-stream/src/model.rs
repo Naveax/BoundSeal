@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use nxb_executor::ExecutorAuditError;
+use bsl_executor::ExecutorAuditError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

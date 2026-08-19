@@ -1,8 +1,8 @@
-# NXB-125 — Coverage and Saturation Receipts
+# BSL-125 — Coverage and Saturation Receipts
 
 ## Purpose
 
-NXB-125 makes run completeness and stopping conditions explicit. A run receipt must distinguish:
+BSL-125 makes run completeness and stopping conditions explicit. A run receipt must distinguish:
 
 - an endpoint-rule pair that executed and produced no finding;
 - an explicitly skipped pair and its reason;
@@ -93,4 +93,4 @@ Tests verify:
 
 ## Next stage
 
-NXB-126 will add adaptive safe-rule scheduling. Scheduling may reorder already-authorized work using observed unique-yield and cost, but it cannot bypass scope, capability, mutation, rate, request, time or cleanup boundaries.
+BSL-126 will add adaptive safe-rule scheduling. Scheduling may reorder already-authorized work using observed unique-yield and cost, but it cannot bypass scope, capability, mutation, rate, request, time or cleanup boundaries.

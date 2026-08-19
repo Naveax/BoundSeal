@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use nxb_knowledge_reporting::{ExportManifest, ReportBundle, ReportDocument};
-use nxb_run_closure::{ClosureDisposition, RunClosureCertificate};
-use nxb_unified_operator::UnifiedOperatorPlan;
+use bsl_knowledge_reporting::{ExportManifest, ReportBundle, ReportDocument};
+use bsl_run_closure::{ClosureDisposition, RunClosureCertificate};
+use bsl_unified_operator::UnifiedOperatorPlan;
 use ring::signature::{UnparsedPublicKey, ED25519};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

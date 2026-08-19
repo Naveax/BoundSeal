@@ -1,4 +1,4 @@
-# nxb-knowledge-reporting
+# bsl-knowledge-reporting
 
 Networkless P5 contracts for provenance-bound knowledge graphs, redacted content-addressed evidence, deterministic finding deduplication, finding lifecycle control, report generation and export manifests.
 

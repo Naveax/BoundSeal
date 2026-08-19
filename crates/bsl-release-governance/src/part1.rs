@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use nxb_adapter_boundary::AdapterConformanceCertificate;
-use nxb_replay_lab::ReproducibilityCertificate;
+use bsl_adapter_boundary::AdapterConformanceCertificate;
+use bsl_replay_lab::ReproducibilityCertificate;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;

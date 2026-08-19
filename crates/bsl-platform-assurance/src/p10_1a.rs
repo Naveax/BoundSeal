@@ -1,6 +1,6 @@
-use nxb_adapter_boundary::AdapterConformanceCertificate;
-use nxb_release_governance::PlatformReleaseCertificate;
-use nxb_replay_lab::ReproducibilityCertificate;
+use bsl_adapter_boundary::AdapterConformanceCertificate;
+use bsl_release_governance::PlatformReleaseCertificate;
+use bsl_replay_lab::ReproducibilityCertificate;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PlatformIntegrationIdentity {

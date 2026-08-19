@@ -1,20 +1,20 @@
-# NXB-151 — Linked single-binary workspace entry point
+# BSL-151 — Linked single-binary workspace entry point
 
 ## Status
 
-Draft implementation. This contract remains stacked on NXB-150 and is not release-complete until the exact Rust, Windows and Linux gates pass.
+Draft implementation. This contract remains stacked on BSL-150 and is not release-complete until the exact Rust, Windows and Linux gates pass.
 
 ## Supported user-facing surface
 
-The supported workspace interface is rooted at the primary `nxb` executable:
+The supported workspace interface is rooted at the primary `bsl` executable:
 
 ```text
-nxb workspace init --workspace <path> [--name <name>] [--json]
-nxb workspace doctor --workspace <path> [--json]
-nxb workspace status --workspace <path> [--json]
-nxb workspace migrate apply --workspace <path> [--json]
-nxb workspace migrate recover --workspace <path> [--json]
-nxb workspace migrate status --workspace <path> [--json]
+bsl workspace init --workspace <path> [--name <name>] [--json]
+bsl workspace doctor --workspace <path> [--json]
+bsl workspace status --workspace <path> [--json]
+bsl workspace migrate apply --workspace <path> [--json]
+bsl workspace migrate recover --workspace <path> [--json]
+bsl workspace migrate status --workspace <path> [--json]
 ```
 
 Workspace initialization, diagnostics, status and crash-safe migration are linked directly into this executable. No workspace helper executable is discovered, spawned or required.
@@ -23,19 +23,19 @@ Existing non-workspace commands and `live-network` feature gating retain their p
 
 ## Binary target contract
 
-`nxb-core` declares exactly one Cargo binary target:
+`bsl-core` declares exactly one Cargo binary target:
 
 ```text
-nxb
+bsl
 ```
 
 The release installation set for this slice therefore contains one executable:
 
 ```text
-nxb[.exe]
+bsl[.exe]
 ```
 
-The former `nxb-product` and `nxb-workspace-migrate` targets and sources were removed. Cargo automatic binary discovery remains disabled so support modules cannot become unintended executable targets.
+The former `bsl-product` and `bsl-workspace-migrate` targets and sources were removed. Cargo automatic binary discovery remains disabled so support modules cannot become unintended executable targets.
 
 ## Linked module boundary
 
@@ -67,11 +67,11 @@ Legacy non-workspace commands continue to return the primary CLI failure code `1
 
 ## Combined doctor and status
 
-`nxb workspace doctor` combines structural workspace diagnostics with migration state.
+`bsl workspace doctor` combines structural workspace diagnostics with migration state.
 
 A stable workspace adds a passing `migration_state` check. Pending, malformed or unavailable migration state changes the doctor result to `unhealthy` and returns exit code `20`.
 
-`nxb workspace status` includes a nested `migration` object. Pending migration state changes the top-level status to `recovery_required` and returns exit code `30`.
+`bsl workspace status` includes a nested `migration` object. Pending migration state changes the top-level status to `recovery_required` and returns exit code `30`.
 
 This prevents normal product use while a prepare/apply/commit migration transaction is incomplete.
 
@@ -80,20 +80,20 @@ This prevents normal product use while a prepare/apply/commit migration transact
 Linux:
 
 ```text
-bash scripts/validate-nxb-151-entrypoint-linux.sh
+bash scripts/validate-bsl-151-entrypoint-linux.sh
 ```
 
 Windows:
 
 ```text
-pwsh -NoProfile -File .\scripts\validate-nxb-151-entrypoint-windows.ps1
+pwsh -NoProfile -File .\scripts\validate-bsl-151-entrypoint-windows.ps1
 ```
 
-Each harness requires a clean exact head and Rust `1.97.1`, then runs formatting, check, Clippy with warnings denied, serial tests and a build of only `--bin nxb`.
+Each harness requires a clean exact head and Rust `1.97.1`, then runs formatting, check, Clippy with warnings denied, serial tests and a build of only `--bin bsl`.
 
 The harnesses verify:
 
-- Cargo metadata exposes exactly one binary target named `nxb`;
+- Cargo metadata exposes exactly one binary target named `bsl`;
 - unified initialization;
 - migration-aware doctor output;
 - migration-aware status output;
@@ -104,7 +104,7 @@ The harnesses verify:
 - the single executable SHA-256;
 - exact-head-bound local JSON evidence.
 
-## Remaining NXB-151 work
+## Remaining BSL-151 work
 
 - Run and repair the pinned Rust, Linux and Windows acceptance gates.
 - Add the first fail-closed `target` command group.

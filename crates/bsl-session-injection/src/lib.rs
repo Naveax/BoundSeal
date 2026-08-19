@@ -5,8 +5,8 @@ use std::{
     path::Path,
 };
 
-use nxb_session::{SessionMetadata, SessionStatus, SessionUseContext};
-use nxb_vault::{
+use bsl_session::{SessionMetadata, SessionStatus, SessionUseContext};
+use bsl_vault::{
     CookieMetadata, InMemorySecretVault, SecretDeliveryMetadata, SecretHandle, SecretKind,
 };
 use ring::signature::{UnparsedPublicKey, ED25519};

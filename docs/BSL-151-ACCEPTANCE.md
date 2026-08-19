@@ -1,18 +1,18 @@
-# NXB-151 acceptance matrix
+# BSL-151 acceptance matrix
 
-This matrix defines the minimum evidence required before NXB-151 can be marked complete.
+This matrix defines the minimum evidence required before BSL-151 can be marked complete.
 
 | Gate | Linux | Windows | Required evidence |
 |---|---:|---:|---|
 | Pinned Rust toolchain | Required | Required | exact `rustc`, Cargo, rustfmt and Clippy versions |
 | Formatting | Required | Required | `cargo fmt --all -- --check` |
-| Package check | Required | Required | `cargo check -p nxb-core --all-targets --all-features --locked` |
+| Package check | Required | Required | `cargo check -p bsl-core --all-targets --all-features --locked` |
 | Clippy | Required | Required | all targets, all features, warnings denied |
-| Unit and acceptance tests | Required | Required | serial `nxb-core` test result |
+| Unit and acceptance tests | Required | Required | serial `bsl-core` test result |
 | Full workspace regression | Required | Required | workspace check, Clippy and tests |
-| Single binary target | Required | Required | Cargo metadata exposes exactly `nxb` |
-| Single executable build | Required | Required | `cargo build -p nxb-core --bin nxb --all-features --locked` |
-| No helper executable dependency | Required | Required | workspace, migration, target and release commands use only `nxb` |
+| Single binary target | Required | Required | Cargo metadata exposes exactly `bsl` |
+| Single executable build | Required | Required | `cargo build -p bsl-core --bin bsl --all-features --locked` |
+| No helper executable dependency | Required | Required | workspace, migration, target and release commands use only `bsl` |
 | Init absent/empty path | Required | Required | canonical tree and manifest created |
 | Init non-empty path | Required | Required | fail closed, pre-existing content unchanged |
 | Partial-init recovery | Required | Required | no manifest or child directories remain |
@@ -70,6 +70,6 @@ This matrix defines the minimum evidence required before NXB-151 can be marked c
 | Exact-head evidence | Required | Required | JSON evidence and artifact SHA-256 values |
 | Two-source installer evidence | N/A | Required | previous ancestor and final head both recorded |
 | No workflow re-enable | Required | Required | no GitHub Actions workflow added or enabled |
-| No NXB-151 lock drift | Required | Required | no `Cargo.lock` modification |
+| No BSL-151 lock drift | Required | Required | no `Cargo.lock` modification |
 
-NXB-151 remains draft until every required cell has immutable evidence tied to the final exact commit. Source implementation, static inspection or a single-revision installer run does not satisfy a required evidence cell.
+BSL-151 remains draft until every required cell has immutable evidence tied to the final exact commit. Source implementation, static inspection or a single-revision installer run does not satisfy a required evidence cell.

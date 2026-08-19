@@ -9,15 +9,15 @@ if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
     $PSNativeCommandUseErrorActionPreference = $false
 }
 
-$branch = 'nxb-152-windows-credential-helper'
+$branch = 'bsl-152-windows-credential-helper'
 $baseD3 = 'adbf01ea6dcf9caac42df4c79947f4b9bb4f2654'
 $expectedMain = 'a43d0777339d74b86ef03730f53bc0c35c4301fb'
 $expectedLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
 $expectedRust = '1.97.1'
 $expectedCargoAudit = '0.22.2'
 $expectedCargoDeny = '0.20.2'
-$adversarialTest = 'crates/nxb-evidence-key-provider-process/tests/windows_credential_adversarial.rs'
-$validatorRelative = 'scripts/validate-nxb-152-adversarial-windows.ps1'
+$adversarialTest = 'crates/bsl-evidence-key-provider-process/tests/windows_credential_adversarial.rs'
+$validatorRelative = 'scripts/validate-bsl-152-adversarial-windows.ps1'
 
 function Invoke-CheckedNative {
     param(
@@ -82,7 +82,7 @@ Push-Location $RepoRoot
 try {
     Write-Host ''
     Write-Host '=================================================='
-    Write-Host 'NXB-152 PASS-E ADVERSARIAL WINDOWS VALIDATION'
+    Write-Host 'BSL-152 PASS-E ADVERSARIAL WINDOWS VALIDATION'
     Write-Host '=================================================='
 
     $head = (git rev-parse HEAD).Trim()
@@ -129,7 +129,7 @@ try {
         throw 'Local and remote Pass E authority differ.'
     }
     if ($remoteMain -ne $expectedMain) {
-        throw 'main authority moved during NXB-152 validation.'
+        throw 'main authority moved during BSL-152 validation.'
     }
 
     $allowedDelta = @(
@@ -167,10 +167,10 @@ try {
     Write-Host '=== PINNED SUPPLY-CHAIN TOOL PREPARATION ==='
 
     $prepareScript =
-        Join-Path $RepoRoot 'scripts\prepare-and-validate-nxb-150-windows.ps1'
+        Join-Path $RepoRoot 'scripts\prepare-and-validate-bsl-150-windows.ps1'
 
     if (-not (Test-Path -LiteralPath $prepareScript -PathType Leaf)) {
-        throw 'Canonical NXB-150 Windows preparation script is missing.'
+        throw 'Canonical BSL-150 Windows preparation script is missing.'
     }
 
     & $prepareScript `
@@ -178,7 +178,7 @@ try {
         -PrepareOnly
 
     $toolsBin =
-        Join-Path $RepoRoot 'target\nxb-tools\bin'
+        Join-Path $RepoRoot 'target\bsl-tools\bin'
 
     $auditPath =
         Join-Path $toolsBin 'cargo-audit.exe'
@@ -210,11 +210,11 @@ try {
     Write-Host ''
     Write-Host '=== POWERSHELL PARSER ==='
     foreach ($script in @(
-        (Join-Path $RepoRoot 'scripts\nxb-installer-common.ps1'),
-        (Join-Path $RepoRoot 'scripts\install-nxb-windows.ps1'),
-        (Join-Path $RepoRoot 'scripts\rollback-nxb-windows.ps1'),
-        (Join-Path $RepoRoot 'scripts\uninstall-nxb-windows.ps1'),
-        (Join-Path $RepoRoot 'scripts\validate-nxb-152-clean-install-evidence-windows.ps1'),
+        (Join-Path $RepoRoot 'scripts\bsl-installer-common.ps1'),
+        (Join-Path $RepoRoot 'scripts\install-bsl-windows.ps1'),
+        (Join-Path $RepoRoot 'scripts\rollback-bsl-windows.ps1'),
+        (Join-Path $RepoRoot 'scripts\uninstall-bsl-windows.ps1'),
+        (Join-Path $RepoRoot 'scripts\validate-bsl-152-clean-install-evidence-windows.ps1'),
         (Join-Path $RepoRoot $validatorRelative)
     )) {
         Assert-PowerShellScriptParses $script
@@ -223,7 +223,7 @@ try {
 
     Write-Host ''
     Write-Host '=== SECRET-SURFACE STATIC CLOSURE ==='
-    $processSourcePath = Join-Path $RepoRoot 'crates\nxb-vault-provider-process\src\lib.rs'
+    $processSourcePath = Join-Path $RepoRoot 'crates\bsl-vault-provider-process\src\lib.rs'
     $processSource = [IO.File]::ReadAllText($processSourcePath)
     $spawnStartMarker = 'let mut command = Command::new(&executable_path);'
     $spawnEndMarker = 'let mut child = command'
@@ -251,7 +251,7 @@ try {
     }
 
     $helperSource = [IO.File]::ReadAllText(
-        (Join-Path $RepoRoot 'crates\nxb-evidence-key-provider-process\src\bin\nxb-windows-credential-evidence-key-helper.rs')
+        (Join-Path $RepoRoot 'crates\bsl-evidence-key-provider-process\src\bin\bsl-windows-credential-evidence-key-helper.rs')
     )
     if (-not $helperSource.Contains('std::env::args_os().count() == 1')) {
         throw 'Helper protocol/lifecycle mode boundary changed.'
@@ -262,7 +262,7 @@ try {
     }
 
     $installSource = [IO.File]::ReadAllText(
-        (Join-Path $RepoRoot 'scripts\install-nxb-windows.ps1')
+        (Join-Path $RepoRoot 'scripts\install-bsl-windows.ps1')
     )
     foreach ($forbiddenStateToken in @(
         'credential_blob',
@@ -282,7 +282,7 @@ try {
 
     Invoke-CheckedNative 'EVIDENCE PROVIDER CHECK' {
         & rustup run $expectedRust cargo check `
-            -p nxb-evidence-key-provider-process `
+            -p bsl-evidence-key-provider-process `
             --all-targets `
             --all-features `
             --locked
@@ -290,7 +290,7 @@ try {
 
     Invoke-CheckedNative 'EVIDENCE PROVIDER CLIPPY' {
         & rustup run $expectedRust cargo clippy `
-            -p nxb-evidence-key-provider-process `
+            -p bsl-evidence-key-provider-process `
             --all-targets `
             --all-features `
             --locked `
@@ -300,7 +300,7 @@ try {
 
     Invoke-CheckedNative 'REAL WINDOWS ADVERSARIAL TESTS' {
         & rustup run $expectedRust cargo test `
-            -p nxb-evidence-key-provider-process `
+            -p bsl-evidence-key-provider-process `
             --test windows_credential_adversarial `
             --locked `
             -- `
@@ -309,7 +309,7 @@ try {
 
     Invoke-CheckedNative 'PROCESS ADAPTER TESTS' {
         & rustup run $expectedRust cargo test `
-            -p nxb-evidence-key-provider-process `
+            -p bsl-evidence-key-provider-process `
             --all-features `
             --test process_adapter `
             --locked `
@@ -319,7 +319,7 @@ try {
 
     Invoke-CheckedNative 'PROCESS BACKEND ADVERSARIAL FIXTURE' {
         & rustup run $expectedRust cargo test `
-            -p nxb-vault-provider-process `
+            -p bsl-vault-provider-process `
             --features fixture `
             --test process_backend `
             --locked `
@@ -384,13 +384,13 @@ try {
         throw 'Pass E left the repository dirty.'
     }
 
-    $evidenceDirectory = Join-Path $RepoRoot 'target\nxb-validation'
+    $evidenceDirectory = Join-Path $RepoRoot 'target\bsl-validation'
     New-Item -ItemType Directory -Path $evidenceDirectory -Force | Out-Null
-    $evidencePath = Join-Path $evidenceDirectory ('nxb-152-pass-e-windows-{0}.json' -f $head)
+    $evidencePath = Join-Path $evidenceDirectory ('bsl-152-pass-e-windows-{0}.json' -f $head)
 
     $evidence = [ordered]@{
         schema_version = 1
-        milestone = 'NXB-152'
+        milestone = 'BSL-152'
         gate = 'pass_e_adversarial_windows'
         platform = 'windows'
         head_sha = $head
@@ -439,7 +439,7 @@ try {
 
     Write-Host ''
     Write-Host '=================================================='
-    Write-Host 'NXB-152 PASS-E COMPLETE'
+    Write-Host 'BSL-152 PASS-E COMPLETE'
     Write-Host '=================================================='
     Write-Host ('HEAD:         {0}' -f $head)
     Write-Host ('BASE D3:      {0}' -f $baseD3)
@@ -449,7 +449,7 @@ try {
     Write-Host ('EVIDENCE:     {0}' -f $evidencePath)
     Write-Host ''
     Write-Host 'STATUS: PASS'
-    Write-Host 'NEXT:   NXB-152 FINAL CLOSURE'
+    Write-Host 'NEXT:   BSL-152 FINAL CLOSURE'
     Write-Host '=================================================='
 }
 finally {

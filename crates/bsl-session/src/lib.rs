@@ -3,12 +3,12 @@ use std::{
     fmt,
 };
 
-use nxb_cookie_jar::{
+use bsl_cookie_jar::{
     CookieCommit, CookieJar, CookieJarAuditChain, CookieJarConfig, CookieJarError, CookieOrigin,
 };
-use nxb_http1::{Http1Codec, Http1Error, Http1Exchange, Http1Request};
-use nxb_stream::{ByteStreamBackend, StreamControl};
-use nxb_vault::{
+use bsl_http1::{Http1Codec, Http1Error, Http1Exchange, Http1Request};
+use bsl_stream::{ByteStreamBackend, StreamControl};
+use bsl_vault::{
     InMemorySecretVault, SecretBinding, SecretHandle, SecretHeaderLease, SecretKind,
     VaultAccessContext, VaultError, MAX_SECRET_HANDLES_PER_LEASE, MAX_SECRET_LEASE_SECONDS,
 };
@@ -102,7 +102,7 @@ pub struct SessionAuditChain {
 impl SessionAuditChain {
     fn new(broker_id: &str) -> Self {
         let genesis_hash = lower_hex(&Sha256::digest(
-            format!("nxb-session:{broker_id}").as_bytes(),
+            format!("bsl-session:{broker_id}").as_bytes(),
         ));
         Self {
             tail_hash: genesis_hash.clone(),
@@ -761,15 +761,15 @@ fn lower_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nxb_executor::{
+    use bsl_executor::{
         ExecutionControl, ExecutionLimits, ExecutorConfig, PermitExecutor, SyntheticBackend,
         SyntheticScenario,
     };
-    use nxb_http1::{Http1Header, Http1Limits};
-    use nxb_stream::{BoundedByteStream, StreamLimits};
-    use nxb_stream_fixture::{FixtureReadEvent, FixtureWriteEvent, InMemoryDuplex};
-    use nxb_transport::{TransportPermit, TransportScheme};
-    use nxb_vault::{SecretBinding, SecretDelivery, SecretInput, SecretKind};
+    use bsl_http1::{Http1Header, Http1Limits};
+    use bsl_stream::{BoundedByteStream, StreamLimits};
+    use bsl_stream_fixture::{FixtureReadEvent, FixtureWriteEvent, InMemoryDuplex};
+    use bsl_transport::{TransportPermit, TransportScheme};
+    use bsl_vault::{SecretBinding, SecretDelivery, SecretInput, SecretKind};
 
     fn secret_binding() -> SecretBinding {
         SecretBinding {

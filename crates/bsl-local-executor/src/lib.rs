@@ -1,11 +1,11 @@
 use std::time::Duration;
 
-use nxb_executor::{
+use bsl_executor::{
     ExecutionControl, ExecutionLimits, ExecutionReceipt, ExecutorError, PermitBackend,
     PermitExecutor,
 };
-use nxb_pinned_transport::{PinnedTransportCoordinator, PinnedTransportError};
-use nxb_transport::{ConnectionAttempt, TicketUseOutcome, TicketUseResult};
+use bsl_pinned_transport::{PinnedTransportCoordinator, PinnedTransportError};
+use bsl_transport::{ConnectionAttempt, TicketUseOutcome, TicketUseResult};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -104,13 +104,13 @@ pub enum LocalExecutionError {
 mod tests {
     use std::collections::BTreeSet;
 
-    use chrono::{Duration as ChronoDuration, Utc};
-    use nxb_executor::{ExecutionOutcome, ExecutorConfig, SyntheticBackend, SyntheticScenario};
-    use nxb_gateway::{RequestIntent, ScopeGateway};
-    use nxb_policy::{
+    use bsl_executor::{ExecutionOutcome, ExecutorConfig, SyntheticBackend, SyntheticScenario};
+    use bsl_gateway::{RequestIntent, ScopeGateway};
+    use bsl_policy::{
         AuthorizationPolicy, AutomationPolicy, ProgramPolicy, ScopePolicy, TargetPolicy,
     };
-    use nxb_transport::{ConnectionAttempt, ConnectionTicket, TicketUseOutcome};
+    use bsl_transport::{ConnectionAttempt, ConnectionTicket, TicketUseOutcome};
+    use chrono::{Duration as ChronoDuration, Utc};
 
     use super::*;
 

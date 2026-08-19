@@ -1,14 +1,14 @@
-# NXB-138 — Vault-backed session injection
+# BSL-138 — Vault-backed session injection
 
-NXB-138 adds a fail-closed authorization boundary between the signed bounded discovery session introduced by NXB-137 and the existing in-memory secret vault, session broker, cookie jar, verified TLS channel, and HTTP/1 codec.
+BSL-138 adds a fail-closed authorization boundary between the signed bounded discovery session introduced by BSL-137 and the existing in-memory secret vault, session broker, cookie jar, verified TLS channel, and HTTP/1 codec.
 
-It does not import browser profiles, read browser cookie databases, persist plaintext credentials, broaden the NXB-137 request scope, or enable active probes.
+It does not import browser profiles, read browser cookie databases, persist plaintext credentials, broaden the BSL-137 request scope, or enable active probes.
 
 ## Signed injection manifest
 
 A `SessionInjectionManifest` is bound to:
 
-- the exact NXB-137 discovery-plan SHA-256;
+- the exact BSL-137 discovery-plan SHA-256;
 - the exact normalized HTTPS origin SHA-256;
 - one exact DNS authority and the `https` scheme;
 - one session identifier;
@@ -23,7 +23,7 @@ A `SessionInjectionManifest` is bound to:
 - a 32-byte Ed25519 activation key identifier;
 - the canonical manifest SHA-256.
 
-The manifest contains opaque handles and metadata only. Secret values remain inside `nxb-vault` and are not serialized into the manifest.
+The manifest contains opaque handles and metadata only. Secret values remain inside `bsl-vault` and are not serialized into the manifest.
 
 ## Mandatory activation consumption
 
@@ -57,7 +57,7 @@ The resulting lease duration is the minimum remaining lifetime across the manife
 
 ## Cookie rotation
 
-Static header secrets cannot be added after binding. Allowlisted cookies may rotate through the existing `nxb-session` cookie jar when the replacement cookie remains secure, unexpired, exact-authority-bound, name-allowlisted and contained by a signed request-path prefix.
+Static header secrets cannot be added after binding. Allowlisted cookies may rotate through the existing `bsl-session` cookie jar when the replacement cookie remains secure, unexpired, exact-authority-bound, name-allowlisted and contained by a signed request-path prefix.
 
 Bootstrap cookie metadata must remain resolvable for the bounded manifest lifetime; cookie values are never read during injection authorization. This keeps manifest provenance auditable while allowing the active session handle to rotate.
 
@@ -79,7 +79,7 @@ Secrets are materialized only inside the existing zeroizing vault/header lease t
 
 ## Deliberately excluded
 
-NXB-138 does not add:
+BSL-138 does not add:
 
 - browser cookie-store extraction;
 - plaintext secret files or command-line secret values;

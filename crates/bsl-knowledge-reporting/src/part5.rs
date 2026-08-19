@@ -156,7 +156,7 @@ impl ReportBuilder {
 
 fn render_markdown(document: &ReportDocument) -> String {
     let mut output = String::new();
-    output.push_str("# NXBounty validated findings report\n\n");
+    output.push_str("# BoundSeal validated findings report\n\n");
     output.push_str(&format!("- Report: `{}`\n", document.report_id));
     output.push_str(&format!("- Program: {}\n", markdown_text(&document.program_name)));
     output.push_str(&format!(

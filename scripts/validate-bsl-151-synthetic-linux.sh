@@ -21,51 +21,51 @@ rustc_version="$(rustc --version)"
 }
 
 cargo fmt --all -- --check
-cargo check -p nxb-core --all-targets --all-features --locked
-cargo clippy -p nxb-core --all-targets --all-features --locked -- -D warnings
-cargo test -p nxb-core --all-features --locked -- --test-threads=1
-cargo build -p nxb-core --bin nxb --all-features --locked
+cargo check -p bsl-core --all-targets --all-features --locked
+cargo clippy -p bsl-core --all-targets --all-features --locked -- -D warnings
+cargo test -p bsl-core --all-features --locked -- --test-threads=1
+cargo build -p bsl-core --bin bsl --all-features --locked
 
-nxb="$repo_root/target/debug/nxb"
-policy="$repo_root/fixtures/nxb-151/synthetic-policy.toml"
-authorization="$repo_root/fixtures/nxb-151/synthetic-authorization.txt"
-[[ -x "$nxb" && -f "$policy" && -f "$authorization" ]] || {
+bsl="$repo_root/target/debug/bsl"
+policy="$repo_root/fixtures/bsl-151/synthetic-policy.toml"
+authorization="$repo_root/fixtures/bsl-151/synthetic-authorization.txt"
+[[ -x "$bsl" && -f "$policy" && -f "$authorization" ]] || {
   echo 'synthetic acceptance inputs are missing' >&2
   exit 1
 }
 
-workspace="$(mktemp -d -t nxb-151-synthetic-XXXXXX)"
+workspace="$(mktemp -d -t bsl-151-synthetic-XXXXXX)"
 rmdir -- "$workspace"
-output_dir="$(mktemp -d -t nxb-151-synthetic-output-XXXXXX)"
+output_dir="$(mktemp -d -t bsl-151-synthetic-output-XXXXXX)"
 scan_output="$workspace/reports/synthetic-run"
 demo_receipt="$workspace/reports/demo-receipt.json"
 now='2026-08-05T12:00:00Z'
 
-"$nxb" workspace init \
+"$bsl" workspace init \
   --workspace "$workspace" \
-  --name 'NXB Synthetic Product' \
+  --name 'BSL Synthetic Product' \
   --json > "$output_dir/init.json"
-"$nxb" workspace doctor --workspace "$workspace" --json > "$output_dir/doctor-before.json"
-"$nxb" target create \
+"$bsl" workspace doctor --workspace "$workspace" --json > "$output_dir/doctor-before.json"
+"$bsl" target create \
   --workspace "$workspace" \
   --id synthetic-example \
   --name 'Synthetic Example' \
   --origin 'https://example.org' \
   --include-path / \
   --exclude-path /logout \
-  --authorization-reference 'local_fixture/nxb-151#synthetic' \
+  --authorization-reference 'local_fixture/bsl-151#synthetic' \
   --authorization-document "$authorization" \
   --policy "$policy" \
   --json > "$output_dir/target.json"
-"$nxb" target validate \
+"$bsl" target validate \
   --workspace "$workspace" \
   --id synthetic-example \
   --authorization-document "$authorization" \
   --policy "$policy" \
   --json > "$output_dir/target-validate.json"
-"$nxb" target list --workspace "$workspace" --json > "$output_dir/target-list.json"
-"$nxb" validate-policy "$policy" --now "$now" > "$output_dir/policy.txt"
-"$nxb" scan \
+"$bsl" target list --workspace "$workspace" --json > "$output_dir/target-list.json"
+"$bsl" validate-policy "$policy" --now "$now" > "$output_dir/policy.txt"
+"$bsl" scan \
   --program "$policy" \
   --target 'https://example.org/' \
   --output-directory "$scan_output" \
@@ -75,11 +75,11 @@ now='2026-08-05T12:00:00Z'
   --maximum-requests 8 \
   --dry-run true \
   --now "$now" > "$output_dir/scan.txt"
-"$nxb" demo-run --output "$demo_receipt" > "$output_dir/demo.txt"
-"$nxb" verify-demo "$demo_receipt" > "$output_dir/verify-demo.txt"
-"$nxb" workspace doctor --workspace "$workspace" --json > "$output_dir/doctor-after.json"
-"$nxb" workspace status --workspace "$workspace" --json > "$output_dir/status.json"
-"$nxb" system-status > "$output_dir/system-status.txt"
+"$bsl" demo-run --output "$demo_receipt" > "$output_dir/demo.txt"
+"$bsl" verify-demo "$demo_receipt" > "$output_dir/verify-demo.txt"
+"$bsl" workspace doctor --workspace "$workspace" --json > "$output_dir/doctor-after.json"
+"$bsl" workspace status --workspace "$workspace" --json > "$output_dir/status.json"
+"$bsl" system-status > "$output_dir/system-status.txt"
 
 for artifact in \
   "$scan_output/scan-plan.json" \
@@ -137,7 +137,7 @@ assert doctor_before['status'] == 'healthy'
 assert target['status'] == 'active'
 assert target['origin'] == 'https://example.org'
 assert target['network_activity'] == 'none'
-assert target['authorization_reference'] == 'local_fixture/nxb-151#synthetic'
+assert target['authorization_reference'] == 'local_fixture/bsl-151#synthetic'
 assert target['program']['platform'] == 'local_fixture'
 assert len(target['authorization_sha256']) == 64
 assert len(target['policy_sha256']) == 64
@@ -168,15 +168,15 @@ PY
 
 grep -q '^network_activity: none$' "$output_dir/scan.txt"
 grep -q '^No candidate findings are available for submission\.$' "$scan_output/hackerone-draft.md"
-grep -q 'NXB does not submit reports automatically' "$scan_output/hackerone-draft.md"
+grep -q 'BSL does not submit reports automatically' "$scan_output/hackerone-draft.md"
 grep -q '^demo_receipt: valid$' "$output_dir/verify-demo.txt"
 grep -q '^status: contract-complete$' "$output_dir/system-status.txt"
 
-validation_dir="$repo_root/target/nxb-validation"
+validation_dir="$repo_root/target/bsl-validation"
 mkdir -p -- "$validation_dir"
-evidence="$validation_dir/nxb-151-synthetic-linux-$head_sha.json"
+evidence="$validation_dir/bsl-151-synthetic-linux-$head_sha.json"
 python3 - \
-  "$evidence" "$head_sha" "$rustc_version" "$nxb" \
+  "$evidence" "$head_sha" "$rustc_version" "$bsl" \
   "$workspace/targets/synthetic-example.json" \
   "$scan_output/scan-plan.json" "$scan_output/report.json" \
   "$scan_output/manifest.json" "$demo_receipt" <<'PY'
@@ -186,7 +186,7 @@ def digest(path):
     return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
 value = {
     'schema_version': 1,
-    'milestone': 'NXB-151',
+    'milestone': 'BSL-151',
     'gate': 'synthetic_product_flow',
     'platform': 'linux',
     'head_sha': head,
@@ -215,6 +215,6 @@ value = {
 pathlib.Path(output).write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
 PY
 
-printf 'NXB-151 synthetic Linux validation passed.\n'
+printf 'BSL-151 synthetic Linux validation passed.\n'
 printf 'HEAD: %s\n' "$head_sha"
 printf 'Evidence: %s\n' "$evidence"

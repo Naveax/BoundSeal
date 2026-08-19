@@ -5,7 +5,7 @@ mod capacity_tests {
     fn finding(index: u64, endpoint: u64) -> Finding {
         Finding {
             finding_id: format!("{index:064x}"),
-            rule_id: format!("NXB-TEST-{index:06}"),
+            rule_id: format!("BSL-TEST-{index:06}"),
             title: "Synthetic capacity finding".into(),
             severity: Severity::Low,
             confidence: Confidence::High,

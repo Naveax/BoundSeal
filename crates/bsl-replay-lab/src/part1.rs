@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use nxb_adapter_boundary::AdapterConformanceCertificate;
+use bsl_adapter_boundary::AdapterConformanceCertificate;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;

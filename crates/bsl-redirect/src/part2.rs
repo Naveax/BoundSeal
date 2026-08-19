@@ -44,7 +44,7 @@ pub struct RedirectAuditChain {
 
 impl RedirectAuditChain {
     pub fn new(chain_id: &str, transport_anchor: &str) -> Self {
-        let genesis_hash = hash(format!("nxb-redirect:{chain_id}:{transport_anchor}").as_bytes());
+        let genesis_hash = hash(format!("bsl-redirect:{chain_id}:{transport_anchor}").as_bytes());
         Self {
             tail_hash: genesis_hash.clone(),
             genesis_hash,

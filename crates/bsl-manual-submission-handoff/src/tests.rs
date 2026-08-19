@@ -1,24 +1,24 @@
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nxb_knowledge_reporting::ReportFinding;
-    use nxb_live_run_host::{
+    use bsl_knowledge_reporting::ReportFinding;
+    use bsl_live_run_host::{
         LiveRunLaunchBundle, LiveRunTeardownOutcome, LIVE_RUN_LAUNCH_BUNDLE_VERSION,
     };
-    use nxb_operator_runtime::{RuntimeCommittedRequest, RuntimeMethod, RuntimeRecovery};
-    use nxb_operator_state::{
+    use bsl_operator_runtime::{RuntimeCommittedRequest, RuntimeMethod, RuntimeRecovery};
+    use bsl_operator_state::{
         OperatorCheckpoint, OperatorCounters, OperatorRunStatus, OperatorStateIdentity,
         RecoveredOperatorState, OPERATOR_CHECKPOINT_VERSION,
     };
-    use nxb_passive_analyzers::{Confidence, Severity};
-    use nxb_resumable_runner::{
+    use bsl_passive_analyzers::{Confidence, Severity};
+    use bsl_resumable_runner::{
         RunnerCandidate, RunnerCheckpoint, RunnerManifest, RunnerStatus, RunnerStopReason,
         RESUMABLE_RUNNER_VERSION,
     };
-    use nxb_run_closure::{
+    use bsl_run_closure::{
         RunClosureArtifacts, RunClosureCertificate, RunClosureInput, RunClosureManifest,
     };
-    use nxb_unified_operator::{
+    use bsl_unified_operator::{
         UnifiedComponentBinding, UnifiedOperatorPlanParameters,
     };
     use ring::signature::{Ed25519KeyPair, KeyPair};
@@ -608,7 +608,7 @@ mod tests {
                 other_key_pair().public_key().as_ref()
             ),
             Err(ManualHandoffError::Closure(
-                nxb_run_closure::RunClosureError::PublicKeyMismatch
+                bsl_run_closure::RunClosureError::PublicKeyMismatch
             ))
         ));
     }
