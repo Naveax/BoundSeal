@@ -32,7 +32,7 @@ fn capability(plan: &RequestIntentPlan) -> ProbeCapability {
         BTreeSet::from([plan.canonical_url_sha256.clone()]),
         10,
         10,
-        nxb_planner::SecretAccessLevel::None,
+        bsl_planner::SecretAccessLevel::None,
         false,
         false,
         1_000,
@@ -47,7 +47,7 @@ fn capability_request(plan: &RequestIntentPlan) -> CapabilityUseRequest {
         method: plan.method.clone(),
         endpoint_sha256: plan.canonical_url_sha256.clone(),
         mutations: 1,
-        requires_secret_access: nxb_planner::SecretAccessLevel::None,
+        requires_secret_access: bsl_planner::SecretAccessLevel::None,
         replays_body: false,
         follows_redirect: false,
         now_milliseconds: 10,
@@ -131,7 +131,7 @@ fn safe_mutation_is_capability_bound_and_inert() {
         )
         .unwrap();
     let value = String::from_utf8(generated.value().to_vec()).unwrap();
-    assert!(value.starts_with("nxb_"));
+    assert!(value.starts_with("bsl_"));
     assert!(!value.contains("http"));
     assert!(!format!("{generated:?}").contains(&value));
     assert_eq!(generated.receipt().value_sha256, hash_bytes(generated.value()));
@@ -232,7 +232,7 @@ fn repeated_differential_promotes_validated_finding() {
     let finding = oracle
         .promote(
             &result,
-            "NXB-VALID-001",
+            "BSL-VALID-001",
             "https://app.example.com:443",
             mutation.endpoint_sha256.clone(),
             "Inert input produced a repeatable authorization boundary change.",
