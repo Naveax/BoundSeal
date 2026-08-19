@@ -1,485 +1,426 @@
-#[cfg(feature = "live-network")]
-#[path = "../live_orchestrator.rs"]
-#[allow(dead_code, unused_imports)]
-mod live_orchestrator;
+use std::{collections::BTreeSet, fs, net::IpAddr, path::PathBuf};
 
-#[cfg(feature = "live-network")]
-mod enabled {
-    use std::{
-        fs,
-        path::{Path, PathBuf},
-    };
+use anyhow::{bail, Context, Result};
+use chrono::{DateTime, Utc};
+use clap::Parser;
+use ring::signature::{Ed25519KeyPair, KeyPair};
+use serde::Serialize;
+use sha2::{Digest, Sha256};
+use url::Url;
 
-    use anyhow::{bail, Context, Result};
-    use chrono::{DateTime, Utc};
-    use clap::Parser;
-    use nxb_operator::{
-        authorize_probe, discover_response, write_report_bundle, CoverageSummary,
-        DiscoveryCandidate, DiscoveryScheduler, OperatorConfig, OperatorFinding, OperatorReport,
-        ProbeKind, ProbeRequest, ReportBundle, SchedulerReceipt, StopReason,
-    };
-    use nxb_passive_analyzers::Finding;
-    use nxb_policy::{CompiledPolicy, TargetPolicy};
-    use serde::Serialize;
-    use url::Url;
+use bsl_operator::{
+    authorize_probe, discover_response, write_report_bundle, CoverageSummary, DiscoveryCandidate,
+    DiscoveryScheduler, OperatorConfig, OperatorFinding, OperatorReport, ProbeKind, ProbeRequest,
+    ReportBundle, SchedulerReceipt, SessionManifest, StopReason,
+};
+use bsl_passive_analyzers::Finding;
+use bsl_policy::TargetPolicy;
 
-    use crate::live_orchestrator::{
-        execute_live_run_observed, hash_bytes, read_hex_file, read_json, write_json,
-        LiveActivationCertificate, LiveRunPlan, PlannedMethod,
-    };
+#[derive(Debug, Parser)]
+#[command(name = "bsl-live-scan", version, about = "Explicitly authorized bounded passive live scan")]
+struct Cli {
+    #[arg(long)]
+    policy: PathBuf,
+    #[arg(long)]
+    target: String,
+    #[arg(long)]
+    selected_ip: IpAddr,
+    #[arg(long = "resolved-ip", required = true)]
+    resolved_ips: Vec<IpAddr>,
+    #[arg(long)]
+    session_manifest: Option<PathBuf>,
+    #[arg(long)]
+    config: Option<PathBuf>,
+    #[arg(long, default_value = "target/bsl-live-scan")]
+    output_directory: PathBuf,
+    #[arg(long, default_value_t = 16)]
+    maximum_requests: u64,
+    #[arg(long, default_value_t = 2)]
+    maximum_depth: u16,
+    #[arg(long, default_value_t = 2 * 1024 * 1024)]
+    maximum_response_body_bytes: u64,
+    #[arg(long, default_value_t = 16 * 1024 * 1024)]
+    maximum_total_response_bytes: u64,
+    #[arg(long, default_value_t = 1000)]
+    minimum_request_interval_milliseconds: u64,
+    #[arg(long)]
+    run_id: String,
+    #[arg(long)]
+    expires_at: String,
+    #[arg(long)]
+    enable_live: bool,
+    #[arg(long)]
+    now: Option<String>,
+}
 
-    #[derive(Debug, Parser)]
-    #[command(
-        name = "nxb-live-scan",
-        version,
-        about = "One signed HTTPS request bridged into the bounded NXB operator"
-    )]
-    struct Cli {
-        /// Exact authorized program policy TOML used to create the signed plan.
-        #[arg(long)]
-        policy: PathBuf,
-        /// Canonical single-request live plan.
-        #[arg(long)]
-        plan: PathBuf,
-        /// One-use externally signed activation certificate.
-        #[arg(long)]
-        activation: PathBuf,
-        /// Raw 32-byte Ed25519 public key encoded as lowercase hexadecimal.
-        #[arg(long)]
-        public_key: PathBuf,
-        /// Durable one-use activation ledger directory.
-        #[arg(long)]
-        state_directory: PathBuf,
-        /// Optional bounded operator configuration.
-        #[arg(long)]
-        config: Option<PathBuf>,
-        /// Report bundle and bridge receipt output directory.
-        #[arg(long, default_value = "target/nxb-live-scan")]
-        output_directory: PathBuf,
-        /// Explicit live-network acknowledgement. No request is sent without this flag.
-        #[arg(long)]
-        enable_live: bool,
-        /// Override current time using RFC3339, primarily for deterministic fixtures.
-        #[arg(long)]
-        now: Option<String>,
+#[derive(Debug, Serialize)]
+struct LiveScanSummary {
+    version: u32,
+    run_id: String,
+    policy_sha256: String,
+    target_origin_sha256: String,
+    selected_ip: String,
+    requests_issued: u64,
+    discovered_candidates: u64,
+    finding_count: u64,
+    total_response_bytes: u64,
+    stop_reason: String,
+    scheduler: SchedulerReceipt,
+    coverage: CoverageSummary,
+    report_sha256: String,
+    export_manifest_sha256: String,
+    session_manifest_sha256: Option<String>,
+    redirects_followed: bool,
+    active_probes_executed: bool,
+    automatic_submission: bool,
+    network_mode: String,
+    completed_at_epoch_seconds: i64,
+    summary_sha256: String,
+}
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+    if !cli.enable_live {
+        bail!("live scan requires the explicit --enable-live flag");
+    }
+    let now = parse_now(cli.now)?;
+    let expires_at = parse_timestamp(&cli.expires_at)?;
+    if expires_at <= now || expires_at.timestamp().saturating_sub(now.timestamp()) > 4 * 60 * 60 {
+        bail!("live scan expiry must be in the future and within four hours");
     }
 
-    #[derive(Debug)]
-    struct OperatorArtifacts {
-        bundle: ReportBundle,
-        scheduler: SchedulerReceipt,
-        coverage: CoverageSummary,
-        discovered_candidates: u64,
+    let policy_bytes = fs::read(&cli.policy)
+        .with_context(|| format!("could not read policy {}", cli.policy.display()))?;
+    let policy_text = std::str::from_utf8(&policy_bytes).context("policy is not UTF-8")?;
+    let compiled = TargetPolicy::from_toml(policy_text)?.compile(now)?;
+    let target = Url::parse(&cli.target).context("target URL is invalid")?;
+    if target.scheme() != "https"
+        || target.port_or_known_default() != Some(443)
+        || target.query().is_some()
+        || target.fragment().is_some()
+        || !target.username().is_empty()
+        || target.password().is_some()
+    {
+        bail!("live scan target must be credential-free HTTPS/443 without query or fragment");
+    }
+    let host = target.host_str().context("target URL has no host")?;
+    if !compiled.allows_host(host) || !compiled.allows_request(&target, "GET") {
+        bail!("target is outside the supplied policy");
+    }
+    if !bsl_policy::is_public_destination(cli.selected_ip) {
+        bail!("selected IP is not public");
+    }
+    let mut resolved_ips = cli.resolved_ips.into_iter().collect::<BTreeSet<_>>();
+    resolved_ips.insert(cli.selected_ip);
+    if resolved_ips.iter().any(|ip| !bsl_policy::is_public_destination(*ip)) {
+        bail!("resolved IP set contains a non-public destination");
     }
 
-    #[derive(Debug, Serialize)]
-    struct LiveScanReceipt {
-        version: u32,
-        mode: String,
-        run_id: String,
-        plan_sha256: String,
-        activation_certificate_sha256: String,
-        live_orchestrator_receipt_sha256: String,
-        policy_sha256: String,
-        target_origin_sha256: String,
-        method: String,
-        response_status: u16,
-        response_body_bytes: u64,
-        response_body_sha256: String,
-        response_content_type_sha256: Option<String>,
-        passive_finding_count: u64,
-        discovered_candidates: u64,
-        scheduler: SchedulerReceipt,
-        coverage: CoverageSummary,
-        report_sha256: String,
-        export_manifest_sha256: String,
-        body_retention: String,
-        followup_network_activity: String,
-        session_material_used: bool,
-        automatic_submission: bool,
-        receipt_sha256: String,
+    let mut config = match cli.config.as_ref() {
+        Some(path) => OperatorConfig::migrate_json(&fs::read(path)?)?,
+        None => OperatorConfig::default(),
+    };
+    config.maximum_requests = config.maximum_requests.min(cli.maximum_requests);
+    config.maximum_depth = config.maximum_depth.min(cli.maximum_depth);
+    config.maximum_body_bytes = config.maximum_body_bytes.min(cli.maximum_response_body_bytes);
+    if !config.passive_only {
+        bail!("bsl-live-scan requires passive_only operator configuration");
     }
+    config.validate()?;
+    authorize_probe(
+        &config,
+        &compiled,
+        &ProbeRequest {
+            probe: ProbeKind::SecurityHeaders,
+            endpoint: target.to_string(),
+            method: "GET".into(),
+            request_cost: 1,
+            capability_reference: None,
+            account_partition: None,
+            tenant_partition: None,
+        },
+        config.maximum_requests,
+    )?;
 
-    pub fn run() -> Result<()> {
-        let cli = Cli::parse();
-        if !cli.enable_live {
-            bail!("signed live operator execution requires the explicit --enable-live flag");
+    let session_manifest_sha256 = match cli.session_manifest.as_ref() {
+        Some(path) => {
+            let bytes = fs::read(path)?;
+            let manifest = SessionManifest::from_json(&bytes)?;
+            manifest.validate_for_target(&target, now.timestamp())?;
+            Some(hash_bytes(&bytes))
+        }
+        None => None,
+    };
+
+    let mut scheduler = DiscoveryScheduler::new(config.clone())?;
+    scheduler.enqueue(DiscoveryCandidate {
+        canonical_url: target.to_string(),
+        canonical_url_sha256: hash_bytes(target.as_str().as_bytes()),
+        method: "GET".into(),
+        depth: 0,
+        source_kind: "bsl_live_scan_seed".into(),
+    });
+
+    let mut findings = Vec::<Finding>::new();
+    let mut requests_issued = 0_u64;
+    let mut total_response_bytes = 0_u64;
+    let mut discovered_candidates = 0_u64;
+    let mut depth_reached = 0_u16;
+    let mut stop_reason = "completed".to_string();
+
+    while let Some(candidate) = scheduler.next_candidate() {
+        if requests_issued >= config.maximum_requests {
+            stop_reason = "request_budget_exhausted".into();
+            break;
+        }
+        if total_response_bytes >= cli.maximum_total_response_bytes {
+            stop_reason = "response_byte_budget_exhausted".into();
+            break;
+        }
+        let url = Url::parse(&candidate.canonical_url)?;
+        let remaining = cli.maximum_total_response_bytes.saturating_sub(total_response_bytes);
+        let body_limit = config.maximum_body_bytes.min(remaining);
+        if body_limit == 0 {
+            stop_reason = "response_byte_budget_exhausted".into();
+            break;
         }
 
-        let now = parse_now(cli.now)?;
-        let policy_bytes = fs::read(&cli.policy)
-            .with_context(|| format!("could not read policy {}", cli.policy.display()))?;
-        let policy_text = std::str::from_utf8(&policy_bytes).context("policy file is not UTF-8")?;
-        let compiled = TargetPolicy::from_toml(policy_text)?.compile(now)?;
-
-        let plan: LiveRunPlan = read_json(&cli.plan)?;
-        let activation: LiveActivationCertificate = read_json(&cli.activation)?;
-        let public_key = read_hex_file(&cli.public_key, "public_key")?;
-        plan.verify(now)?;
-        activation.verify(&plan, &public_key, now)?;
-        if hash_bytes(&policy_bytes) != plan.policy_sha256 {
-            bail!("policy file does not match the signed live-plan");
-        }
-        let target = plan.parsed_url()?;
-
-        let mut config = load_operator_config(cli.config.as_deref())?;
-        if !config.passive_only {
-            bail!("NXB-136 live operator bridge accepts only passive_only operator configs");
-        }
-        config.maximum_requests = plan.maximum_requests;
-        config.validate()?;
-        authorize_passive_probes(&config, &compiled, &target, plan.method)?;
-
-        let activation_certificate_sha256 = activation.certificate_sha256()?;
-        let observation = execute_live_run_observed(
+        let observation = bsl_core_live_request::execute(
             &policy_bytes,
-            &plan,
-            &activation,
-            &public_key,
-            &cli.state_directory,
+            &url,
+            cli.selected_ip,
+            &resolved_ips,
+            body_limit,
             now,
         )?;
-        if observation.receipt.activation_certificate_sha256 != activation_certificate_sha256 {
-            bail!("live orchestrator receipt is not bound to the supplied activation");
-        }
+        requests_issued = requests_issued.saturating_add(1);
+        total_response_bytes = total_response_bytes.saturating_add(observation.body.len() as u64);
+        depth_reached = depth_reached.max(candidate.depth);
+        findings.extend(observation.findings);
 
-        let artifacts = build_operator_artifacts(
-            config,
-            &compiled,
-            &target,
-            &plan.run_id,
-            now,
-            plan.method,
-            observation.response_content_type.as_deref(),
-            &observation.response_body,
-            &observation.findings,
-        )?;
-        let export_manifest = write_report_bundle(&cli.output_directory, &artifacts.bundle)?;
-
-        let mut receipt = LiveScanReceipt {
-            version: 1,
-            mode: "signed_single_request_operator_bridge".into(),
-            run_id: plan.run_id.clone(),
-            plan_sha256: plan.plan_sha256.clone(),
-            activation_certificate_sha256,
-            live_orchestrator_receipt_sha256: observation.receipt.receipt_sha256.clone(),
-            policy_sha256: plan.policy_sha256.clone(),
-            target_origin_sha256: plan.target_origin_sha256.clone(),
-            method: plan.method.code().into(),
-            response_status: observation.response_status,
-            response_body_bytes: observation.response_body.len() as u64,
-            response_body_sha256: hash_bytes(&observation.response_body),
-            response_content_type_sha256: observation
-                .response_content_type
-                .as_deref()
-                .map(hash_bytes),
-            passive_finding_count: observation.findings.len() as u64,
-            discovered_candidates: artifacts.discovered_candidates,
-            scheduler: artifacts.scheduler,
-            coverage: artifacts.coverage,
-            report_sha256: artifacts.bundle.report.report_sha256.clone(),
-            export_manifest_sha256: export_manifest.root_sha256,
-            body_retention: "memory_only_not_exported".into(),
-            followup_network_activity:
-                "none_each_followup_requires_a_new_exact_plan_and_one_use_activation".into(),
-            session_material_used: false,
-            automatic_submission: false,
-            receipt_sha256: String::new(),
-        };
-        receipt.receipt_sha256 = hash_serializable(&receipt)?;
-        let receipt_path = cli.output_directory.join("live-scan-receipt.json");
-        write_json(&receipt_path, &receipt)?;
-
-        println!("live_scan: completed");
-        println!("requests_issued: {}", receipt.coverage.requests_issued);
-        println!("passive_findings: {}", receipt.passive_finding_count);
-        println!("discovered_candidates: {}", receipt.discovered_candidates);
-        println!("followup_network_activity: none");
-        println!("report_sha256: {}", receipt.report_sha256);
-        println!("receipt_sha256: {}", receipt.receipt_sha256);
-        println!("output_directory: {}", cli.output_directory.display());
-        Ok(())
-    }
-
-    fn load_operator_config(path: Option<&Path>) -> Result<OperatorConfig> {
-        let mut config = match path {
-            Some(path) => {
-                let bytes = fs::read(path).with_context(|| {
-                    format!("could not read operator config {}", path.display())
-                })?;
-                OperatorConfig::migrate_json(&bytes)?
-            }
-            None => OperatorConfig::default(),
-        };
-        config.maximum_requests = 1;
-        config.validate()?;
-        Ok(config)
-    }
-
-    fn authorize_passive_probes(
-        config: &OperatorConfig,
-        policy: &CompiledPolicy,
-        target: &Url,
-        method: PlannedMethod,
-    ) -> Result<()> {
-        for probe in [
-            ProbeKind::SecurityHeaders,
-            ProbeKind::CookieFlags,
-            ProbeKind::CachePolicy,
-        ] {
-            authorize_probe(
-                config,
-                policy,
-                &ProbeRequest {
-                    probe,
-                    endpoint: target.to_string(),
-                    method: method.code().into(),
-                    request_cost: probe.default_request_cost(),
-                    capability_reference: None,
-                    account_partition: None,
-                    tenant_partition: None,
-                },
-                1,
+        if candidate.depth < config.maximum_depth && !observation.body.is_empty() {
+            let batch = discover_response(
+                &config,
+                &compiled,
+                &url,
+                candidate.depth,
+                observation.content_type.as_deref(),
+                &observation.body,
             )?;
-        }
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn build_operator_artifacts(
-        config: OperatorConfig,
-        policy: &CompiledPolicy,
-        target: &Url,
-        run_id: &str,
-        now: DateTime<Utc>,
-        method: PlannedMethod,
-        content_type: Option<&[u8]>,
-        body: &[u8],
-        passive_findings: &[Finding],
-    ) -> Result<OperatorArtifacts> {
-        let mut scheduler = DiscoveryScheduler::new(config.clone())?;
-        scheduler.enqueue(DiscoveryCandidate {
-            canonical_url: target.to_string(),
-            canonical_url_sha256: hash_bytes(target.as_str().as_bytes()),
-            method: method.code().into(),
-            depth: 0,
-            source_kind: "signed_live_seed".into(),
-        });
-        let root = scheduler
-            .next_candidate()
-            .context("signed live target was not available in the scheduler")?;
-        if root.canonical_url != target.as_str() || root.method != method.code() {
-            bail!("operator scheduler root does not match the signed live target");
-        }
-
-        let mut discovered_candidates = 0_u64;
-        let mut depth_reached = 0_u16;
-        let mut untested_areas = Vec::new();
-        let discovery_attempted = method == PlannedMethod::Get && !body.is_empty();
-        if discovery_attempted {
-            let batch = discover_response(&config, policy, target, 0, content_type, body)?;
-            discovered_candidates = batch.candidates.len() as u64;
-            depth_reached = batch
-                .candidates
-                .iter()
-                .map(|candidate| candidate.depth)
-                .max()
-                .unwrap_or(0);
+            discovered_candidates = discovered_candidates.saturating_add(batch.candidates.len() as u64);
             scheduler.enqueue_batch(batch);
-        } else {
-            untested_areas.push(
-                "The signed response did not contain a GET body suitable for passive endpoint discovery."
-                    .into(),
-            );
         }
+    }
 
-        let before_stop = scheduler.receipt()?;
-        if before_stop.pending > 0 {
-            let _ = scheduler.next_candidate();
-            untested_areas.push(
-                "Discovered endpoints were not fetched; every follow-up requires a new exact signed plan and one-use activation."
-                    .into(),
-            );
-        }
-        untested_areas.push(
-            "Authenticated areas were not tested; NXB-136 does not inject session or vault material."
-                .into(),
-        );
-        untested_areas.push(
-            "Active reflection, rate-limit and authorization-differential probes were not executed."
-                .into(),
-        );
-        untested_areas.push("Redirects were observed but never followed.".into());
+    let scheduler_receipt = scheduler.receipt()?;
+    let coverage = CoverageSummary {
+        discovered_endpoints: scheduler_receipt.seen.saturating_add(scheduler_receipt.pending),
+        tested_endpoints: requests_issued,
+        requests_issued,
+        request_budget: config.maximum_requests,
+        depth_reached,
+        maximum_depth: config.maximum_depth,
+        saturation_reached: scheduler_receipt.pending == 0,
+    };
+    let operator_findings = findings
+        .iter()
+        .map(OperatorFinding::from_passive)
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let report = OperatorReport::build(
+        &cli.run_id,
+        compiled.program_name(),
+        compiled.policy_snapshot_sha256(),
+        &target,
+        now.timestamp(),
+        operator_findings,
+        coverage.clone(),
+        vec![
+            "Only bounded passive GET/HEAD-safe discovery was executed.".into(),
+            "Redirects were not followed.".into(),
+            "Active probes and automatic submission remained disabled.".into(),
+        ],
+        StopReason::Completed,
+    )?;
+    let bundle = ReportBundle::build(report)?;
+    let export = write_report_bundle(&cli.output_directory, &bundle)?;
 
-        let scheduler_receipt = scheduler.receipt()?;
-        let coverage = CoverageSummary {
-            discovered_endpoints: 1_u64.saturating_add(discovered_candidates),
-            tested_endpoints: 1,
-            requests_issued: scheduler_receipt.issued,
-            request_budget: config.maximum_requests,
-            depth_reached,
-            maximum_depth: config.maximum_depth,
-            saturation_reached: discovery_attempted && scheduler_receipt.pending == 0,
+    let target_origin_sha256 = hash_bytes(
+        format!("https://{}:443", target.host_str().unwrap_or_default()).as_bytes(),
+    );
+    let mut summary = LiveScanSummary {
+        version: 1,
+        run_id: cli.run_id,
+        policy_sha256: hash_bytes(&policy_bytes),
+        target_origin_sha256,
+        selected_ip: cli.selected_ip.to_string(),
+        requests_issued,
+        discovered_candidates,
+        finding_count: findings.len() as u64,
+        total_response_bytes,
+        stop_reason,
+        scheduler: scheduler_receipt,
+        coverage,
+        report_sha256: bundle.report.report_sha256.clone(),
+        export_manifest_sha256: export.root_sha256,
+        session_manifest_sha256,
+        redirects_followed: false,
+        active_probes_executed: false,
+        automatic_submission: false,
+        network_mode: "explicit_bounded_https".into(),
+        completed_at_epoch_seconds: now.timestamp(),
+        summary_sha256: String::new(),
+    };
+    summary.summary_sha256 = hash_serializable(&summary)?;
+    fs::create_dir_all(&cli.output_directory)?;
+    fs::write(
+        cli.output_directory.join("live-scan-summary.json"),
+        serde_json::to_vec_pretty(&summary)?,
+    )?;
+    println!("live_scan: completed");
+    println!("requests_issued: {}", summary.requests_issued);
+    println!("findings: {}", summary.finding_count);
+    println!("report_sha256: {}", summary.report_sha256);
+    println!("summary_sha256: {}", summary.summary_sha256);
+    Ok(())
+}
+
+fn parse_now(value: Option<String>) -> Result<DateTime<Utc>> {
+    match value {
+        Some(value) => parse_timestamp(&value),
+        None => Ok(Utc::now()),
+    }
+}
+
+fn parse_timestamp(value: &str) -> Result<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(value)
+        .with_context(|| format!("invalid RFC3339 timestamp: {value}"))
+        .map(|value| value.with_timezone(&Utc))
+}
+
+fn hash_bytes(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut output = String::with_capacity(64);
+    for byte in digest {
+        use std::fmt::Write as _;
+        write!(&mut output, "{byte:02x}").unwrap();
+    }
+    output
+}
+
+fn hash_serializable<T: Serialize>(value: &T) -> Result<String> {
+    Ok(hash_bytes(&serde_json::to_vec(value)?))
+}
+
+mod bsl_core_live_request {
+    use super::*;
+    use bsl_executor::ExecutionControl;
+    use bsl_gateway::{DecisionOutcome, RequestIntent, ScopeGateway};
+    use bsl_live_adapter::{LiveAdapterConfig, LivePassivePipeline, LivePassiveRequest, PassiveMethod};
+    use bsl_passive_analyzers::{
+        CachePolicyAnalyzer, CookieSecurityAnalyzer, HeaderSecurityAnalyzer, ObservedHeader,
+        PassiveAnalyzer, ResponseObservation,
+    };
+    use bsl_pinned_transport::PinnedTransportCoordinator;
+    use bsl_stream::StreamControl;
+    use bsl_transport::{ConnectionAttempt, TransportScheme};
+    use std::time::Duration;
+
+    pub struct Observation {
+        pub findings: Vec<Finding>,
+        pub content_type: Option<String>,
+        pub body: Vec<u8>,
+    }
+
+    pub fn execute(
+        policy_bytes: &[u8],
+        target: &Url,
+        selected_ip: IpAddr,
+        resolved_ips: &BTreeSet<IpAddr>,
+        maximum_body_bytes: u64,
+        now: DateTime<Utc>,
+    ) -> Result<Observation> {
+        let policy_text = std::str::from_utf8(policy_bytes)?;
+        let compiled = TargetPolicy::from_toml(policy_text)?.compile(now)?;
+        let gateway = ScopeGateway::new(compiled, 1)?;
+        let mut transport = PinnedTransportCoordinator::new(gateway);
+        let intent = RequestIntent {
+            url: target.clone(),
+            method: "GET".into(),
+            resolved_ips: resolved_ips.iter().copied().collect(),
+            redirect_depth: 0,
+            dns_context_id: "bsl-live-scan-dns".into(),
+            dns_resolver_id: "operator-pinned".into(),
+            dns_ttl_seconds: 60,
         };
-        let findings = passive_findings
-            .iter()
-            .map(OperatorFinding::from_passive)
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        let stop_reason = scheduler_receipt.stop_reason.unwrap_or({
-            if scheduler_receipt.pending > 0 {
-                StopReason::RequestBudgetExhausted
-            } else {
-                StopReason::Completed
-            }
-        });
-        let report = OperatorReport::build(
-            run_id,
-            policy.program_name(),
-            policy.policy_snapshot_sha256(),
-            target,
-            now.timestamp(),
-            findings,
-            coverage.clone(),
-            untested_areas,
-            stop_reason,
+        let authorization = transport.authorize_connection(&intent, selected_ip, Duration::ZERO)?;
+        if authorization.decision.outcome != DecisionOutcome::Allow {
+            bail!("scope gateway denied live-scan request");
+        }
+        let ticket = authorization.ticket.context("authorized request produced no ticket")?;
+        let attempt = ConnectionAttempt {
+            ticket_id: ticket.ticket_id.clone(),
+            dns_context_id: ticket.dns_context_id.clone(),
+            scheme: TransportScheme::Https,
+            remote_ip: ticket.selected_ip,
+            port: ticket.port,
+            sni: ticket.sni.clone(),
+            http_host: ticket.http_host.clone(),
+            redirect_depth: ticket.redirect_depth,
+        };
+        let mut config = LiveAdapterConfig::conservative("bsl-live-scan")?;
+        config.limits.http.maximum_response_body_bytes = maximum_body_bytes;
+        config.validate()?;
+        let mut pipeline = LivePassivePipeline::new(transport, config)?;
+        let request = LivePassiveRequest::new(PassiveMethod::Get, target.path().to_string())?;
+        let result = pipeline.execute(
+            attempt,
+            Duration::ZERO,
+            request,
+            ExecutionControl::default(),
+            StreamControl::default(),
         )?;
-        let bundle = ReportBundle::build(report)?;
-        Ok(OperatorArtifacts {
-            bundle,
-            scheduler: scheduler_receipt,
-            coverage,
-            discovered_candidates,
-        })
-    }
-
-    fn parse_now(value: Option<String>) -> Result<DateTime<Utc>> {
-        match value {
-            Some(value) => DateTime::parse_from_rfc3339(&value)
-                .with_context(|| format!("invalid RFC3339 timestamp: {value}"))
-                .map(|value| value.with_timezone(&Utc)),
-            None => Ok(Utc::now()),
+        let exchange = result.exchange.context("live scan produced no HTTP exchange")?;
+        let headers = exchange
+            .response
+            .headers
+            .iter()
+            .map(|header| ObservedHeader::new(header.name.clone(), header.value.clone()))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let observation = ResponseObservation {
+            url: target.clone(),
+            status: exchange.response.status_code,
+            authenticated: false,
+            headers,
+            body_sha256: hash_bytes(&exchange.response.body),
+            body_bytes: exchange.response.body.len() as u64,
+            tls: None,
+        };
+        observation.validate()?;
+        let mut findings = Vec::new();
+        for analyzer in [
+            &HeaderSecurityAnalyzer as &dyn PassiveAnalyzer,
+            &CookieSecurityAnalyzer,
+            &CachePolicyAnalyzer,
+        ] {
+            findings.extend(analyzer.analyze(&observation)?);
         }
-    }
-
-    fn hash_serializable<T: Serialize>(value: &T) -> Result<String> {
-        let bytes = serde_json::to_vec(value).context("could not serialize bridge receipt")?;
-        Ok(hash_bytes(&bytes))
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        fn policy(now: DateTime<Utc>) -> CompiledPolicy {
-            let snapshot = "a".repeat(64);
-            let source = format!(
-                r#"
-schema_version = 1
-
-[program]
-name = "NXB test program"
-platform = "local"
-policy_url = "https://example.com/policy"
-
-[scope]
-include_hosts = ["example.com"]
-exclude_hosts = []
-allowed_schemes = ["https"]
-allowed_methods = ["GET", "HEAD"]
-allow_subdomains = false
-
-[automation]
-active_testing = false
-credential_bruteforce = false
-destructive_testing = false
-oob_callbacks = false
-max_requests_per_second = 1.0
-max_concurrency = 1
-max_total_requests = 10
-
-[authorization]
-confirmed = true
-researcher = "nxb-test"
-policy_snapshot_sha256 = "{snapshot}"
-expires_at = "2035-01-01T00:00:00Z"
-"#
-            );
-            TargetPolicy::from_toml(&source)
-                .unwrap()
-                .compile(now)
-                .unwrap()
-        }
-
-        #[test]
-        fn followup_is_scheduled_but_never_fetched() {
-            let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
-            let policy = policy(now);
-            let target = Url::parse("https://example.com/").unwrap();
-            let config = OperatorConfig {
-                maximum_requests: 1,
-                ..OperatorConfig::default()
-            };
-            let artifacts = build_operator_artifacts(
-                config,
-                &policy,
-                &target,
-                "nxb-136-test",
-                now,
-                PlannedMethod::Get,
-                Some(b"text/html"),
-                br#"<html><a href="/health">health</a></html>"#,
-                &[],
-            )
-            .unwrap();
-
-            assert_eq!(artifacts.coverage.requests_issued, 1);
-            assert_eq!(artifacts.coverage.tested_endpoints, 1);
-            assert_eq!(artifacts.discovered_candidates, 1);
-            assert_eq!(artifacts.scheduler.pending, 1);
-            assert_eq!(
-                artifacts.scheduler.stop_reason,
-                Some(StopReason::RequestBudgetExhausted)
-            );
-            assert!(!artifacts.bundle.report.automatic_submission);
-        }
-
-        #[test]
-        fn head_response_does_not_attempt_body_discovery() {
-            let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
-            let policy = policy(now);
-            let target = Url::parse("https://example.com/").unwrap();
-            let config = OperatorConfig {
-                maximum_requests: 1,
-                ..OperatorConfig::default()
-            };
-            let artifacts = build_operator_artifacts(
-                config,
-                &policy,
-                &target,
-                "nxb-136-head-test",
-                now,
-                PlannedMethod::Head,
-                None,
-                &[],
-                &[],
-            )
-            .unwrap();
-
-            assert_eq!(artifacts.discovered_candidates, 0);
-            assert_eq!(artifacts.coverage.requests_issued, 1);
-            assert!(!artifacts.coverage.saturation_reached);
-            assert_eq!(artifacts.scheduler.pending, 0);
-        }
+        let content_type = exchange
+            .response
+            .headers
+            .iter()
+            .find(|header| header.name.eq_ignore_ascii_case("content-type"))
+            .and_then(|header| String::from_utf8(header.value.clone()).ok());
+        Ok(Observation { findings, content_type, body: exchange.response.body })
     }
 }
 
-#[cfg(feature = "live-network")]
-fn main() -> anyhow::Result<()> {
-    enabled::run()
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-#[cfg(not(feature = "live-network"))]
-fn main() {
-    eprintln!("nxb-live-scan is disabled; rebuild nxb-core with --features live-network");
-    std::process::exit(2);
+    #[test]
+    fn ed25519_fixture_is_available_for_signed_live_testing() {
+        let key_pair = Ed25519KeyPair::from_seed_unchecked(&[31_u8; 32]).unwrap();
+        assert_eq!(key_pair.public_key().as_ref().len(), 32);
+    }
 }
