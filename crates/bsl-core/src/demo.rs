@@ -11,7 +11,7 @@ pub const MILESTONE_START: u16 = 0;
 pub const MILESTONE_END: u16 = 119;
 pub const WORKSPACE_CRATE_COUNT: u16 = 34;
 
-const DEMO_SCHEMA: &str = "nxb.demo.receipt.v1";
+const DEMO_SCHEMA: &str = "bsl.demo.receipt.v1";
 const DEMO_MODE: &str = "synthetic-networkless";
 const DEMO_STAGES: [&str; 12] = [
     "policy_compilation",
@@ -154,7 +154,7 @@ pub fn read_demo_receipt(path: &Path) -> Result<DemoReceipt> {
 }
 
 pub fn default_demo_output() -> PathBuf {
-    PathBuf::from("target/nxb-demo-receipt.json")
+    PathBuf::from("target/bsl-demo-receipt.json")
 }
 
 fn hash_bytes(bytes: &[u8]) -> String {
