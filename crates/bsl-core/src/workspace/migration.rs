@@ -173,11 +173,7 @@ fn status_result(workspace: &Path) -> Result<CommandResult> {
     details.insert("pending_files".into(), pending.to_string());
     details.insert("receipts".into(), receipt_count(&paths)?.to_string());
     Ok(CommandResult {
-        status: if pending == 0 {
-            "stable"
-        } else {
-            "recovery_required"
-        },
+        status: if pending == 0 { "stable" } else { "recovery_required" },
         workspace: root.display().to_string(),
         schema_version: optional_manifest_schema(&paths.manifest)?,
         migration_id: None,
@@ -203,10 +199,7 @@ fn ensure_state_layout(root: &Path) -> Result<MigrationPaths> {
     validate_state_directory(&value)?;
     if !safe_exists(&value.receipts)? {
         fs::create_dir(&value.receipts).with_context(|| {
-            format!(
-                "could not create migration receipts directory {}",
-                value.receipts.display()
-            )
+            format!("could not create migration receipts directory {}", value.receipts.display())
         })?;
         set_private_directory_permissions(&value.receipts)?;
     }
@@ -218,32 +211,22 @@ fn ensure_state_layout(root: &Path) -> Result<MigrationPaths> {
 fn validate_state_directory(paths: &MigrationPaths) -> Result<()> {
     super::reject_path_indirections(&paths.state, "migration state directory")?;
     let metadata = fs::metadata(&paths.state).context("migration state directory is missing")?;
-    if !metadata.is_dir() {
-        bail!("migration state path is not a directory");
-    }
+    if !metadata.is_dir() { bail!("migration state path is not a directory"); }
     validate_private_permissions(&paths.state, true)
 }
 
 fn transient_state(paths: &MigrationPaths) -> Result<usize> {
     validate_state_directory(paths)?;
-    [
-        safe_exists(&paths.active)?,
-        safe_exists(&paths.backup)?,
-        safe_exists(&paths.applied)?,
-    ]
-    .into_iter()
-    .try_fold(0_usize, |count, present| {
-        count
-            .checked_add(usize::from(present))
-            .ok_or_else(|| anyhow::anyhow!("transient count overflow"))
-    })
+    [safe_exists(&paths.active)?, safe_exists(&paths.backup)?, safe_exists(&paths.applied)?]
+        .into_iter()
+        .try_fold(0_usize, |count, present| {
+            count.checked_add(usize::from(present)).ok_or_else(|| anyhow::anyhow!("transient count overflow"))
+        })
 }
 
 fn receipt_count(paths: &MigrationPaths) -> Result<usize> {
     validate_state_directory(paths)?;
-    if !safe_exists(&paths.receipts)? {
-        return Ok(0);
-    }
+    if !safe_exists(&paths.receipts)? { return Ok(0); }
     super::reject_path_indirections(&paths.receipts, "migration receipts directory")?;
     validate_private_permissions(&paths.receipts, true)?;
     let mut count = 0_usize;
@@ -251,28 +234,17 @@ fn receipt_count(paths: &MigrationPaths) -> Result<usize> {
         let path = entry?.path();
         super::reject_path_indirections(&path, "migration receipt")?;
         let metadata = fs::symlink_metadata(&path)?;
-        if !metadata.is_file() {
-            bail!("migration receipts directory contains a non-file entry");
-        }
+        if !metadata.is_file() { bail!("migration receipts directory contains a non-file entry"); }
         validate_private_permissions(&path, false)?;
-        count = count
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("receipt count overflow"))?;
-        if count > MAX_RECEIPTS {
-            bail!("migration receipt count exceeds the supported limit");
-        }
+        count = count.checked_add(1).ok_or_else(|| anyhow::anyhow!("receipt count overflow"))?;
+        if count > MAX_RECEIPTS { bail!("migration receipt count exceeds the supported limit"); }
     }
     Ok(count)
 }
 
 fn optional_manifest_schema(path: &Path) -> Result<Option<u32>> {
-    if !safe_exists(path)? {
-        return Ok(None);
-    }
-    Ok(Some(manifest_schema(&read_document(
-        path,
-        "workspace manifest",
-    )?)?))
+    if !safe_exists(path)? { return Ok(None); }
+    Ok(Some(manifest_schema(&read_document(path, "workspace manifest")?)?))
 }
 
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path, label: &str) -> Result<T> {
@@ -281,11 +253,7 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path, label: &str) -> Result
 }
 
 fn read_optional_document(path: &Path, label: &str) -> Result<Vec<u8>> {
-    if safe_exists(path)? {
-        read_document(path, label)
-    } else {
-        Ok(Vec::new())
-    }
+    if safe_exists(path)? { read_document(path, label) } else { Ok(Vec::new()) }
 }
 
 fn create_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
@@ -301,26 +269,13 @@ fn cleanup(paths: &MigrationPaths) -> Result<()> {
 }
 
 fn remove_if_exists(path: &Path) -> Result<()> {
-    if safe_exists(path)? {
-        remove_regular(path)
-    } else {
-        Ok(())
-    }
+    if safe_exists(path)? { remove_regular(path) } else { Ok(()) }
 }
 
 fn plan(source: &[u8]) -> Result<MigrationPlan> {
-    if manifest_schema(source)? != 0 {
-        bail!("migration planner expected schema 0");
-    }
-    let legacy: LegacyManifestV0 =
-        serde_json::from_slice(source).context("legacy manifest is invalid")?;
-    validate_common(
-        legacy.schema_version,
-        &legacy.product,
-        &legacy.workspace_id,
-        &legacy.name,
-        &legacy.created_at,
-    )?;
+    if manifest_schema(source)? != 0 { bail!("migration planner expected schema 0"); }
+    let legacy: LegacyManifestV0 = serde_json::from_slice(source).context("legacy manifest is invalid")?;
+    validate_common(legacy.schema_version, &legacy.product, &legacy.workspace_id, &legacy.name, &legacy.created_at)?;
     let target = ManifestV1 {
         schema_version: CURRENT_SCHEMA_VERSION,
         product: legacy.product,
@@ -334,9 +289,9 @@ fn plan(source: &[u8]) -> Result<MigrationPlan> {
     target_bytes.push(b'\n');
     let source_sha256 = sha256(source);
     let target_sha256 = sha256(&target_bytes);
-    let identity = sha256(format!("nxb-migration-v1:{source_sha256}:{target_sha256}").as_bytes());
+    let identity = sha256(format!("bsl-migration-v1:{source_sha256}:{target_sha256}").as_bytes());
     Ok(MigrationPlan {
-        migration_id: format!("nxb-migration-0-1-{}", &identity[..24]),
+        migration_id: format!("bsl-migration-0-1-{}", &identity[..24]),
         source_sha256,
         target_sha256,
         target_bytes,
@@ -344,12 +299,8 @@ fn plan(source: &[u8]) -> Result<MigrationPlan> {
 }
 
 fn prepare(paths: &MigrationPaths, plan: &MigrationPlan, source: &[u8]) -> Result<()> {
-    if transient_state(paths)? != 0 {
-        bail!("migration recovery is required first");
-    }
-    if sha256(source) != plan.source_sha256 {
-        bail!("migration source does not match its plan");
-    }
+    if transient_state(paths)? != 0 { bail!("migration recovery is required first"); }
+    if sha256(source) != plan.source_sha256 { bail!("migration source does not match its plan"); }
     create_document(&paths.backup, source)?;
     let journal = PreparedJournal {
         journal_version: JOURNAL_VERSION,
@@ -371,12 +322,8 @@ fn recover_engine(paths: &MigrationPaths) -> Result<RecoveryDisposition> {
     let active = safe_exists(&paths.active)?;
     let backup = safe_exists(&paths.backup)?;
     let applied = safe_exists(&paths.applied)?;
-    if !active && !backup && !applied {
-        return Ok(RecoveryDisposition::None);
-    }
-    if !active && !backup {
-        bail!("applied marker exists without prepared state");
-    }
+    if !active && !backup && !applied { return Ok(RecoveryDisposition::None); }
+    if !active && !backup { bail!("applied marker exists without prepared state"); }
 
     let (journal, source, plan) = if active {
         let journal: PreparedJournal = read_json(&paths.active, "prepared journal")?;
@@ -387,9 +334,7 @@ fn recover_engine(paths: &MigrationPaths) -> Result<RecoveryDisposition> {
             cleanup(paths)?;
             return Ok(RecoveryDisposition::Cleanup);
         }
-        if !backup {
-            bail!("prepared journal exists without source backup");
-        }
+        if !backup { bail!("prepared journal exists without source backup"); }
         let source = read_document(&paths.backup, "source backup")?;
         let plan = plan(&source)?;
         validate_journal_plan(&journal, &plan)?;
@@ -410,9 +355,7 @@ fn recover_engine(paths: &MigrationPaths) -> Result<RecoveryDisposition> {
         (journal, source, plan)
     };
 
-    if sha256(&source) != journal.source_sha256 {
-        bail!("source backup digest mismatch");
-    }
+    if sha256(&source) != journal.source_sha256 { bail!("source backup digest mismatch"); }
     let current = read_optional_document(&paths.manifest, "workspace manifest")?;
     let current_hash = sha256(&current);
     if current.is_empty() || current_hash == plan.source_sha256 {
@@ -422,26 +365,20 @@ fn recover_engine(paths: &MigrationPaths) -> Result<RecoveryDisposition> {
     }
 
     let published = read_document(&paths.manifest, "published manifest")?;
-    if sha256(&published) != plan.target_sha256 {
-        bail!("published manifest digest mismatch");
-    }
-    let manifest: ManifestV1 =
-        serde_json::from_slice(&published).context("published manifest is invalid")?;
+    if sha256(&published) != plan.target_sha256 { bail!("published manifest digest mismatch"); }
+    let manifest: ManifestV1 = serde_json::from_slice(&published).context("published manifest is invalid")?;
     validate_manifest_v1(&manifest)?;
 
     if applied {
         let marker: AppliedMarker = read_json(&paths.applied, "applied marker")?;
         validate_marker(&marker, &plan)?;
     } else {
-        create_json(
-            &paths.applied,
-            &AppliedMarker {
-                journal_version: JOURNAL_VERSION,
-                migration_id: plan.migration_id.clone(),
-                target_sha256: plan.target_sha256.clone(),
-                applied_at: now(),
-            },
-        )?;
+        create_json(&paths.applied, &AppliedMarker {
+            journal_version: JOURNAL_VERSION,
+            migration_id: plan.migration_id.clone(),
+            target_sha256: plan.target_sha256.clone(),
+            applied_at: now(),
+        })?;
     }
 
     let receipt = MigrationReceipt {
@@ -454,22 +391,13 @@ fn recover_engine(paths: &MigrationPaths) -> Result<RecoveryDisposition> {
         committed_at: now(),
     };
     let receipt_path = paths.receipt(&receipt.migration_id);
-    if safe_exists(&receipt_path)? {
-        verify_receipt(&receipt_path, &receipt)?;
-    } else {
-        create_json(&receipt_path, &receipt)?;
-    }
+    if safe_exists(&receipt_path)? { verify_receipt(&receipt_path, &receipt)?; } else { create_json(&receipt_path, &receipt)?; }
     cleanup(paths)?;
     Ok(RecoveryDisposition::Recovered)
 }
 
 fn validate_journal(value: &PreparedJournal) -> Result<()> {
-    if value.journal_version != JOURNAL_VERSION
-        || value.from_schema != 0
-        || value.to_schema != CURRENT_SCHEMA_VERSION
-    {
-        bail!("prepared journal transition is invalid");
-    }
+    if value.journal_version != JOURNAL_VERSION || value.from_schema != 0 || value.to_schema != CURRENT_SCHEMA_VERSION { bail!("prepared journal transition is invalid"); }
     validate_identifier(&value.migration_id, "migration_id")?;
     validate_sha(&value.source_sha256, "source_sha256")?;
     validate_sha(&value.target_sha256, "target_sha256")?;
@@ -477,66 +405,33 @@ fn validate_journal(value: &PreparedJournal) -> Result<()> {
 }
 
 fn validate_journal_plan(value: &PreparedJournal, plan: &MigrationPlan) -> Result<()> {
-    if value.migration_id != plan.migration_id
-        || value.source_sha256 != plan.source_sha256
-        || value.target_sha256 != plan.target_sha256
-    {
-        bail!("prepared journal does not match the deterministic plan");
-    }
+    if value.migration_id != plan.migration_id || value.source_sha256 != plan.source_sha256 || value.target_sha256 != plan.target_sha256 { bail!("prepared journal does not match the deterministic plan"); }
     Ok(())
 }
 
 fn validate_marker(value: &AppliedMarker, plan: &MigrationPlan) -> Result<()> {
-    if value.journal_version != JOURNAL_VERSION
-        || value.migration_id != plan.migration_id
-        || value.target_sha256 != plan.target_sha256
-    {
-        bail!("applied marker does not match the deterministic plan");
-    }
+    if value.journal_version != JOURNAL_VERSION || value.migration_id != plan.migration_id || value.target_sha256 != plan.target_sha256 { bail!("applied marker does not match the deterministic plan"); }
     validate_time(&value.applied_at, "applied_at")
 }
 
 fn verify_receipt(path: &Path, expected: &MigrationReceipt) -> Result<()> {
     let actual: MigrationReceipt = read_json(path, "migration receipt")?;
     validate_receipt(&actual)?;
-    if actual.migration_id != expected.migration_id
-        || actual.from_schema != expected.from_schema
-        || actual.to_schema != expected.to_schema
-        || actual.source_sha256 != expected.source_sha256
-        || actual.target_sha256 != expected.target_sha256
-    {
-        bail!("existing migration receipt conflicts with the completed migration");
-    }
+    if actual.migration_id != expected.migration_id || actual.from_schema != expected.from_schema || actual.to_schema != expected.to_schema || actual.source_sha256 != expected.source_sha256 || actual.target_sha256 != expected.target_sha256 { bail!("existing migration receipt conflicts with the completed migration"); }
     Ok(())
 }
 
-fn verify_committed(
-    paths: &MigrationPaths,
-    journal: &PreparedJournal,
-    receipt_path: &Path,
-) -> Result<()> {
+fn verify_committed(paths: &MigrationPaths, journal: &PreparedJournal, receipt_path: &Path) -> Result<()> {
     let receipt: MigrationReceipt = read_json(receipt_path, "migration receipt")?;
     validate_receipt(&receipt)?;
-    if receipt.migration_id != journal.migration_id
-        || receipt.source_sha256 != journal.source_sha256
-        || receipt.target_sha256 != journal.target_sha256
-    {
-        bail!("migration receipt does not match the prepared journal");
-    }
+    if receipt.migration_id != journal.migration_id || receipt.source_sha256 != journal.source_sha256 || receipt.target_sha256 != journal.target_sha256 { bail!("migration receipt does not match the prepared journal"); }
     let current = read_document(&paths.manifest, "workspace manifest")?;
-    if sha256(&current) != journal.target_sha256 {
-        bail!("committed receipt exists but manifest is not the target");
-    }
+    if sha256(&current) != journal.target_sha256 { bail!("committed receipt exists but manifest is not the target"); }
     Ok(())
 }
 
 fn validate_receipt(value: &MigrationReceipt) -> Result<()> {
-    if value.receipt_version != RECEIPT_VERSION
-        || value.from_schema != 0
-        || value.to_schema != CURRENT_SCHEMA_VERSION
-    {
-        bail!("migration receipt transition is invalid");
-    }
+    if value.receipt_version != RECEIPT_VERSION || value.from_schema != 0 || value.to_schema != CURRENT_SCHEMA_VERSION { bail!("migration receipt transition is invalid"); }
     validate_identifier(&value.migration_id, "migration_id")?;
     validate_sha(&value.source_sha256, "source_sha256")?;
     validate_sha(&value.target_sha256, "target_sha256")?;
@@ -544,11 +439,8 @@ fn validate_receipt(value: &MigrationReceipt) -> Result<()> {
 }
 
 fn validate_time(value: &str, field: &str) -> Result<()> {
-    let parsed = chrono::DateTime::parse_from_rfc3339(value)
-        .with_context(|| format!("{field} is invalid"))?;
-    if parsed.offset().local_minus_utc() != 0 {
-        bail!("{field} must use UTC");
-    }
+    let parsed = chrono::DateTime::parse_from_rfc3339(value).with_context(|| format!("{field} is invalid"))?;
+    if parsed.offset().local_minus_utc() != 0 { bail!("{field} must use UTC"); }
     Ok(())
 }
 
@@ -567,7 +459,7 @@ mod tests {
 
     fn workspace(name: &str, schema: u32) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "nxb-migration-{name}-{}-{}",
+            "bsl-migration-{name}-{}-{}",
             std::process::id(),
             random_hex(8).unwrap()
         ));
@@ -580,7 +472,7 @@ mod tests {
             let mut value = serde_json::to_vec_pretty(&LegacyManifestV0 {
                 schema_version: 0,
                 product: super::super::PRODUCT_NAME.into(),
-                workspace_id: "nxb-workspace-test-0001".into(),
+                workspace_id: "bsl-workspace-test-0001".into(),
                 name: "Migration Test".into(),
                 created_at: "2026-08-05T00:00:00Z".into(),
             })
@@ -589,7 +481,7 @@ mod tests {
             value
         } else {
             format!(
-                "{{\n  \"schema_version\": {schema},\n  \"product\": \"NXBounty\",\n  \"workspace_id\": \"nxb-workspace-test-0001\",\n  \"name\": \"Migration Test\",\n  \"created_at\": \"2026-08-05T00:00:00Z\"\n}}\n"
+                "{{\n  \"schema_version\": {schema},\n  \"product\": \"BoundSeal\",\n  \"workspace_id\": \"bsl-workspace-test-0001\",\n  \"name\": \"Migration Test\",\n  \"created_at\": \"2026-08-05T00:00:00Z\"\n}}\n"
             )
             .into_bytes()
         };
@@ -628,15 +520,8 @@ mod tests {
         let source = read_document(&paths.manifest, "manifest").unwrap();
         let migration = plan(&source).unwrap();
         prepare(&paths, &migration, &source).unwrap();
-        replace_document(
-            &paths.manifest,
-            b"{\"schema_version\":0,\"tampered\":true}\n",
-        )
-        .unwrap();
-        assert!(recover_value(&root)
-            .unwrap_err()
-            .to_string()
-            .contains("changed outside"));
+        replace_document(&paths.manifest, b"{\"schema_version\":0,\"tampered\":true}\n").unwrap();
+        assert!(recover_value(&root).unwrap_err().to_string().contains("changed outside"));
         assert!(paths.backup.is_file());
         fs::remove_dir_all(root).unwrap();
     }
