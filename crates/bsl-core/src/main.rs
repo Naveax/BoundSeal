@@ -22,13 +22,13 @@ use live_orchestrator::{
     hash_bytes, read_hex_file, read_json, write_json, LiveActivationCertificate,
     LiveActivationPayload, LiveRunPlan, PlannedMethod,
 };
-use nxb_events::EventEnvelope;
-use nxb_policy::{is_public_destination, TargetPolicy};
+use bsl_events::EventEnvelope;
+use bsl_policy::{is_public_destination, TargetPolicy};
 use scan::ScanArgs;
 use serde::Serialize;
 
 #[derive(Debug, Parser)]
-#[command(name = "nxb", version, about = "NXBounty safety-contract utilities")]
+#[command(name = "bsl", version, about = "BoundSeal safety-contract utilities")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -36,7 +36,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Initialize, diagnose, inspect and migrate a local NXBounty workspace.
+    /// Initialize, diagnose, inspect and migrate a local BoundSeal workspace.
     Workspace(workspace_facade::WorkspaceArgs),
     /// Create, validate, inspect and disable authorization-bound target profiles.
     Target(target::TargetArgs),
@@ -59,7 +59,7 @@ enum Command {
     SystemStatus,
     /// Generate and verify a deterministic networkless architecture smoke receipt.
     DemoRun {
-        /// Receipt output path. Defaults to target/nxb-demo-receipt.json.
+        /// Receipt output path. Defaults to target/bsl-demo-receipt.json.
         #[arg(long)]
         output: Option<PathBuf>,
     },
@@ -160,7 +160,7 @@ struct ActivationTemplateDocument {
 #[derive(Debug, Serialize)]
 struct LiveRunOutputDocument {
     receipt: live_orchestrator::LiveOrchestratorReceipt,
-    findings: Vec<nxb_passive_analyzers::Finding>,
+    findings: Vec<bsl_passive_analyzers::Finding>,
 }
 
 fn main() -> ExitCode {
@@ -246,7 +246,7 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("NXB-CLI-1: {error:#}");
+            eprintln!("BSL-CLI-1: {error:#}");
             ExitCode::FAILURE
         }
     }
@@ -295,7 +295,7 @@ fn check_destination(ip: IpAddr) -> Result<()> {
 fn system_status() -> Result<()> {
     let receipt = build_demo_receipt()?;
     println!("status: contract-complete");
-    println!("milestones: NXB-{MILESTONE_START}..NXB-{MILESTONE_END}");
+    println!("milestones: BSL-{MILESTONE_START}..BSL-{MILESTONE_END}");
     println!("workspace_crates: {WORKSPACE_CRATE_COUNT}");
     println!("execution_mode: synthetic-networkless-by-default");
     println!("live_network_adapter: implemented");
