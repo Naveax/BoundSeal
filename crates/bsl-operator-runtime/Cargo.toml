@@ -1,21 +1,21 @@
 [package]
-name = "nxb-operator-runtime"
+name = "bsl-operator-runtime"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 publish = false
 
 [dependencies]
-nxb-executor = { path = "../nxb-executor" }
-nxb-live-adapter = { path = "../nxb-live-adapter" }
-nxb-operator-state = { path = "../nxb-operator-state" }
-nxb-session = { path = "../nxb-session" }
-nxb-session-injection = { path = "../nxb-session-injection" }
-nxb-stream = { path = "../nxb-stream" }
-nxb-transport = { path = "../nxb-transport" }
-nxb-unified-operator = { path = "../nxb-unified-operator" }
-nxb-vault = { path = "../nxb-vault" }
-nxb-vault-provider = { path = "../nxb-vault-provider" }
+bsl-executor = { path = "../bsl-executor" }
+bsl-live-adapter = { path = "../bsl-live-adapter" }
+bsl-operator-state = { path = "../bsl-operator-state" }
+bsl-session = { path = "../bsl-session" }
+bsl-session-injection = { path = "../bsl-session-injection" }
+bsl-stream = { path = "../bsl-stream" }
+bsl-transport = { path = "../bsl-transport" }
+bsl-unified-operator = { path = "../bsl-unified-operator" }
+bsl-vault = { path = "../bsl-vault" }
+bsl-vault-provider = { path = "../bsl-vault-provider" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

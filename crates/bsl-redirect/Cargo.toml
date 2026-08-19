@@ -1,14 +1,14 @@
 [package]
-name = "nxb-redirect"
+name = "bsl-redirect"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 publish = false
 
 [dependencies]
-nxb-gateway = { path = "../nxb-gateway" }
-nxb-http1 = { path = "../nxb-http1" }
-nxb-pinned-transport = { path = "../nxb-pinned-transport" }
+bsl-gateway = { path = "../bsl-gateway" }
+bsl-http1 = { path = "../bsl-http1" }
+bsl-pinned-transport = { path = "../bsl-pinned-transport" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -17,4 +17,4 @@ url.workspace = true
 
 [dev-dependencies]
 chrono.workspace = true
-nxb-policy = { path = "../nxb-policy" }
+bsl-policy = { path = "../bsl-policy" }

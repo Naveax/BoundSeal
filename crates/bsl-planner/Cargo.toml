@@ -1,5 +1,5 @@
 [package]
-name = "nxb-planner"
+name = "bsl-planner"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

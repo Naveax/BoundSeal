@@ -1,5 +1,5 @@
 [package]
-name = "nxb-http1"
+name = "bsl-http1"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -7,13 +7,13 @@ publish = false
 
 [features]
 default = []
-networkless-fixture = ["dep:nxb-stream-fixture"]
+networkless-fixture = ["dep:bsl-stream-fixture"]
 
 [dependencies]
-nxb-stream = { path = "../nxb-stream" }
-nxb-stream-fixture = { path = "../nxb-stream-fixture", optional = true }
-nxb-tls = { path = "../nxb-tls" }
-nxb-vault = { path = "../nxb-vault" }
+bsl-stream = { path = "../bsl-stream" }
+bsl-stream-fixture = { path = "../bsl-stream-fixture", optional = true }
+bsl-tls = { path = "../bsl-tls" }
+bsl-vault = { path = "../bsl-vault" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

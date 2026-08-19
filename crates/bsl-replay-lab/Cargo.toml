@@ -1,12 +1,12 @@
 [package]
-name = "nxb-replay-lab"
+name = "bsl-replay-lab"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 publish = false
 
 [dependencies]
-nxb-adapter-boundary = { path = "../nxb-adapter-boundary" }
+bsl-adapter-boundary = { path = "../bsl-adapter-boundary" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

@@ -1,12 +1,12 @@
 [package]
-name = "nxb-evidence-key-provider"
+name = "bsl-evidence-key-provider"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 publish = false
 
 [dependencies]
-nxb-evidence-sealer = { path = "../nxb-evidence-sealer" }
+bsl-evidence-sealer = { path = "../bsl-evidence-sealer" }
 ring = "0.17"
 serde.workspace = true
 serde_json.workspace = true

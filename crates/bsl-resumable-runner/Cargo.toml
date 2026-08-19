@@ -1,30 +1,30 @@
 [package]
-name = "nxb-resumable-runner"
+name = "bsl-resumable-runner"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 publish = false
 
 [[bin]]
-name = "nxb-resumable-runner"
+name = "bsl-resumable-runner"
 path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
-nxb-executor = { path = "../nxb-executor" }
-nxb-live-adapter = { path = "../nxb-live-adapter" }
-nxb-operator = { path = "../nxb-operator" }
-nxb-operator-runtime = { path = "../nxb-operator-runtime" }
-nxb-operator-state = { path = "../nxb-operator-state" }
-nxb-policy = { path = "../nxb-policy" }
-nxb-session = { path = "../nxb-session" }
-nxb-session-injection = { path = "../nxb-session-injection" }
-nxb-stream = { path = "../nxb-stream" }
-nxb-transport = { path = "../nxb-transport" }
-nxb-unified-operator = { path = "../nxb-unified-operator" }
-nxb-vault = { path = "../nxb-vault" }
+bsl-executor = { path = "../bsl-executor" }
+bsl-live-adapter = { path = "../bsl-live-adapter" }
+bsl-operator = { path = "../bsl-operator" }
+bsl-operator-runtime = { path = "../bsl-operator-runtime" }
+bsl-operator-state = { path = "../bsl-operator-state" }
+bsl-policy = { path = "../bsl-policy" }
+bsl-session = { path = "../bsl-session" }
+bsl-session-injection = { path = "../bsl-session-injection" }
+bsl-stream = { path = "../bsl-stream" }
+bsl-transport = { path = "../bsl-transport" }
+bsl-unified-operator = { path = "../bsl-unified-operator" }
+bsl-vault = { path = "../bsl-vault" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

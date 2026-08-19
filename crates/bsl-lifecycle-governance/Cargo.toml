@@ -1,12 +1,12 @@
 [package]
-name = "nxb-lifecycle-governance"
+name = "bsl-lifecycle-governance"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 publish = false
 
 [dependencies]
-nxb-platform-assurance = { path = "../nxb-platform-assurance" }
+bsl-platform-assurance = { path = "../bsl-platform-assurance" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

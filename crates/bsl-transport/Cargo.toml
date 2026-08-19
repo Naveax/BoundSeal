@@ -1,5 +1,5 @@
 [package]
-name = "nxb-transport"
+name = "bsl-transport"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

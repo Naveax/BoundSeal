@@ -1,12 +1,12 @@
 [package]
-name = "nxb-tls"
+name = "bsl-tls"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 publish = false
 
 [dependencies]
-nxb-stream = { path = "../nxb-stream" }
+bsl-stream = { path = "../bsl-stream" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -14,11 +14,11 @@ thiserror.workspace = true
 
 [dev-dependencies]
 chrono.workspace = true
-nxb-executor = { path = "../nxb-executor" }
-nxb-gateway = { path = "../nxb-gateway" }
-nxb-local-executor = { path = "../nxb-local-executor" }
-nxb-pinned-transport = { path = "../nxb-pinned-transport" }
-nxb-policy = { path = "../nxb-policy" }
-nxb-stream-fixture = { path = "../nxb-stream-fixture" }
-nxb-transport = { path = "../nxb-transport" }
+bsl-executor = { path = "../bsl-executor" }
+bsl-gateway = { path = "../bsl-gateway" }
+bsl-local-executor = { path = "../bsl-local-executor" }
+bsl-pinned-transport = { path = "../bsl-pinned-transport" }
+bsl-policy = { path = "../bsl-policy" }
+bsl-stream-fixture = { path = "../bsl-stream-fixture" }
+bsl-transport = { path = "../bsl-transport" }
 url.workspace = true

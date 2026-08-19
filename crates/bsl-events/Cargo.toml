@@ -1,5 +1,5 @@
 [package]
-name = "nxb-events"
+name = "bsl-events"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

@@ -1,5 +1,5 @@
 [package]
-name = "nxb-core"
+name = "bsl-core"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -7,38 +7,38 @@ publish = false
 autobins = false
 
 [[bin]]
-name = "nxb"
-path = "src/nxb.rs"
+name = "bsl"
+path = "src/bsl.rs"
 
 [features]
 default = []
 live-network = [
-    "dep:nxb-executor",
-    "dep:nxb-gateway",
-    "dep:nxb-live-adapter",
-    "dep:nxb-passive-analyzers",
-    "dep:nxb-pinned-transport",
-    "dep:nxb-stream",
-    "dep:nxb-transport",
+    "dep:bsl-executor",
+    "dep:bsl-gateway",
+    "dep:bsl-live-adapter",
+    "dep:bsl-passive-analyzers",
+    "dep:bsl-pinned-transport",
+    "dep:bsl-stream",
+    "dep:bsl-transport",
 ]
 
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
-nxb-events = { path = "../nxb-events" }
-nxb-executor = { path = "../nxb-executor", optional = true }
-nxb-gateway = { path = "../nxb-gateway", optional = true }
-nxb-live-adapter = { path = "../nxb-live-adapter", optional = true }
-nxb-operator = { path = "../nxb-operator" }
-nxb-passive-analyzers = { path = "../nxb-passive-analyzers", optional = true }
-nxb-pinned-transport = { path = "../nxb-pinned-transport", optional = true }
-nxb-policy = { path = "../nxb-policy" }
-nxb-session-injection = { path = "../nxb-session-injection" }
-nxb-stream = { path = "../nxb-stream", optional = true }
-nxb-transport = { path = "../nxb-transport", optional = true }
-nxb-unified-operator = { path = "../nxb-unified-operator" }
-nxb-vault-provider = { path = "../nxb-vault-provider" }
+bsl-events = { path = "../bsl-events" }
+bsl-executor = { path = "../bsl-executor", optional = true }
+bsl-gateway = { path = "../bsl-gateway", optional = true }
+bsl-live-adapter = { path = "../bsl-live-adapter", optional = true }
+bsl-operator = { path = "../bsl-operator" }
+bsl-passive-analyzers = { path = "../bsl-passive-analyzers", optional = true }
+bsl-pinned-transport = { path = "../bsl-pinned-transport", optional = true }
+bsl-policy = { path = "../bsl-policy" }
+bsl-session-injection = { path = "../bsl-session-injection" }
+bsl-stream = { path = "../bsl-stream", optional = true }
+bsl-transport = { path = "../bsl-transport", optional = true }
+bsl-unified-operator = { path = "../bsl-unified-operator" }
+bsl-vault-provider = { path = "../bsl-vault-provider" }
 ring = "0.17"
 serde.workspace = true
 serde_json.workspace = true

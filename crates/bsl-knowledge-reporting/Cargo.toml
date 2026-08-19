@@ -1,13 +1,13 @@
 [package]
-name = "nxb-knowledge-reporting"
+name = "bsl-knowledge-reporting"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 publish = false
 
 [dependencies]
-nxb-active-validation = { path = "../nxb-active-validation" }
-nxb-passive-analyzers = { path = "../nxb-passive-analyzers" }
+bsl-active-validation = { path = "../bsl-active-validation" }
+bsl-passive-analyzers = { path = "../bsl-passive-analyzers" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

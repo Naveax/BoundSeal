@@ -1,14 +1,14 @@
 [package]
-name = "nxb-operator"
+name = "bsl-operator"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 publish = false
 
 [dependencies]
-nxb-content-analysis = { path = "../nxb-content-analysis" }
-nxb-passive-analyzers = { path = "../nxb-passive-analyzers" }
-nxb-policy = { path = "../nxb-policy" }
+bsl-content-analysis = { path = "../bsl-content-analysis" }
+bsl-passive-analyzers = { path = "../bsl-passive-analyzers" }
+bsl-policy = { path = "../bsl-policy" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

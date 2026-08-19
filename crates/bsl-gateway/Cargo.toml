@@ -1,16 +1,16 @@
 [package]
-name = "nxb-gateway"
+name = "bsl-gateway"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 publish = false
 
 [dependencies]
-nxb-audit = { path = "../nxb-audit" }
-nxb-budget = { path = "../nxb-budget" }
-nxb-destination = { path = "../nxb-destination" }
-nxb-dns = { path = "../nxb-dns" }
-nxb-policy = { path = "../nxb-policy" }
+bsl-audit = { path = "../bsl-audit" }
+bsl-budget = { path = "../bsl-budget" }
+bsl-destination = { path = "../bsl-destination" }
+bsl-dns = { path = "../bsl-dns" }
+bsl-policy = { path = "../bsl-policy" }
 serde.workspace = true
 thiserror.workspace = true
 url.workspace = true

@@ -1,13 +1,13 @@
 [package]
-name = "nxb-stream"
+name = "bsl-stream"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 publish = false
 
 [dependencies]
-nxb-executor = { path = "../nxb-executor" }
-nxb-transport = { path = "../nxb-transport" }
+bsl-executor = { path = "../bsl-executor" }
+bsl-transport = { path = "../bsl-transport" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

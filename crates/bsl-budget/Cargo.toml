@@ -1,5 +1,5 @@
 [package]
-name = "nxb-budget"
+name = "bsl-budget"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

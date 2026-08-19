@@ -1,5 +1,5 @@
 [package]
-name = "nxb-unified-operator"
+name = "bsl-unified-operator"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

@@ -1,14 +1,14 @@
 [package]
-name = "nxb-manual-submission-handoff"
+name = "bsl-manual-submission-handoff"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 publish = false
 
 [dependencies]
-nxb-knowledge-reporting = { path = "../nxb-knowledge-reporting" }
-nxb-run-closure = { path = "../nxb-run-closure" }
-nxb-unified-operator = { path = "../nxb-unified-operator" }
+bsl-knowledge-reporting = { path = "../bsl-knowledge-reporting" }
+bsl-run-closure = { path = "../bsl-run-closure" }
+bsl-unified-operator = { path = "../bsl-unified-operator" }
 ring = "0.17"
 serde.workspace = true
 serde_json.workspace = true
@@ -16,8 +16,8 @@ sha2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-nxb-live-run-host = { path = "../nxb-live-run-host" }
-nxb-operator-runtime = { path = "../nxb-operator-runtime" }
-nxb-operator-state = { path = "../nxb-operator-state" }
-nxb-passive-analyzers = { path = "../nxb-passive-analyzers" }
-nxb-resumable-runner = { path = "../nxb-resumable-runner" }
+bsl-live-run-host = { path = "../bsl-live-run-host" }
+bsl-operator-runtime = { path = "../bsl-operator-runtime" }
+bsl-operator-state = { path = "../bsl-operator-state" }
+bsl-passive-analyzers = { path = "../bsl-passive-analyzers" }
+bsl-resumable-runner = { path = "../bsl-resumable-runner" }

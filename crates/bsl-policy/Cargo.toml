@@ -1,5 +1,5 @@
 [package]
-name = "nxb-policy"
+name = "bsl-policy"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

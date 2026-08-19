@@ -1,5 +1,5 @@
 [package]
-name = "nxb-passive-analyzers"
+name = "bsl-passive-analyzers"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

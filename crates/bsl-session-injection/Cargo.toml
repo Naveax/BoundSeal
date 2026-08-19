@@ -1,13 +1,13 @@
 [package]
-name = "nxb-session-injection"
+name = "bsl-session-injection"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 publish = false
 
 [dependencies]
-nxb-session = { path = "../nxb-session" }
-nxb-vault = { path = "../nxb-vault" }
+bsl-session = { path = "../bsl-session" }
+bsl-vault = { path = "../bsl-vault" }
 ring = "0.17"
 serde.workspace = true
 serde_json.workspace = true

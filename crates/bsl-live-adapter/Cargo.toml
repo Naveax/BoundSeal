@@ -1,21 +1,21 @@
 [package]
-name = "nxb-live-adapter"
+name = "bsl-live-adapter"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 publish = false
 
 [dependencies]
-nxb-destination = { path = "../nxb-destination" }
-nxb-executor = { path = "../nxb-executor" }
-nxb-http1 = { path = "../nxb-http1" }
-nxb-pinned-transport = { path = "../nxb-pinned-transport" }
-nxb-session = { path = "../nxb-session" }
-nxb-session-injection = { path = "../nxb-session-injection" }
-nxb-stream = { path = "../nxb-stream" }
-nxb-tls = { path = "../nxb-tls" }
-nxb-transport = { path = "../nxb-transport" }
-nxb-vault = { path = "../nxb-vault" }
+bsl-destination = { path = "../bsl-destination" }
+bsl-executor = { path = "../bsl-executor" }
+bsl-http1 = { path = "../bsl-http1" }
+bsl-pinned-transport = { path = "../bsl-pinned-transport" }
+bsl-session = { path = "../bsl-session" }
+bsl-session-injection = { path = "../bsl-session-injection" }
+bsl-stream = { path = "../bsl-stream" }
+bsl-tls = { path = "../bsl-tls" }
+bsl-transport = { path = "../bsl-transport" }
+bsl-vault = { path = "../bsl-vault" }
 rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -25,7 +25,7 @@ webpki-roots.workspace = true
 
 [dev-dependencies]
 chrono.workspace = true
-nxb-gateway = { path = "../nxb-gateway" }
-nxb-policy = { path = "../nxb-policy" }
+bsl-gateway = { path = "../bsl-gateway" }
+bsl-policy = { path = "../bsl-policy" }
 rcgen.workspace = true
 url.workspace = true

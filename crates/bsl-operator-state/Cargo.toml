@@ -1,12 +1,12 @@
 [package]
-name = "nxb-operator-state"
+name = "bsl-operator-state"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 publish = false
 
 [dependencies]
-nxb-unified-operator = { path = "../nxb-unified-operator" }
+bsl-unified-operator = { path = "../bsl-unified-operator" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

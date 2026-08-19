@@ -1,5 +1,5 @@
 [package]
-name = "nxb-destination"
+name = "bsl-destination"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

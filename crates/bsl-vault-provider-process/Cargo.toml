@@ -1,5 +1,5 @@
 [package]
-name = "nxb-vault-provider-process"
+name = "bsl-vault-provider-process"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -10,8 +10,8 @@ default = []
 fixture = []
 
 [dependencies]
-nxb-vault = { path = "../nxb-vault" }
-nxb-vault-provider = { path = "../nxb-vault-provider" }
+bsl-vault = { path = "../bsl-vault" }
+bsl-vault-provider = { path = "../bsl-vault-provider" }
 ring = "0.17"
 serde.workspace = true
 serde_json.workspace = true
@@ -20,11 +20,11 @@ thiserror.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
-nxb-session = { path = "../nxb-session" }
+bsl-session = { path = "../bsl-session" }
 
 [[bin]]
-name = "nxb-vault-provider-fixture"
-path = "src/bin/nxb-vault-provider-fixture.rs"
+name = "bsl-vault-provider-fixture"
+path = "src/bin/bsl-vault-provider-fixture.rs"
 required-features = ["fixture"]
 test = false
 bench = false

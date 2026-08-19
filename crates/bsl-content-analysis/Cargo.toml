@@ -1,5 +1,5 @@
 [package]
-name = "nxb-content-analysis"
+name = "bsl-content-analysis"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

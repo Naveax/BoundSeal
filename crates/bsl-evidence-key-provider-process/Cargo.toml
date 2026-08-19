@@ -1,5 +1,5 @@
 [package]
-name = "nxb-evidence-key-provider-process"
+name = "bsl-evidence-key-provider-process"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -10,10 +10,10 @@ default = []
 fixture = []
 
 [dependencies]
-nxb-evidence-key-provider = { path = "../nxb-evidence-key-provider" }
-nxb-vault = { path = "../nxb-vault" }
-nxb-vault-provider = { path = "../nxb-vault-provider" }
-nxb-vault-provider-process = { path = "../nxb-vault-provider-process" }
+bsl-evidence-key-provider = { path = "../bsl-evidence-key-provider" }
+bsl-vault = { path = "../bsl-vault" }
+bsl-vault-provider = { path = "../bsl-vault-provider" }
+bsl-vault-provider-process = { path = "../bsl-vault-provider-process" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -23,13 +23,13 @@ zeroize.workspace = true
 ring = "0.17"
 
 [[bin]]
-name = "nxb-evidence-key-provider-process-fixture"
-path = "src/bin/nxb-evidence-key-provider-process-fixture.rs"
+name = "bsl-evidence-key-provider-process-fixture"
+path = "src/bin/bsl-evidence-key-provider-process-fixture.rs"
 required-features = ["fixture"]
 test = false
 bench = false
 
 [[bin]]
-name = "nxb-windows-credential-evidence-key-helper"
-path = "src/bin/nxb-windows-credential-evidence-key-helper.rs"
+name = "bsl-windows-credential-evidence-key-helper"
+path = "src/bin/bsl-windows-credential-evidence-key-helper.rs"
 bench = false
