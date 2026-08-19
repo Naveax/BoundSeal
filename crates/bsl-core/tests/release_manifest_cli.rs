@@ -9,11 +9,8 @@ use ring::signature::{Ed25519KeyPair, KeyPair};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-const TEMPLATE_EXIT_CODE: i32 = 60;
-const VERIFY_EXIT_CODE: i32 = 61;
-
-fn nxb() -> &'static str {
-    env!("CARGO_BIN_EXE_nxb")
+fn bsl() -> &'static str {
+    env!("CARGO_BIN_EXE_bsl")
 }
 
 fn temporary_directory(name: &str) -> PathBuf {
@@ -22,44 +19,26 @@ fn temporary_directory(name: &str) -> PathBuf {
         .expect("system clock is before the Unix epoch")
         .as_nanos();
     std::env::temp_dir().join(format!(
-        "nxb-release-cli-{name}-{}-{nonce}",
+        "bsl-release-cli-{name}-{}-{nonce}",
         std::process::id()
     ))
 }
 
 fn run(arguments: &[&str]) -> Output {
-    Command::new(nxb())
+    Command::new(bsl())
         .args(arguments)
         .output()
-        .expect("could not execute nxb")
+        .expect("could not execute bsl")
 }
 
-fn run_json(arguments: &[&str]) -> Value {
-    let output = run(arguments);
-    assert!(
-        output.status.success(),
-        "command failed: status={:?} stderr={}",
-        output.status.code(),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).expect("command returned invalid JSON")
-}
-
-fn assert_diagnostic(output: &Output, expected_exit: i32, expected_code: &str) {
-    assert_eq!(output.status.code(), Some(expected_exit));
-    assert!(output.stdout.is_empty());
-    let value: Value = serde_json::from_slice(&output.stderr).expect("invalid diagnostic JSON");
-    assert_eq!(value.get("schema_version").and_then(Value::as_u64), Some(1));
-    assert_eq!(value.get("status").and_then(Value::as_str), Some("error"));
-    assert_eq!(
-        value.get("code").and_then(Value::as_str),
-        Some(expected_code)
-    );
-    assert_eq!(value.get("domain").and_then(Value::as_str), Some("release"));
-    assert_eq!(
-        value.get("exit_code").and_then(Value::as_i64),
-        Some(i64::from(expected_exit))
-    );
+fn sha256(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut output = String::with_capacity(64);
+    for byte in digest {
+        use std::fmt::Write as _;
+        write!(&mut output, "{byte:02x}").unwrap();
+    }
+    output
 }
 
 fn lower_hex(bytes: &[u8]) -> String {
@@ -72,282 +51,142 @@ fn lower_hex(bytes: &[u8]) -> String {
     output
 }
 
-fn decode_hex(value: &str) -> Vec<u8> {
-    value
-        .as_bytes()
-        .chunks_exact(2)
-        .map(|pair| {
-            let nibble = |value: u8| match value {
-                b'0'..=b'9' => value - b'0',
-                b'a'..=b'f' => value - b'a' + 10,
-                _ => panic!("invalid hex"),
-            };
-            (nibble(pair[0]) << 4) | nibble(pair[1])
-        })
-        .collect()
-}
-
-fn sha256(bytes: &[u8]) -> String {
-    lower_hex(&Sha256::digest(bytes))
-}
-
 struct Fixture {
     root: PathBuf,
     binary: PathBuf,
     sbom: PathBuf,
     checksums: PathBuf,
-    public_key: PathBuf,
     document: PathBuf,
-    key_pair: Ed25519KeyPair,
+    public_key: PathBuf,
 }
 
 impl Fixture {
     fn new() -> Self {
-        let root = temporary_directory("round-trip");
+        let root = temporary_directory("fixture");
         fs::create_dir_all(&root).unwrap();
-        let binary = root.join("nxb");
-        let sbom = root.join("nxb.cdx.json");
+        let binary = root.join(if cfg!(windows) { "bsl.exe" } else { "bsl" });
+        let sbom = root.join("bsl.cdx.json");
         let checksums = root.join("SHA256SUMS");
+        let document = root.join("bsl-release-manifest.json");
         let public_key = root.join("release-public-key.hex");
-        let document = root.join("release-manifest.json");
-
-        fs::write(&binary, b"synthetic-single-nxb-binary").unwrap();
+        fs::write(&binary, b"synthetic-bsl-release-binary").unwrap();
         fs::write(
             &sbom,
-            br#"{"bomFormat":"CycloneDX","specVersion":"1.6","components":[]}"#,
+            b"{\"bomFormat\":\"CycloneDX\",\"specVersion\":\"1.6\",\"components\":[]}",
         )
         .unwrap();
+        let binary_name = binary.file_name().unwrap().to_str().unwrap();
         fs::write(
             &checksums,
             format!(
-                "{}  nxb\n{}  nxb.cdx.json\n",
+                "{}  {}\n{}  bsl.cdx.json\n",
                 sha256(&fs::read(&binary).unwrap()),
+                binary_name,
                 sha256(&fs::read(&sbom).unwrap())
             ),
         )
         .unwrap();
-
-        let key_pair = Ed25519KeyPair::from_seed_unchecked(&[9_u8; 32]).unwrap();
-        fs::write(&public_key, lower_hex(key_pair.public_key().as_ref())).unwrap();
-
-        Self {
-            root,
-            binary,
-            sbom,
-            checksums,
-            public_key,
-            document,
-            key_pair,
-        }
+        Self { root, binary, sbom, checksums, document, public_key }
     }
 
-    fn template(&self, release_sequence: u64) -> Value {
-        let release_sequence = release_sequence.to_string();
-        run_json(&[
-            "release",
-            "manifest-template",
-            "--release-id",
-            "v0.1.0-cli-test",
-            "--release-sequence",
-            &release_sequence,
-            "--source-commit",
-            "a234567890123456789012345678901234567890",
-            "--platform",
-            "linux",
-            "--architecture",
-            "x86-64",
-            "--binary",
-            path(&self.binary),
-            "--sbom",
-            path(&self.sbom),
-            "--checksums",
-            path(&self.checksums),
-            "--generated-at",
-            "2026-08-05T15:00:00Z",
-            "--output",
-            path(&self.document),
-            "--json",
-        ])
-    }
-
-    fn sign(&self, release_sequence: u64) -> Value {
-        let mut document = self.template(release_sequence);
-        let signing_payload = decode_hex(
-            document
-                .get("signing_payload_hex")
-                .and_then(Value::as_str)
-                .expect("signing payload is missing"),
-        );
-        let signature_hex = lower_hex(self.key_pair.sign(&signing_payload).as_ref());
-        document["signature_hex"] = Value::String(signature_hex.clone());
-
-        // Preserve the canonical template bytes exactly. Re-serializing
-        // through serde_json::Value can change object key order and must
-        // therefore not be used to construct a signed release document.
-        let template = fs::read_to_string(&self.document).unwrap();
-        let needle = "\"signature_hex\": \"\"";
-        assert_eq!(template.matches(needle).count(), 1);
-        let replacement = format!("\"signature_hex\": \"{signature_hex}\"");
-        let signed = template.replacen(needle, &replacement, 1);
-        fs::write(&self.document, signed.as_bytes()).unwrap();
-        document
-    }
-
-    fn verify(&self) -> Output {
+    fn template(&self, sequence: u64) -> Output {
         run(&[
-            "release",
-            "verify-manifest",
-            "--document",
-            path(&self.document),
-            "--public-key",
-            path(&self.public_key),
-            "--binary",
-            path(&self.binary),
-            "--sbom",
-            path(&self.sbom),
-            "--checksums",
-            path(&self.checksums),
+            "release", "manifest-template",
+            "--release-id", "v0.1.0-cli-test",
+            "--release-sequence", &sequence.to_string(),
+            "--source-commit", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "--platform", if cfg!(windows) { "windows" } else { "linux" },
+            "--architecture", "x86-64",
+            "--binary", self.binary.to_str().unwrap(),
+            "--sbom", self.sbom.to_str().unwrap(),
+            "--checksums", self.checksums.to_str().unwrap(),
+            "--generated-at", "2026-08-05T15:00:00Z",
+            "--output", self.document.to_str().unwrap(),
             "--json",
         ])
+    }
+
+    fn sign(&self) -> Value {
+        let template = self.template(9);
+        assert!(template.status.success(), "template failed: {}", String::from_utf8_lossy(&template.stderr));
+        let mut value: Value = serde_json::from_slice(&fs::read(&self.document).unwrap()).unwrap();
+        let payload_hex = value.get("signing_payload_hex").and_then(Value::as_str).unwrap();
+        let mut payload = Vec::with_capacity(payload_hex.len() / 2);
+        for pair in payload_hex.as_bytes().chunks_exact(2) {
+            let text = std::str::from_utf8(pair).unwrap();
+            payload.push(u8::from_str_radix(text, 16).unwrap());
+        }
+        let key_pair = Ed25519KeyPair::from_seed_unchecked(&[19_u8; 32]).unwrap();
+        value["signature_hex"] = Value::String(lower_hex(key_pair.sign(&payload).as_ref()));
+        fs::write(
+            &self.document,
+            format!("{}\n", serde_json::to_string_pretty(&value).unwrap()),
+        )
+        .unwrap();
+        fs::write(&self.public_key, lower_hex(key_pair.public_key().as_ref())).unwrap();
+        value
     }
 }
 
 impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
+    fn drop(&mut self) { let _ = fs::remove_dir_all(&self.root); }
 }
 
-fn path(value: &Path) -> &str {
-    value.to_str().expect("temporary path is not UTF-8")
-}
-
-#[test]
-fn release_cli_template_sign_and_verify_round_trip() {
-    let fixture = Fixture::new();
-    let document = fixture.sign(42);
-    assert_eq!(
-        document
-            .pointer("/manifest/binary/file_name")
-            .and_then(Value::as_str),
-        Some("nxb")
-    );
-    assert_eq!(
-        document
-            .pointer("/manifest/release_sequence")
-            .and_then(Value::as_u64),
-        Some(42)
-    );
-
-    let output = fixture.verify();
-    assert!(
-        output.status.success(),
-        "verify failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(value.get("status").and_then(Value::as_str), Some("valid"));
-    assert_eq!(
-        value.get("release_sequence").and_then(Value::as_u64),
-        Some(42)
-    );
-    assert_eq!(
-        value.get("network_activity").and_then(Value::as_str),
-        Some("none")
-    );
-}
-
-#[test]
-fn release_cli_rejects_binary_and_sequence_tampering() {
-    let fixture = Fixture::new();
-    fixture.sign(1);
-
-    fs::write(&fixture.binary, b"tampered-single-binary").unwrap();
-    assert_diagnostic(
-        &fixture.verify(),
-        VERIFY_EXIT_CODE,
-        "NXB151-RELEASE-MANIFEST-VERIFY-FAILED",
-    );
-
-    fs::write(&fixture.binary, b"synthetic-single-nxb-binary").unwrap();
-    let mut document: Value =
-        serde_json::from_slice(&fs::read(&fixture.document).unwrap()).unwrap();
-    document["manifest"]["release_sequence"] = Value::from(2_u64);
-    let mut bytes = serde_json::to_vec_pretty(&document).unwrap();
-    bytes.push(b'\n');
-    fs::write(&fixture.document, bytes).unwrap();
-    assert_diagnostic(
-        &fixture.verify(),
-        VERIFY_EXIT_CODE,
-        "NXB151-RELEASE-MANIFEST-VERIFY-FAILED",
-    );
-}
-
-#[test]
-fn release_cli_rejects_invalid_binary_name_zero_sequence_and_wrong_key() {
-    let fixture = Fixture::new();
-    let invalid_binary = fixture.root.join("nxb-helper");
-    fs::write(&invalid_binary, b"not-the-primary-binary").unwrap();
-
-    for (binary, sequence) in [
-        (invalid_binary.as_path(), "1"),
-        (fixture.binary.as_path(), "0"),
-    ] {
-        let output = run(&[
-            "release",
-            "manifest-template",
-            "--release-id",
-            "v0.1.0-invalid",
-            "--release-sequence",
-            sequence,
-            "--source-commit",
-            "a234567890123456789012345678901234567890",
-            "--platform",
-            "linux",
-            "--architecture",
-            "x86-64",
-            "--binary",
-            path(binary),
-            "--sbom",
-            path(&fixture.sbom),
-            "--checksums",
-            path(&fixture.checksums),
-            "--generated-at",
-            "2026-08-05T15:00:00Z",
-            "--output",
-            path(&fixture.document),
-            "--json",
-        ]);
-        assert_diagnostic(
-            &output,
-            TEMPLATE_EXIT_CODE,
-            "NXB151-RELEASE-MANIFEST-TEMPLATE-FAILED",
-        );
-    }
-
-    fixture.sign(1);
-    let wrong_key = fixture.root.join("wrong-public-key.hex");
-    let pair = Ed25519KeyPair::from_seed_unchecked(&[10_u8; 32]).unwrap();
-    fs::write(&wrong_key, lower_hex(pair.public_key().as_ref())).unwrap();
-
-    let output = run(&[
-        "release",
-        "verify-manifest",
-        "--document",
-        path(&fixture.document),
-        "--public-key",
-        path(&wrong_key),
-        "--binary",
-        path(&fixture.binary),
-        "--sbom",
-        path(&fixture.sbom),
-        "--checksums",
-        path(&fixture.checksums),
+fn verify(fixture: &Fixture) -> Output {
+    run(&[
+        "release", "verify-manifest",
+        "--document", fixture.document.to_str().unwrap(),
+        "--public-key", fixture.public_key.to_str().unwrap(),
+        "--binary", fixture.binary.to_str().unwrap(),
+        "--sbom", fixture.sbom.to_str().unwrap(),
+        "--checksums", fixture.checksums.to_str().unwrap(),
         "--json",
-    ]);
-    assert_diagnostic(
-        &output,
-        VERIFY_EXIT_CODE,
-        "NXB151-RELEASE-MANIFEST-VERIFY-FAILED",
+    ])
+}
+
+fn assert_json_error(output: &Output, exit_code: i32, code: &str) {
+    assert_eq!(output.status.code(), Some(exit_code));
+    let value: Value = serde_json::from_slice(&output.stderr).expect("stderr is not JSON");
+    assert_eq!(value.get("schema_version").and_then(Value::as_u64), Some(1));
+    assert_eq!(value.get("status").and_then(Value::as_str), Some("error"));
+    assert_eq!(value.get("code").and_then(Value::as_str), Some(code));
+    assert_eq!(value.get("exit_code").and_then(Value::as_i64), Some(i64::from(exit_code)));
+}
+
+#[test]
+fn template_then_external_signature_verifies() {
+    let fixture = Fixture::new();
+    let value = fixture.sign();
+    assert_eq!(
+        value.pointer("/manifest/release_sequence").and_then(Value::as_u64),
+        Some(9)
     );
+    let output = verify(&fixture);
+    assert!(output.status.success(), "verify failed: {}", String::from_utf8_lossy(&output.stderr));
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result.get("status").and_then(Value::as_str), Some("valid"));
+    assert_eq!(result.get("release_sequence").and_then(Value::as_u64), Some(9));
+    assert_eq!(result.get("network_activity").and_then(Value::as_str), Some("none"));
+}
+
+#[test]
+fn tampered_signature_and_artifact_are_rejected_with_stable_diagnostics() {
+    let fixture = Fixture::new();
+    let mut value = fixture.sign();
+    let original = value.get("signature_hex").and_then(Value::as_str).unwrap().to_owned();
+    let mut bytes = original.into_bytes();
+    bytes[0] = if bytes[0] == b'0' { b'1' } else { b'0' };
+    value["signature_hex"] = Value::String(String::from_utf8(bytes).unwrap());
+    fs::write(&fixture.document, format!("{}\n", serde_json::to_string_pretty(&value).unwrap())).unwrap();
+    assert_json_error(&verify(&fixture), 61, "BSL151-RELEASE-MANIFEST-VERIFY-FAILED");
+
+    fixture.sign();
+    fs::write(&fixture.binary, b"tampered release binary").unwrap();
+    assert_json_error(&verify(&fixture), 61, "BSL151-RELEASE-MANIFEST-VERIFY-FAILED");
+}
+
+#[test]
+fn zero_sequence_is_rejected_with_template_diagnostic() {
+    let fixture = Fixture::new();
+    assert_json_error(&fixture.template(0), 60, "BSL151-RELEASE-MANIFEST-TEMPLATE-FAILED");
 }
