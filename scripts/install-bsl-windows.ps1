@@ -3,9 +3,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$PackageDirectory,
 
-    [string]$InstallRoot = (Join-Path $env:LOCALAPPDATA 'Programs\NXBounty'),
+    [string]$InstallRoot = (Join-Path $env:LOCALAPPDATA 'Programs\BoundSeal'),
 
-    [string]$DataRoot = (Join-Path $env:LOCALAPPDATA 'NXBounty'),
+    [string]$DataRoot = (Join-Path $env:LOCALAPPDATA 'BoundSeal'),
 
     [Parameter(Mandatory = $true)]
     [string]$ExpectedPublisherThumbprint,
@@ -21,17 +21,17 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$commonPath = Join-Path $PSScriptRoot 'nxb-installer-common.ps1'
+$commonPath = Join-Path $PSScriptRoot 'bsl-installer-common.ps1'
 if (-not (Test-Path -LiteralPath $commonPath -PathType Leaf)) {
     throw "Installer support library is missing: $commonPath"
 }
 . $commonPath
 
 if ($env:OS -ne 'Windows_NT') {
-    throw 'NXBounty Windows installation is supported only on Windows.'
+    throw 'BoundSeal Windows installation is supported only on Windows.'
 }
 
-function Set-NxbUninstallEntry {
+function Set-BslUninstallEntry {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
         [Parameter(Mandatory = $true)][string]$Data,
@@ -41,30 +41,30 @@ function Set-NxbUninstallEntry {
         [Parameter(Mandatory = $true)][string]$ReleasePublicKeySha256
     )
 
-    $keyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\NXBounty'
+    $keyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\BoundSeal'
     New-Item -Path $keyPath -Force | Out-Null
-    $uninstaller = Join-Path $Data 'installer\uninstall-nxb-windows.ps1'
+    $uninstaller = Join-Path $Data 'installer\uninstall-bsl-windows.ps1'
     $command = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{0}" -InstallRoot "{1}" -DataRoot "{2}" -ExpectedPublisherThumbprint {3} -ExpectedReleasePublicKeySha256 {4}' -f `
         $uninstaller, $Root, $Data, $PublisherThumbprint, $ReleasePublicKeySha256
-    New-ItemProperty -Path $keyPath -Name DisplayName -Value 'NXBounty' -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $keyPath -Name DisplayName -Value 'BoundSeal' -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name DisplayVersion -Value $Version -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name ReleaseSequence -Value ([string]$ReleaseSequence) -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name Publisher -Value 'Naveax' -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name InstallLocation -Value $Root -PropertyType String -Force | Out-Null
-    New-ItemProperty -Path $keyPath -Name DisplayIcon -Value (Join-Path $Root 'nxb.exe') -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $keyPath -Name DisplayIcon -Value (Join-Path $Root 'bsl.exe') -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name UninstallString -Value $command -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name NoModify -Value 1 -PropertyType DWord -Force | Out-Null
     New-ItemProperty -Path $keyPath -Name NoRepair -Value 1 -PropertyType DWord -Force | Out-Null
 }
 
-function Remove-NxbUninstallEntry {
-    $keyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\NXBounty'
+function Remove-BslUninstallEntry {
+    $keyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\BoundSeal'
     if (Test-Path -LiteralPath $keyPath) {
         Remove-Item -LiteralPath $keyPath -Recurse -Force
     }
 }
 
-function Set-NxbIntegrationState {
+function Set-BslIntegrationState {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
         [Parameter(Mandatory = $true)][string]$Data,
@@ -77,28 +77,28 @@ function Set-NxbIntegrationState {
     )
 
     if ($UsePath) {
-        [void](Add-NxbUserPath $Root)
+        [void](Add-BslUserPath $Root)
     } else {
-        [void](Remove-NxbUserPath $Root)
+        [void](Remove-BslUserPath $Root)
     }
     if ($UseShortcut) {
-        [void](Set-NxbStartMenuShortcut $Root)
+        [void](Set-BslStartMenuShortcut $Root)
     } else {
-        [void](Remove-NxbStartMenuShortcut)
+        [void](Remove-BslStartMenuShortcut)
     }
-    Set-NxbUninstallEntry `
+    Set-BslUninstallEntry `
         $Root $Data $Version $ReleaseSequence `
         $PublisherThumbprint $ReleasePublicKeySha256
 }
 
-function Copy-NxbMaintenanceScripts {
+function Copy-BslMaintenanceScripts {
     param([Parameter(Mandatory = $true)][string]$Destination)
 
     $required = @(
-        'nxb-installer-common.ps1',
-        'install-nxb-windows.ps1',
-        'rollback-nxb-windows.ps1',
-        'uninstall-nxb-windows.ps1'
+        'bsl-installer-common.ps1',
+        'install-bsl-windows.ps1',
+        'rollback-bsl-windows.ps1',
+        'uninstall-bsl-windows.ps1'
     )
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     foreach ($name in $required) {
@@ -106,13 +106,13 @@ function Copy-NxbMaintenanceScripts {
         if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
             throw "Required maintenance script is missing: $source"
         }
-        Assert-NxbNoReparseChain $source "maintenance script $name"
+        Assert-BslNoReparseChain $source "maintenance script $name"
         Copy-Item -LiteralPath $source -Destination (Join-Path $Destination $name) -Force
     }
-    Protect-NxbDirectoryAcl $Destination
+    Protect-BslDirectoryAcl $Destination
 }
 
-function Publish-NxbMaintenanceScripts {
+function Publish-BslMaintenanceScripts {
     param(
         [Parameter(Mandatory = $true)][string]$Destination,
         [Parameter(Mandatory = $true)][string]$Backup
@@ -122,47 +122,47 @@ function Publish-NxbMaintenanceScripts {
         throw "Maintenance backup path already exists: $Backup"
     }
     if (Test-Path -LiteralPath $Destination) {
-        Assert-NxbNoReparseChain $Destination 'existing maintenance directory'
-        Move-NxbDirectoryStrict $Destination $Backup 'maintenance backup publication'
+        Assert-BslNoReparseChain $Destination 'existing maintenance directory'
+        Move-BslDirectoryStrict $Destination $Backup 'maintenance backup publication'
     }
     try {
-        Copy-NxbMaintenanceScripts $Destination
+        Copy-BslMaintenanceScripts $Destination
         foreach ($name in @('last-rollback.json', 'last-uninstall.json')) {
             $source = Join-Path $Backup $name
             if (Test-Path -LiteralPath $source -PathType Leaf) {
-                Assert-NxbRegularFile $source "preserved maintenance receipt $name" 1048576
+                Assert-BslRegularFile $source "preserved maintenance receipt $name" 1048576
                 Copy-Item -LiteralPath $source -Destination (Join-Path $Destination $name)
             }
         }
     }
     catch {
         if (Test-Path -LiteralPath $Destination) {
-            Assert-NxbNoReparseChain $Destination 'failed maintenance publication'
+            Assert-BslNoReparseChain $Destination 'failed maintenance publication'
             Remove-Item -LiteralPath $Destination -Recurse -Force
         }
         if (Test-Path -LiteralPath $Backup) {
-            Move-NxbDirectoryStrict $Backup $Destination 'maintenance publication restoration'
+            Move-BslDirectoryStrict $Backup $Destination 'maintenance publication restoration'
         }
         throw
     }
 }
 
-function Restore-NxbMaintenanceScripts {
+function Restore-BslMaintenanceScripts {
     param(
         [Parameter(Mandatory = $true)][string]$Destination,
         [Parameter(Mandatory = $true)][string]$Backup
     )
 
     if (Test-Path -LiteralPath $Destination) {
-        Assert-NxbNoReparseChain $Destination 'maintenance rollback target'
+        Assert-BslNoReparseChain $Destination 'maintenance rollback target'
         Remove-Item -LiteralPath $Destination -Recurse -Force
     }
     if (Test-Path -LiteralPath $Backup) {
-        Move-NxbDirectoryStrict $Backup $Destination 'maintenance rollback restoration'
+        Move-BslDirectoryStrict $Backup $Destination 'maintenance rollback restoration'
     }
 }
 
-function Restore-NxbIdempotentState {
+function Restore-BslIdempotentState {
     param(
         [Parameter(Mandatory = $true)][string]$StatePath,
         [Parameter(Mandatory = $true)][string]$PendingPath,
@@ -183,25 +183,25 @@ function Restore-NxbIdempotentState {
     Remove-Item -LiteralPath $PendingPath -Force -ErrorAction SilentlyContinue
 }
 
-$installRootPath = Assert-NxbManagedRoot $InstallRoot 'install root'
-$dataRootPath = Assert-NxbManagedRoot $DataRoot 'data root'
-$package = Get-NxbPackagePaths $PackageDirectory
+$installRootPath = Assert-BslManagedRoot $InstallRoot 'install root'
+$dataRootPath = Assert-BslManagedRoot $DataRoot 'data root'
+$package = Get-BslPackagePaths $PackageDirectory
 
-if ((Test-NxbPathWithin $package.Root $installRootPath) -or
-    (Test-NxbPathWithin $installRootPath $package.Root) -or
-    (Test-NxbPathWithin $package.Root $dataRootPath) -or
-    (Test-NxbPathWithin $dataRootPath $package.Root) -or
-    (Test-NxbPathWithin $installRootPath $dataRootPath) -or
-    (Test-NxbPathWithin $dataRootPath $installRootPath)) {
+if ((Test-BslPathWithin $package.Root $installRootPath) -or
+    (Test-BslPathWithin $installRootPath $package.Root) -or
+    (Test-BslPathWithin $package.Root $dataRootPath) -or
+    (Test-BslPathWithin $dataRootPath $package.Root) -or
+    (Test-BslPathWithin $installRootPath $dataRootPath) -or
+    (Test-BslPathWithin $dataRootPath $installRootPath)) {
     throw 'Package, install and data roots must be independent directories.'
 }
 
-$publisherThumbprint = Assert-NxbAuthenticode `
+$publisherThumbprint = Assert-BslAuthenticode `
     $package.Binary $ExpectedPublisherThumbprint
-$releaseKeySha256 = Assert-NxbReleasePublicKey `
+$releaseKeySha256 = Assert-BslReleasePublicKey `
     $package.PublicKey $ExpectedReleasePublicKeySha256
-$manifestDocument = Get-NxbManifestDocument $package.Manifest
-$verification = Invoke-NxbReleaseVerification `
+$manifestDocument = Get-BslManifestDocument $package.Manifest
+$verification = Invoke-BslReleaseVerification `
     $package.Binary $package.Manifest $package.PublicKey $package.Sbom $package.Checksums
 
 if ($verification.version -ne $manifestDocument.manifest.version -or
@@ -211,13 +211,13 @@ if ($verification.version -ne $manifestDocument.manifest.version -or
     throw 'Candidate verification result does not match the signed manifest document.'
 }
 
-$candidateHelperSha256 = Assert-NxbBundledHelperBinding `
+$candidateHelperSha256 = Assert-BslBundledHelperBinding `
     $package.Helper `
     $package.Checksums
 
 $installParent = Split-Path -Parent $installRootPath
 New-Item -ItemType Directory -Path $installParent -Force | Out-Null
-$lock = Open-NxbInstallerLock $installRootPath
+$lock = Open-BslInstallerLock $installRootPath
 $nonce = [Guid]::NewGuid().ToString('N')
 $stageRoot = $installRootPath + '.stage.' + $nonce
 $previousRoot = $installRootPath + '.previous'
@@ -240,7 +240,7 @@ $transactionCommitted = $false
 $result = $null
 try {
     if (Test-Path -LiteralPath $installRootPath) {
-        $existing = Assert-NxbInstalledRoot `
+        $existing = Assert-BslInstalledRoot `
             $installRootPath $publisherThumbprint $releaseKeySha256
         $existingPathSetting = [bool]$existing.State.add_to_user_path
         $existingShortcutSetting = [bool]$existing.State.create_start_menu_shortcut
@@ -250,7 +250,7 @@ try {
 
     $comparison = $null
     if ($null -ne $existing) {
-        $comparison = Compare-NxbReleaseOrder `
+        $comparison = Compare-BslReleaseOrder `
             $verification.version $verification.release_sequence `
             $existing.Verification.version $existing.Verification.release_sequence
         if ($comparison -lt 0) {
@@ -267,25 +267,25 @@ try {
     }
 
     New-Item -ItemType Directory -Path $dataRootPath -Force | Out-Null
-    Protect-NxbDirectoryAcl $dataRootPath
-    Publish-NxbMaintenanceScripts $maintenanceRoot $maintenanceBackup
+    Protect-BslDirectoryAcl $dataRootPath
+    Publish-BslMaintenanceScripts $maintenanceRoot $maintenanceBackup
     $maintenancePublished = $true
 
     if ($null -ne $existing -and $comparison -eq 0) {
         $existing.State.add_to_user_path = $AddToUserPath
         $existing.State.create_start_menu_shortcut = $CreateStartMenuShortcut
-        Write-NxbJsonFile $idempotentStatePending $existing.State
+        Write-BslJsonFile $idempotentStatePending $existing.State
         Move-Item -LiteralPath $idempotentStatePath -Destination $idempotentStateBackup
         $idempotentStateBackedUp = $true
         Move-Item -LiteralPath $idempotentStatePending -Destination $idempotentStatePath
         $idempotentStatePublished = $true
 
-        Set-NxbIntegrationState `
+        Set-BslIntegrationState `
             $installRootPath $dataRootPath $verification.version `
             ([uint64]$verification.release_sequence) `
             $publisherThumbprint $releaseKeySha256 `
             $AddToUserPath $CreateStartMenuShortcut
-        Write-NxbJsonFile `
+        Write-BslJsonFile `
             (Join-Path $maintenanceRoot 'current-install.json') $existing.State
 
         $result = [ordered]@{
@@ -307,16 +307,16 @@ try {
         $transactionCommitted = $true
     } else {
         New-Item -ItemType Directory -Path $stageRoot | Out-Null
-        foreach ($name in $script:NxbPackageFileNames) {
+        foreach ($name in $script:BslPackageFileNames) {
             Copy-Item -LiteralPath (Join-Path $package.Root $name) `
                 -Destination (Join-Path $stageRoot $name)
         }
-        Protect-NxbDirectoryAcl $stageRoot
+        Protect-BslDirectoryAcl $stageRoot
 
-        $stagePaths = Get-NxbInstalledPaths $stageRoot
-        [void](Assert-NxbAuthenticode $stagePaths.Binary $publisherThumbprint)
-        [void](Assert-NxbReleasePublicKey $stagePaths.PublicKey $releaseKeySha256)
-        $stageVerification = Invoke-NxbReleaseVerification `
+        $stagePaths = Get-BslInstalledPaths $stageRoot
+        [void](Assert-BslAuthenticode $stagePaths.Binary $publisherThumbprint)
+        [void](Assert-BslReleasePublicKey $stagePaths.PublicKey $releaseKeySha256)
+        $stageVerification = Invoke-BslReleaseVerification `
             $stagePaths.Binary $stagePaths.Manifest $stagePaths.PublicKey `
             $stagePaths.Sbom $stagePaths.Checksums
         if ($stageVerification.manifest_sha256 -ne $verification.manifest_sha256 -or
@@ -325,7 +325,7 @@ try {
             throw 'Staged package does not match the verified source package.'
         }
 
-        $stageHelperSha256 = Assert-NxbBundledHelperBinding `
+        $stageHelperSha256 = Assert-BslBundledHelperBinding `
             $stagePaths.Helper `
             $stagePaths.Checksums
 
@@ -335,7 +335,7 @@ try {
 
         $state = [ordered]@{
             schema_version = 3
-            product = 'NXBounty'
+            product = 'BoundSeal'
             version = $verification.version
             release_sequence = [uint64]$verification.release_sequence
             release_id = $manifestDocument.manifest.release_id
@@ -353,37 +353,37 @@ try {
             create_start_menu_shortcut = $CreateStartMenuShortcut
             installed_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffffffZ')
         }
-        Write-NxbJsonFile $stagePaths.State $state
+        Write-BslJsonFile $stagePaths.State $state
 
         if (Test-Path -LiteralPath $previousRoot) {
-            [void](Assert-NxbInstalledRoot `
+            [void](Assert-BslInstalledRoot `
                 $previousRoot $publisherThumbprint $releaseKeySha256 `
                 $installRootPath)
-            Move-NxbDirectoryStrict $previousRoot $previousBackupRoot 'previous slot backup'
+            Move-BslDirectoryStrict $previousRoot $previousBackupRoot 'previous slot backup'
             $previousSlotBackedUp = $true
         }
         if (Test-Path -LiteralPath $installRootPath) {
-            Move-NxbDirectoryStrict $installRootPath $previousRoot 'active slot demotion'
+            Move-BslDirectoryStrict $installRootPath $previousRoot 'active slot demotion'
             $movedExisting = $true
         }
-        Move-NxbDirectoryStrict $stageRoot $installRootPath 'staged release publication'
+        Move-BslDirectoryStrict $stageRoot $installRootPath 'staged release publication'
         $publishedStage = $true
 
-        Set-NxbIntegrationState `
+        Set-BslIntegrationState `
             $installRootPath $dataRootPath $verification.version `
             ([uint64]$verification.release_sequence) `
             $publisherThumbprint $releaseKeySha256 `
             $AddToUserPath $CreateStartMenuShortcut
 
-        $installed = Assert-NxbInstalledRoot `
+        $installed = Assert-BslInstalledRoot `
             $installRootPath $publisherThumbprint $releaseKeySha256
         if ($installed.Verification.manifest_sha256 -ne $verification.manifest_sha256) {
             throw 'Published installation does not match the candidate release.'
         }
         if ($movedExisting) {
-            Protect-NxbDirectoryAcl $previousRoot
+            Protect-BslDirectoryAcl $previousRoot
         }
-        Write-NxbJsonFile (Join-Path $maintenanceRoot 'current-install.json') $state
+        Write-BslJsonFile (Join-Path $maintenanceRoot 'current-install.json') $state
 
         $result = [ordered]@{
             schema_version = 3
@@ -409,40 +409,40 @@ catch {
     $failure = $_
     if (-not $transactionCommitted) {
         try {
-            Restore-NxbIdempotentState `
+            Restore-BslIdempotentState `
                 $idempotentStatePath $idempotentStatePending $idempotentStateBackup `
                 $idempotentStateBackedUp $idempotentStatePublished
 
             if ($publishedStage -and (Test-Path -LiteralPath $installRootPath)) {
-                Assert-NxbNoReparseChain $installRootPath 'failed published installation'
+                Assert-BslNoReparseChain $installRootPath 'failed published installation'
                 Remove-Item -LiteralPath $installRootPath -Recurse -Force
             }
             if ($movedExisting -and (Test-Path -LiteralPath $previousRoot)) {
-                Move-NxbDirectoryStrict $previousRoot $installRootPath 'failed upgrade active restoration'
+                Move-BslDirectoryStrict $previousRoot $installRootPath 'failed upgrade active restoration'
             }
             if ($previousSlotBackedUp -and (Test-Path -LiteralPath $previousBackupRoot)) {
-                Move-NxbDirectoryStrict $previousBackupRoot $previousRoot 'failed upgrade previous-slot restoration'
+                Move-BslDirectoryStrict $previousBackupRoot $previousRoot 'failed upgrade previous-slot restoration'
             }
             if (Test-Path -LiteralPath $stageRoot) {
-                Assert-NxbNoReparseChain $stageRoot 'failed staging directory'
+                Assert-BslNoReparseChain $stageRoot 'failed staging directory'
                 Remove-Item -LiteralPath $stageRoot -Recurse -Force
             }
 
             if ($null -ne $existing -and
                 (Test-Path -LiteralPath $installRootPath -PathType Container)) {
-                Set-NxbIntegrationState `
+                Set-BslIntegrationState `
                     $installRootPath $dataRootPath $existing.Verification.version `
                     ([uint64]$existing.Verification.release_sequence) `
                     $publisherThumbprint $releaseKeySha256 `
                     $existingPathSetting $existingShortcutSetting
             } else {
-                [void](Remove-NxbUserPath $installRootPath)
-                [void](Remove-NxbStartMenuShortcut)
-                Remove-NxbUninstallEntry
+                [void](Remove-BslUserPath $installRootPath)
+                [void](Remove-BslStartMenuShortcut)
+                Remove-BslUninstallEntry
             }
 
             if ($maintenancePublished -or (Test-Path -LiteralPath $maintenanceBackup)) {
-                Restore-NxbMaintenanceScripts $maintenanceRoot $maintenanceBackup
+                Restore-BslMaintenanceScripts $maintenanceRoot $maintenanceBackup
             }
         }
         catch {
