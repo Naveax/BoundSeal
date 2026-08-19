@@ -18,7 +18,6 @@ const MAX_WINDOWS_ACL_EXPORT_BYTES: u64 = 128 * 1024;
 
 pub(super) fn is_reparse_point(metadata: &fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
-
     metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
 }
 
@@ -42,10 +41,8 @@ fn harden_windows_acl(path: &Path, directory: bool) -> Result<()> {
     if directory != metadata.is_dir() {
         bail!("Windows ACL target type does not match: {}", path.display());
     }
-
     let current_sid = current_windows_user_sid()?;
     let rights = if directory { "(OI)(CI)F" } else { "F" };
-
     let grant_arguments = [
         OsString::from("/grant:r"),
         OsString::from(format!("*{current_sid}:{rights}")),
@@ -54,7 +51,6 @@ fn harden_windows_acl(path: &Path, directory: bool) -> Result<()> {
         OsString::from("/q"),
     ];
     run_icacls(path, &grant_arguments)?;
-
     let mut remove_arguments = vec![OsString::from("/remove:g")];
     remove_arguments.extend(
         WINDOWS_FORBIDDEN_ALLOW_SIDS
@@ -63,14 +59,10 @@ fn harden_windows_acl(path: &Path, directory: bool) -> Result<()> {
     );
     remove_arguments.push(OsString::from("/q"));
     run_icacls(path, &remove_arguments)?;
-
-    // Make inheritance protection the final ACL mutation. This prevents
-    // later ACL edits from weakening the protected DACL control flag.
     run_icacls(
         path,
         &[OsString::from("/inheritancelevel:r"), OsString::from("/q")],
     )?;
-
     validate_windows_acl_with_sid(path, directory, &current_sid)
 }
 
@@ -81,34 +73,24 @@ fn validate_windows_acl_with_sid(path: &Path, directory: bool, current_sid: &str
     if directory != metadata.is_dir() {
         bail!("Windows ACL target type does not match: {}", path.display());
     }
-
     run_icacls(path, &[OsString::from("/verify"), OsString::from("/q")])?;
     let sddl = export_windows_acl_sddl(path)?;
     if !sddl.contains("D:P") {
-        bail!(
-            "Windows ACL inheritance is not protected: {}",
-            path.display()
-        );
+        bail!("Windows ACL inheritance is not protected: {}", path.display());
     }
     if !sddl_has_full_control(&sddl, current_sid)
         || !(sddl_has_full_control(&sddl, WINDOWS_SYSTEM_SID) || sddl_has_full_control(&sddl, "SY"))
         || !(sddl_has_full_control(&sddl, WINDOWS_ADMINISTRATORS_SID)
             || sddl_has_full_control(&sddl, "BA"))
     {
-        bail!(
-            "Windows ACL required full-control entries are missing: {}",
-            path.display()
-        );
+        bail!("Windows ACL required full-control entries are missing: {}", path.display());
     }
     for principal in WINDOWS_FORBIDDEN_ALLOW_SIDS
         .iter()
         .chain(WINDOWS_FORBIDDEN_ALLOW_ALIASES.iter())
     {
         if sddl_has_allow_ace(&sddl, principal) {
-            bail!(
-                "Windows ACL contains a broad allow entry for {principal}: {}",
-                path.display()
-            );
+            bail!("Windows ACL contains a broad allow entry for {principal}: {}", path.display());
         }
     }
     Ok(())
@@ -138,14 +120,10 @@ fn current_windows_user_sid() -> Result<String> {
 }
 
 fn valid_windows_sid(value: &str) -> bool {
-    let Some(remainder) = value.strip_prefix("S-") else {
-        return false;
-    };
+    let Some(remainder) = value.strip_prefix("S-") else { return false; };
     !remainder.is_empty()
         && value.len() <= 184
-        && remainder
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || byte == b'-')
+        && remainder.bytes().all(|byte| byte.is_ascii_digit() || byte == b'-')
 }
 
 fn run_icacls(path: &Path, arguments: &[OsString]) -> Result<Output> {
@@ -157,27 +135,19 @@ fn run_icacls(path: &Path, arguments: &[OsString]) -> Result<Output> {
 
 fn run_windows_system_tool(name: &str, arguments: &[OsString]) -> Result<Output> {
     if !name.ends_with(".exe")
-        || !name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+        || !name.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
     {
         bail!("Windows system tool name is invalid");
     }
     let root = windows_system_root()?;
     let tool = root.join("System32").join(name);
-    if !tool.is_absolute() {
-        bail!("Windows system tool path is not absolute");
-    }
+    if !tool.is_absolute() { bail!("Windows system tool path is not absolute"); }
     reject_path_indirections(&tool, "Windows system tool")?;
     let metadata = fs::metadata(&tool)
         .with_context(|| format!("Windows system tool is missing: {}", tool.display()))?;
     if !metadata.is_file() {
-        bail!(
-            "Windows system tool is not a regular file: {}",
-            tool.display()
-        );
+        bail!("Windows system tool is not a regular file: {}", tool.display());
     }
-
     let output = Command::new(&tool)
         .args(arguments)
         .stdin(Stdio::null())
@@ -188,12 +158,7 @@ fn run_windows_system_tool(name: &str, arguments: &[OsString]) -> Result<Output>
         .with_context(|| format!("could not execute Windows system tool {}", tool.display()))?;
     if !output.status.success() {
         let detail = bounded_process_detail(&output.stderr);
-        bail!(
-            "Windows system tool {} failed with status {}: {}",
-            tool.display(),
-            output.status,
-            detail
-        );
+        bail!("Windows system tool {} failed with status {}: {}", tool.display(), output.status, detail);
     }
     Ok(output)
 }
@@ -203,25 +168,17 @@ fn windows_system_root() -> Result<PathBuf> {
         .or_else(|| std::env::var_os("WINDIR"))
         .map(PathBuf::from)
         .ok_or_else(|| anyhow::anyhow!("Windows system root is unavailable"))?;
-    if !root.is_absolute() {
-        bail!("Windows system root is not absolute");
-    }
+    if !root.is_absolute() { bail!("Windows system root is not absolute"); }
     reject_path_indirections(&root, "Windows system root")?;
-    fs::canonicalize(&root).with_context(|| {
-        format!(
-            "could not canonicalize Windows system root {}",
-            root.display()
-        )
-    })
+    fs::canonicalize(&root)
+        .with_context(|| format!("could not canonicalize Windows system root {}", root.display()))
 }
 
 fn windows_cli_path(path: &Path) -> OsString {
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
-
     const VERBATIM_PREFIX: &[u16] = &[92, 92, 63, 92];
     const VERBATIM_UNC_PREFIX: &[u16] = &[92, 92, 63, 92, 85, 78, 67, 92];
     const UNC_PREFIX: &[u16] = &[92, 92];
-
     let encoded: Vec<u16> = path.as_os_str().encode_wide().collect();
     if encoded.starts_with(VERBATIM_UNC_PREFIX) {
         let mut normal = Vec::with_capacity(encoded.len() - VERBATIM_UNC_PREFIX.len() + 2);
@@ -240,11 +197,9 @@ fn bounded_process_detail(bytes: &[u8]) -> String {
 }
 
 fn export_windows_acl_sddl(path: &Path) -> Result<String> {
-    let export = std::env::temp_dir().join(format!("nxb-acl-{}.txt", random_hex(16)?));
+    let export = std::env::temp_dir().join(format!("bsl-acl-{}.txt", random_hex(16)?));
     reject_path_indirections(
-        export
-            .parent()
-            .ok_or_else(|| anyhow::anyhow!("ACL export has no parent"))?,
+        export.parent().ok_or_else(|| anyhow::anyhow!("ACL export has no parent"))?,
         "ACL export parent",
     )?;
     let result = (|| {
@@ -271,55 +226,38 @@ fn export_windows_acl_sddl(path: &Path) -> Result<String> {
 
 fn decode_windows_text(bytes: &[u8]) -> Result<String> {
     if bytes.starts_with(&[0xff, 0xfe]) {
-        if !(bytes.len() - 2).is_multiple_of(2) {
-            bail!("UTF-16 ACL export has an invalid byte length");
-        }
+        if !(bytes.len() - 2).is_multiple_of(2) { bail!("UTF-16 ACL export has an invalid byte length"); }
         let units: Vec<u16> = bytes[2..]
             .chunks_exact(2)
             .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
             .collect();
         return String::from_utf16(&units).context("ACL export is not valid UTF-16LE");
     }
-
     if bytes.starts_with(&[0xef, 0xbb, 0xbf]) {
         return String::from_utf8(bytes[3..].to_vec()).context("ACL export is not valid UTF-8");
     }
-
-    // icacls /save can emit UTF-16LE without a BOM. Its path and
-    // SDDL syntax are predominantly ASCII, so UTF-16LE output has
-    // zero high bytes in a large fraction of its 16-bit code units.
     if bytes.len().is_multiple_of(2) && !bytes.is_empty() {
         let pair_count = bytes.len() / 2;
         let zero_high_bytes = bytes.chunks_exact(2).filter(|pair| pair[1] == 0).count();
-
         if zero_high_bytes * 2 >= pair_count {
             let units: Vec<u16> = bytes
                 .chunks_exact(2)
                 .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
                 .collect();
-
             return String::from_utf16(&units).context("ACL export is not valid BOM-less UTF-16LE");
         }
     }
-
     String::from_utf8(bytes.to_vec()).context("ACL export is not valid UTF-8")
 }
 
 fn sddl_has_full_control(sddl: &str, principal: &str) -> bool {
-    sddl_aces(sddl)
-        .any(|ace| ace.ace_type == "A" && ace.rights.contains("FA") && ace.principal == principal)
+    sddl_aces(sddl).any(|ace| ace.ace_type == "A" && ace.rights.contains("FA") && ace.principal == principal)
 }
-
 fn sddl_has_allow_ace(sddl: &str, principal: &str) -> bool {
     sddl_aces(sddl).any(|ace| ace.ace_type == "A" && ace.principal == principal)
 }
 
-struct SddlAce<'a> {
-    ace_type: &'a str,
-    rights: &'a str,
-    principal: &'a str,
-}
-
+struct SddlAce<'a> { ace_type: &'a str, rights: &'a str, principal: &'a str }
 fn sddl_aces(sddl: &str) -> impl Iterator<Item = SddlAce<'_>> {
     sddl.split('(').filter_map(|segment| {
         let ace = segment.split_once(')')?.0;
@@ -330,11 +268,7 @@ fn sddl_aces(sddl: &str) -> impl Iterator<Item = SddlAce<'_>> {
         let _object_guid = fields.next()?;
         let _inherit_object_guid = fields.next()?;
         let principal = fields.next()?;
-        Some(SddlAce {
-            ace_type,
-            rights,
-            principal,
-        })
+        Some(SddlAce { ace_type, rights, principal })
     })
 }
 
@@ -344,14 +278,9 @@ mod tests {
 
     #[test]
     fn decodes_bomless_utf16le_icacls_save_output() {
-        let expected =
-            "private.txt\r\nD:PAI(A;;FA;;;BA)(A;;FA;;;SY)(A;;FA;;;S-1-5-21-100-200-300-1001)\r\n";
-
+        let expected = "private.txt\r\nD:PAI(A;;FA;;;BA)(A;;FA;;;SY)(A;;FA;;;S-1-5-21-100-200-300-1001)\r\n";
         let mut bytes = Vec::new();
-        for unit in expected.encode_utf16() {
-            bytes.extend_from_slice(&unit.to_le_bytes());
-        }
-
+        for unit in expected.encode_utf16() { bytes.extend_from_slice(&unit.to_le_bytes()); }
         assert!(!bytes.starts_with(&[0xff, 0xfe]));
         assert_eq!(decode_windows_text(&bytes).unwrap(), expected);
     }
@@ -359,33 +288,25 @@ mod tests {
     #[test]
     fn hardens_acl_and_protects_inheritance() {
         let root = std::env::temp_dir().join(format!(
-            "nxb-windows-acl-{}-{}",
+            "bsl-windows-acl-{}-{}",
             std::process::id(),
             random_hex(8).unwrap()
         ));
         fs::create_dir_all(&root).unwrap();
-
         let result = (|| -> Result<()> {
             harden_windows_acl(&root, true)?;
-
             let current_sid = current_windows_user_sid()?;
             validate_windows_acl_with_sid(&root, true, &current_sid)?;
-
             let root_sddl = export_windows_acl_sddl(&root)?;
             assert!(root_sddl.contains("D:P"));
-
             let file = root.join("private.txt");
             fs::write(&file, b"private").unwrap();
-
             harden_windows_acl(&file, false)?;
             validate_windows_acl_with_sid(&file, false, &current_sid)?;
-
             let file_sddl = export_windows_acl_sddl(&file)?;
             assert!(file_sddl.contains("D:P"));
-
             Ok(())
         })();
-
         let _ = fs::remove_dir_all(&root);
         result.unwrap();
     }
@@ -399,23 +320,16 @@ mod tests {
 
     #[test]
     fn normalizes_verbatim_windows_paths_for_system_tools() {
-        let input = Path::new(r"\\?\C:\NXBounty\workspace.json");
-        assert_eq!(
-            windows_cli_path(input),
-            OsString::from(r"C:\NXBounty\workspace.json")
-        );
+        let input = Path::new(r"\\?\C:\BoundSeal\workspace.json");
+        assert_eq!(windows_cli_path(input), OsString::from(r"C:\BoundSeal\workspace.json"));
         let unc = Path::new(r"\\?\UNC\server\share\workspace.json");
-        assert_eq!(
-            windows_cli_path(unc),
-            OsString::from(r"\\server\share\workspace.json")
-        );
+        assert_eq!(windows_cli_path(unc), OsString::from(r"\\server\share\workspace.json"));
     }
 
     #[test]
     fn parses_required_and_forbidden_sddl_entries() {
         let sid = "S-1-5-21-100-200-300-1001";
-        let sddl =
-            format!("D:P(A;OICI;FA;;;{sid})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;RX;;;WD)");
+        let sddl = format!("D:P(A;OICI;FA;;;{sid})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;RX;;;WD)");
         assert!(sddl_has_full_control(&sddl, sid));
         assert!(sddl_has_full_control(&sddl, "SY"));
         assert!(sddl_has_allow_ace(&sddl, "WD"));
