@@ -10,19 +10,19 @@ mod live_execution {
 
     use anyhow::{bail, Context, Result};
     use chrono::{DateTime, Utc};
-    use nxb_executor::ExecutionControl;
-    use nxb_gateway::{DecisionOutcome, RequestIntent, ScopeGateway};
-    use nxb_live_adapter::{
+    use bsl_executor::ExecutionControl;
+    use bsl_gateway::{DecisionOutcome, RequestIntent, ScopeGateway};
+    use bsl_live_adapter::{
         LiveAdapterConfig, LivePassivePipeline, LivePassiveRequest, PassiveMethod,
     };
-    use nxb_passive_analyzers::{
+    use bsl_passive_analyzers::{
         CachePolicyAnalyzer, CookieSecurityAnalyzer, Finding, HeaderSecurityAnalyzer,
         ObservedHeader, PassiveAnalyzer, ResponseObservation,
     };
-    use nxb_pinned_transport::PinnedTransportCoordinator;
-    use nxb_policy::TargetPolicy;
-    use nxb_stream::StreamControl;
-    use nxb_transport::{ConnectionAttempt, TransportScheme};
+    use bsl_pinned_transport::PinnedTransportCoordinator;
+    use bsl_policy::TargetPolicy;
+    use bsl_stream::StreamControl;
+    use bsl_transport::{ConnectionAttempt, TransportScheme};
 
     use super::{
         hash_bytes, hash_serializable, LiveActivationCertificate, LiveOrchestratorReceipt,
@@ -130,7 +130,7 @@ mod live_execution {
             redirect_depth: ticket.redirect_depth,
         };
 
-        let config = LiveAdapterConfig::conservative("nxb-cli-live-orchestrator")?;
+        let config = LiveAdapterConfig::conservative("bsl-cli-live-orchestrator")?;
         let mut pipeline = LivePassivePipeline::new(transport, config)?;
         let method = match plan.method {
             PlannedMethod::Get => PassiveMethod::Get,
