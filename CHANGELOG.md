@@ -1,13 +1,13 @@
 # Changelog
 
-All notable changes to NXBounty are documented here.
+All notable changes to BoundSeal are documented here.
 
 ## [Unreleased]
 
-### NXB-150 — pinned process evidence-key provider
+### BSL-150 — pinned process evidence-key provider
 
-- Added the private `nxb-evidence-key-provider-process` workspace crate.
-- Adapted the NXB-149 evidence-key lifecycle to the existing NXB-140 shell-free, absolute-path and SHA-256-pinned process transport.
+- Added the private `bsl-evidence-key-provider-process` workspace crate.
+- Adapted the BSL-149 evidence-key lifecycle to the existing BSL-140 shell-free, absolute-path and SHA-256-pinned process transport.
 - Bound executable digest, process identity, exact store/key mapping, provider-handle SHA-256, optional provider-version policy, timeout and session expiry into the adapter capability identity.
 - Added zeroizing transfer from external provider material into the exact 32-byte evidence-sealing key boundary.
 - Added a real process fixture and adversarial coverage for success, identity/digest and request mismatches, short key material, provider-version drift, logical failure, timeout, debug redaction and one-fetch enforcement.
@@ -18,7 +18,7 @@ Every final PR head must pass the committed-lockfile package/workspace gates, Ru
 
 ## [0.1.0-contract-complete] - 2026-08-04
 
-This checkpoint closes the NXB-0 through NXB-147 contract architecture.
+This checkpoint closes the BSL-0 through BSL-147 contract architecture.
 
 ### Safety and authorization
 

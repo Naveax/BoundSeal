@@ -1,6 +1,6 @@
 # Security policy
 
-NXBounty is a private security-research project. Use is restricted to systems and programs for which the operator has explicit authorization.
+BoundSeal is a private security-research project. Use is restricted to systems and programs for which the operator has explicit authorization.
 
 ## Supported version
 
