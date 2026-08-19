@@ -1,0 +1,147 @@
+name: BoundSeal namespace migration
+
+on:
+  push:
+    branches:
+      - agent/boundseal-namespace-rename
+
+permissions:
+  contents: write
+
+concurrency:
+  group: boundseal-namespace-migration-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  migrate-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout migration branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install repository Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)"
+          test -n "$channel"
+          rustup toolchain install "$channel" --profile minimal --component rustfmt
+          rustup override set "$channel"
+          rustc --version
+          cargo --version
+
+      - name: Rewrite legacy namespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          replacements = [
+              ("NXBounty", "BoundSeal"),
+              ("NXBOUNTY", "BOUNDSEAL"),
+              ("nxbounty", "boundseal"),
+              ("Nxbounty", "Boundseal"),
+              ("NXB", "BSL"),
+              ("Nxb", "Bsl"),
+              ("nxb", "bsl"),
+          ]
+
+          def rename_text(value: str) -> str:
+              for old, new in replacements:
+                  value = value.replace(old, new)
+              return value
+
+          tracked = [
+              p.decode("utf-8")
+              for p in subprocess.check_output(["git", "ls-files", "-z"]).split(b"\0")
+              if p
+          ]
+
+          for old_path in sorted(tracked, key=lambda p: (p.count("/"), len(p)), reverse=True):
+              new_path = rename_text(old_path)
+              if new_path == old_path:
+                  continue
+              src = Path(old_path)
+              if not src.exists():
+                  continue
+              dst = Path(new_path)
+              dst.parent.mkdir(parents=True, exist_ok=True)
+              if dst.exists():
+                  if src.read_bytes() != dst.read_bytes():
+                      raise SystemExit(f"rename collision with different content: {old_path} -> {new_path}")
+                  subprocess.run(["git", "rm", "--", old_path], check=True)
+              else:
+                  subprocess.run(["git", "mv", "--", old_path, new_path], check=True)
+
+          tracked = [
+              p.decode("utf-8")
+              for p in subprocess.check_output(["git", "ls-files", "-z"]).split(b"\0")
+              if p
+          ]
+          rewritten = 0
+          for path_text in tracked:
+              path = Path(path_text)
+              if path.as_posix() == ".github/workflows/boundseal-namespace-migration.yml":
+                  continue
+              try:
+                  raw = path.read_bytes()
+                  text = raw.decode("utf-8")
+              except (UnicodeDecodeError, OSError):
+                  continue
+              new_text = rename_text(text)
+              if new_text != text:
+                  path.write_bytes(new_text.encode("utf-8"))
+                  rewritten += 1
+
+          print(f"rewritten_text_files={rewritten}")
+          PY
+
+      - name: Format Rust sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+
+      - name: Assert legacy namespace is gone
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -n -I -E 'NXBounty|NXBOUNTY|nxbounty|Nxbounty|NXB|Nxb|nxb' -- . ':(exclude).github/workflows/boundseal-namespace-migration.yml'; then
+            echo 'Legacy namespace references remain.' >&2
+            exit 1
+          fi
+          if git ls-files | grep -E 'NXB|Nxb|nxb'; then
+            echo 'Legacy namespace remains in tracked paths.' >&2
+            exit 1
+          fi
+
+      - name: Commit completed migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet && git diff --cached --quiet; then
+            echo 'No migration changes to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'refactor: complete BoundSeal namespace migration'
+          git push origin HEAD:${GITHUB_REF_NAME}
+
+      - name: Cargo check
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo check --workspace --all-targets
+
+      - name: Cargo test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --all-targets
