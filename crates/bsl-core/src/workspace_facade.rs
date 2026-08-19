@@ -20,40 +20,40 @@ const MIGRATION_RECOVER_EXIT_CODE: u8 = 41;
 const MIGRATION_STATUS_EXIT_CODE: u8 = 42;
 
 const INIT_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
-    code: "NXB151-WORKSPACE-INIT-FAILED",
+    code: "BSL151-WORKSPACE-INIT-FAILED",
     domain: "workspace",
     operation: "init",
-    text_prefix: "NXB-WORKSPACE-10",
+    text_prefix: "BSL-WORKSPACE-10",
 };
 const DOCTOR_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
-    code: "NXB151-WORKSPACE-DOCTOR-UNHEALTHY",
+    code: "BSL151-WORKSPACE-DOCTOR-UNHEALTHY",
     domain: "workspace",
     operation: "doctor",
-    text_prefix: "NXB-WORKSPACE-20",
+    text_prefix: "BSL-WORKSPACE-20",
 };
 const STATUS_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
-    code: "NXB151-WORKSPACE-STATUS-FAILED",
+    code: "BSL151-WORKSPACE-STATUS-FAILED",
     domain: "workspace",
     operation: "status",
-    text_prefix: "NXB-WORKSPACE-30",
+    text_prefix: "BSL-WORKSPACE-30",
 };
 const MIGRATION_APPLY_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
-    code: "NXB151-MIGRATION-APPLY-FAILED",
+    code: "BSL151-MIGRATION-APPLY-FAILED",
     domain: "migration",
     operation: "apply",
-    text_prefix: "NXB-WORKSPACE-40",
+    text_prefix: "BSL-WORKSPACE-40",
 };
 const MIGRATION_RECOVER_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
-    code: "NXB151-MIGRATION-RECOVER-FAILED",
+    code: "BSL151-MIGRATION-RECOVER-FAILED",
     domain: "migration",
     operation: "recover",
-    text_prefix: "NXB-WORKSPACE-41",
+    text_prefix: "BSL-WORKSPACE-41",
 };
 const MIGRATION_STATUS_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
-    code: "NXB151-MIGRATION-STATUS-FAILED",
+    code: "BSL151-MIGRATION-STATUS-FAILED",
     domain: "migration",
     operation: "status",
-    text_prefix: "NXB-WORKSPACE-42",
+    text_prefix: "BSL-WORKSPACE-42",
 };
 
 #[derive(Debug, Args)]
@@ -64,7 +64,7 @@ pub(crate) struct WorkspaceArgs {
 
 #[derive(Debug, Subcommand)]
 enum WorkspaceCommand {
-    /// Initialize a private local NXBounty workspace.
+    /// Initialize a private BoundSeal workspace.
     Init {
         #[arg(long)]
         workspace: PathBuf,
