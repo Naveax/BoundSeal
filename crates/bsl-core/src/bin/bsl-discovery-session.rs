@@ -25,7 +25,7 @@ use discovery_session::{
 #[cfg(feature = "live-network")]
 use discovery_session::{hash_serializable, method_from_code};
 use live_orchestrator::{read_hex_file, read_json, write_json, PlannedMethod};
-use nxb_policy::{CompiledPolicy, TargetPolicy};
+use bsl_policy::{CompiledPolicy, TargetPolicy};
 use serde::Serialize;
 use url::Url;
 
@@ -34,17 +34,17 @@ use discovery_session::consume_activation_once;
 #[cfg(feature = "live-network")]
 use live_orchestrator::{execute_discovery_session_request, DiscoverySessionRequestSpec};
 #[cfg(feature = "live-network")]
-use nxb_operator::{
+use bsl_operator::{
     discover_response, write_report_bundle, CoverageSummary, DiscoveryCandidate,
     DiscoveryScheduler, OperatorConfig, OperatorFinding, OperatorReport, ReportBundle,
     SchedulerReceipt, StopReason,
 };
 #[cfg(feature = "live-network")]
-use nxb_passive_analyzers::Finding;
+use bsl_passive_analyzers::Finding;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "nxb-discovery-session",
+    name = "bsl-discovery-session",
     version,
     about = "Signed bounded passive discovery-session utilities"
 )]
@@ -143,7 +143,7 @@ enum Command {
         state_directory: PathBuf,
         #[arg(long)]
         config: Option<PathBuf>,
-        #[arg(long, default_value = "target/nxb-discovery-session")]
+        #[arg(long, default_value = "target/bsl-discovery-session")]
         output_directory: PathBuf,
         #[arg(long)]
         enable_live: bool,
@@ -497,12 +497,12 @@ fn run_live_session(
         stop_reason: artifacts.stop_reason,
         scheduler: artifacts.scheduler,
         coverage: artifacts.coverage,
+        request_receipts: artifacts.request_receipts,
         request_receipt_chain_tail_sha256: artifacts
             .request_receipts
             .last()
             .map(|receipt| receipt.receipt_sha256.clone())
             .unwrap_or_else(|| plan.plan_sha256.clone()),
-        request_receipts: artifacts.request_receipts,
         report_sha256: artifacts.bundle.report.report_sha256.clone(),
         export_manifest_sha256: export_manifest.root_sha256,
         body_retention: "memory_only_not_exported".into(),
@@ -707,7 +707,7 @@ fn execute_session(
         .map(OperatorFinding::from_passive)
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let mut untested_areas = vec![
-        "Authenticated areas were not tested; NXB-137 does not inject session or vault material."
+        "Authenticated areas were not tested; BSL-137 does not inject session or vault material."
             .into(),
         "Active reflection, rate-limit and authorization-differential probes were not executed."
             .into(),
@@ -769,7 +769,7 @@ fn effective_operator_config(
         None => OperatorConfig::default(),
     };
     if !config.passive_only {
-        bail!("NXB-137 accepts only passive_only operator configurations");
+        bail!("BSL-137 accepts only passive_only operator configurations");
     }
     config.maximum_requests = config
         .maximum_requests
