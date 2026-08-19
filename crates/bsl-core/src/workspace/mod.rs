@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-pub(crate) const PRODUCT_NAME: &str = "NXBounty";
+pub(crate) const PRODUCT_NAME: &str = "BoundSeal";
 pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 1;
 pub(crate) const MANIFEST_FILE: &str = "workspace.json";
 pub(crate) const MAX_DOCUMENT_BYTES: u64 = 64 * 1024;
@@ -359,9 +359,6 @@ pub(crate) fn reject_path_indirections(path: &Path, label: &str) -> Result<()> {
         match component {
             Component::Prefix(prefix) => {
                 current.push(prefix.as_os_str());
-                // A Windows drive/UNC prefix is not itself a filesystem
-                // entry. Inspect only after RootDir or a normal component
-                // has completed an inspectable path.
                 continue;
             }
             Component::RootDir => current.push(Path::new(std::path::MAIN_SEPARATOR_STR)),
@@ -404,7 +401,7 @@ fn generate_workspace_id(workspace: &Path) -> Result<String> {
         .fill(&mut random)
         .map_err(|_| anyhow::anyhow!("operating-system randomness is unavailable"))?;
     let mut digest = Sha256::new();
-    digest.update(b"nxb-product-workspace-v1");
+    digest.update(b"bsl-product-workspace-v1");
     digest.update(random);
     digest.update(workspace.as_os_str().to_string_lossy().as_bytes());
     digest.update(
@@ -414,7 +411,7 @@ fn generate_workspace_id(workspace: &Path) -> Result<String> {
             .to_le_bytes(),
     );
     random.fill(0);
-    Ok(format!("nxb-workspace-{}", &hex(&digest.finalize())[..32]))
+    Ok(format!("bsl-workspace-{}", &hex(&digest.finalize())[..32]))
 }
 
 fn create_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
@@ -523,7 +520,7 @@ fn write_probe(workspace: &Path) -> Result<()> {
             .open(&path)
             .with_context(|| format!("could not create write probe {}", path.display()))?;
         set_private_file_permissions(&path)?;
-        output.write_all(b"nxb-doctor-probe\n")?;
+        output.write_all(b"bsl-doctor-probe\n")?;
         output.sync_all()?;
         drop(output);
         validate_private_permissions(&path, false)?;
@@ -796,7 +793,7 @@ mod tests {
 
     fn temporary_path(test_name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "nxb-workspace-{test_name}-{}-{}",
+            "bsl-workspace-{test_name}-{}-{}",
             std::process::id(),
             random_hex(8).unwrap()
         ))
