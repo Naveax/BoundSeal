@@ -1,40 +1,40 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:NxbInstallerSchemaVersion = 3
-$script:NxbLegacyInstallerSchemaVersion = 2
-$script:NxbBundledHelperFileName =
-    'nxb-windows-credential-evidence-key-helper.exe'
+$script:BslInstallerSchemaVersion = 3
+$script:BslLegacyInstallerSchemaVersion = 2
+$script:BslBundledHelperFileName =
+    'bsl-windows-credential-evidence-key-helper.exe'
 
-$script:NxbPackageFileNames = @(
-    'nxb.exe',
-    $script:NxbBundledHelperFileName,
-    'nxb.cdx.json',
+$script:BslPackageFileNames = @(
+    'bsl.exe',
+    $script:BslBundledHelperFileName,
+    'bsl.cdx.json',
     'SHA256SUMS',
-    'nxb-release-manifest.json',
+    'bsl-release-manifest.json',
     'release-public-key.hex'
 )
 
-$script:NxbInstalledFileNames = @(
-    'nxb.exe',
-    $script:NxbBundledHelperFileName,
-    'nxb.cdx.json',
+$script:BslInstalledFileNames = @(
+    'bsl.exe',
+    $script:BslBundledHelperFileName,
+    'bsl.cdx.json',
     'SHA256SUMS',
-    'nxb-release-manifest.json',
+    'bsl-release-manifest.json',
     'release-public-key.hex',
     'install-state.json'
 )
 
-$script:NxbLegacyInstalledFileNames = @(
-    'nxb.exe',
-    'nxb.cdx.json',
+$script:BslLegacyInstalledFileNames = @(
+    'bsl.exe',
+    'bsl.cdx.json',
     'SHA256SUMS',
-    'nxb-release-manifest.json',
+    'bsl-release-manifest.json',
     'release-public-key.hex',
     'install-state.json'
 )
 
-function Get-NxbCanonicalPath {
+function Get-BslCanonicalPath {
     param([Parameter(Mandatory = $true)][string]$Path)
 
     if ([string]::IsNullOrWhiteSpace($Path) -or
@@ -46,14 +46,14 @@ function Get-NxbCanonicalPath {
     return [IO.Path]::GetFullPath($Path)
 }
 
-function Test-NxbPathWithin {
+function Test-BslPathWithin {
     param(
         [Parameter(Mandatory = $true)][string]$Candidate,
         [Parameter(Mandatory = $true)][string]$Parent
     )
 
-    $candidatePath = (Get-NxbCanonicalPath $Candidate).TrimEnd('\')
-    $parentPath = (Get-NxbCanonicalPath $Parent).TrimEnd('\')
+    $candidatePath = (Get-BslCanonicalPath $Candidate).TrimEnd('\')
+    $parentPath = (Get-BslCanonicalPath $Parent).TrimEnd('\')
     return $candidatePath.Equals($parentPath, [StringComparison]::OrdinalIgnoreCase) -or
         $candidatePath.StartsWith(
             $parentPath + '\',
@@ -61,13 +61,13 @@ function Test-NxbPathWithin {
         )
 }
 
-function Assert-NxbNoReparseChain {
+function Assert-BslNoReparseChain {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string]$Label
     )
 
-    $fullPath = Get-NxbCanonicalPath $Path
+    $fullPath = Get-BslCanonicalPath $Path
     $root = [IO.Path]::GetPathRoot($fullPath)
     if ([string]::IsNullOrWhiteSpace($root)) {
         throw "$Label has no filesystem root."
@@ -90,35 +90,35 @@ function Assert-NxbNoReparseChain {
     }
 }
 
-function Assert-NxbManagedRoot {
+function Assert-BslManagedRoot {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string]$Label
     )
 
-    $fullPath = Get-NxbCanonicalPath $Path
+    $fullPath = Get-BslCanonicalPath $Path
     $driveRoot = ([IO.Path]::GetPathRoot($fullPath)).TrimEnd('\')
     if ($fullPath.TrimEnd('\').Equals($driveRoot, [StringComparison]::OrdinalIgnoreCase)) {
         throw "$Label must not be a drive root."
     }
     $windowsRoot = ([Environment]::GetFolderPath('Windows')).TrimEnd('\')
     if (-not [string]::IsNullOrWhiteSpace($windowsRoot) -and
-        (Test-NxbPathWithin $fullPath $windowsRoot)) {
+        (Test-BslPathWithin $fullPath $windowsRoot)) {
         throw "$Label must not be inside the Windows directory."
     }
-    Assert-NxbNoReparseChain $fullPath $Label
+    Assert-BslNoReparseChain $fullPath $Label
     return $fullPath
 }
 
-function Move-NxbDirectoryStrict {
+function Move-BslDirectoryStrict {
     param(
         [Parameter(Mandatory = $true)][string]$Source,
         [Parameter(Mandatory = $true)][string]$Destination,
         [Parameter(Mandatory = $true)][string]$Label
     )
 
-    $sourcePath = Assert-NxbManagedRoot $Source "$Label source"
-    $destinationPath = Assert-NxbManagedRoot $Destination "$Label destination"
+    $sourcePath = Assert-BslManagedRoot $Source "$Label source"
+    $destinationPath = Assert-BslManagedRoot $Destination "$Label destination"
 
     if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) {
         throw "$Label source directory is missing: $sourcePath"
@@ -128,11 +128,11 @@ function Move-NxbDirectoryStrict {
         throw "$Label destination already exists: $destinationPath"
     }
 
-    $sourceParent = Get-NxbCanonicalPath (
+    $sourceParent = Get-BslCanonicalPath (
         Split-Path -Parent $sourcePath
     )
 
-    $destinationParent = Get-NxbCanonicalPath (
+    $destinationParent = Get-BslCanonicalPath (
         Split-Path -Parent $destinationPath
     )
 
@@ -186,14 +186,14 @@ function Move-NxbDirectoryStrict {
         )
     }
 }
-function Assert-NxbRegularFile {
+function Assert-BslRegularFile {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string]$Label,
         [long]$MaximumBytes = 536870912
     )
 
-    Assert-NxbNoReparseChain $Path $Label
+    Assert-BslNoReparseChain $Path $Label
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "$Label is missing or is not a regular file: $Path"
     }
@@ -205,14 +205,14 @@ function Assert-NxbRegularFile {
     }
 }
 
-function Assert-NxbExactDirectoryEntries {
+function Assert-BslExactDirectoryEntries {
     param(
         [Parameter(Mandatory = $true)][string]$Directory,
         [Parameter(Mandatory = $true)][string[]]$ExpectedNames,
         [Parameter(Mandatory = $true)][string]$Label
     )
 
-    Assert-NxbNoReparseChain $Directory $Label
+    Assert-BslNoReparseChain $Directory $Label
     if (-not (Test-Path -LiteralPath $Directory -PathType Container)) {
         throw "$Label is missing: $Directory"
     }
@@ -229,30 +229,30 @@ function Assert-NxbExactDirectoryEntries {
     }
 }
 
-function Get-NxbPackagePaths {
+function Get-BslPackagePaths {
     param([Parameter(Mandatory = $true)][string]$PackageDirectory)
 
-    $root = Get-NxbCanonicalPath $PackageDirectory
-    Assert-NxbExactDirectoryEntries $root $script:NxbPackageFileNames 'package directory'
+    $root = Get-BslCanonicalPath $PackageDirectory
+    Assert-BslExactDirectoryEntries $root $script:BslPackageFileNames 'package directory'
     $paths = [pscustomobject]@{
         Root = $root
-        Binary = Join-Path $root 'nxb.exe'
-        Helper = Join-Path $root $script:NxbBundledHelperFileName
-        Sbom = Join-Path $root 'nxb.cdx.json'
+        Binary = Join-Path $root 'bsl.exe'
+        Helper = Join-Path $root $script:BslBundledHelperFileName
+        Sbom = Join-Path $root 'bsl.cdx.json'
         Checksums = Join-Path $root 'SHA256SUMS'
-        Manifest = Join-Path $root 'nxb-release-manifest.json'
+        Manifest = Join-Path $root 'bsl-release-manifest.json'
         PublicKey = Join-Path $root 'release-public-key.hex'
     }
-    Assert-NxbRegularFile $paths.Binary 'candidate nxb.exe'
-    Assert-NxbRegularFile $paths.Helper 'candidate bundled credential helper'
-    Assert-NxbRegularFile $paths.Sbom 'candidate CycloneDX SBOM' 33554432
-    Assert-NxbRegularFile $paths.Checksums 'candidate checksum manifest' 1048576
-    Assert-NxbRegularFile $paths.Manifest 'candidate signed release manifest' 65536
-    Assert-NxbRegularFile $paths.PublicKey 'candidate release public key' 4096
+    Assert-BslRegularFile $paths.Binary 'candidate bsl.exe'
+    Assert-BslRegularFile $paths.Helper 'candidate bundled credential helper'
+    Assert-BslRegularFile $paths.Sbom 'candidate CycloneDX SBOM' 33554432
+    Assert-BslRegularFile $paths.Checksums 'candidate checksum manifest' 1048576
+    Assert-BslRegularFile $paths.Manifest 'candidate signed release manifest' 65536
+    Assert-BslRegularFile $paths.PublicKey 'candidate release public key' 4096
     return $paths
 }
 
-function Normalize-NxbHex {
+function Normalize-BslHex {
     param(
         [Parameter(Mandatory = $true)][string]$Value,
         [Parameter(Mandatory = $true)][int]$Length,
@@ -266,7 +266,7 @@ function Normalize-NxbHex {
     return $normalized
 }
 
-function Get-NxbChecksumSha256 {
+function Get-BslChecksumSha256 {
     param(
         [Parameter(Mandatory = $true)]
         [string]$ChecksumsPath,
@@ -277,7 +277,7 @@ function Get-NxbChecksumSha256 {
         [switch]$AllowMissing
     )
 
-    Assert-NxbRegularFile `
+    Assert-BslRegularFile `
         $ChecksumsPath `
         'checksum manifest' `
         1048576
@@ -333,7 +333,7 @@ function Get-NxbChecksumSha256 {
     return $entries[$FileName]
 }
 
-function Assert-NxbBundledHelperBinding {
+function Assert-BslBundledHelperBinding {
     param(
         [Parameter(Mandatory = $true)]
         [string]$HelperPath,
@@ -342,13 +342,13 @@ function Assert-NxbBundledHelperBinding {
         [string]$ChecksumsPath
     )
 
-    Assert-NxbRegularFile `
+    Assert-BslRegularFile `
         $HelperPath `
         'bundled credential helper'
 
-    $expected = Get-NxbChecksumSha256 `
+    $expected = Get-BslChecksumSha256 `
         $ChecksumsPath `
-        $script:NxbBundledHelperFileName
+        $script:BslBundledHelperFileName
 
     $actual = (
         Get-FileHash `
@@ -363,7 +363,7 @@ function Assert-NxbBundledHelperBinding {
     return $actual
 }
 
-function Assert-NxbReleaseSequence {
+function Assert-BslReleaseSequence {
     param(
         [Parameter(Mandatory = $true)]$Value,
         [Parameter(Mandatory = $true)][string]$Label
@@ -381,41 +381,41 @@ function Assert-NxbReleaseSequence {
     return $sequence
 }
 
-function Assert-NxbAuthenticode {
+function Assert-BslAuthenticode {
     param(
         [Parameter(Mandatory = $true)][string]$BinaryPath,
         [Parameter(Mandatory = $true)][string]$ExpectedPublisherThumbprint
     )
 
-    $expected = Normalize-NxbHex $ExpectedPublisherThumbprint 40 'publisher certificate thumbprint'
+    $expected = Normalize-BslHex $ExpectedPublisherThumbprint 40 'publisher certificate thumbprint'
     $signature = Get-AuthenticodeSignature -LiteralPath $BinaryPath
     if ($signature.Status.ToString() -ne 'Valid' -or $null -eq $signature.SignerCertificate) {
         throw "Authenticode verification failed for $BinaryPath with status $($signature.Status)."
     }
-    $actual = Normalize-NxbHex $signature.SignerCertificate.Thumbprint 40 'actual publisher certificate thumbprint'
+    $actual = Normalize-BslHex $signature.SignerCertificate.Thumbprint 40 'actual publisher certificate thumbprint'
     if ($actual -ne $expected) {
         throw 'Authenticode signer does not match the pinned publisher certificate.'
     }
     return $actual
 }
 
-function Assert-NxbReleasePublicKey {
+function Assert-BslReleasePublicKey {
     param(
         [Parameter(Mandatory = $true)][string]$PublicKeyPath,
         [Parameter(Mandatory = $true)][string]$ExpectedSha256
     )
 
-    $expected = Normalize-NxbHex $ExpectedSha256 64 'release public-key SHA-256'
+    $expected = Normalize-BslHex $ExpectedSha256 64 'release public-key SHA-256'
     $actual = (Get-FileHash -LiteralPath $PublicKeyPath -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($actual -ne $expected) {
         throw 'Release public key does not match the pinned SHA-256 trust anchor.'
     }
     $keyText = [IO.File]::ReadAllText($PublicKeyPath).Trim()
-    [void](Normalize-NxbHex $keyText 64 'release public key')
+    [void](Normalize-BslHex $keyText 64 'release public key')
     return $actual
 }
 
-function Invoke-NxbReleaseVerification {
+function Invoke-BslReleaseVerification {
     param(
         [Parameter(Mandatory = $true)][string]$BinaryPath,
         [Parameter(Mandatory = $true)][string]$ManifestPath,
@@ -424,9 +424,9 @@ function Invoke-NxbReleaseVerification {
         [Parameter(Mandatory = $true)][string]$ChecksumsPath
     )
 
-    $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ('nxb-verify-' + [Guid]::NewGuid().ToString('N'))
+    $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ('bsl-verify-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
-    Protect-NxbDirectoryAcl $temporaryRoot
+    Protect-BslDirectoryAcl $temporaryRoot
     $stdoutPath = Join-Path $temporaryRoot 'stdout.json'
     $stderrPath = Join-Path $temporaryRoot 'stderr.json'
     $arguments = @(
@@ -452,7 +452,7 @@ function Invoke-NxbReleaseVerification {
         $value = [IO.File]::ReadAllText($stdoutPath) | ConvertFrom-Json
         if ($value.status -ne 'valid' -or
             $value.network_activity -ne 'none' -or
-            (Assert-NxbReleaseSequence $value.release_sequence 'verified release sequence') -ne [uint64]$value.release_sequence) {
+            (Assert-BslReleaseSequence $value.release_sequence 'verified release sequence') -ne [uint64]$value.release_sequence) {
             throw 'Signed release verifier returned an invalid success document.'
         }
         return $value
@@ -462,23 +462,23 @@ function Invoke-NxbReleaseVerification {
     }
 }
 
-function Get-NxbManifestDocument {
+function Get-BslManifestDocument {
     param([Parameter(Mandatory = $true)][string]$ManifestPath)
 
     $value = [IO.File]::ReadAllText($ManifestPath) | ConvertFrom-Json
     if ($null -eq $value.manifest -or
         $value.manifest.manifest_version -ne 2 -or
-        $value.manifest.product -ne 'NXBounty' -or
+        $value.manifest.product -ne 'BoundSeal' -or
         $value.manifest.platform -ne 'windows' -or
         $value.manifest.architecture -ne 'x86_64' -or
-        $value.manifest.binary.file_name -ne 'nxb.exe') {
+        $value.manifest.binary.file_name -ne 'bsl.exe') {
         throw 'Signed release manifest is not a supported Windows x86_64 package.'
     }
-    [void](Assert-NxbReleaseSequence $value.manifest.release_sequence 'manifest release sequence')
+    [void](Assert-BslReleaseSequence $value.manifest.release_sequence 'manifest release sequence')
     return $value
 }
 
-function Compare-NxbVersion {
+function Compare-BslVersion {
     param(
         [Parameter(Mandatory = $true)][string]$Left,
         [Parameter(Mandatory = $true)][string]$Right
@@ -499,7 +499,7 @@ function Compare-NxbVersion {
     return 0
 }
 
-function Compare-NxbReleaseOrder {
+function Compare-BslReleaseOrder {
     param(
         [Parameter(Mandatory = $true)][string]$LeftVersion,
         [Parameter(Mandatory = $true)]$LeftSequence,
@@ -507,18 +507,18 @@ function Compare-NxbReleaseOrder {
         [Parameter(Mandatory = $true)]$RightSequence
     )
 
-    $versionComparison = Compare-NxbVersion $LeftVersion $RightVersion
+    $versionComparison = Compare-BslVersion $LeftVersion $RightVersion
     if ($versionComparison -ne 0) {
         return $versionComparison
     }
-    $left = Assert-NxbReleaseSequence $LeftSequence 'left release sequence'
-    $right = Assert-NxbReleaseSequence $RightSequence 'right release sequence'
+    $left = Assert-BslReleaseSequence $LeftSequence 'left release sequence'
+    $right = Assert-BslReleaseSequence $RightSequence 'right release sequence'
     if ($left -lt $right) { return -1 }
     if ($left -gt $right) { return 1 }
     return 0
 }
 
-function Protect-NxbDirectoryAcl {
+function Protect-BslDirectoryAcl {
     param([Parameter(Mandatory = $true)][string]$Path)
 
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
@@ -537,24 +537,24 @@ function Protect-NxbDirectoryAcl {
     }
 }
 
-function Open-NxbInstallerLock {
+function Open-BslInstallerLock {
     param([Parameter(Mandatory = $true)][string]$InstallRoot)
 
-    $parent = Split-Path -Parent (Get-NxbCanonicalPath $InstallRoot)
+    $parent = Split-Path -Parent (Get-BslCanonicalPath $InstallRoot)
     New-Item -ItemType Directory -Path $parent -Force | Out-Null
-    Assert-NxbNoReparseChain $parent 'install parent'
+    Assert-BslNoReparseChain $parent 'install parent'
     return [IO.File]::Open(
-        (Join-Path $parent '.nxbounty-install.lock'),
+        (Join-Path $parent '.boundseal-install.lock'),
         [IO.FileMode]::OpenOrCreate,
         [IO.FileAccess]::ReadWrite,
         [IO.FileShare]::None
     )
 }
 
-function Add-NxbUserPath {
+function Add-BslUserPath {
     param([Parameter(Mandatory = $true)][string]$InstallRoot)
 
-    $canonical = (Get-NxbCanonicalPath $InstallRoot).TrimEnd('\')
+    $canonical = (Get-BslCanonicalPath $InstallRoot).TrimEnd('\')
     $raw = [Environment]::GetEnvironmentVariable('Path', 'User')
     $entries = if ([string]::IsNullOrWhiteSpace($raw)) {
         @()
@@ -570,10 +570,10 @@ function Add-NxbUserPath {
     return $true
 }
 
-function Remove-NxbUserPath {
+function Remove-BslUserPath {
     param([Parameter(Mandatory = $true)][string]$InstallRoot)
 
-    $canonical = (Get-NxbCanonicalPath $InstallRoot).TrimEnd('\')
+    $canonical = (Get-BslCanonicalPath $InstallRoot).TrimEnd('\')
     $raw = [Environment]::GetEnvironmentVariable('Path', 'User')
     if ([string]::IsNullOrWhiteSpace($raw)) { return $false }
     $entries = @($raw.Split(';') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
@@ -585,24 +585,24 @@ function Remove-NxbUserPath {
     return $true
 }
 
-function Set-NxbStartMenuShortcut {
+function Set-BslStartMenuShortcut {
     param([Parameter(Mandatory = $true)][string]$InstallRoot)
 
-    $directory = Join-Path ([Environment]::GetFolderPath('Programs')) 'NXBounty'
+    $directory = Join-Path ([Environment]::GetFolderPath('Programs')) 'BoundSeal'
     New-Item -ItemType Directory -Path $directory -Force | Out-Null
-    $shortcutPath = Join-Path $directory 'NXBounty.lnk'
+    $shortcutPath = Join-Path $directory 'BoundSeal.lnk'
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($shortcutPath)
-    $shortcut.TargetPath = Join-Path $InstallRoot 'nxb.exe'
+    $shortcut.TargetPath = Join-Path $InstallRoot 'bsl.exe'
     $shortcut.Arguments = '--help'
     $shortcut.WorkingDirectory = $InstallRoot
-    $shortcut.Description = 'NXBounty command-line security research tool'
+    $shortcut.Description = 'BoundSeal command-line security research tool'
     $shortcut.Save()
     return $shortcutPath
 }
 
-function Remove-NxbStartMenuShortcut {
-    $directory = Join-Path ([Environment]::GetFolderPath('Programs')) 'NXBounty'
+function Remove-BslStartMenuShortcut {
+    $directory = Join-Path ([Environment]::GetFolderPath('Programs')) 'BoundSeal'
     if (Test-Path -LiteralPath $directory) {
         Remove-Item -LiteralPath $directory -Recurse -Force
         return $true
@@ -610,7 +610,7 @@ function Remove-NxbStartMenuShortcut {
     return $false
 }
 
-function Write-NxbJsonFile {
+function Write-BslJsonFile {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)]$Value
@@ -623,24 +623,24 @@ function Write-NxbJsonFile {
     )
 }
 
-function Get-NxbInstalledPaths {
+function Get-BslInstalledPaths {
     param([Parameter(Mandatory = $true)][string]$InstallRoot)
 
-    $root = Get-NxbCanonicalPath $InstallRoot
+    $root = Get-BslCanonicalPath $InstallRoot
 
     return [pscustomobject]@{
         Root = $root
-        Binary = Join-Path $root 'nxb.exe'
-        Helper = Join-Path $root $script:NxbBundledHelperFileName
-        Sbom = Join-Path $root 'nxb.cdx.json'
+        Binary = Join-Path $root 'bsl.exe'
+        Helper = Join-Path $root $script:BslBundledHelperFileName
+        Sbom = Join-Path $root 'bsl.cdx.json'
         Checksums = Join-Path $root 'SHA256SUMS'
-        Manifest = Join-Path $root 'nxb-release-manifest.json'
+        Manifest = Join-Path $root 'bsl-release-manifest.json'
         PublicKey = Join-Path $root 'release-public-key.hex'
         State = Join-Path $root 'install-state.json'
     }
 }
 
-function Assert-NxbInstalledRoot {
+function Assert-BslInstalledRoot {
     param(
         [Parameter(Mandatory = $true)]
         [string]$InstallRoot,
@@ -654,10 +654,10 @@ function Assert-NxbInstalledRoot {
         [string]$ExpectedStateInstallRoot = ''
     )
 
-    $paths = Get-NxbInstalledPaths $InstallRoot
-    $paths.Root = Assert-NxbManagedRoot `
+    $paths = Get-BslInstalledPaths $InstallRoot
+    $paths.Root = Assert-BslManagedRoot `
         $paths.Root `
-        'installed NXBounty root'
+        'installed BoundSeal root'
 
     $expectedStateInstallRoot =
         if ([string]::IsNullOrWhiteSpace(
@@ -666,13 +666,13 @@ function Assert-NxbInstalledRoot {
             $paths.Root
         }
         else {
-            Assert-NxbManagedRoot `
+            Assert-BslManagedRoot `
                 $ExpectedStateInstallRoot `
                 'expected installed-state root'
         }
 
     #
-    # Before executing nxb.exe, permit only one of the two known
+    # Before executing bsl.exe, permit only one of the two known
     # revision layouts. This blocks arbitrary extra local binaries/DLLs
     # before the signed verifier process is started.
     #
@@ -684,16 +684,16 @@ function Assert-NxbInstalledRoot {
 
     $physicalExpectedNames =
         if ($physicalHelperPresent) {
-            $script:NxbInstalledFileNames
+            $script:BslInstalledFileNames
         }
         else {
-            $script:NxbLegacyInstalledFileNames
+            $script:BslLegacyInstalledFileNames
         }
 
-    Assert-NxbExactDirectoryEntries `
+    Assert-BslExactDirectoryEntries `
         $paths.Root `
         $physicalExpectedNames `
-        'installed NXBounty root'
+        'installed BoundSeal root'
 
     foreach ($name in @(
         'Binary',
@@ -703,25 +703,25 @@ function Assert-NxbInstalledRoot {
         'PublicKey',
         'State'
     )) {
-        Assert-NxbRegularFile `
+        Assert-BslRegularFile `
             $paths.$name `
             "installed $name"
     }
 
     if ($physicalHelperPresent) {
-        Assert-NxbRegularFile `
+        Assert-BslRegularFile `
             $paths.Helper `
             'installed bundled credential helper'
     }
 
     [void](
-        Assert-NxbAuthenticode `
+        Assert-BslAuthenticode `
             $paths.Binary `
             $ExpectedPublisherThumbprint
     )
 
     [void](
-        Assert-NxbReleasePublicKey `
+        Assert-BslReleasePublicKey `
             $paths.PublicKey `
             $ExpectedReleasePublicKeySha256
     )
@@ -731,16 +731,16 @@ function Assert-NxbInstalledRoot {
     # signed manifest before the helper entry is trusted.
     #
 
-    $verification = Invoke-NxbReleaseVerification `
+    $verification = Invoke-BslReleaseVerification `
         $paths.Binary `
         $paths.Manifest `
         $paths.PublicKey `
         $paths.Sbom `
         $paths.Checksums
 
-    $signedHelperSha256 = Get-NxbChecksumSha256 `
+    $signedHelperSha256 = Get-BslChecksumSha256 `
         $paths.Checksums `
-        $script:NxbBundledHelperFileName `
+        $script:BslBundledHelperFileName `
         -AllowMissing
 
     if ($physicalHelperPresent -and
@@ -755,15 +755,15 @@ function Assert-NxbInstalledRoot {
 
     $expectedSchemaVersion =
         if ($physicalHelperPresent) {
-            $script:NxbInstallerSchemaVersion
+            $script:BslInstallerSchemaVersion
         }
         else {
-            $script:NxbLegacyInstallerSchemaVersion
+            $script:BslLegacyInstallerSchemaVersion
         }
 
     $helperSha256 =
         if ($physicalHelperPresent) {
-            Assert-NxbBundledHelperBinding `
+            Assert-BslBundledHelperBinding `
                 $paths.Helper `
                 $paths.Checksums
         }
@@ -799,7 +799,7 @@ function Assert-NxbInstalledRoot {
         }
 
     if ($state.schema_version -ne $expectedSchemaVersion -or
-        $state.product -ne 'NXBounty' -or
+        $state.product -ne 'BoundSeal' -or
         $state.install_root -ne $expectedStateInstallRoot -or
         $state.manifest_sha256 -ne $verification.manifest_sha256 -or
         $state.source_commit -ne $verification.source_commit -or
@@ -819,11 +819,11 @@ function Assert-NxbInstalledRoot {
                 [string]$expectedSchemaVersion
 
             product_match =
-                ($state.product -eq 'NXBounty')
+                ($state.product -eq 'BoundSeal')
             state_product =
                 [string]$state.product
             expected_product =
-                'NXBounty'
+                'BoundSeal'
 
             install_root_match = (
                 $state.install_root -eq
@@ -905,7 +905,7 @@ function Assert-NxbInstalledRoot {
     }
 
     [void](
-        Assert-NxbReleaseSequence `
+        Assert-BslReleaseSequence `
             $state.release_sequence `
             'installed release sequence'
     )
