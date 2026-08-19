@@ -3,7 +3,7 @@ use std::{
     fmt,
 };
 
-use nxb_planner::{
+use bsl_planner::{
     CapabilityUseReceipt, CapabilityUseRequest, ProbeCapability, RequestIntentPlan, RiskClass,
 };
 use serde::{Deserialize, Serialize};
