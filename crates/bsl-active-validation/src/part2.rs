@@ -283,7 +283,7 @@ fn render_inert_value(
     seed: &str,
     maximum_output_bytes: usize,
 ) -> Result<Vec<u8>, ValidationError> {
-    let marker = format!("nxb_{}", &seed[..16]);
+    let marker = format!("bsl_{}", &seed[..16]);
     let text = match kind {
         MutationKind::ReplaceWithMarker | MutationKind::AppendMarker => marker,
         MutationKind::EmptyValue => String::new(),
