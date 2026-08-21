@@ -127,7 +127,7 @@ try {
         cargo_deny = $denyVersion
         cargo_deny_sha256 = (Get-FileHash -LiteralPath $denyPath -Algorithm SHA256).Hash.ToLowerInvariant()
         tools_root = 'target/nxb-tools'
-        network_activity = 'rustup_and_crates_io_fresh_locked_tool_installation_only'
+        network_activity = 'rustup_and_crates_io_tool_installation_only'
         prepared_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
     }
     [IO.File]::WriteAllText(
