@@ -127,6 +127,12 @@ fn sha256(bytes: &[u8]) -> String {
     lower_hex(digest.as_ref())
 }
 
+fn is_lower_hex(value: &str) -> bool {
+    value
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 #[test]
 fn guided_activation_persists_verified_non_secret_continuity_artifact() {
     let root = temporary_workspace();
@@ -228,6 +234,13 @@ fn guided_activation_persists_verified_non_secret_continuity_artifact() {
         artifact.get("network_activity").and_then(Value::as_str),
         Some("none")
     );
+
+    let publication_nonce = artifact
+        .get("publication_nonce")
+        .and_then(Value::as_str)
+        .expect("publication nonce missing");
+    assert_eq!(publication_nonce.len(), 32);
+    assert!(is_lower_hex(publication_nonce));
 
     let policy_document = artifact
         .get("policy_document")
