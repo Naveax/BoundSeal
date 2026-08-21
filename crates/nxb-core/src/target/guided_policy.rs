@@ -53,6 +53,12 @@ pub(super) fn compile_guided_policy(
     max_concurrency: u16,
     max_total_requests: u64,
 ) -> Result<GuidedPolicyArtifact> {
+    if allow_subdomains {
+        bail!(
+            "guided subdomain expansion is disabled until the registrable-domain boundary can be verified"
+        );
+    }
+
     let origin_url =
         Url::parse(origin).context("canonical guided target origin could not be parsed")?;
     let host = origin_url
