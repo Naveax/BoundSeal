@@ -240,7 +240,7 @@ fn cleanup_owned_document(path: &Path, expected_bytes: &[u8], label: &str) -> Re
         return Ok(());
     }
 
-    let existing = fs::read(path)?;
+    let existing = workspace::read_document(path, label)?;
     if existing == expected_bytes {
         workspace::remove_regular(path)?;
     }
