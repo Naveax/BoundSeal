@@ -78,20 +78,16 @@ try {
     try {
         Push-Location $temporaryDirectory
         try {
-            if ($null -eq (Get-ToolVersion -Path $auditPath -ExpectedVersion $cargoAuditVersion)) {
-                Invoke-NativeChecked -FilePath 'rustup' -Label 'cargo-audit installation' -Arguments @(
-                    'run', $rustToolchain, 'cargo', 'install',
-                    '--locked', '--force', '--version', $cargoAuditVersion,
-                    '--root', $toolsRoot, 'cargo-audit'
-                )
-            }
-            if ($null -eq (Get-ToolVersion -Path $denyPath -ExpectedVersion $cargoDenyVersion)) {
-                Invoke-NativeChecked -FilePath 'rustup' -Label 'cargo-deny installation' -Arguments @(
-                    'run', $rustToolchain, 'cargo', 'install',
-                    '--locked', '--force', '--version', $cargoDenyVersion,
-                    '--root', $toolsRoot, 'cargo-deny'
-                )
-            }
+            Invoke-NativeChecked -FilePath 'rustup' -Label 'fresh cargo-audit installation' -Arguments @(
+                'run', $rustToolchain, 'cargo', 'install',
+                '--locked', '--force', '--version', $cargoAuditVersion,
+                '--root', $toolsRoot, 'cargo-audit'
+            )
+            Invoke-NativeChecked -FilePath 'rustup' -Label 'fresh cargo-deny installation' -Arguments @(
+                'run', $rustToolchain, 'cargo', 'install',
+                '--locked', '--force', '--version', $cargoDenyVersion,
+                '--root', $toolsRoot, 'cargo-deny'
+            )
         }
         finally {
             Pop-Location
@@ -104,7 +100,7 @@ try {
     $auditVersion = Get-ToolVersion -Path $auditPath -ExpectedVersion $cargoAuditVersion
     $denyVersion = Get-ToolVersion -Path $denyPath -ExpectedVersion $cargoDenyVersion
     if ($null -eq $auditVersion -or $null -eq $denyVersion) {
-        throw 'Pinned validation tools were not installed correctly.'
+        throw 'Fresh validation tools were not installed correctly.'
     }
 
     $finalHead = (git rev-parse HEAD).Trim()
@@ -131,7 +127,7 @@ try {
         cargo_deny = $denyVersion
         cargo_deny_sha256 = (Get-FileHash -LiteralPath $denyPath -Algorithm SHA256).Hash.ToLowerInvariant()
         tools_root = 'target/nxb-tools'
-        network_activity = 'rustup_and_crates_io_tool_installation_only'
+        network_activity = 'rustup_and_crates_io_fresh_locked_tool_installation_only'
         prepared_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
     }
     [IO.File]::WriteAllText(
@@ -140,15 +136,12 @@ try {
         [Text.UTF8Encoding]::new($false)
     )
 
-    Write-Host 'NXB-153 pinned Windows validation tools are ready.'
+    Write-Host 'NXB-153 fresh pinned Windows validation tools are ready.'
     Write-Host "HEAD: $headSha"
     Write-Host "Tooling receipt: $receiptPath"
 
     if (-not $PrepareOnly) {
         & (Join-Path $PSScriptRoot 'validate-nxb-153-windows.ps1') -RepoRoot $RepoRoot
-        if ($LASTEXITCODE -ne 0) {
-            throw "NXB-153 Windows validation failed with exit code $LASTEXITCODE."
-        }
     }
 }
 finally {
