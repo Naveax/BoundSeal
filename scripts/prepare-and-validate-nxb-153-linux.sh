@@ -14,10 +14,39 @@ fail() {
     exit 1
 }
 
+fsync_file() {
+    python3 - "$1" <<'PY'
+import os
+import sys
+
+path = sys.argv[1]
+fd = os.open(path, os.O_RDONLY)
+try:
+    os.fsync(fd)
+finally:
+    os.close(fd)
+PY
+}
+
+fsync_directory() {
+    python3 - "$1" <<'PY'
+import os
+import sys
+
+path = sys.argv[1]
+fd = os.open(path, os.O_RDONLY)
+try:
+    os.fsync(fd)
+finally:
+    os.close(fd)
+PY
+}
+
 command -v git >/dev/null 2>&1 || fail 'git is unavailable'
 command -v rustup >/dev/null 2>&1 ||
     fail 'rustup is unavailable; install rustup from the official Rust distribution first'
 command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is unavailable'
+command -v python3 >/dev/null 2>&1 || fail 'python3 is unavailable for durable tooling-receipt publication'
 
 cd "$repo_root"
 head_sha="$(git rev-parse HEAD)"
@@ -75,6 +104,7 @@ final_head="$(git rev-parse HEAD)"
 
 validation_directory="$repo_root/target/nxb-validation"
 mkdir -p "$validation_directory"
+fsync_directory "$repo_root/target" || fail 'could not sync target directory after validation-directory preparation'
 receipt_path="$validation_directory/nxb-153-tooling-linux-$head_sha.json"
 rustc_version="$(rustup run "$rust_toolchain" rustc --version)"
 audit_version="$($audit_path --version)"
@@ -103,10 +133,13 @@ cat > "$receipt_temp" <<JSON
 }
 JSON
 
+fsync_file "$receipt_temp" || fail 'could not sync tooling receipt temporary file before namespace claim'
 if ln "$receipt_temp" "$receipt_path" 2>/dev/null; then
     rm -f "$receipt_temp" || fail 'could not remove claimed tooling receipt temporary link'
+    fsync_directory "$validation_directory" || fail 'could not sync validation directory after tooling receipt publication'
 else
     rm -f "$receipt_temp" || fail 'could not remove unclaimed tooling receipt temporary file'
+    fsync_directory "$validation_directory" || fail 'could not sync validation directory after tooling receipt cleanup'
     if [[ -e "$receipt_path" ]]; then
         fail "exact-head tooling receipt already exists and will not be overwritten: $receipt_path; run the validator directly with the existing receipt, or review/remove it explicitly before preparing again"
     fi
