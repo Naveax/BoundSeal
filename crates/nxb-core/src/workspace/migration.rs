@@ -9,10 +9,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
-    create_document, manifest_schema, now, read_document, remove_regular, replace_document,
-    safe_exists, set_private_directory_permissions, sha256, validate_common, validate_identifier,
-    validate_manifest_v1, validate_private_permissions, validate_sha, validate_workspace_root,
-    LegacyManifestV0, ManifestV1, SecretStorageBoundary, CURRENT_SCHEMA_VERSION, MANIFEST_FILE,
+    create_document, create_document_error_published, manifest_schema, now, read_document,
+    remove_regular, replace_document, safe_exists, set_private_directory_permissions, sha256,
+    validate_common, validate_identifier, validate_manifest_v1, validate_private_permissions,
+    validate_sha, validate_workspace_root, LegacyManifestV0, ManifestV1, SecretStorageBoundary,
+    CURRENT_SCHEMA_VERSION, MANIFEST_FILE,
 };
 
 const JOURNAL_VERSION: u32 = 1;
@@ -361,7 +362,9 @@ fn prepare(paths: &MigrationPaths, plan: &MigrationPlan, source: &[u8]) -> Resul
         prepared_at: now(),
     };
     if let Err(error) = create_json(&paths.active, &journal) {
-        let _ = remove_regular(&paths.backup);
+        if !create_document_error_published(&error) {
+            let _ = remove_regular(&paths.backup);
+        }
         return Err(error);
     }
     Ok(())
