@@ -4,7 +4,7 @@
 
 This document records the source-staged integrity contract for NXB-153 exact-head validation evidence. It does **not** claim that the current feature head has passed Rust, Linux or Windows validation.
 
-The purpose is to prevent a rerun, concurrent reviewer or stale preparation step from silently rewriting evidence that was already associated with an exact Git head, while also making the Linux evidence publication boundary explicit about file and directory durability.
+The purpose is to prevent a rerun, concurrent reviewer or stale preparation step from silently rewriting evidence that was already associated with an exact Git head, while also making the evidence publication boundary explicit about mutation ordering and durability.
 
 ## Exact-head artifact classes
 
@@ -16,6 +16,25 @@ NXB-153 validation uses three persistent evidence classes under `target/nxb-vali
 
 All three classes are intended to be create-only for their canonical exact-head pathname.
 
+## Tool preparation serialization
+
+The validation tools live under a shared `target/nxb-tools` directory. Therefore an immutable receipt is insufficient if a later preparation can mutate those tool binaries before noticing that the exact-head receipt already exists.
+
+Both preparation scripts now enforce this ordering:
+
+1. resolve and verify the exact clean Git head;
+2. compute the exact-head tooling-receipt pathname;
+3. if that receipt already exists, fail **before** `rustup toolchain install` or any `cargo install --force` tool mutation;
+4. claim an exact-head preparation lock with create-new semantics;
+5. recheck the receipt after the lock is owned, closing the check/claim race;
+6. only then install/refresh the pinned Rust components and cargo-audit/cargo-deny binaries;
+7. publish the immutable receipt;
+8. release the preparation lock before entering the validator.
+
+A stale or racing preparation lock is never silently replaced. It requires explicit recovery.
+
+Linux uses an atomic `mkdir` exact-head lock directory and synchronizes the evidence directory after lock claim/release. Windows uses `.NET FileMode.CreateNew` for the exact-head lock file and `Flush(true)` for the lock bytes. These source contracts still require real platform validation before durability is considered admitted.
+
 ## Linux publication contract
 
 ### Tooling receipt
@@ -23,8 +42,9 @@ All three classes are intended to be create-only for their canonical exact-head 
 `prepare-and-validate-nxb-153-linux.sh` writes the receipt into a unique private temporary file inside the validation directory and claims the canonical exact-head receipt name with a same-directory hard link.
 
 - the canonical receipt is never opened with shell truncation;
-- an existing exact-head receipt is not overwritten;
-- a losing preparation removes only its own unclaimed temporary path;
+- an existing exact-head receipt is checked before tool mutation and is not overwritten;
+- exact-head preparations are serialized by the preparation lock;
+- a losing publication removes only its own unclaimed temporary path;
 - the temporary receipt bytes are `fsync`'d before the hard-link namespace claim;
 - creation of the validation directory is followed by a sync of its `target` parent;
 - after namespace claim and temporary-link cleanup, the validation directory is `fsync`'d before success is reported;
@@ -35,7 +55,9 @@ All three classes are intended to be create-only for their canonical exact-head 
 
 `validate-nxb-153-linux.sh` uses the same temporary-file plus hard-link create-only pattern for the canonical Linux evidence pathname.
 
-The validator first proves the exact head, clean worktree, pinned Cargo.lock, pinned tooling receipt/tool bytes and all validation gates. Only after those gates succeed does it attempt the create-only evidence claim. Existing exact-head evidence is preserved and causes an explicit failure rather than being rewritten with a new timestamp.
+Immediately after exact-head and clean-worktree checks, the validator checks whether canonical Linux evidence already exists. If it does, the validator fails before resolving Rust/tool versions or re-running fmt/check/Clippy/tests/RustSec/cargo-deny. The existing evidence must be reviewed or explicitly recovered instead of manufacturing a second expensive result for the same exact-head pathname.
+
+When no evidence exists, the validator proves the pinned Rust/tooling receipt/tool bytes, canonical Cargo.lock and all validation gates. Only after those gates succeed does it attempt the create-only evidence claim.
 
 Before the hard-link claim the temporary evidence file is `fsync`'d. After claim/cleanup, the validation directory is `fsync`'d before the validator reports success. A temporary-link cleanup failure is retained as an error but does not prevent the directory durability attempt from running first.
 
@@ -59,13 +81,15 @@ The Python reviewer:
 
 ### Tooling receipt
 
-`prepare-and-validate-nxb-153-windows.ps1` publishes the exact-head tooling receipt using `.NET FileMode.CreateNew`, `FileAccess.Write` and `FileShare.None`, then calls `Flush(true)` on the stream.
+`prepare-and-validate-nxb-153-windows.ps1` checks the canonical exact-head receipt before tool mutation, serializes preparation with an exact-head `FileMode.CreateNew` lock file, rechecks the receipt after lock claim, then publishes the final tooling receipt using `.NET FileMode.CreateNew`, `FileAccess.Write` and `FileShare.None` with `Flush(true)`.
 
-An existing exact-head receipt is not overwritten. Preparation fails explicitly and directs the operator to use the existing receipt for validation or review/remove it intentionally.
+An existing exact-head receipt is not overwritten and the shared tool binaries are not refreshed before that condition is detected. A racing/stale preparation lock requires explicit recovery rather than being replaced.
 
 ### Platform validation evidence
 
-`validate-nxb-153-windows.ps1` publishes the final exact-head Windows validation evidence with the same `FileMode.CreateNew` contract and `Flush(true)`. `WriteAllText` overwrite semantics are not used for the canonical evidence pathname.
+`validate-nxb-153-windows.ps1` performs the same early existing-evidence preflight immediately after exact-head and clean-worktree verification. Existing canonical Windows evidence prevents the heavy validation gates from being rerun for the same exact head.
+
+When validation is genuinely needed, final exact-head Windows evidence is published with `FileMode.CreateNew` and `Flush(true)`. `WriteAllText` overwrite semantics are not used for the canonical evidence pathname.
 
 ### Dual-platform closure
 
@@ -79,12 +103,14 @@ The exact-head artifact name is part of the evidence identity. Re-running a prep
 
 If a canonical receipt/evidence/closure already exists:
 
-- normal validators/reviewers verify or reject it according to their contract;
-- preparation/validation does not overwrite it;
-- conflicting or partial state requires explicit inspection/recovery;
+- preparation checks the receipt before shared tool mutation;
+- validators stop before repeating expensive gates when platform evidence already exists;
+- normal reviewers verify or reject existing evidence according to their contract;
+- preparation/validation does not overwrite canonical artifacts;
+- conflicting, stale-lock or partial state requires explicit inspection/recovery;
 - no GitHub Actions rerun is used as a substitute for evidence recovery.
 
-This keeps historical validation evidence attributable to the exact bytes that first claimed its exact-head path instead of turning that path into a mutable status file.
+This keeps historical validation evidence attributable to the exact bytes that first claimed its exact-head path instead of turning that path into a mutable status file, and it prevents repeated tool/test work from being used as an accidental polling mechanism.
 
 ## Current validation boundary
 
