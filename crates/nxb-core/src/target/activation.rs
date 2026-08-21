@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use std::fs::File;
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
@@ -14,6 +16,16 @@ pub(super) const ACTIVATION_ACKNOWLEDGEMENT: &str = "I_CONFIRM_THIS_EXACT_PREVIE
 const GUIDED_ACTIVATION_ARTIFACT_VERSION: u32 = 1;
 const GUIDED_PERSISTENCE_MARGIN_BYTES: u64 = 4 * 1024;
 const PERSISTENCE_PREFLIGHT_TIME: &str = "2000-01-01T00:00:00Z";
+const GUIDED_ARTIFACT_FIELDS: &[&str] = &[
+    "artifact_version",
+    "target_id",
+    "profile_identity_sha256",
+    "preview",
+    "policy_document",
+    "publication_nonce",
+    "created_at",
+    "network_activity",
+];
 
 #[derive(Serialize)]
 struct GuidedActivationArtifact<'a> {
@@ -144,31 +156,38 @@ pub(super) fn activate_value(
     );
     let artifact_path = root.join(&artifact_relative_path);
 
-    if workspace::safe_exists(&profile_path)? {
-        bail!("guided target profile already exists");
-    }
     if workspace::safe_exists(&disable_path)? {
         bail!("target disable receipt already exists without a creatable profile");
     }
-    if workspace::safe_exists(&artifact_path)? {
-        bail!("guided target activation metadata already exists");
+    if workspace::safe_exists(&profile_path)? {
+        bail!("guided target profile already exists");
     }
 
-    let created_at = workspace::now();
-    let profile = prospective_profile(identity, &created_at)?;
+    let (profile, artifact_sha256) = if workspace::safe_exists(&artifact_path)? {
+        recover_inert_continuity(
+            &artifact_path,
+            &identity.target_id,
+            &build.preview,
+            &build.policy.document,
+        )?
+    } else {
+        let created_at = workspace::now();
+        let profile = prospective_profile(identity, &created_at)?;
+        let artifact_sha256 = publish_guided_artifact(
+            &artifact_path,
+            &identity.target_id,
+            &profile.identity_sha256,
+            &build.preview,
+            &build.policy.document,
+            &created_at,
+        )?;
+        (profile, artifact_sha256)
+    };
+
     if profile.policy_sha256 != expected_policy_sha256 {
         bail!("prospective target policy digest does not match the confirmed preview policy");
     }
     let profile_bytes = canonical_json(&profile)?;
-
-    let artifact_sha256 = publish_guided_artifact(
-        &artifact_path,
-        &identity.target_id,
-        &profile.identity_sha256,
-        &build.preview,
-        &build.policy.document,
-        &created_at,
-    )?;
 
     if let Err(error) = workspace::create_document(&profile_path, &profile_bytes) {
         if workspace::create_document_error_published(&error) {
@@ -177,7 +196,7 @@ pub(super) fn activate_value(
             );
         }
         bail!(
-            "guided target profile was not published after continuity metadata publication; continuity remains inert and no rollback deletion was attempted: {error:#}"
+            "guided target profile was not published after continuity metadata publication; continuity remains inert and can be retried only with the same exact confirmed preview: {error:#}"
         );
     }
     verify_published_bytes(
@@ -186,6 +205,24 @@ pub(super) fn activate_value(
         "guided activation target profile",
     )?;
 
+    activation_value(
+        profile,
+        confirm_preview_sha256,
+        &policy_snapshot_sha256,
+        &expected_policy_sha256,
+        &artifact_relative_path,
+        &artifact_sha256,
+    )
+}
+
+fn activation_value(
+    profile: TargetProfile,
+    confirm_preview_sha256: &str,
+    policy_snapshot_sha256: &str,
+    expected_policy_sha256: &str,
+    artifact_relative_path: &str,
+    artifact_sha256: &str,
+) -> Result<Value> {
     let mut value = serde_json::to_value(super::effective_target(profile, None))
         .context("could not serialize guided activated target profile")?;
     value["activation"] = serde_json::json!({
@@ -197,7 +234,6 @@ pub(super) fn activate_value(
         "guided_artifact_sha256": artifact_sha256,
         "network_activity": "none",
     });
-
     Ok(value)
 }
 
@@ -266,6 +302,111 @@ fn publish_guided_artifact(
         "guided activation continuity artifact",
     )?;
     Ok(workspace::sha256(&artifact_bytes))
+}
+
+fn recover_inert_continuity(
+    artifact_path: &Path,
+    target_id: &str,
+    preview: &SetupPreview,
+    policy_document: &str,
+) -> Result<(TargetProfile, String)> {
+    let artifact_bytes = workspace::read_document(
+        artifact_path,
+        "guided activation inert continuity artifact",
+    )?;
+    let artifact: Value = serde_json::from_slice(&artifact_bytes)
+        .context("guided activation inert continuity artifact is invalid JSON")?;
+    let object = artifact
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("guided activation continuity artifact must be a JSON object"))?;
+
+    if object.len() != GUIDED_ARTIFACT_FIELDS.len()
+        || GUIDED_ARTIFACT_FIELDS
+            .iter()
+            .any(|field| !object.contains_key(*field))
+    {
+        bail!("guided activation continuity artifact schema is not canonical");
+    }
+    if object.get("artifact_version").and_then(Value::as_u64)
+        != Some(u64::from(GUIDED_ACTIVATION_ARTIFACT_VERSION))
+        || object.get("target_id").and_then(Value::as_str) != Some(target_id)
+        || object.get("network_activity").and_then(Value::as_str) != Some("none")
+    {
+        bail!("guided activation continuity artifact header does not match this activation");
+    }
+
+    let expected_preview = serde_json::to_value(preview)
+        .context("could not serialize current guided preview for continuity recovery")?;
+    if object.get("preview") != Some(&expected_preview) {
+        bail!("existing guided activation continuity does not match the exact confirmed preview");
+    }
+    if object.get("policy_document").and_then(Value::as_str) != Some(policy_document) {
+        bail!("existing guided activation continuity policy does not match the confirmed preview");
+    }
+    if workspace::sha256(policy_document.as_bytes())
+        != preview.identity.policy.policy_document_sha256
+    {
+        bail!("guided activation continuity policy digest does not match the preview binding");
+    }
+
+    let profile_identity_sha256 = object
+        .get("profile_identity_sha256")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("guided activation continuity profile identity is missing"))?;
+    workspace::validate_sha(
+        profile_identity_sha256,
+        "guided activation continuity profile identity SHA-256",
+    )?;
+
+    let publication_nonce = object
+        .get("publication_nonce")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("guided activation continuity publication nonce is missing"))?;
+    if !is_lower_hex(publication_nonce, 32) {
+        bail!("guided activation continuity publication nonce is invalid");
+    }
+
+    let created_at = object
+        .get("created_at")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("guided activation continuity created_at is missing"))?;
+    super::validate_time(created_at, "guided activation continuity created_at")?;
+
+    let profile = prospective_profile(&preview.identity, created_at)?;
+    if profile.identity_sha256 != profile_identity_sha256 {
+        bail!("existing guided activation continuity does not bind the prospective target profile");
+    }
+
+    ensure_recovered_publication_durable(artifact_path)?;
+    Ok((profile, workspace::sha256(&artifact_bytes)))
+}
+
+fn is_lower_hex(value: &str, expected_len: usize) -> bool {
+    value.len() == expected_len
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+#[cfg(unix)]
+fn ensure_recovered_publication_durable(path: &Path) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("recovered publication path has no parent"))?;
+    File::open(parent)
+        .with_context(|| format!("could not open recovered publication parent {}", parent.display()))?
+        .sync_all()
+        .with_context(|| {
+            format!(
+                "could not synchronize recovered publication parent {}",
+                parent.display()
+            )
+        })
+}
+
+#[cfg(not(unix))]
+fn ensure_recovered_publication_durable(_path: &Path) -> Result<()> {
+    Ok(())
 }
 
 fn verify_published_bytes(path: &Path, expected_bytes: &[u8], label: &str) -> Result<()> {
@@ -357,5 +498,55 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(first.policy_sha256, "c".repeat(64));
         assert_eq!(first.authorization.document_sha256, "a".repeat(64));
+    }
+
+    #[test]
+    fn inert_continuity_recovery_requires_exact_preview_and_profile_binding() {
+        let root = std::env::temp_dir().join(format!(
+            "nxb153-inert-continuity-{}-{}",
+            std::process::id(),
+            workspace::random_hex(8).unwrap()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        workspace::set_private_directory_permissions(&root).unwrap();
+        let artifact_path = root.join("target-example-app.guided-activation.json");
+        let preview = preview_with_paths(vec!["/api".to_owned()], vec!["/api/logout".to_owned()]);
+        let created_at = "2026-08-21T11:00:00Z";
+        let profile = prospective_profile(&preview.identity, created_at).unwrap();
+        let policy_document = "schema_version = 1\n";
+        let artifact = GuidedActivationArtifact {
+            artifact_version: GUIDED_ACTIVATION_ARTIFACT_VERSION,
+            target_id: &preview.identity.target_id,
+            profile_identity_sha256: &profile.identity_sha256,
+            preview: &preview,
+            policy_document,
+            publication_nonce: "ab".repeat(16),
+            created_at,
+            network_activity: "none",
+        };
+        let artifact_bytes = canonical_json(&artifact).unwrap();
+        workspace::create_document(&artifact_path, &artifact_bytes).unwrap();
+
+        let (recovered, artifact_sha256) = recover_inert_continuity(
+            &artifact_path,
+            &preview.identity.target_id,
+            &preview,
+            policy_document,
+        )
+        .unwrap();
+        assert_eq!(recovered, profile);
+        assert_eq!(artifact_sha256, workspace::sha256(&artifact_bytes));
+
+        let different_preview =
+            preview_with_paths(vec!["/admin".to_owned()], vec!["/admin/logout".to_owned()]);
+        assert!(recover_inert_continuity(
+            &artifact_path,
+            &preview.identity.target_id,
+            &different_preview,
+            policy_document,
+        )
+        .is_err());
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
