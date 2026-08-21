@@ -17,6 +17,7 @@ focused_tests=(
     target_import_failclosed_cli
     target_path_binding_cli
     target_scope_failclosed_cli
+    target_subdomain_failclosed_cli
 )
 
 cd "$repo_root"
@@ -88,7 +89,6 @@ python3 - \
     "$deny_sha256" <<'PY'
 import datetime as dt
 import json
-import os
 import pathlib
 import stat
 import sys
