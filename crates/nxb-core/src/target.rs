@@ -938,6 +938,8 @@ fn build_guided_setup(
 }
 
 fn guided_origin(input: &str) -> Result<String> {
+    validate_guided_origin_lexical(input)?;
+
     let parsed = Url::parse(input).context("guided target origin is not a valid URL")?;
 
     if parsed.port().is_some_and(|port| port != 443) {
@@ -954,6 +956,63 @@ fn guided_origin(input: &str) -> Result<String> {
     }
 
     Ok(canonical)
+}
+
+fn validate_guided_origin_lexical(input: &str) -> Result<()> {
+    if input.trim() != input || input.len() > 512 || input.chars().any(char::is_control) {
+        bail!("guided target origin contains invalid whitespace or control characters");
+    }
+
+    let Some(remainder) = input.strip_prefix("https://") else {
+        bail!("guided target origin must use literal https:// syntax");
+    };
+
+    if remainder.is_empty()
+        || remainder.contains('@')
+        || remainder.contains('?')
+        || remainder.contains('#')
+        || remainder.contains('%')
+        || remainder.contains('\\')
+    {
+        bail!("guided target origin must use a literal HTTPS authority without userinfo, encoded bytes, query or fragment");
+    }
+
+    let authority = if let Some(authority) = remainder.strip_suffix('/') {
+        if authority.contains('/') {
+            bail!("guided target origin must not contain path syntax beyond an optional literal root slash");
+        }
+        authority
+    } else {
+        if remainder.contains('/') {
+            bail!("guided target origin must not contain path syntax beyond an optional literal root slash");
+        }
+        remainder
+    };
+
+    if authority.is_empty() {
+        bail!("guided target origin is missing a literal DNS authority");
+    }
+
+    let host = if let Some((host, port)) = authority.rsplit_once(':') {
+        if host.is_empty() || host.contains(':') || port != "443" {
+            bail!("guided target origin port must be absent or the literal :443 form");
+        }
+        host
+    } else {
+        authority
+    };
+
+    if host.is_empty()
+        || host.contains(':')
+        || !host.is_ascii()
+        || !host
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'))
+    {
+        bail!("guided target origin host must use literal ASCII DNS syntax");
+    }
+
+    Ok(())
 }
 
 fn validate_setup_text(value: &str, field: &str, maximum_bytes: usize) -> Result<()> {
