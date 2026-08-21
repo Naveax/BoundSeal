@@ -824,6 +824,10 @@ fn build_guided_setup(
 
     let origin = guided_origin(origin)?;
 
+    if include_paths.is_empty() {
+        bail!("guided target setup requires at least one explicit include path");
+    }
+
     let include_paths = canonical_paths(include_paths, true)?;
 
     let exclude_paths = canonical_paths(exclude_paths, false)?;
@@ -1602,7 +1606,7 @@ fn validate_scope_path(path: &str) -> Result<()> {
     if path.is_empty()
         || path.len() > MAX_PATH_BYTES
         || !path.starts_with('/')
-        || path.starts_with("//")
+        || path.contains("//")
         || path.contains('\\')
         || path.contains('?')
         || path.contains('#')
@@ -1627,6 +1631,12 @@ fn validate_path_relationships(includes: &[String], excludes: &[String]) -> Resu
     for excluded in excludes {
         if includes.iter().any(|included| included == excluded) {
             bail!("an excluded path must not remove an entire included prefix");
+        }
+        if includes
+            .iter()
+            .any(|included| path_is_within(included, excluded))
+        {
+            bail!("an excluded path must not shadow an explicitly included prefix");
         }
         if !includes
             .iter()
