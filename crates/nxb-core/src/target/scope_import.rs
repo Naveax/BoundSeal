@@ -13,7 +13,6 @@ const MAX_SCOPE_IMPORT_BYTES: u64 = 64 * 1024;
 struct ScopeImportV1 {
     schema_version: u32,
     origin: String,
-    #[serde(default)]
     include_paths: Vec<String>,
     #[serde(default)]
     exclude_paths: Vec<String>,
@@ -35,6 +34,9 @@ pub(super) fn load_scope_import(path: &Path) -> Result<ImportedScope> {
 
     if imported.schema_version != SCOPE_IMPORT_SCHEMA_VERSION {
         bail!("unsupported guided scope import schema version");
+    }
+    if imported.include_paths.is_empty() {
+        bail!("guided scope import requires at least one explicit include path");
     }
 
     let origin = guided_origin(&imported.origin)?;
