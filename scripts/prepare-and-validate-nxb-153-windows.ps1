@@ -130,11 +130,33 @@ try {
         network_activity = 'rustup_and_crates_io_tool_installation_only'
         prepared_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
     }
-    [IO.File]::WriteAllText(
-        $receiptPath,
-        (($receipt | ConvertTo-Json -Depth 8) + [Environment]::NewLine),
-        [Text.UTF8Encoding]::new($false)
-    )
+    $receiptText = (($receipt | ConvertTo-Json -Depth 8) + [Environment]::NewLine)
+    $receiptBytes = [Text.UTF8Encoding]::new($false).GetBytes($receiptText)
+    $receiptStream = $null
+    try {
+        try {
+            $receiptStream = [IO.File]::Open(
+                $receiptPath,
+                [IO.FileMode]::CreateNew,
+                [IO.FileAccess]::Write,
+                [IO.FileShare]::None
+            )
+        }
+        catch [IO.IOException] {
+            if (Test-Path -LiteralPath $receiptPath) {
+                throw "Exact-head tooling receipt already exists and will not be overwritten: $receiptPath. Run the validator directly with the existing receipt, or review/remove it explicitly before preparing again."
+            }
+            throw
+        }
+
+        $receiptStream.Write($receiptBytes, 0, $receiptBytes.Length)
+        $receiptStream.Flush($true)
+    }
+    finally {
+        if ($null -ne $receiptStream) {
+            $receiptStream.Dispose()
+        }
+    }
 
     Write-Host 'NXB-153 fresh pinned Windows validation tools are ready.'
     Write-Host "HEAD: $headSha"
