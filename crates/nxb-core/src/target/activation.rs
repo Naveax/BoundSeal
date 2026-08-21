@@ -107,14 +107,18 @@ pub(super) fn validate_persistence_envelope(
     preview: &SetupPreview,
     policy_document: &str,
 ) -> Result<()> {
-    if preview
+    for path in preview
         .identity
         .include_paths
         .iter()
         .chain(preview.identity.exclude_paths.iter())
-        .any(|path| !path.is_ascii())
     {
-        bail!("guided target path prefixes must use literal ASCII syntax");
+        super::validate_scope_path(path)?;
+        if !guided_path_uses_literal_rfc3986_bytes(path) {
+            bail!(
+                "guided target path prefixes must use literal RFC3986-safe ASCII syntax without percent encoding or wildcards"
+            );
+        }
     }
 
     let profile = prospective_profile(&preview.identity, PERSISTENCE_PREFLIGHT_TIME)?;
@@ -135,6 +139,33 @@ pub(super) fn validate_persistence_envelope(
     enforce_persistence_envelope("guided activation artifact", artifact_bytes.len())?;
 
     Ok(())
+}
+
+fn guided_path_uses_literal_rfc3986_bytes(path: &str) -> bool {
+    path.is_ascii()
+        && path.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(
+                    byte,
+                    b'/'
+                        | b'-'
+                        | b'.'
+                        | b'_'
+                        | b'~'
+                        | b'!'
+                        | b'$'
+                        | b'&'
+                        | b'\''
+                        | b'('
+                        | b')'
+                        | b'+'
+                        | b','
+                        | b';'
+                        | b'='
+                        | b':'
+                        | b'@'
+                )
+        })
 }
 
 fn enforce_persistence_envelope(label: &str, serialized_bytes: usize) -> Result<()> {
@@ -530,12 +561,31 @@ mod tests {
     }
 
     #[test]
-    fn persistence_envelope_accounts_for_json_escaping_and_schema_margin() {
+    fn guided_path_byte_preflight_rejects_nonliteral_or_non_rfc3986_bytes() {
+        for path in ["/café", "/api\"quoted", "/api[admin]"] {
+            let preview = preview_with_paths(vec![path.to_owned()], Vec::new());
+            let error = validate_persistence_envelope(&preview, "schema_version = 1\n")
+                .expect_err("ambiguous guided path byte representation must be rejected");
+            assert!(error.to_string().contains("RFC3986-safe ASCII"));
+        }
+
+        let allowed = preview_with_paths(
+            vec!["/api/~user!$&'()+,;=:@-._".to_owned()],
+            Vec::new(),
+        );
+        validate_persistence_envelope(&allowed, "schema_version = 1\n").unwrap();
+    }
+
+    #[test]
+    fn persistence_envelope_accounts_for_large_valid_path_scope_and_schema_margin() {
         let small = preview_with_paths(vec!["/api".to_owned()], vec!["/api/logout".to_owned()]);
         validate_persistence_envelope(&small, "schema_version = 1\n").unwrap();
 
         let include_paths = (0..64)
-            .map(|index| format!("/p{index:02}{}", "\"".repeat(450)))
+            .map(|index| {
+                let prefix = format!("/p{index:02}");
+                format!("{prefix}{}", "a".repeat(490 - prefix.len()))
+            })
             .collect::<Vec<_>>();
         let exclude_paths = include_paths
             .iter()
@@ -543,7 +593,7 @@ mod tests {
             .collect::<Vec<_>>();
         let oversized = preview_with_paths(include_paths, exclude_paths);
         let error = validate_persistence_envelope(&oversized, "schema_version = 1\n")
-            .expect_err("escaping-heavy persistence representation must be rejected");
+            .expect_err("large valid persistence representation must be rejected");
         assert!(error.to_string().contains("persistence envelope"));
     }
 
