@@ -136,12 +136,15 @@ fn setup_import_rejects_scope_that_parses_but_cannot_fit_persistence_envelope() 
     initialize(&root);
     let authorization = authorization_document(&root);
 
-    // Quotes are valid scope-path bytes but are escaped in JSON. Thirty-eight
-    // include/exclude pairs keep the import itself below its 64 KiB parser cap
-    // while pushing the richer persisted continuity representation above the
-    // 60 KiB NXB-153 admission envelope.
-    let include_paths = (0..38)
-        .map(|index| format!("/p{index:02}{}", "\"".repeat(400)))
+    // Sixty-one include/exclude pairs use only the admitted literal RFC3986-safe
+    // path-byte grammar. The pretty import remains below the 64 KiB parser cap,
+    // while the richer guided continuity representation crosses the 60 KiB
+    // persistence envelope and must therefore fail before mutation.
+    let include_paths = (0..61)
+        .map(|index| {
+            let prefix = format!("/p{index:02}");
+            format!("{prefix}{}", "a".repeat(490 - prefix.len()))
+        })
         .collect::<Vec<_>>();
     let exclude_paths = include_paths
         .iter()
