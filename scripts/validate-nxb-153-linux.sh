@@ -20,6 +20,7 @@ focused_tests=(
     target_scope_failclosed_cli
     target_subdomain_failclosed_cli
     target_persistence_envelope_cli
+    target_unicode_path_failclosed_cli
 )
 
 cd "$repo_root"
@@ -92,6 +93,11 @@ command -v python3 >/dev/null 2>&1 || fail 'python3 is unavailable for tooling-r
 head_sha="$(git rev-parse HEAD)"
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'exact Git HEAD could not be resolved'
 [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]] || fail 'working tree must be clean'
+validation_directory="$repo_root/target/nxb-validation"
+evidence_path="$validation_directory/nxb-153-linux-$head_sha.json"
+if [[ -e "$evidence_path" ]]; then
+    fail "exact-head Linux validation evidence already exists; validation gates were not rerun: $evidence_path; use the evidence reviewer or perform explicit recovery"
+fi
 
 rustc_version="$(rustup run "$rust_toolchain" rustc --version)" ||
     fail "Rust toolchain $rust_toolchain is unavailable"
@@ -103,7 +109,6 @@ deny_version="$(tool_version "$deny_path" "$cargo_deny_version" 'cargo-deny')"
 audit_sha256="$(sha256sum "$audit_path" | awk '{print $1}')"
 deny_sha256="$(sha256sum "$deny_path" | awk '{print $1}')"
 
-validation_directory="$repo_root/target/nxb-validation"
 receipt_path="$validation_directory/nxb-153-tooling-linux-$head_sha.json"
 [[ -f "$receipt_path" ]] ||
     fail "exact-head tooling receipt is missing; run scripts/prepare-and-validate-nxb-153-linux.sh first"
@@ -243,7 +248,6 @@ final_receipt_sha256="$(sha256sum "$receipt_path" | awk '{print $1}')"
 [[ "$final_receipt_sha256" == "$receipt_sha256" ]] || fail 'tooling receipt changed during validation'
 
 mkdir -p "$validation_directory"
-evidence_path="$validation_directory/nxb-153-linux-$head_sha.json"
 validated_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 rustc_json="$(json_escape "$rustc_version")"
 cargo_json="$(json_escape "$cargo_version")"
