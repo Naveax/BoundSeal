@@ -244,6 +244,13 @@ fn preview_is_deterministic_networkless_and_non_persistent() {
         Some(false)
     );
 
+    assert_eq!(
+        first
+            .pointer("/automation/allow_subdomains")
+            .and_then(Value::as_bool),
+        Some(false)
+    );
+
     assert_eq!(fs::read_dir(&targets).unwrap().count(), 0);
 
     let serialized = serde_json::to_string(&first).unwrap();
@@ -297,6 +304,34 @@ fn preview_rejects_unsafe_or_unauthorized_input_without_mutation() {
 
         assert_eq!(fs::read_dir(&targets).unwrap().count(), 0);
     }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn preview_rejects_subdomain_expansion_until_registrable_boundary_is_verified() {
+    let root = temporary_workspace("subdomain-reject");
+    initialize(&root);
+    let authorization = authorization_document(&root);
+    let root_text = root.to_str().unwrap();
+    let authorization_text = authorization.to_str().unwrap();
+
+    let mut arguments = setup_arguments(root_text, authorization_text);
+    let json_index = arguments
+        .iter()
+        .position(|value| *value == "--json")
+        .unwrap();
+    arguments.insert(json_index, "--allow-subdomains");
+
+    let output = run(&arguments);
+    assert_setup_rejection(&output);
+    let diagnostic: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert!(diagnostic
+        .get("message")
+        .and_then(Value::as_str)
+        .is_some_and(|message| message.contains("registrable-domain boundary")));
+    assert_eq!(fs::read_dir(root.join("targets")).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(root.join("state")).unwrap().count(), 0);
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -390,13 +425,6 @@ fn preview_normalizes_explicit_https_443() {
 
     arguments[origin_index + 1] = "https://EXAMPLE.ORG:443";
 
-    let json_index = arguments
-        .iter()
-        .position(|value| *value == "--json")
-        .unwrap();
-
-    arguments.insert(json_index, "--allow-subdomains");
-
     let preview = run_json(&arguments);
 
     assert_eq!(
@@ -408,7 +436,7 @@ fn preview_normalizes_explicit_https_443() {
         preview
             .pointer("/automation/allow_subdomains")
             .and_then(Value::as_bool),
-        Some(true)
+        Some(false)
     );
 
     assert_eq!(fs::read_dir(root.join("targets"),).unwrap().count(), 0);
