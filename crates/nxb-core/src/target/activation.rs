@@ -1,11 +1,27 @@
 use std::path::Path;
 
 use anyhow::{bail, Result};
+use serde::Serialize;
 use serde_json::Value;
 
-use super::{build_guided_setup, create_value_from_bytes, workspace, AuthorizationBasis};
+use super::{
+    build_guided_setup, canonical_json, create_value_from_bytes, workspace, AuthorizationBasis,
+    SetupPreview,
+};
 
 pub(super) const ACTIVATION_ACKNOWLEDGEMENT: &str = "I_CONFIRM_THIS_EXACT_PREVIEW";
+const GUIDED_ACTIVATION_ARTIFACT_VERSION: u32 = 1;
+
+#[derive(Serialize)]
+struct GuidedActivationArtifact<'a> {
+    artifact_version: u32,
+    target_id: &'a str,
+    profile_identity_sha256: &'a str,
+    preview: &'a SetupPreview,
+    policy_document: &'a str,
+    created_at: String,
+    network_activity: &'static str,
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn activate_value(
@@ -71,6 +87,16 @@ pub(super) fn activate_value(
     let identity = &build.preview.identity;
     let expected_policy_sha256 = build.policy.document_sha256.clone();
     let policy_snapshot_sha256 = build.policy.snapshot_sha256.clone();
+    let root = workspace::validate_workspace_root(workspace_path, true)?;
+    let artifact_relative_path = format!(
+        "state/target-{}.guided-activation.json",
+        identity.target_id
+    );
+    let artifact_path = root.join(&artifact_relative_path);
+
+    if workspace::safe_exists(&artifact_path)? {
+        bail!("guided target activation metadata already exists");
+    }
 
     let mut value = create_value_from_bytes(
         workspace_path,
@@ -85,16 +111,81 @@ pub(super) fn activate_value(
     )?;
 
     if value.get("policy_sha256").and_then(Value::as_str) != Some(expected_policy_sha256.as_str()) {
+        rollback_profile(&root, &identity.target_id, None)?;
         bail!("activated target policy digest does not match the confirmed preview policy");
     }
+
+    let profile_identity_sha256 = value
+        .get("identity_sha256")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("activated target profile is missing its identity digest"))?;
+    workspace::validate_sha(profile_identity_sha256, "activated target identity SHA-256")?;
+
+    let artifact = GuidedActivationArtifact {
+        artifact_version: GUIDED_ACTIVATION_ARTIFACT_VERSION,
+        target_id: &identity.target_id,
+        profile_identity_sha256,
+        preview: &build.preview,
+        policy_document: &build.policy.document,
+        created_at: workspace::now(),
+        network_activity: "none",
+    };
+    let artifact_bytes = canonical_json(&artifact)?;
+
+    if let Err(error) = workspace::create_document(&artifact_path, &artifact_bytes) {
+        rollback_profile(&root, &identity.target_id, Some(&artifact_path))?;
+        bail!("guided target activation metadata publication failed: {error:#}");
+    }
+
+    let artifact_sha256 = workspace::sha256(&artifact_bytes);
 
     value["activation"] = serde_json::json!({
         "confirmation": "exact_preview",
         "preview_sha256": confirm_preview_sha256,
         "policy_snapshot_sha256": policy_snapshot_sha256,
         "policy_document_sha256": expected_policy_sha256,
+        "guided_artifact": artifact_relative_path,
+        "guided_artifact_sha256": artifact_sha256,
         "network_activity": "none",
     });
 
     Ok(value)
+}
+
+fn rollback_profile(root: &Path, target_id: &str, artifact_path: Option<&Path>) -> Result<()> {
+    let profile_path = root.join("targets").join(format!("{target_id}.json"));
+    let mut cleanup_errors = Vec::new();
+
+    if let Some(path) = artifact_path {
+        match workspace::safe_exists(path) {
+            Ok(true) => {
+                if let Err(error) = workspace::remove_regular(path) {
+                    cleanup_errors.push(format!("guided activation artifact cleanup failed: {error:#}"));
+                }
+            }
+            Ok(false) => {}
+            Err(error) => cleanup_errors.push(format!(
+                "guided activation artifact cleanup inspection failed: {error:#}"
+            )),
+        }
+    }
+
+    match workspace::safe_exists(&profile_path) {
+        Ok(true) => {
+            if let Err(error) = workspace::remove_regular(&profile_path) {
+                cleanup_errors.push(format!("target profile rollback failed: {error:#}"));
+            }
+        }
+        Ok(false) => {}
+        Err(error) => cleanup_errors.push(format!("target profile rollback inspection failed: {error:#}")),
+    }
+
+    if !cleanup_errors.is_empty() {
+        bail!(
+            "guided activation rollback was incomplete: {}",
+            cleanup_errors.join("; ")
+        );
+    }
+
+    Ok(())
 }
