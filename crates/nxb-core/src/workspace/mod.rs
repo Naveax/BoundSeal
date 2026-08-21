@@ -423,7 +423,35 @@ fn create_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     create_document(path, &bytes)
 }
 
+#[derive(Debug)]
+struct PublishedDocumentError {
+    detail: String,
+}
+
+impl std::fmt::Display for PublishedDocumentError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "create-only destination is visible but publication finalization is incomplete: {}",
+            self.detail
+        )
+    }
+}
+
+impl std::error::Error for PublishedDocumentError {}
+
+pub(crate) fn create_document_error_published(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<PublishedDocumentError>().is_some()
+}
+
 pub(crate) fn create_document(path: &Path, bytes: &[u8]) -> Result<()> {
+    create_document_with_sync(path, bytes, sync_parent)
+}
+
+fn create_document_with_sync<F>(path: &Path, bytes: &[u8], sync_directory: F) -> Result<()>
+where
+    F: FnOnce(&Path) -> Result<()>,
+{
     if bytes.is_empty() || bytes.len() as u64 > MAX_DOCUMENT_BYTES {
         bail!("output document size is invalid");
     }
@@ -431,12 +459,14 @@ pub(crate) fn create_document(path: &Path, bytes: &[u8]) -> Result<()> {
         .parent()
         .ok_or_else(|| anyhow::anyhow!("output path has no parent"))?;
     reject_path_indirections(parent, "output parent")?;
+    reject_path_indirections(path, "output path")?;
     let name = path
         .file_name()
         .and_then(|value| value.to_str())
         .ok_or_else(|| anyhow::anyhow!("output file name is invalid"))?;
     let temporary = parent.join(format!(".{name}.{}.tmp", random_hex(12)?));
-    let result = (|| {
+
+    let prepared = (|| {
         let mut output = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -446,23 +476,44 @@ pub(crate) fn create_document(path: &Path, bytes: &[u8]) -> Result<()> {
         output.write_all(bytes)?;
         output.sync_all()?;
         drop(output);
-        if safe_exists(path)? {
+        validate_private_permissions(&temporary, false)
+    })();
+    if let Err(error) = prepared {
+        let _ = fs::remove_file(&temporary);
+        return Err(error);
+    }
+
+    if let Err(error) = fs::hard_link(&temporary, path) {
+        let _ = fs::remove_file(&temporary);
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
             bail!("create-new destination already exists: {}", path.display());
         }
-        fs::rename(&temporary, path).with_context(|| {
+        return Err(error).with_context(|| {
             format!(
-                "could not publish {} as {}",
-                temporary.display(),
-                path.display()
+                "could not atomically claim create-new destination {} from {}",
+                path.display(),
+                temporary.display()
             )
-        })?;
-        set_private_file_permissions(path)?;
-        sync_parent(parent)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
+        });
     }
-    result
+
+    let cleanup_error = fs::remove_file(&temporary).err();
+    let sync_error = sync_directory(parent).err();
+    if cleanup_error.is_some() || sync_error.is_some() {
+        let mut details = Vec::new();
+        if let Some(error) = cleanup_error {
+            details.push(format!("temporary-link cleanup failed: {error}"));
+        }
+        if let Some(error) = sync_error {
+            details.push(format!("parent-directory sync failed: {error:#}"));
+        }
+        return Err(PublishedDocumentError {
+            detail: details.join("; "),
+        }
+        .into());
+    }
+
+    Ok(())
 }
 
 pub(crate) fn replace_document(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -853,6 +904,71 @@ mod tests {
             Some(1)
         );
         fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn create_document_never_clobbers_preexisting_destination() {
+        let root = temporary_path("create-no-clobber");
+        fs::create_dir(&root).unwrap();
+        set_private_directory_permissions(&root).unwrap();
+        let path = root.join("record.json");
+
+        create_document(&path, b"first\n").unwrap();
+        let error = create_document(&path, b"second\n").unwrap_err();
+        assert!(!create_document_error_published(&error));
+        assert_eq!(read_document(&path, "test record").unwrap(), b"first\n");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn concurrent_create_document_has_exactly_one_winner() {
+        let root = temporary_path("create-race");
+        fs::create_dir(&root).unwrap();
+        set_private_directory_permissions(&root).unwrap();
+        let path = std::sync::Arc::new(root.join("record.json"));
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let mut workers = Vec::new();
+
+        for index in 0..8 {
+            let path = path.clone();
+            let barrier = barrier.clone();
+            workers.push(std::thread::spawn(move || {
+                let bytes = format!("writer-{index}\n").into_bytes();
+                barrier.wait();
+                create_document(path.as_ref(), &bytes).map(|()| bytes)
+            }));
+        }
+
+        let mut winners = Vec::new();
+        for worker in workers {
+            match worker.join().unwrap() {
+                Ok(bytes) => winners.push(bytes),
+                Err(error) => assert!(!create_document_error_published(&error)),
+            }
+        }
+        assert_eq!(winners.len(), 1);
+        assert_eq!(read_document(path.as_ref(), "race record").unwrap(), winners[0]);
+        validate_private_permissions(path.as_ref(), false).unwrap();
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn post_claim_failure_reports_destination_as_published_without_deleting_it() {
+        let root = temporary_path("create-post-claim");
+        fs::create_dir(&root).unwrap();
+        set_private_directory_permissions(&root).unwrap();
+        let path = root.join("record.json");
+
+        let error = create_document_with_sync(&path, b"owned\n", |_| {
+            bail!("injected parent sync failure")
+        })
+        .unwrap_err();
+        assert!(create_document_error_published(&error));
+        assert_eq!(read_document(&path, "published test record").unwrap(), b"owned\n");
+
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(windows)]
