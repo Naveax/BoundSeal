@@ -106,11 +106,11 @@ JSON
 if ln "$receipt_temp" "$receipt_path" 2>/dev/null; then
     rm -f "$receipt_temp" || fail 'could not remove claimed tooling receipt temporary link'
 else
-    if [[ ! -e "$receipt_path" ]]; then
-        rm -f "$receipt_temp" || true
-        fail 'could not create-only claim the exact-head tooling receipt'
-    fi
     rm -f "$receipt_temp" || fail 'could not remove unclaimed tooling receipt temporary file'
+    if [[ -e "$receipt_path" ]]; then
+        fail "exact-head tooling receipt already exists and will not be overwritten: $receipt_path; run the validator directly with the existing receipt, or review/remove it explicitly before preparing again"
+    fi
+    fail 'could not create-only claim the exact-head tooling receipt'
 fi
 
 printf 'NXB-153 fresh pinned Linux validation tools are ready.\n'
