@@ -34,9 +34,10 @@ try {
         throw "Cargo.lock SHA-256 mismatch before evidence review: expected $expectedLockSha256, found $initialLockSha256"
     }
 
-    & (Join-Path $PSScriptRoot 'review-nxb-153-evidence.ps1') `
+    $reviewOutput = (& (Join-Path $PSScriptRoot 'review-nxb-153-evidence.ps1') `
         -RepoRoot $RepoRoot `
-        -EvidenceDirectory $EvidenceDirectory
+        -EvidenceDirectory $EvidenceDirectory `
+        6>&1 | Out-String)
 
     $finalHead = (git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0 -or $finalHead -cne $initialHead) {
@@ -53,6 +54,9 @@ try {
         throw 'Cargo.lock bytes changed during evidence review. Any newly published closure requires explicit recovery/review.'
     }
 
+    if (-not [string]::IsNullOrWhiteSpace($reviewOutput)) {
+        Write-Host $reviewOutput.TrimEnd()
+    }
     Write-Host 'NXB-153 guarded Windows closure authority remained stable.'
     Write-Host "HEAD: $initialHead"
     Write-Host "Cargo.lock SHA-256: $initialLockSha256"
