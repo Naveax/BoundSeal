@@ -217,9 +217,10 @@ Workspace unit coverage stages:
 - a post-claim temporary-link-cleanup-only failure with the destination intact and the extra private hard link visible to recovery/diagnostics;
 - a combined post-claim temp-cleanup + parent-sync failure with both typed flags set;
 - private-permission validation for the successful concurrent destination;
-- workspace initialization preserving a claimed manifest instead of destructively cleaning the workspace after a published-state error.
+- partial workspace initialization cleanup preserving manifest/temp lookalikes and populated canonical directories;
+- partial workspace initialization cleanup using only non-recursive removal of empty normal canonical directories.
 
-Migration prepare also consumes the explicit publication state: if the active migration journal became visible but publication finalization failed, the source backup is retained for recovery instead of being deleted as though the journal had never been published.
+Migration prepare retains its source backup on **every** active-journal create failure, regardless of whether the journal was unpublished or visible with incomplete finalization. The existing orphan-backup recovery path owns continuation instead of an error path deleting the backup by pathname.
 
 These tests are part of the existing `cargo test -p nxb-core --lib` validation gate.
 
@@ -247,7 +248,13 @@ For #90, the intended create-only source outcome classes are now staged: definit
 
 ### Cross-cutting caller audit
 
-The shared create-only primitive is used beyond NXB-153 activation, including workspace initialization/migration, target lifecycle records and release-manifest output. Caller audit found the destructive error-cleanup cases in workspace initialization and migration prepare; both now consume explicit published state instead of deleting claimed records. Ordinary target/release create paths do not delete their destinations after create errors and therefore remain fail-closed.
+The shared create-only primitive is used beyond NXB-153 activation, including workspace initialization/migration, target lifecycle records and release-manifest output. Error-path caller hardening is now deliberately non-destructive:
+
+- workspace initialization does not remove a manifest or name-matched temp files on error and never recursively deletes canonical directories; it only attempts non-recursive removal of empty normal directories, preserving populated, file or reparse-point replacements;
+- migration prepare never deletes its already-created source backup when active-journal publication fails; recovery handles the orphan backup;
+- ordinary target/release create paths do not delete their destinations after create errors.
+
+A final PR-wide static diff audit shows the former create-error `remove_regular()` migration rollback and recursive init cleanup only as **deleted** code. No production create-error destination-deletion path is added by the current PR. This is a source-level audit, not a claim that every unrelated committed-state cleanup operation in the repository is race-atomic.
 
 Issue #90 remains open until Linux/Windows Rust validation proves the staged filesystem contract, hard-link behavior and failure outcomes on supported platforms. The hard-link publication path, explicit publication/finalization state, caller fixes, canonical inert recovery and their source tests are not sufficient by themselves for admission.
 
@@ -303,6 +310,8 @@ The NXB-153 branch contains CLI or source-level acceptance tests for:
 - hard-link create-only no-clobber behavior for pre-existing and concurrent destinations;
 - explicit unpublished-state reporting for preparation or losing-claim cleanup failures;
 - per-component published-state reporting for post-claim temp cleanup and parent-directory sync failures;
+- non-destructive partial-init cleanup preserving populated/foreign replacements;
+- migration prepare preserving source backup for orphan recovery on journal-create failure;
 - artifact-first/profile-last activation with no pathname rollback deletion;
 - exact inert-continuity recovery without artifact rewrite;
 - changed-preview recovery rejection with artifact bytes preserved;
