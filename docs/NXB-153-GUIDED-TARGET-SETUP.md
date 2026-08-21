@@ -141,13 +141,23 @@ The evidence file itself remains operator-controlled input and is represented on
 
 ### Publication and rollback
 
-The target profile is published through the existing create-only private workspace writer. The continuity record is then published through the same bounded create-only primitive.
+The target profile is published through the existing private workspace writer. The continuity record is then published through the same bounded workspace primitive.
 
-If continuity publication fails after profile creation, activation rolls back the just-created target profile. A potentially partially published continuity artifact is removed only when its bounded size and exact bytes match the artifact prepared by this invocation. A foreign or racing artifact is left untouched. The per-invocation publication nonce makes accidental byte identity across competing publishers impractical.
+After target-profile creation, activation reads the canonical persisted profile back, validates its content-derived `identity_sha256`, and captures the exact bytes associated with this invocation. If continuity publication later fails, target-profile rollback removes the profile only when its current bounded bytes are still exactly equal to those captured bytes. A foreign or racing replacement is left untouched.
+
+A potentially partially published continuity artifact is likewise removed only when its bounded size and exact bytes match the artifact prepared by this invocation. A foreign or racing artifact is left untouched. The per-invocation publication nonce makes accidental byte identity across competing publishers impractical.
 
 Rollback inspection does not read an arbitrarily large collision file: a differing file size is treated as foreign and left untouched before any content read occurs.
 
-The command fails closed instead of reporting a successful guided activation with incomplete continuity metadata.
+The command fails instead of reporting a successful guided activation with incomplete continuity metadata. If ownership has changed and safe rollback cannot be proven, the command reports the rollback failure rather than deleting foreign state.
+
+#### Cross-cutting create-new limitation
+
+The underlying `workspace::create_document()` implementation currently writes a private temporary file, checks whether the destination exists, then publishes with `fs::rename`. On Unix, destination creation between the existence check and `rename` can make that rename overwrite a competing destination. The existence pre-check is therefore not a race-atomic no-overwrite guarantee.
+
+This limitation is tracked explicitly in issue #90: **Hardening: make workspace create_document publication atomically no-overwrite**.
+
+NXB-153's ownership-aware rollback reduces destructive cleanup risk but does not claim to fix the underlying publisher race. PR #89 must not claim race-atomic create-only publication until #90 is implemented and receives Linux and Windows validation. A likely implementation is fully written/synced temp bytes followed by an atomic no-overwrite namespace claim such as same-filesystem hard-link creation, with fail-closed handling on unsupported filesystems.
 
 Existing migration status remains compatible because migration recovery recognizes only its dedicated `migration-active.json`, `migration-source.json`, and `migration-applied.json` files as transient migration state.
 
@@ -183,8 +193,10 @@ The NXB-153 branch contains CLI or source-level acceptance tests for:
 - bounded scope-import equivalence and rejection cases;
 - missing/empty imported path scope fail-closed behavior;
 - guided continuity artifact content, digest binding and secret boundary;
-- ownership-aware rollback that preserves foreign same-size artifact bytes;
+- ownership-aware cleanup that preserves foreign same-size artifact/profile bytes;
 - post-activation `target show` operation with the continuity state record present.
+
+The platform validators run `nxb-core` library tests before the focused CLI suites so rollback ownership unit tests fail early rather than being deferred until the full workspace regression.
 
 ## Validation state
 
@@ -196,9 +208,11 @@ Before the PR can leave draft, the exact final head still requires real Rust val
 
 - `cargo fmt --all -- --check`;
 - `cargo check --workspace --all-targets`;
-- focused `nxb-policy` and NXB-153 CLI tests;
+- `cargo test -p nxb-core --lib` plus focused `nxb-policy` and NXB-153 CLI tests;
 - Clippy with repository warning policy;
 - relevant broader regressions on the supported platform matrix.
+
+Race-atomic create-only publication remains separately blocked on issue #90 and must not be claimed until that primitive is fixed and validated.
 
 ## Roadmap mapping
 
