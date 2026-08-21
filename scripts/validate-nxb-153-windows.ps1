@@ -20,7 +20,9 @@ $focusedTests = @(
     'target_import_cli',
     'target_import_failclosed_cli',
     'target_path_binding_cli',
-    'target_scope_failclosed_cli'
+    'target_scope_failclosed_cli',
+    'target_subdomain_failclosed_cli',
+    'target_persistence_envelope_cli'
 )
 
 function Invoke-NxbCargo {
