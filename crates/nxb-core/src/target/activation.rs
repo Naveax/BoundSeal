@@ -129,6 +129,9 @@ pub(super) fn activate_value(
     validate_persistence_envelope(&build.preview, &build.policy.document)?;
 
     let identity = &build.preview.identity;
+    if workspace::sha256(&build.authorization_bytes) != identity.authorization.document_sha256 {
+        bail!("authorization evidence digest drifted after guided preview construction");
+    }
     let expected_policy_sha256 = build.policy.document_sha256.clone();
     let policy_snapshot_sha256 = build.policy.snapshot_sha256.clone();
     let root = workspace::validate_workspace_root(workspace_path, true)?;
