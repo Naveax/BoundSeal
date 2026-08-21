@@ -361,9 +361,6 @@ pub(crate) fn reject_path_indirections(path: &Path, label: &str) -> Result<()> {
         match component {
             Component::Prefix(prefix) => {
                 current.push(prefix.as_os_str());
-                // A Windows drive/UNC prefix is not itself a filesystem
-                // entry. Inspect only after RootDir or a normal component
-                // has completed an inspectable path.
                 continue;
             }
             Component::RootDir => current.push(Path::new(std::path::MAIN_SEPARATOR_STR)),
@@ -451,6 +448,25 @@ impl std::fmt::Display for PublishedDocumentError {
 
 impl std::error::Error for PublishedDocumentError {}
 
+#[derive(Debug)]
+struct UnpublishedDocumentCleanupError {
+    claim_detail: String,
+    cleanup_detail: String,
+}
+
+impl std::fmt::Display for UnpublishedDocumentCleanupError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "create-only destination was not published but temporary cleanup failed (claim={}; cleanup={})",
+            self.claim_detail,
+            self.cleanup_detail
+        )
+    }
+}
+
+impl std::error::Error for UnpublishedDocumentCleanupError {}
+
 fn create_document_error_finalization(
     error: &anyhow::Error,
 ) -> Option<PublishedDocumentFinalization> {
@@ -468,9 +484,10 @@ fn should_cleanup_initialization(error: &anyhow::Error) -> bool {
 }
 
 pub(crate) fn create_document(path: &Path, bytes: &[u8]) -> Result<()> {
-    create_document_with_finalizers(
+    create_document_with_operations(
         path,
         bytes,
+        |temporary, destination| fs::hard_link(temporary, destination),
         |temporary| {
             fs::remove_file(temporary).with_context(|| {
                 format!("could not remove temporary link {}", temporary.display())
@@ -480,13 +497,15 @@ pub(crate) fn create_document(path: &Path, bytes: &[u8]) -> Result<()> {
     )
 }
 
-fn create_document_with_finalizers<R, S>(
+fn create_document_with_operations<C, R, S>(
     path: &Path,
     bytes: &[u8],
+    claim_destination: C,
     remove_temporary: R,
     sync_directory: S,
 ) -> Result<()>
 where
+    C: FnOnce(&Path, &Path) -> std::io::Result<()>,
     R: FnOnce(&Path) -> Result<()>,
     S: FnOnce(&Path) -> Result<()>,
 {
@@ -521,8 +540,24 @@ where
         return Err(error);
     }
 
-    if let Err(error) = fs::hard_link(&temporary, path) {
-        let _ = fs::remove_file(&temporary);
+    if let Err(error) = claim_destination(&temporary, path) {
+        let cleanup_error = remove_temporary(&temporary).err();
+        if let Some(cleanup_error) = cleanup_error {
+            let claim_detail = if error.kind() == std::io::ErrorKind::AlreadyExists {
+                format!("destination already exists: {}", path.display())
+            } else {
+                format!(
+                    "could not atomically claim create-new destination {} from {}: {error}",
+                    path.display(),
+                    temporary.display()
+                )
+            };
+            return Err(UnpublishedDocumentCleanupError {
+                claim_detail,
+                cleanup_detail: format!("{cleanup_error:#}"),
+            }
+            .into());
+        }
         if error.kind() == std::io::ErrorKind::AlreadyExists {
             bail!("create-new destination already exists: {}", path.display());
         }
@@ -981,6 +1016,40 @@ mod tests {
     }
 
     #[test]
+    fn claim_failure_with_cleanup_failure_is_explicitly_unpublished_and_preserves_destination() {
+        let root = temporary_path("create-claim-cleanup");
+        fs::create_dir(&root).unwrap();
+        set_private_directory_permissions(&root).unwrap();
+        let path = root.join("record.json");
+
+        create_document(&path, b"winner\n").unwrap();
+        let error = create_document_with_operations(
+            &path,
+            b"loser\n",
+            |_, _| Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists)),
+            |_| bail!("injected temporary cleanup failure"),
+            |_| -> Result<()> { panic!("parent sync must not run after failed namespace claim") },
+        )
+        .unwrap_err();
+
+        assert!(!create_document_error_published(&error));
+        assert!(
+            error
+                .downcast_ref::<UnpublishedDocumentCleanupError>()
+                .is_some()
+        );
+        assert!(error.to_string().contains("was not published"));
+        assert_eq!(read_document(&path, "winning test record").unwrap(), b"winner\n");
+        assert_eq!(
+            fs::read_dir(&root).unwrap().count(),
+            2,
+            "failed cleanup after a losing claim must leave only the winner and the loser's private temporary file"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn concurrent_create_document_has_exactly_one_winner() {
         let root = temporary_path("create-race");
         fs::create_dir(&root).unwrap();
@@ -1020,9 +1089,10 @@ mod tests {
         set_private_directory_permissions(&root).unwrap();
         let path = root.join("record.json");
 
-        let error = create_document_with_finalizers(
+        let error = create_document_with_operations(
             &path,
             b"owned\n",
+            |temporary, destination| fs::hard_link(temporary, destination),
             |temporary| {
                 fs::remove_file(temporary)?;
                 Ok(())
@@ -1045,9 +1115,10 @@ mod tests {
         set_private_directory_permissions(&root).unwrap();
         let path = root.join("record.json");
 
-        let error = create_document_with_finalizers(
+        let error = create_document_with_operations(
             &path,
             b"owned\n",
+            |temporary, destination| fs::hard_link(temporary, destination),
             |_| bail!("injected temporary-link cleanup failure"),
             |_| Ok(()),
         )
@@ -1072,9 +1143,10 @@ mod tests {
         set_private_directory_permissions(&root).unwrap();
         let path = root.join("record.json");
 
-        let error = create_document_with_finalizers(
+        let error = create_document_with_operations(
             &path,
             b"owned\n",
+            |temporary, destination| fs::hard_link(temporary, destination),
             |_| bail!("injected temporary-link cleanup failure"),
             |_| bail!("injected parent sync failure"),
         )
