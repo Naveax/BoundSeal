@@ -7,6 +7,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $rustToolchain = '1.97.1'
+$expectedCargoLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
 $focusedTests = @(
     'target_setup_cli',
     'target_activation_cli',
@@ -59,6 +60,9 @@ try {
         throw 'Cargo.lock is missing.'
     }
     $lockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($lockSha256 -ne $expectedCargoLockSha256) {
+        throw "Cargo.lock SHA-256 mismatch: expected $expectedCargoLockSha256, found $lockSha256"
+    }
 
     git diff --exit-code -- Cargo.lock
     if ($LASTEXITCODE -ne 0) {
@@ -127,7 +131,7 @@ try {
         -Label 'workspace cargo test'
 
     $finalLockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($finalLockSha256 -ne $lockSha256) {
+    if ($finalLockSha256 -ne $expectedCargoLockSha256) {
         throw 'Cargo.lock bytes changed during validation.'
     }
     git diff --exit-code -- Cargo.lock
@@ -156,7 +160,8 @@ try {
         rustc = $rustcVersion
         cargo = $cargoVersion
         cargo_lock_sha256 = $lockSha256
-        lockfile_unchanged = $true
+        cargo_lock_expected_sha256 = $expectedCargoLockSha256
+        lockfile_pinned_and_unchanged = $true
         fmt = 'passed'
         nxb_policy_check_clippy_tests = 'passed'
         nxb_core_check_clippy_unit_tests = 'passed'
