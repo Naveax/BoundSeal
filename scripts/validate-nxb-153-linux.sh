@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 rust_toolchain="1.97.1"
+expected_lock_sha256="f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff"
 focused_tests=(
     target_setup_cli
     target_activation_cli
@@ -49,6 +50,8 @@ cargo_version="$(cargo_run --version)" || fail 'could not resolve pinned Cargo v
 
 [[ -f Cargo.lock ]] || fail 'Cargo.lock is missing'
 lock_sha256="$(sha256sum Cargo.lock | awk '{print $1}')"
+[[ "$lock_sha256" == "$expected_lock_sha256" ]] ||
+    fail "Cargo.lock SHA-256 mismatch: expected $expected_lock_sha256, found $lock_sha256"
 git diff --exit-code -- Cargo.lock >/dev/null ||
     fail 'committed Cargo.lock differs before locked validation'
 
@@ -74,7 +77,7 @@ cargo_run clippy --workspace --all-targets --all-features --locked -- -D warning
 cargo_run test --workspace --all-features --locked -- --test-threads=1
 
 final_lock_sha256="$(sha256sum Cargo.lock | awk '{print $1}')"
-[[ "$final_lock_sha256" == "$lock_sha256" ]] ||
+[[ "$final_lock_sha256" == "$expected_lock_sha256" ]] ||
     fail 'Cargo.lock bytes changed during validation'
 git diff --exit-code -- Cargo.lock >/dev/null ||
     fail 'Cargo.lock Git diff appeared during validation'
@@ -101,7 +104,8 @@ cat > "$evidence_path" <<JSON
   "rustc": "$rustc_json",
   "cargo": "$cargo_json",
   "cargo_lock_sha256": "$lock_sha256",
-  "lockfile_unchanged": true,
+  "cargo_lock_expected_sha256": "$expected_lock_sha256",
+  "lockfile_pinned_and_unchanged": true,
   "fmt": "passed",
   "nxb_policy_check_clippy_tests": "passed",
   "nxb_core_check_clippy_unit_tests": "passed",
