@@ -325,3 +325,111 @@ fn imported_scope_rejects_shadowing_and_interior_empty_segments() {
 
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn guided_origin_rejects_syntax_that_url_parsing_can_normalize_away() {
+    let root = temporary_workspace("origin-normalization");
+    initialize(&root);
+    let authorization = authorization_document(&root);
+
+    let invalid_origins = [
+        "https://@example.org",
+        "https://example.org/.",
+        "https://example.org/..",
+        "https://example.org/%2e",
+        "https://example.org/%2e%2e",
+        "https://example.org/a/../",
+        "https://example.org/api",
+        "https://example.org?",
+        "https://example.org#",
+        "https://example.org:",
+        "https://example.org:0443",
+        "https://%65xample.org",
+        "HTTPS://example.org",
+        "https://éxample.org",
+    ];
+
+    for origin in invalid_origins {
+        let mut arguments = guided_arguments("setup", &root, &authorization);
+        replace_flag_value(&mut arguments, "--origin", origin);
+        let output = run(&arguments);
+        assert_rejected(
+            &output,
+            SETUP_EXIT_CODE,
+            "NXB153-TARGET-SETUP-REJECTED",
+            "guided target origin",
+        );
+        assert_eq!(fs::read_dir(root.join("targets")).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(root.join("state")).unwrap().count(), 0);
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn imported_guided_origin_uses_the_same_raw_fail_closed_contract() {
+    let root = temporary_workspace("origin-import");
+    initialize(&root);
+    let authorization = authorization_document(&root);
+
+    for (index, origin) in [
+        "https://example.org/.",
+        "https://example.org:0443",
+        "https://%65xample.org",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let scope = root.join("tmp").join(format!("origin-scope-{index}.json"));
+        fs::write(
+            &scope,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "schema_version": 1,
+                "origin": origin,
+                "include_paths": ["/api"],
+                "exclude_paths": ["/api/logout"],
+                "allow_subdomains": false
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let output = run(&setup_import_arguments(&root, &authorization, &scope));
+        assert_rejected(
+            &output,
+            SETUP_EXIT_CODE,
+            "NXB153-TARGET-SETUP-REJECTED",
+            "guided target origin",
+        );
+        assert_eq!(fs::read_dir(root.join("targets")).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(root.join("state")).unwrap().count(), 0);
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn guided_origin_preserves_only_documented_authority_normalization() {
+    let root = temporary_workspace("origin-positive");
+    initialize(&root);
+    let authorization = authorization_document(&root);
+
+    for origin in [
+        "https://example.org",
+        "https://EXAMPLE.ORG:443",
+        "https://example.org/",
+        "https://EXAMPLE.ORG:443/",
+    ] {
+        let mut arguments = guided_arguments("setup", &root, &authorization);
+        replace_flag_value(&mut arguments, "--origin", origin);
+        let preview = run_json(&arguments);
+        assert_eq!(
+            preview.get("origin").and_then(Value::as_str),
+            Some("https://example.org")
+        );
+    }
+
+    assert_eq!(fs::read_dir(root.join("targets")).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(root.join("state")).unwrap().count(), 0);
+    fs::remove_dir_all(root).unwrap();
+}
