@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::{
     build_guided_setup, canonical_json, create_value_from_bytes, workspace, AuthorizationBasis,
-    SetupPreview, TargetProfile,
+    AuthorizationBinding, ProgramMetadata, SetupPreview, TargetProfile, PROFILE_SCHEMA_VERSION,
 };
 
 pub(super) const ACTIVATION_ACKNOWLEDGEMENT: &str = "I_CONFIRM_THIS_EXACT_PREVIEW";
@@ -111,20 +111,22 @@ pub(super) fn activate_value(
         build.policy.document.as_bytes(),
     )?;
 
-    let expected_profile_identity_sha256 = value
-        .get("identity_sha256")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow::anyhow!("activated target profile is missing its identity digest"))?
-        .to_owned();
-    workspace::validate_sha(
-        &expected_profile_identity_sha256,
-        "activated target identity SHA-256",
-    )?;
-    let expected_profile_bytes = capture_owned_profile_bytes(
+    let expected_profile_bytes = expected_profile_bytes_from_value(&value)?;
+
+    if let Err(verification_error) = verify_owned_profile_bytes(
         &root,
         &identity.target_id,
-        &expected_profile_identity_sha256,
-    )?;
+        &expected_profile_bytes,
+    ) {
+        if let Err(rollback_error) =
+            rollback_profile(&root, &identity.target_id, &expected_profile_bytes)
+        {
+            bail!(
+                "guided target profile readback verification failed ({verification_error:#}); ownership-safe rollback also failed ({rollback_error:#})"
+            );
+        }
+        bail!("guided target profile readback verification failed: {verification_error:#}");
+    }
 
     if value.get("policy_sha256").and_then(Value::as_str)
         != Some(expected_policy_sha256.as_str())
@@ -166,23 +168,58 @@ pub(super) fn activate_value(
     Ok(value)
 }
 
-fn capture_owned_profile_bytes(
-    root: &Path,
-    target_id: &str,
-    expected_identity_sha256: &str,
-) -> Result<Vec<u8>> {
+fn required_string(value: &Value, field: &str) -> Result<String> {
+    value
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow::anyhow!("activated target result is missing {field}"))
+}
+
+fn required_array<T>(value: &Value, field: &str) -> Result<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let item = value
+        .get(field)
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("activated target result is missing {field}"))?;
+    serde_json::from_value(item)
+        .with_context(|| format!("activated target result field {field} is invalid"))
+}
+
+fn expected_profile_bytes_from_value(activated_profile: &Value) -> Result<Vec<u8>> {
+    let program: ProgramMetadata = required_array(activated_profile, "program")?;
+    let profile = TargetProfile {
+        schema_version: PROFILE_SCHEMA_VERSION,
+        target_id: required_string(activated_profile, "target_id")?,
+        name: required_string(activated_profile, "name")?,
+        origin: required_string(activated_profile, "origin")?,
+        include_paths: required_array(activated_profile, "include_paths")?,
+        exclude_paths: required_array(activated_profile, "exclude_paths")?,
+        allowed_methods: required_array(activated_profile, "allowed_methods")?,
+        program,
+        authorization: AuthorizationBinding {
+            reference: required_string(activated_profile, "authorization_reference")?,
+            document_sha256: required_string(activated_profile, "authorization_sha256")?,
+        },
+        policy_sha256: required_string(activated_profile, "policy_sha256")?,
+        identity_sha256: required_string(activated_profile, "identity_sha256")?,
+        created_at: required_string(activated_profile, "created_at")?,
+    };
+
+    super::validate_profile(&profile)
+        .context("activated target result could not reconstruct a valid immutable profile")?;
+    canonical_json(&profile).context("could not reconstruct canonical activated target profile")
+}
+
+fn verify_owned_profile_bytes(root: &Path, target_id: &str, expected_bytes: &[u8]) -> Result<()> {
     let profile_path = root.join("targets").join(format!("{target_id}.json"));
-    let bytes = workspace::read_document(&profile_path, "guided activation target profile")?;
-    let profile: TargetProfile = serde_json::from_slice(&bytes)
-        .context("guided activation target profile is invalid JSON")?;
-    super::validate_profile(&profile)?;
-    if bytes != canonical_json(&profile)? {
-        bail!("guided activation target profile is not canonical JSON");
-    }
-    if profile.target_id != target_id || profile.identity_sha256 != expected_identity_sha256 {
+    let actual = workspace::read_document(&profile_path, "guided activation target profile")?;
+    if actual != expected_bytes {
         bail!("guided activation target profile ownership changed during activation");
     }
-    Ok(bytes)
+    Ok(())
 }
 
 fn publish_guided_artifact(
