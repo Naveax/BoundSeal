@@ -96,6 +96,9 @@ try {
             'clippy', '-p', 'nxb-core', '--all-targets', '--locked', '--', '-D', 'warnings'
         ) `
         -Label 'nxb-core cargo clippy'
+    Invoke-NxbCargo `
+        -Arguments @('test', '-p', 'nxb-core', '--lib', '--locked', '--', '--test-threads=1') `
+        -Label 'nxb-core unit tests'
 
     foreach ($testName in $focusedTests) {
         Invoke-NxbCargo `
@@ -156,7 +159,7 @@ try {
         lockfile_unchanged = $true
         fmt = 'passed'
         nxb_policy_check_clippy_tests = 'passed'
-        nxb_core_check_clippy = 'passed'
+        nxb_core_check_clippy_unit_tests = 'passed'
         focused_target_tests = 'passed'
         workspace_check_clippy_tests_all_features = 'passed'
         test_threads = 1
