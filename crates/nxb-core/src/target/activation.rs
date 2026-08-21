@@ -11,6 +11,8 @@ use super::{
 
 pub(super) const ACTIVATION_ACKNOWLEDGEMENT: &str = "I_CONFIRM_THIS_EXACT_PREVIEW";
 const GUIDED_ACTIVATION_ARTIFACT_VERSION: u32 = 1;
+const GUIDED_PERSISTENCE_MARGIN_BYTES: u64 = 4 * 1024;
+const PERSISTENCE_PREFLIGHT_TIME: &str = "2000-01-01T00:00:00Z";
 
 #[derive(Serialize)]
 struct GuidedActivationArtifact<'a> {
@@ -22,6 +24,68 @@ struct GuidedActivationArtifact<'a> {
     publication_nonce: String,
     created_at: String,
     network_activity: &'static str,
+}
+
+pub(super) fn validate_persistence_envelope(
+    preview: &SetupPreview,
+    policy_document: &str,
+) -> Result<()> {
+    let identity = &preview.identity;
+    let mut profile = TargetProfile {
+        schema_version: PROFILE_SCHEMA_VERSION,
+        target_id: identity.target_id.clone(),
+        name: identity.name.clone(),
+        origin: identity.origin.clone(),
+        include_paths: identity.include_paths.clone(),
+        exclude_paths: identity.exclude_paths.clone(),
+        allowed_methods: identity.automation.allowed_methods.clone(),
+        program: ProgramMetadata {
+            name: identity.program.name.clone(),
+            platform: identity.program.platform.clone(),
+            reference: identity.program.reference.clone(),
+        },
+        authorization: AuthorizationBinding {
+            reference: identity.authorization.reference.clone(),
+            document_sha256: identity.authorization.document_sha256.clone(),
+        },
+        policy_sha256: identity.policy.policy_document_sha256.clone(),
+        identity_sha256: String::new(),
+        created_at: PERSISTENCE_PREFLIGHT_TIME.to_owned(),
+    };
+    profile.identity_sha256 = super::profile_identity_sha256(&profile)?;
+    super::validate_profile(&profile)
+        .context("guided persistence preflight could not construct a valid target profile")?;
+    let profile_bytes = canonical_json(&profile)?;
+    enforce_persistence_envelope("target profile", profile_bytes.len())?;
+
+    let artifact = GuidedActivationArtifact {
+        artifact_version: GUIDED_ACTIVATION_ARTIFACT_VERSION,
+        target_id: &identity.target_id,
+        profile_identity_sha256: &profile.identity_sha256,
+        preview,
+        policy_document,
+        publication_nonce: "0".repeat(32),
+        created_at: PERSISTENCE_PREFLIGHT_TIME.to_owned(),
+        network_activity: "none",
+    };
+    let artifact_bytes = canonical_json(&artifact)?;
+    enforce_persistence_envelope("guided activation artifact", artifact_bytes.len())?;
+
+    Ok(())
+}
+
+fn enforce_persistence_envelope(label: &str, serialized_bytes: usize) -> Result<()> {
+    let usable_bytes = workspace::MAX_DOCUMENT_BYTES
+        .checked_sub(GUIDED_PERSISTENCE_MARGIN_BYTES)
+        .ok_or_else(|| anyhow::anyhow!("guided persistence margin exceeds workspace document cap"))?;
+    let serialized_bytes = serialized_bytes as u64;
+    if serialized_bytes > usable_bytes {
+        bail!(
+            "guided {label} exceeds the persistence envelope: serialized={serialized_bytes} usable={usable_bytes} writer_cap={} margin={GUIDED_PERSISTENCE_MARGIN_BYTES}",
+            workspace::MAX_DOCUMENT_BYTES
+        );
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
