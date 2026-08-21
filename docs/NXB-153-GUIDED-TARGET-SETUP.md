@@ -29,6 +29,8 @@ The guided path therefore separates setup into two phases:
 
 The import format is bounded JSON schema version 1. It exists only as an input convenience. Imported values are normalized through exactly the same guided compiler as manual arguments before a preview or activation can succeed.
 
+Imported scope must contain an explicit, non-empty `include_paths` array. Missing or empty path scope is rejected rather than silently becoming `/`. This keeps a malformed import from widening itself to the entire origin.
+
 ## Authorization contract
 
 Guided setup requires all of the following before a preview is accepted:
@@ -40,7 +42,7 @@ Guided setup requires all of the following before a preview is accepted:
 - a future UTC authorization expiry;
 - the exact acknowledgement `I_HAVE_EXPLICIT_AUTHORIZATION`.
 
-The raw authorization evidence bytes and source path are never copied into the target profile or guided activation artifact. Only the authorization reference and SHA-256 binding are persisted.
+The raw authorization evidence bytes and the `--authorization-document` source path are never copied into the target profile or guided activation artifact. Explicit reference fields are operator-provided non-secret persisted metadata and must not be used for secrets.
 
 Activation adds a second independent acknowledgement:
 
@@ -69,6 +71,22 @@ The guided boundary is intentionally narrower than the general internal policy s
 - maximum total request budget between 1 and 100,000.
 
 `allow_subdomains` is explicit and is visible in the preview. The generated policy is compiled through the existing `nxb-policy` checks, and activation binds the canonical policy document SHA-256 into the immutable target profile.
+
+### Split scope binding in policy schema v1
+
+`TargetPolicy` schema version 1 models host, scheme, method, subdomain behavior, authorization and automation budgets. It does not currently contain path-prefix fields. NXB-153 therefore does not pretend otherwise.
+
+Path scope is bound through the exact guided preview and immutable target profile:
+
+- `include_paths` and `exclude_paths` are part of the deterministic preview identity;
+- changing only path scope changes `preview_sha256`;
+- activation rebuilds the preview and rejects a stale SHA before persistence;
+- activated path rules are part of `TargetProfile` identity material and therefore change `identity_sha256`;
+- the complete confirmed preview is retained in the guided continuity artifact.
+
+The canonical `TargetPolicy` document remains the policy-engine contract for host/scheme/method/subdomain/authorization/budget dimensions. Future execution layers must enforce both the admitted target-profile path boundary and the compiled policy boundary. They must not infer that a policy document lacking path fields grants the whole origin.
+
+This split is explicit so that NXB-153 does not mutate policy schema v1 merely to create an appearance of coverage. A future policy schema revision may move path prefixes into the policy engine only with migration and compatibility work.
 
 ## Preview surface
 
@@ -105,6 +123,7 @@ The continuity record contains:
 - immutable target-profile identity SHA-256;
 - the complete confirmed setup preview;
 - the canonical generated policy document;
+- a random publication nonce used only to distinguish this invocation's artifact during rollback;
 - creation time;
 - `network_activity: none`.
 
@@ -124,7 +143,11 @@ The evidence file itself remains operator-controlled input and is represented on
 
 The target profile is published through the existing create-only private workspace writer. The continuity record is then published through the same bounded create-only primitive.
 
-If continuity publication fails after profile creation, activation attempts to remove any partially published continuity file and the just-created target profile. The command fails closed instead of reporting a successful guided activation with incomplete continuity metadata.
+If continuity publication fails after profile creation, activation rolls back the just-created target profile. A potentially partially published continuity artifact is removed only when its bounded size and exact bytes match the artifact prepared by this invocation. A foreign or racing artifact is left untouched. The per-invocation publication nonce makes accidental byte identity across competing publishers impractical.
+
+Rollback inspection does not read an arbitrarily large collision file: a differing file size is treated as foreign and left untouched before any content read occurs.
+
+The command fails closed instead of reporting a successful guided activation with incomplete continuity metadata.
 
 Existing migration status remains compatible because migration recovery recognizes only its dedicated `migration-active.json`, `migration-source.json`, and `migration-applied.json` files as transient migration state.
 
@@ -135,6 +158,7 @@ The JSON import parser rejects:
 - unsupported schema versions;
 - unknown fields;
 - oversized documents;
+- missing or empty `include_paths`;
 - wildcard or otherwise invalid origins;
 - non-HTTPS/443 origins;
 - duplicate/noncanonical path rules;
@@ -145,7 +169,7 @@ After parsing, import provenance disappears from the effective preview. Equivale
 
 ## Acceptance coverage staged in source
 
-The NXB-153 branch contains CLI acceptance tests for:
+The NXB-153 branch contains CLI or source-level acceptance tests for:
 
 - deterministic networkless preview;
 - exact HTTPS/443 normalization;
@@ -153,17 +177,20 @@ The NXB-153 branch contains CLI acceptance tests for:
 - wildcard/domain/port/path rejection;
 - budget limits and digest binding;
 - exact-preview activation;
+- path-only scope changes invalidating stale preview activation and appearing in target identity;
 - stale-preview and duplicate-activation rejection;
 - raw authorization non-persistence;
 - bounded scope-import equivalence and rejection cases;
+- missing/empty imported path scope fail-closed behavior;
 - guided continuity artifact content, digest binding and secret boundary;
+- ownership-aware rollback that preserves foreign same-size artifact bytes;
 - post-activation `target show` operation with the continuity state record present.
 
 ## Validation state
 
 No compiler or runtime pass is claimed yet for the current branch head.
 
-Repository GitHub Actions remain intentionally disabled and no workflow has been created or dispatched for NXB-153. The available local execution environment does not contain a Rust toolchain. An independent Hugging Face CPU Jobs attempt was made for formatting, workspace checking and focused tests, but the provider rejected job creation with HTTP 402 because the connected account is not on a Jobs-capable paid plan.
+Repository GitHub Actions remain intentionally disabled and no workflow has been created or dispatched for NXB-153. The available local execution environment does not contain a Rust toolchain. An independent Hugging Face CPU Jobs attempt was made for formatting, workspace checking and focused tests, but the provider rejected job creation with HTTP 402 because the connected account is not on a Jobs-capable paid plan. Direct external toolchain/bootstrap downloads from the execution sandbox are also unavailable because outbound DNS/network access is blocked.
 
 Before the PR can leave draft, the exact final head still requires real Rust validation, including at minimum:
 
@@ -179,11 +206,11 @@ NXB-153 roadmap acceptance is addressed as follows:
 
 | Roadmap requirement | Implementation |
 | --- | --- |
-| Import or manually record program scope/rules | `setup` and bounded `setup-import` |
+| Import or manually record program scope/rules | `setup` and bounded `setup-import`; imported path scope must be explicit |
 | Explicit authorization evidence, ownership metadata and acknowledgement | evidence digest/reference + researcher + basis + expiry + two acknowledgements |
-| Compile imported scope into existing policy contracts | generated canonical `TargetPolicy`, compile and deterministic round-trip |
+| Compile imported scope into existing policy contracts | canonical `TargetPolicy` for host/scheme/method/subdomain/authorization/budget plus exact-preview and target-identity binding for path prefixes |
 | Display inclusions, exclusions, rate limits and prohibited actions | deterministic setup preview |
 | Reject ambiguous wildcard/domain/port mappings fail-closed | guided origin and import validation |
 | Create target without hand-editing TOML/JSON | exact-preview `activate` / `activate-import` |
 
-NXB-154 must build on the admitted NXB-153 target identity and authorization boundary rather than bypassing it.
+NXB-154 must build on the admitted NXB-153 target identity and authorization boundary rather than bypassing it. Any later request/session execution must enforce the path rules from the target profile in addition to the compiled `TargetPolicy` host/method boundary.
