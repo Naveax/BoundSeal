@@ -49,6 +49,9 @@ if ($null -eq (Get-Command rustup -ErrorAction SilentlyContinue)) {
     throw 'rustup is unavailable. Install rustup from the official Rust distribution before running this script.'
 }
 
+$prepLockPath = $null
+$prepLockClaimed = $false
+
 Push-Location $RepoRoot
 try {
     $headSha = (git rev-parse HEAD).Trim()
@@ -58,6 +61,45 @@ try {
     $status = git status --porcelain=v1 --untracked-files=all
     if ($LASTEXITCODE -ne 0 -or $status) {
         throw 'Working tree must be clean before tool preparation.'
+    }
+
+    $receiptDirectory = Join-Path $RepoRoot 'target\nxb-validation'
+    New-Item -ItemType Directory -Path $receiptDirectory -Force | Out-Null
+    $receiptPath = Join-Path $receiptDirectory "nxb-153-tooling-windows-$headSha.json"
+    if (Test-Path -LiteralPath $receiptPath) {
+        throw "Exact-head tooling receipt already exists; tool bytes were not mutated: $receiptPath. Run the validator directly with the existing receipt, or review/remove it explicitly before preparing again."
+    }
+
+    $prepLockPath = Join-Path $receiptDirectory ".nxb-153-tool-prep-$headSha.lock"
+    $lockStream = $null
+    try {
+        try {
+            $lockStream = [IO.File]::Open(
+                $prepLockPath,
+                [IO.FileMode]::CreateNew,
+                [IO.FileAccess]::Write,
+                [IO.FileShare]::None
+            )
+        }
+        catch [IO.IOException] {
+            if (Test-Path -LiteralPath $prepLockPath) {
+                throw "Exact-head tool preparation is already in progress or requires explicit stale-lock recovery: $prepLockPath"
+            }
+            throw
+        }
+        $lockBytes = [Text.UTF8Encoding]::new($false).GetBytes("$headSha`n")
+        $lockStream.Write($lockBytes, 0, $lockBytes.Length)
+        $lockStream.Flush($true)
+        $prepLockClaimed = $true
+    }
+    finally {
+        if ($null -ne $lockStream) {
+            $lockStream.Dispose()
+        }
+    }
+
+    if (Test-Path -LiteralPath $receiptPath) {
+        throw "Exact-head tooling receipt appeared while claiming the preparation lock; tool bytes were not mutated: $receiptPath"
     }
 
     Invoke-NativeChecked -FilePath 'rustup' -Label 'Rust 1.97.1 toolchain installation' -Arguments @(
@@ -112,9 +154,6 @@ try {
         throw 'Working tree changed during tool preparation.'
     }
 
-    $receiptDirectory = Join-Path $RepoRoot 'target\nxb-validation'
-    New-Item -ItemType Directory -Path $receiptDirectory -Force | Out-Null
-    $receiptPath = Join-Path $receiptDirectory "nxb-153-tooling-windows-$headSha.json"
     $receipt = [ordered]@{
         schema_version = 1
         milestone = 'NXB-153'
@@ -144,7 +183,7 @@ try {
         }
         catch [IO.IOException] {
             if (Test-Path -LiteralPath $receiptPath) {
-                throw "Exact-head tooling receipt already exists and will not be overwritten: $receiptPath. Run the validator directly with the existing receipt, or review/remove it explicitly before preparing again."
+                throw "Exact-head tooling receipt was claimed by another process and will not be overwritten: $receiptPath"
             }
             throw
         }
@@ -158,6 +197,9 @@ try {
         }
     }
 
+    Remove-Item -LiteralPath $prepLockPath -Force
+    $prepLockClaimed = $false
+
     Write-Host 'NXB-153 fresh pinned Windows validation tools are ready.'
     Write-Host "HEAD: $headSha"
     Write-Host "Tooling receipt: $receiptPath"
@@ -167,5 +209,8 @@ try {
     }
 }
 finally {
+    if ($prepLockClaimed -and $null -ne $prepLockPath) {
+        Remove-Item -LiteralPath $prepLockPath -Force -ErrorAction SilentlyContinue
+    }
     Pop-Location
 }
