@@ -48,28 +48,25 @@ cleanup() {
 trap cleanup EXIT
 cd "$install_root"
 
-if ! tool_has_version "$audit_path" "$cargo_audit_version"; then
-    rustup run "$rust_toolchain" cargo install \
-        --locked \
-        --force \
-        --version "$cargo_audit_version" \
-        --root "$tools_root" \
-        cargo-audit
-fi
-if ! tool_has_version "$deny_path" "$cargo_deny_version"; then
-    rustup run "$rust_toolchain" cargo install \
-        --locked \
-        --force \
-        --version "$cargo_deny_version" \
-        --root "$tools_root" \
-        cargo-deny
-fi
+rustup run "$rust_toolchain" cargo install \
+    --locked \
+    --force \
+    --version "$cargo_audit_version" \
+    --root "$tools_root" \
+    cargo-audit
+
+rustup run "$rust_toolchain" cargo install \
+    --locked \
+    --force \
+    --version "$cargo_deny_version" \
+    --root "$tools_root" \
+    cargo-deny
 
 cd "$repo_root"
 tool_has_version "$audit_path" "$cargo_audit_version" ||
-    fail 'pinned cargo-audit installation is invalid'
+    fail 'fresh cargo-audit installation is invalid'
 tool_has_version "$deny_path" "$cargo_deny_version" ||
-    fail 'pinned cargo-deny installation is invalid'
+    fail 'fresh cargo-deny installation is invalid'
 
 final_head="$(git rev-parse HEAD)"
 [[ "$final_head" == "$head_sha" ]] || fail 'Git HEAD changed during tool preparation'
@@ -99,12 +96,12 @@ cat > "$receipt_path" <<JSON
   "cargo_deny": "$deny_version",
   "cargo_deny_sha256": "$deny_sha256",
   "tools_root": "target/nxb-tools",
-  "network_activity": "rustup_and_crates_io_tool_installation_only",
+  "network_activity": "rustup_and_crates_io_fresh_locked_tool_installation_only",
   "prepared_at": "$prepared_at"
 }
 JSON
 
-printf 'NXB-153 pinned Linux validation tools are ready.\n'
+printf 'NXB-153 fresh pinned Linux validation tools are ready.\n'
 printf 'HEAD: %s\n' "$head_sha"
 printf 'Tooling receipt: %s\n' "$receipt_path"
 
