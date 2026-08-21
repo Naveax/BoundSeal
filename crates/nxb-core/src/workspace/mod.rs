@@ -453,7 +453,7 @@ impl std::error::Error for PublishedDocumentError {}
 
 #[derive(Debug)]
 struct UnpublishedDocumentCleanupError {
-    claim_detail: String,
+    operation_detail: String,
     cleanup_detail: String,
 }
 
@@ -461,8 +461,8 @@ impl std::fmt::Display for UnpublishedDocumentCleanupError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "create-only destination was not published but temporary cleanup failed (claim={}; cleanup={})",
-            self.claim_detail,
+            "create-only destination was not published but temporary cleanup failed (operation={}; cleanup={})",
+            self.operation_detail,
             self.cleanup_detail
         )
     }
@@ -490,24 +490,29 @@ pub(crate) fn create_document(path: &Path, bytes: &[u8]) -> Result<()> {
     create_document_with_operations(
         path,
         bytes,
+        |temporary| validate_private_permissions(temporary, false),
         |temporary, destination| fs::hard_link(temporary, destination),
-        |temporary| {
-            fs::remove_file(temporary).with_context(|| {
+        |temporary| match fs::remove_file(temporary) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error).with_context(|| {
                 format!("could not remove temporary link {}", temporary.display())
-            })
+            }),
         },
         sync_parent,
     )
 }
 
-fn create_document_with_operations<C, R, S>(
+fn create_document_with_operations<P, C, R, S>(
     path: &Path,
     bytes: &[u8],
+    validate_prepared: P,
     claim_destination: C,
     remove_temporary: R,
     sync_directory: S,
 ) -> Result<()>
 where
+    P: FnOnce(&Path) -> Result<()>,
     C: FnOnce(&Path, &Path) -> std::io::Result<()>,
     R: FnOnce(&Path) -> Result<()>,
     S: FnOnce(&Path) -> Result<()>,
@@ -536,18 +541,24 @@ where
         output.write_all(bytes)?;
         output.sync_all()?;
         drop(output);
-        validate_private_permissions(&temporary, false)
+        validate_prepared(&temporary)
     })();
     if let Err(error) = prepared {
-        let _ = fs::remove_file(&temporary);
+        if let Err(cleanup_error) = remove_temporary(&temporary) {
+            return Err(UnpublishedDocumentCleanupError {
+                operation_detail: format!("temporary preparation failed: {error:#}"),
+                cleanup_detail: format!("{cleanup_error:#}"),
+            }
+            .into());
+        }
         return Err(error);
     }
 
     if let Err(error) = claim_destination(&temporary, path) {
         let cleanup_error = remove_temporary(&temporary).err();
         if let Some(cleanup_error) = cleanup_error {
-            let claim_detail = if error.kind() == std::io::ErrorKind::AlreadyExists {
-                format!("destination already exists: {}", path.display())
+            let operation_detail = if error.kind() == std::io::ErrorKind::AlreadyExists {
+                format!("destination claim lost because destination already exists: {}", path.display())
             } else {
                 format!(
                     "could not atomically claim create-new destination {} from {}: {error}",
@@ -556,7 +567,7 @@ where
                 )
             };
             return Err(UnpublishedDocumentCleanupError {
-                claim_detail,
+                operation_detail,
                 cleanup_detail: format!("{cleanup_error:#}"),
             }
             .into());
@@ -1019,6 +1030,42 @@ mod tests {
     }
 
     #[test]
+    fn preparation_failure_with_cleanup_failure_is_explicitly_unpublished() {
+        let root = temporary_path("create-prepare-cleanup");
+        fs::create_dir(&root).unwrap();
+        set_private_directory_permissions(&root).unwrap();
+        let path = root.join("record.json");
+
+        let error = create_document_with_operations(
+            &path,
+            b"candidate\n",
+            |_| bail!("injected prepared-file validation failure"),
+            |_, _| -> std::io::Result<()> {
+                panic!("namespace claim must not run after preparation failure")
+            },
+            |_| bail!("injected temporary cleanup failure"),
+            |_| -> Result<()> { panic!("parent sync must not run after preparation failure") },
+        )
+        .unwrap_err();
+
+        assert!(!create_document_error_published(&error));
+        assert!(
+            error
+                .downcast_ref::<UnpublishedDocumentCleanupError>()
+                .is_some()
+        );
+        assert!(error.to_string().contains("temporary preparation failed"));
+        assert!(!safe_exists(&path).unwrap());
+        assert_eq!(
+            fs::read_dir(&root).unwrap().count(),
+            1,
+            "failed preparation cleanup must leave only the private temporary file"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn claim_failure_with_cleanup_failure_is_explicitly_unpublished_and_preserves_destination() {
         let root = temporary_path("create-claim-cleanup");
         fs::create_dir(&root).unwrap();
@@ -1029,6 +1076,7 @@ mod tests {
         let error = create_document_with_operations(
             &path,
             b"loser\n",
+            |temporary| validate_private_permissions(temporary, false),
             |_, _| Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists)),
             |_| bail!("injected temporary cleanup failure"),
             |_| -> Result<()> { panic!("parent sync must not run after failed namespace claim") },
@@ -1095,6 +1143,7 @@ mod tests {
         let error = create_document_with_operations(
             &path,
             b"owned\n",
+            |temporary| validate_private_permissions(temporary, false),
             |temporary, destination| fs::hard_link(temporary, destination),
             |temporary| {
                 fs::remove_file(temporary)?;
@@ -1121,6 +1170,7 @@ mod tests {
         let error = create_document_with_operations(
             &path,
             b"owned\n",
+            |temporary| validate_private_permissions(temporary, false),
             |temporary, destination| fs::hard_link(temporary, destination),
             |_| bail!("injected temporary-link cleanup failure"),
             |_| Ok(()),
@@ -1149,6 +1199,7 @@ mod tests {
         let error = create_document_with_operations(
             &path,
             b"owned\n",
+            |temporary| validate_private_permissions(temporary, false),
             |temporary, destination| fs::hard_link(temporary, destination),
             |_| bail!("injected temporary-link cleanup failure"),
             |_| bail!("injected parent sync failure"),
