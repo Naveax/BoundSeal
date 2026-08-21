@@ -132,8 +132,10 @@ fn initialize_result(workspace: &Path, name: &str) -> Result<InitResult> {
     }
 
     let result = initialize_inner(workspace, name);
-    if result.is_err() {
-        cleanup_partial_workspace(workspace, root_created);
+    if let Err(error) = &result {
+        if should_cleanup_initialization(error) {
+            cleanup_partial_workspace(workspace, root_created);
+        }
     }
     result
 }
@@ -442,6 +444,10 @@ impl std::error::Error for PublishedDocumentError {}
 
 pub(crate) fn create_document_error_published(error: &anyhow::Error) -> bool {
     error.downcast_ref::<PublishedDocumentError>().is_some()
+}
+
+fn should_cleanup_initialization(error: &anyhow::Error) -> bool {
+    !create_document_error_published(error)
 }
 
 pub(crate) fn create_document(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -904,6 +910,18 @@ mod tests {
             Some(1)
         );
         fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn initialization_cleanup_skips_published_document_errors() {
+        let published: anyhow::Error = PublishedDocumentError {
+            detail: "injected parent sync failure".to_owned(),
+        }
+        .into();
+        assert!(!should_cleanup_initialization(&published));
+
+        let ordinary = anyhow::anyhow!("ordinary initialization failure");
+        assert!(should_cleanup_initialization(&ordinary));
     }
 
     #[test]
