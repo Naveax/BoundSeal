@@ -13,7 +13,7 @@ An operator must be able to create an authorization-bound target profile without
 The guided path therefore separates setup into two phases:
 
 1. **Preview**: normalize and compile operator input, emit the exact effective boundary, perform no network activity and persist no target profile.
-2. **Activation**: rebuild the same normalized preview, require the exact preview SHA-256 plus a second acknowledgement, then create the immutable target profile and its continuity artifact.
+2. **Activation**: rebuild the same normalized preview, require the exact preview SHA-256 plus a second acknowledgement, then create linked continuity metadata and the immutable target profile through bounded create-only publication.
 
 ## Supported commands
 
@@ -50,7 +50,7 @@ Activation adds a second independent acknowledgement:
 
 `I_CONFIRM_THIS_EXACT_PREVIEW`
 
-The operator must also supply the exact `preview_sha256` emitted by setup. Activation rebuilds the normalized preview from current input and refuses persistence if the digest differs.
+The operator must also supply the exact `preview_sha256` emitted by setup. Activation rebuilds the normalized preview from current input and refuses persistence if the digest differs. The authorization evidence bytes are hashed again immediately before publication and must still match the preview authorization digest.
 
 ## Scope and policy compiler
 
@@ -143,8 +143,10 @@ The preview is non-persistent with respect to target state.
 
 A successful guided activation creates two linked records:
 
-1. the existing immutable target profile in `targets/<target-id>.json`;
-2. a create-only guided continuity record in `state/target-<target-id>.guided-activation.json`.
+1. a create-only guided continuity record in `state/target-<target-id>.guided-activation.json`;
+2. the immutable active target profile in `targets/<target-id>.json`.
+
+The continuity record is intentionally published first. Until the target profile is successfully published, continuity metadata is inert and does not constitute an active target. This ordering prevents an artifact-publication failure from first creating an active profile and then needing unsafe pathname rollback.
 
 The continuity record exists because target profile schema v2 intentionally remains compact and backward-compatible. Some guided setup facts, such as authorization basis, researcher, authorization expiry and `allow_subdomains`, would otherwise be visible only before activation.
 
@@ -152,11 +154,11 @@ The continuity record contains:
 
 - artifact schema version;
 - target ID;
-- immutable target-profile identity SHA-256;
+- the prospective immutable target-profile identity SHA-256;
 - the complete confirmed setup preview;
 - the canonical generated policy document;
-- a random publication nonce used only to distinguish this invocation's artifact during rollback;
-- creation time;
+- a random publication nonce;
+- the exact creation time shared with the prospective profile;
 - `network_activity: none`.
 
 The activation result returns the relative artifact path and SHA-256 so later product layers can verify the record before using it.
@@ -181,27 +183,56 @@ The continuity artifact may contain non-secret scope and authorization metadata,
 
 The evidence file itself remains operator-controlled input and is represented only by its SHA-256 and safe reference.
 
-### Publication and rollback
+## Create-only publication and partial-state semantics
 
-The target profile is published through the existing private workspace writer. The continuity record is then published through the same bounded workspace primitive.
+`workspace::create_document()` stages bytes in a unique temporary file, applies private file permissions, writes and synchronizes the file, and validates the private permissions **before** any destination name is claimed.
 
-After target-profile creation, activation reads the canonical persisted profile back, validates its content-derived `identity_sha256`, and captures the exact bytes associated with this invocation. If continuity publication later fails, target-profile rollback attempts removal only after the current bounded bytes still match those captured bytes.
+The create-only namespace claim now uses a same-directory hard link rather than an existence-check followed by `rename`:
 
-A potentially partially published continuity artifact is treated similarly: cleanup is attempted only when its bounded size and bytes match the artifact prepared by this invocation. The per-invocation publication nonce makes accidental byte identity across competing publishers impractical.
+1. prepare and sync the private temporary file;
+2. atomically call `fs::hard_link(temp, destination)`;
+3. if the destination already exists, fail without changing it;
+4. if the claim succeeds, remove the temporary link;
+5. synchronize the parent directory where the platform supports that durability operation.
 
-Rollback inspection does not read an arbitrarily large collision file: a differing file size is treated as foreign before any content read occurs.
+The destination and temporary path refer to the same prepared file object after the hard-link claim, so no post-claim permission mutation is required. Concurrent creators cannot both claim the same destination name. There is intentionally **no fallback to overwrite-capable rename** when hard-link creation is unsupported; unsupported filesystems fail closed.
 
-These checks materially reduce destructive cleanup risk, but they are **not race-atomic ownership proof**. The current path-based `verify(path) -> remove(path)` sequence can still race with a pathname replacement between verification and deletion. If cleanup cannot establish its expected state, activation reports the failure rather than pretending continuity succeeded.
+### Explicit published-error state
 
-#### Cross-cutting create-new limitation
+A failure before the hard-link claim means the destination was not published by that call. A failure after the namespace claim, such as temporary-link cleanup or parent-directory synchronization failure, is represented by a dedicated publication error type. `create_document_error_published()` lets callers distinguish this state from ordinary unpublished failure.
 
-The underlying `workspace::create_document()` implementation currently writes a private temporary file, checks whether the destination exists, then publishes with `fs::rename`. On Unix, destination creation between the existence check and `rename` can make that rename overwrite a competing destination. The existence pre-check is therefore not a race-atomic no-overwrite guarantee.
+The primitive never deletes the destination after a successful namespace claim merely because finalization later fails. This prevents error cleanup from turning an uncertain durability condition into destructive pathname rollback.
 
-The same shared primitive can also publish a destination and then return `Err` if post-publication permission hardening or parent-directory durability fails. In addition, caller-side path verification followed by path deletion cannot by itself prove race-atomic cleanup ownership.
+Workspace unit coverage stages:
 
-These limitations are tracked explicitly in issue #90: **Hardening: make workspace create_document publication atomically no-overwrite**.
+- a pre-existing destination that remains byte-for-byte unchanged after a second create attempt;
+- eight concurrent creators with exactly one successful destination claimant;
+- a post-claim injected parent-sync failure that reports `published=true` while leaving the destination intact and readable;
+- private-permission validation for the successful concurrent destination.
 
-NXB-153's exact-byte rollback guards reduce destructive cleanup risk but do not claim to fix the underlying publisher or compare-delete races. PR #89 must not claim race-atomic create-only publication or cleanup ownership until #90 is implemented and receives Linux and Windows validation.
+These tests are part of the existing `cargo test -p nxb-core --lib` validation gate.
+
+### Guided activation commit order
+
+Guided activation no longer publishes a target profile and then tries to delete it when continuity publication fails. It instead:
+
+1. builds and validates the prospective immutable target profile entirely in memory;
+2. canonicalizes its bytes and computes the exact content-derived profile identity;
+3. publishes and exact-byte verifies the continuity artifact;
+4. publishes the target profile last;
+5. exact-byte verifies the target profile after successful create-only publication.
+
+No activation failure path performs compare-then-delete rollback of the target profile or continuity artifact. This removes the previous pathname-swap race in activation cleanup.
+
+If continuity publication fails before publication, the target profile is never attempted. If continuity is published but profile publication fails before its destination claim, the continuity record remains inert and the command fails. If either create-only call reports the explicit published-but-finalization-incomplete state, activation fails loudly and does not delete the visible destination.
+
+The remaining recovery question is how an operator should reconcile an inert continuity-only record or a published-but-durability-uncertain record without hand editing. That recovery/caller-audit work remains tracked by issue #90 and is required before #90 can be admitted as complete.
+
+### Cross-cutting caller audit
+
+The shared create-only primitive is used beyond NXB-153 activation, including workspace initialization/migration, target lifecycle records and release-manifest output. Those callers must not assume that every returned error means no destination became visible. Source hardening is therefore not considered complete merely because activation consumes the explicit publication state.
+
+Issue #90 remains open until the shared caller audit/recovery semantics and Linux/Windows Rust validation close. The new hard-link publication path and activation ordering are source hardening, not validation evidence.
 
 Existing migration status remains compatible because migration recovery recognizes only its dedicated `migration-active.json`, `migration-source.json`, and `migration-applied.json` files as transient migration state.
 
@@ -251,10 +282,13 @@ The NXB-153 branch contains CLI or source-level acceptance tests for:
 - bounded scope-import equivalence and rejection cases;
 - missing/empty imported path scope fail-closed behavior;
 - guided continuity artifact content, digest binding and secret boundary;
-- exact-byte guarded rollback behavior plus explicit documentation of its non-atomic race limitation;
+- prospective profile identity reconstruction before publication;
+- hard-link create-only no-clobber behavior for pre-existing and concurrent destinations;
+- explicit published-state reporting for post-claim finalization failure;
+- artifact-first/profile-last activation with no pathname rollback deletion;
 - post-activation `target show` operation with the continuity state record present.
 
-The platform validators run `nxb-core` library tests before the focused CLI suites so rollback ownership unit tests fail early rather than being deferred until the full workspace regression. The focused Linux and Windows lists include `target_scope_failclosed_cli`, `target_subdomain_failclosed_cli`, and `target_persistence_envelope_cli` in addition to the earlier setup/activation/import/path suites.
+The platform validators run `nxb-core` library tests before the focused CLI suites, so the shared workspace create-only primitive tests run before full workspace regression. The focused Linux and Windows lists include `target_scope_failclosed_cli`, `target_subdomain_failclosed_cli`, and `target_persistence_envelope_cli` in addition to the earlier setup/activation/import/path suites.
 
 ## Validation state
 
@@ -272,7 +306,7 @@ Before the PR can leave draft, the exact final head still requires real Rust val
 - same-head Linux and Windows evidence closure;
 - relevant broader regressions on the supported platform matrix.
 
-Race-atomic create-only publication remains separately blocked on issue #90 and must not be claimed until that primitive is fixed and validated.
+Issue #90 additionally requires its create-only publication/caller-recovery semantics to be validated on Linux and Windows before it can close.
 
 ## Roadmap mapping
 
@@ -285,6 +319,6 @@ NXB-153 roadmap acceptance is addressed as follows:
 | Compile imported scope into existing policy contracts | canonical `TargetPolicy` for exact host/scheme/method/authorization/budget plus exact-preview and target-identity binding for path prefixes; guided subdomain broadening disabled pending PSL validation |
 | Display inclusions, exclusions, rate limits and prohibited actions | deterministic setup preview |
 | Reject ambiguous wildcard/domain/port mappings fail-closed | pre-parser raw origin grammar + parsed public-DNS/HTTPS/443 validation + exact-host-only subdomain contract + path-scope contradiction checks + serialized persistence-envelope admission |
-| Create target without hand-editing TOML/JSON | exact-preview `activate` / `activate-import` |
+| Create target without hand-editing TOML/JSON | exact-preview `activate` / `activate-import`, artifact-first/profile-last publication, shared create-only no-clobber namespace claim |
 
 NXB-154 must build on the admitted NXB-153 target identity and authorization boundary rather than bypassing it. Any later request/session execution must enforce the path rules from the target profile in addition to the compiled `TargetPolicy` host/method boundary.
