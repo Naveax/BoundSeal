@@ -6,7 +6,8 @@ use serde_json::Value;
 
 use super::{
     build_guided_setup, canonical_json, create_value_from_bytes, workspace, AuthorizationBasis,
-    AuthorizationBinding, ProgramMetadata, SetupPreview, TargetProfile, PROFILE_SCHEMA_VERSION,
+    AuthorizationBinding, ProgramMetadata, SetupAuthorization, SetupAutomation, SetupPolicyBinding,
+    SetupPreview, SetupPreviewIdentity, SetupProgram, TargetProfile, PROFILE_SCHEMA_VERSION,
 };
 
 pub(super) const ACTIVATION_ACKNOWLEDGEMENT: &str = "I_CONFIRM_THIS_EXACT_PREVIEW";
@@ -148,6 +149,8 @@ pub(super) fn activate_value(
             "guided target activation preview confirmation does not match current normalized input"
         );
     }
+
+    validate_persistence_envelope(&build.preview, &build.policy.document)?;
 
     let identity = &build.preview.identity;
     let expected_policy_sha256 = build.policy.document_sha256.clone();
@@ -361,6 +364,75 @@ fn rollback_profile(root: &Path, target_id: &str, expected_bytes: &[u8]) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn preview_with_paths(include_paths: Vec<String>, exclude_paths: Vec<String>) -> SetupPreview {
+        SetupPreview {
+            identity: SetupPreviewIdentity {
+                schema_version: 1,
+                status: "preview",
+                target_id: "example-app".to_owned(),
+                name: "Example App".to_owned(),
+                origin: "https://example.org".to_owned(),
+                include_paths,
+                exclude_paths,
+                program: SetupProgram {
+                    name: "Example Program".to_owned(),
+                    platform: "hackerone".to_owned(),
+                    reference: None,
+                },
+                authorization: SetupAuthorization {
+                    reference: "hackerone/program/example#scope-2026".to_owned(),
+                    document_sha256: "a".repeat(64),
+                    researcher: "test-researcher".to_owned(),
+                    basis: AuthorizationBasis::ProgramPolicy,
+                    expires_at: "2099-01-01T00:00:00Z".to_owned(),
+                    acknowledged: true,
+                },
+                automation: SetupAutomation {
+                    allowed_methods: vec!["GET".to_owned(), "HEAD".to_owned(), "OPTIONS".to_owned()],
+                    allow_subdomains: false,
+                    active_testing: false,
+                    oob_callbacks: false,
+                    credential_bruteforce: false,
+                    destructive_testing: false,
+                    max_requests_per_second: 1.0,
+                    max_concurrency: 1,
+                    max_total_requests: 10,
+                },
+                policy: SetupPolicyBinding {
+                    schema_version: 1,
+                    policy_snapshot_sha256: "b".repeat(64),
+                    policy_document_sha256: "c".repeat(64),
+                    compiled: true,
+                },
+                hard_denied_actions: vec![
+                    "credential_bruteforce".to_owned(),
+                    "destructive_testing".to_owned(),
+                    "state_changing_http_methods".to_owned(),
+                ],
+                network_activity: "none",
+            },
+            preview_sha256: "d".repeat(64),
+        }
+    }
+
+    #[test]
+    fn persistence_envelope_accounts_for_json_escaping_and_schema_margin() {
+        let small = preview_with_paths(vec!["/api".to_owned()], vec!["/api/logout".to_owned()]);
+        validate_persistence_envelope(&small, "schema_version = 1\n").unwrap();
+
+        let include_paths = (0..64)
+            .map(|index| format!("/p{index:02}{}", "\"".repeat(450)))
+            .collect::<Vec<_>>();
+        let exclude_paths = include_paths
+            .iter()
+            .map(|path| format!("{path}/x"))
+            .collect::<Vec<_>>();
+        let oversized = preview_with_paths(include_paths, exclude_paths);
+        let error = validate_persistence_envelope(&oversized, "schema_version = 1\n")
+            .expect_err("escaping-heavy persistence representation must be rejected");
+        assert!(error.to_string().contains("persistence envelope"));
+    }
 
     #[test]
     fn owned_document_cleanup_never_removes_foreign_same_size_bytes() {
