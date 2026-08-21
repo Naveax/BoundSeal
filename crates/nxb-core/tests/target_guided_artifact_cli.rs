@@ -101,7 +101,6 @@ fn guided_arguments(command: &str, root: &Path, authorization: &Path) -> Vec<Str
         "2099-01-01T00:00:00Z".into(),
         "--acknowledge-authorization".into(),
         "I_HAVE_EXPLICIT_AUTHORIZATION".into(),
-        "--allow-subdomains".into(),
         "--max-requests-per-second".into(),
         "1".into(),
         "--max-concurrency".into(),
@@ -210,7 +209,7 @@ fn guided_activation_persists_verified_non_secret_continuity_artifact() {
         artifact
             .pointer("/preview/automation/allow_subdomains")
             .and_then(Value::as_bool),
-        Some(true)
+        Some(false)
     );
     assert_eq!(
         artifact
@@ -246,7 +245,7 @@ fn guided_activation_persists_verified_non_secret_continuity_artifact() {
         .get("policy_document")
         .and_then(Value::as_str)
         .expect("canonical policy document missing");
-    assert!(policy_document.contains("allow_subdomains = true"));
+    assert!(policy_document.contains("allow_subdomains = false"));
     assert!(policy_document.contains("credential_bruteforce = false"));
     assert!(policy_document.contains("destructive_testing = false"));
 
