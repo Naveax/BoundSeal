@@ -82,8 +82,10 @@ deny_version="$($deny_path --version)"
 audit_sha256="$(sha256sum "$audit_path" | awk '{print $1}')"
 deny_sha256="$(sha256sum "$deny_path" | awk '{print $1}')"
 prepared_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+receipt_temp="$(mktemp "$validation_directory/.nxb-153-tooling-linux-$head_sha.XXXXXX.tmp")"
+chmod 600 "$receipt_temp"
 
-cat > "$receipt_path" <<JSON
+cat > "$receipt_temp" <<JSON
 {
   "schema_version": 1,
   "milestone": "NXB-153",
@@ -100,6 +102,16 @@ cat > "$receipt_path" <<JSON
   "prepared_at": "$prepared_at"
 }
 JSON
+
+if ln "$receipt_temp" "$receipt_path" 2>/dev/null; then
+    rm -f "$receipt_temp" || fail 'could not remove claimed tooling receipt temporary link'
+else
+    if [[ ! -e "$receipt_path" ]]; then
+        rm -f "$receipt_temp" || true
+        fail 'could not create-only claim the exact-head tooling receipt'
+    fi
+    rm -f "$receipt_temp" || fail 'could not remove unclaimed tooling receipt temporary file'
+fi
 
 printf 'NXB-153 fresh pinned Linux validation tools are ready.\n'
 printf 'HEAD: %s\n' "$head_sha"
