@@ -703,38 +703,22 @@ fn count_regular_files(path: &Path) -> Result<u64> {
 }
 
 fn cleanup_partial_workspace(workspace: &Path, root_created: bool) {
-    remove_path_without_following(&workspace.join(MANIFEST_FILE));
-    if let Ok(entries) = fs::read_dir(workspace) {
-        for entry in entries.flatten() {
-            let file_name = entry.file_name();
-            if file_name.to_string_lossy().starts_with(".workspace.json.") {
-                remove_path_without_following(&entry.path());
-            }
-        }
-    }
     for directory in CANONICAL_DIRECTORIES.iter().rev() {
-        remove_path_without_following(&workspace.join(directory));
+        remove_empty_directory_without_following(&workspace.join(directory));
     }
     if root_created {
         let _ = fs::remove_dir(workspace);
     }
 }
 
-fn remove_path_without_following(path: &Path) {
+fn remove_empty_directory_without_following(path: &Path) {
     let Ok(metadata) = fs::symlink_metadata(path) else {
         return;
     };
-    if metadata_is_indirection(&metadata) {
-        if metadata.is_dir() {
-            let _ = fs::remove_dir(path);
-        } else {
-            let _ = fs::remove_file(path);
-        }
-    } else if metadata.is_dir() {
-        let _ = fs::remove_dir_all(path);
-    } else {
-        let _ = fs::remove_file(path);
+    if metadata_is_indirection(&metadata) || !metadata.is_dir() {
+        return;
     }
+    let _ = fs::remove_dir(path);
 }
 
 fn validate_workspace_name(value: &str) -> Result<()> {
@@ -1012,6 +996,55 @@ mod tests {
 
         let ordinary = anyhow::anyhow!("ordinary initialization failure");
         assert!(should_cleanup_initialization(&ordinary));
+    }
+
+    #[test]
+    fn partial_initialization_cleanup_never_recursively_deletes_populated_directory() {
+        let root = temporary_path("init-cleanup-populated");
+        fs::create_dir(&root).unwrap();
+        set_private_directory_permissions(&root).unwrap();
+        for directory in CANONICAL_DIRECTORIES {
+            let path = root.join(directory);
+            fs::create_dir(&path).unwrap();
+            set_private_directory_permissions(&path).unwrap();
+        }
+        let foreign = root.join("targets").join("foreign.txt");
+        fs::write(&foreign, b"foreign\n").unwrap();
+        set_private_file_permissions(&foreign).unwrap();
+
+        cleanup_partial_workspace(&root, true);
+
+        assert_eq!(fs::read(&foreign).unwrap(), b"foreign\n");
+        assert!(root.is_dir());
+        assert!(root.join("targets").is_dir());
+        for directory in CANONICAL_DIRECTORIES {
+            if *directory != "targets" {
+                assert!(!root.join(directory).exists());
+            }
+        }
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn partial_initialization_cleanup_does_not_remove_manifest_or_temp_lookalikes() {
+        let root = temporary_path("init-cleanup-preserve");
+        fs::create_dir(&root).unwrap();
+        set_private_directory_permissions(&root).unwrap();
+        let manifest = root.join(MANIFEST_FILE);
+        let lookalike = root.join(".workspace.json.foreign.tmp");
+        fs::write(&manifest, b"foreign manifest\n").unwrap();
+        fs::write(&lookalike, b"foreign temp\n").unwrap();
+        set_private_file_permissions(&manifest).unwrap();
+        set_private_file_permissions(&lookalike).unwrap();
+
+        cleanup_partial_workspace(&root, true);
+
+        assert_eq!(fs::read(&manifest).unwrap(), b"foreign manifest\n");
+        assert_eq!(fs::read(&lookalike).unwrap(), b"foreign temp\n");
+        assert!(root.is_dir());
+
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
