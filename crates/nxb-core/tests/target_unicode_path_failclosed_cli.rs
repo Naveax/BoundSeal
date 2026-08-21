@@ -19,7 +19,7 @@ fn temporary_workspace(name: &str) -> PathBuf {
         .expect("system clock before Unix epoch")
         .as_nanos();
     std::env::temp_dir().join(format!(
-        "nxb153-unicode-path-failclosed-{name}-{}-{nonce}",
+        "nxb153-guided-path-byte-failclosed-{name}-{}-{nonce}",
         std::process::id()
     ))
 }
@@ -49,7 +49,7 @@ fn initialize(root: &Path) {
         "--workspace".into(),
         root.to_string_lossy().into_owned(),
         "--name".into(),
-        "NXB-153 Unicode Path Fail-Closed Test".into(),
+        "NXB-153 Guided Path Byte Fail-Closed Test".into(),
         "--json".into(),
     ]);
     assert_eq!(
@@ -144,46 +144,82 @@ fn assert_rejected_without_mutation(root: &Path, output: &Output) {
         .and_then(Value::as_str)
         .expect("diagnostic message missing");
     assert!(
-        message.contains("literal ASCII"),
-        "diagnostic did not explain guided ASCII path boundary: {message}"
+        message.contains("RFC3986-safe ASCII"),
+        "diagnostic did not explain guided path-byte boundary: {message}"
     );
     assert_eq!(fs::read_dir(root.join("targets")).unwrap().count(), 0);
     assert_eq!(fs::read_dir(root.join("state")).unwrap().count(), 0);
 }
 
 #[test]
-fn manual_guided_unicode_path_scope_is_rejected() {
+fn manual_guided_noncanonical_path_bytes_are_rejected() {
     let root = temporary_workspace("manual");
     initialize(&root);
     let authorization = authorization_document(&root);
 
-    let output = run(&manual_arguments(&root, &authorization, "/café"));
-    assert_rejected_without_mutation(&root, &output);
+    for path in [
+        "/café",
+        "/api\"quoted",
+        "/api[admin]",
+        "/api|admin",
+        "/api^admin",
+        "/api`admin",
+        "/api{admin}",
+        "/api<admin>",
+    ] {
+        let output = run(&manual_arguments(&root, &authorization, path));
+        assert_rejected_without_mutation(&root, &output);
+    }
 
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn imported_guided_unicode_path_scope_is_rejected() {
+fn imported_guided_noncanonical_path_bytes_are_rejected() {
     let root = temporary_workspace("import");
     initialize(&root);
     let authorization = authorization_document(&root);
-    let scope = root.join("tmp").join("unicode-scope.json");
-    fs::write(
-        &scope,
-        serde_json::to_vec_pretty(&serde_json::json!({
-            "schema_version": 1,
-            "origin": "https://example.org",
-            "include_paths": ["/café"],
-            "exclude_paths": [],
-            "allow_subdomains": false
-        }))
-        .unwrap(),
-    )
-    .unwrap();
 
-    let output = run(&import_arguments(&root, &authorization, &scope));
-    assert_rejected_without_mutation(&root, &output);
+    for (index, path) in ["/café", "/api[admin]"].iter().enumerate() {
+        let scope = root.join("tmp").join(format!("invalid-path-scope-{index}.json"));
+        fs::write(
+            &scope,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "schema_version": 1,
+                "origin": "https://example.org",
+                "include_paths": [path],
+                "exclude_paths": [],
+                "allow_subdomains": false
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let output = run(&import_arguments(&root, &authorization, &scope));
+        assert_rejected_without_mutation(&root, &output);
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn documented_literal_rfc3986_path_bytes_remain_admitted() {
+    let root = temporary_workspace("positive");
+    initialize(&root);
+    let authorization = authorization_document(&root);
+    let path = "/api/~user!$&'()+,;=:@-._";
+
+    let preview = run_json(&manual_arguments(&root, &authorization, path));
+    assert_eq!(
+        preview
+            .get("include_paths")
+            .and_then(Value::as_array)
+            .and_then(|paths| paths.first())
+            .and_then(Value::as_str),
+        Some(path)
+    );
+    assert_eq!(fs::read_dir(root.join("targets")).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(root.join("state")).unwrap().count(), 0);
 
     fs::remove_dir_all(root).unwrap();
 }
