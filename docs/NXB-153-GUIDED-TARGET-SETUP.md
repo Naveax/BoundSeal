@@ -163,13 +163,15 @@ The activation result returns the relative artifact path and SHA-256 so later pr
 
 ### Persistence-envelope preflight
 
-The workspace writer has a 64 KiB document limit. NXB-153 now contains a serialization-based persistence preflight helper that reconstructs the canonical target-profile representation and the complete guided continuity-artifact representation from the preview, including the exact policy document. It checks both representations against the workspace writer cap with a 4 KiB schema-evolution margin.
+The workspace writer has a 64 KiB document limit. NXB-153 performs a serialization-based persistence preflight that reconstructs the canonical target-profile representation and the complete guided continuity-artifact representation from the preview, including the exact policy document. Both representations must fit beneath the writer cap with a 4 KiB schema-evolution margin, leaving a 60 KiB guided admission envelope per persisted document.
 
-The preflight uses fixed-width placeholders for the 32-character publication nonce and canonical UTC timestamp, so those runtime fields cannot silently increase the admitted serialized size. Raw authorization evidence bytes are not part of the representation.
+The preflight uses fixed-width placeholders for the 32-character publication nonce and canonical UTC timestamp, so those runtime fields cannot silently increase the admitted serialized size. JSON escaping overhead is measured by the same canonical serializer used by persistence. Raw authorization evidence bytes and the authorization source path are not part of the representation.
 
-This helper is staged for #91 and must be invoked from the common guided build path before #91 can be considered source-fixed. Until that call is wired and acceptance tests run, the branch must not claim persistence-envelope admission is complete.
+The common guided build invokes this preflight **before a setup/setup-import preview is emitted**. Activation and activate-import rebuild the same guided input and run the preflight again before any target profile or continuity record is written. Therefore an oversized normalized scope is rejected at setup time rather than being presented as an activatable preview and failing late during persistence.
 
-### Secret boundary
+`target_persistence_envelope_cli` stages both sides of this contract: an escaping-heavy imported scope that remains below the import parser's 64 KiB source limit but exceeds the guided persistence envelope is rejected during setup, while a normal admitted preview activates and leaves both persisted records inside the explicit envelope.
+
+## Secret boundary
 
 The continuity artifact may contain non-secret scope and authorization metadata, including researcher identity and the canonical generated policy. It must not contain:
 
@@ -219,7 +221,8 @@ The JSON import parser rejects:
 - repeated interior path separators such as `/api//admin`;
 - exclusions outside every included prefix;
 - exclusions that remove an entire included prefix;
-- exclusions that shadow another explicit include prefix.
+- exclusions that shadow another explicit include prefix;
+- normalized scopes whose canonical profile or guided continuity artifact exceeds the guided persistence envelope.
 
 After parsing, import provenance disappears from the effective preview. Equivalent manual and imported input must produce the same normalized preview and preview SHA-256.
 
@@ -237,6 +240,9 @@ The NXB-153 branch contains CLI or source-level acceptance tests for:
 - exclude/include contradiction rejection and interior repeated-separator rejection;
 - manual and imported subdomain expansion rejection until a PSL-backed registrable boundary exists;
 - exact-host generated policy/continuity behavior with `allow_subdomains=false`;
+- serialization-based profile/continuity persistence-envelope admission with JSON escaping accounted for;
+- oversized persistence representations rejected before preview emission;
+- admitted normal scope activating with persisted records below the writer envelope;
 - budget limits and digest binding;
 - exact-preview activation;
 - path-only scope changes invalidating stale preview activation and appearing in target identity;
@@ -248,7 +254,7 @@ The NXB-153 branch contains CLI or source-level acceptance tests for:
 - exact-byte guarded rollback behavior plus explicit documentation of its non-atomic race limitation;
 - post-activation `target show` operation with the continuity state record present.
 
-The platform validators run `nxb-core` library tests before the focused CLI suites so rollback ownership unit tests fail early rather than being deferred until the full workspace regression. `target_scope_failclosed_cli` is included in the focused suite and contains the manual/import path-scope and raw-origin negative controls. `target_subdomain_failclosed_cli` stages manual/import exact-host-only negative controls and must be included in the final focused platform lists.
+The platform validators run `nxb-core` library tests before the focused CLI suites so rollback ownership unit tests fail early rather than being deferred until the full workspace regression. The focused Linux and Windows lists include `target_scope_failclosed_cli`, `target_subdomain_failclosed_cli`, and `target_persistence_envelope_cli` in addition to the earlier setup/activation/import/path suites.
 
 ## Validation state
 
@@ -278,7 +284,7 @@ NXB-153 roadmap acceptance is addressed as follows:
 | Explicit authorization evidence, ownership metadata and acknowledgement | evidence digest/reference + researcher + basis + expiry + two acknowledgements |
 | Compile imported scope into existing policy contracts | canonical `TargetPolicy` for exact host/scheme/method/authorization/budget plus exact-preview and target-identity binding for path prefixes; guided subdomain broadening disabled pending PSL validation |
 | Display inclusions, exclusions, rate limits and prohibited actions | deterministic setup preview |
-| Reject ambiguous wildcard/domain/port mappings fail-closed | pre-parser raw origin grammar + parsed public-DNS/HTTPS/443 validation + exact-host-only subdomain contract + path-scope contradiction checks |
+| Reject ambiguous wildcard/domain/port mappings fail-closed | pre-parser raw origin grammar + parsed public-DNS/HTTPS/443 validation + exact-host-only subdomain contract + path-scope contradiction checks + serialized persistence-envelope admission |
 | Create target without hand-editing TOML/JSON | exact-preview `activate` / `activate-import` |
 
 NXB-154 must build on the admitted NXB-153 target identity and authorization boundary rather than bypassing it. Any later request/session execution must enforce the path rules from the target profile in addition to the compiled `TargetPolicy` host/method boundary.
