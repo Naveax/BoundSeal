@@ -213,3 +213,35 @@ fn rollback_profile(root: &Path, target_id: &str) -> Result<()> {
         Err(error) => Err(error),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn owned_artifact_cleanup_never_removes_foreign_same_size_bytes() {
+        let root = std::env::temp_dir().join(format!(
+            "nxb153-artifact-ownership-{}-{}",
+            std::process::id(),
+            workspace::random_hex(8).unwrap()
+        ));
+        fs::create_dir(&root).unwrap();
+        workspace::set_private_directory_permissions(&root).unwrap();
+        let path = root.join("artifact.json");
+
+        let foreign = b"foreign\n";
+        let owned = b"owned!!\n";
+        assert_eq!(foreign.len(), owned.len());
+
+        workspace::create_document(&path, foreign).unwrap();
+        cleanup_owned_artifact(&path, owned).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), foreign);
+
+        workspace::remove_regular(&path).unwrap();
+        workspace::create_document(&path, owned).unwrap();
+        cleanup_owned_artifact(&path, owned).unwrap();
+        assert!(!workspace::safe_exists(&path).unwrap());
+
+        fs::remove_dir(root).unwrap();
+    }
+}
