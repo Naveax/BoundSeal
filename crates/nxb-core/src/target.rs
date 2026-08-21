@@ -926,12 +926,15 @@ fn build_guided_setup(
     };
 
     let preview_sha256 = workspace::sha256(&serde_json::to_vec(&identity)?);
+    let preview = SetupPreview {
+        identity,
+        preview_sha256,
+    };
+
+    activation::validate_persistence_envelope(&preview, &policy.document)?;
 
     Ok(GuidedSetupBuild {
-        preview: SetupPreview {
-            identity,
-            preview_sha256,
-        },
+        preview,
         authorization_bytes,
         policy,
     })
