@@ -208,11 +208,14 @@ Workspace unit coverage stages:
 - a pre-existing destination that remains byte-for-byte unchanged after a second create attempt;
 - eight concurrent creators with exactly one successful destination claimant;
 - a post-claim injected parent-sync failure that reports `published=true` while leaving the destination intact and readable;
-- private-permission validation for the successful concurrent destination.
+- private-permission validation for the successful concurrent destination;
+- workspace initialization preserving a claimed manifest instead of destructively cleaning the workspace after a published-state error.
+
+Migration prepare also consumes the explicit publication state: if the active migration journal became visible but publication finalization failed, the source backup is retained for recovery instead of being deleted as though the journal had never been published.
 
 These tests are part of the existing `cargo test -p nxb-core --lib` validation gate.
 
-### Guided activation commit order
+### Guided activation commit order and inert recovery
 
 Guided activation no longer publishes a target profile and then tries to delete it when continuity publication fails. It instead:
 
@@ -226,13 +229,19 @@ No activation failure path performs compare-then-delete rollback of the target p
 
 If continuity publication fails before publication, the target profile is never attempted. If continuity is published but profile publication fails before its destination claim, the continuity record remains inert and the command fails. If either create-only call reports the explicit published-but-finalization-incomplete state, activation fails loudly and does not delete the visible destination.
 
-The remaining recovery question is how an operator should reconcile an inert continuity-only record or a published-but-durability-uncertain record without hand editing. That recovery/caller-audit work remains tracked by issue #90 and is required before #90 can be admitted as complete.
+A later activation may recover an **inert continuity-only** state only when the target profile is still absent and the existing continuity artifact exactly binds the same activation contract. Recovery verifies the artifact field set, schema version, target ID, `network_activity`, complete confirmed preview, canonical policy-document value and digest, 32-character lowercase-hex publication nonce, UTC creation time, and the prospective target-profile identity reconstructed using that stored creation time. On Unix the continuity parent directory is synchronized again before the artifact is reused. A mismatch is left untouched and rejected fail-closed.
+
+The existing continuity bytes are never rewritten during this recovery. Successful prior activations remain non-idempotent: if the target profile already exists, repeating activation is still rejected as a duplicate instead of being silently treated as success.
+
+`target_activation_recovery_cli` stages both sides of the recovery contract. It removes only the profile inside an isolated test workspace to simulate continuity-only state, then verifies that exact retry recreates the same profile identity without changing the artifact bytes. A changed path-scope preview is rejected while the artifact remains unchanged and no profile is created.
+
+The remaining #90 source concern is the **published-but-finalization-incomplete** case itself, especially a temporary-link cleanup failure after the destination claim. The current error type distinguishes published from unpublished state but does not yet classify which finalization component failed, and continuity recovery currently checks semantic artifact bindings rather than proving byte-canonical serialization. Those edge semantics plus real Linux/Windows validation remain explicit blockers; no race/durability completion claim is made yet.
 
 ### Cross-cutting caller audit
 
-The shared create-only primitive is used beyond NXB-153 activation, including workspace initialization/migration, target lifecycle records and release-manifest output. Those callers must not assume that every returned error means no destination became visible. Source hardening is therefore not considered complete merely because activation consumes the explicit publication state.
+The shared create-only primitive is used beyond NXB-153 activation, including workspace initialization/migration, target lifecycle records and release-manifest output. Caller audit found the destructive error-cleanup cases in workspace initialization and migration prepare; both now consume explicit published state instead of deleting claimed records. Ordinary target/release create paths do not delete their destinations after create errors and therefore remain fail-closed.
 
-Issue #90 remains open until the shared caller audit/recovery semantics and Linux/Windows Rust validation close. The new hard-link publication path and activation ordering are source hardening, not validation evidence.
+Issue #90 remains open until the remaining published-finalization/canonical-recovery edge semantics and Linux/Windows Rust validation close. The hard-link publication path, explicit publication state, caller fixes and inert recovery are source hardening, not validation evidence.
 
 Existing migration status remains compatible because migration recovery recognizes only its dedicated `migration-active.json`, `migration-source.json`, and `migration-applied.json` files as transient migration state.
 
@@ -286,9 +295,11 @@ The NXB-153 branch contains CLI or source-level acceptance tests for:
 - hard-link create-only no-clobber behavior for pre-existing and concurrent destinations;
 - explicit published-state reporting for post-claim finalization failure;
 - artifact-first/profile-last activation with no pathname rollback deletion;
+- exact inert-continuity recovery without artifact rewrite;
+- changed-preview recovery rejection with artifact bytes preserved;
 - post-activation `target show` operation with the continuity state record present.
 
-The platform validators run `nxb-core` library tests before the focused CLI suites, so the shared workspace create-only primitive tests run before full workspace regression. The focused Linux and Windows lists include `target_scope_failclosed_cli`, `target_subdomain_failclosed_cli`, and `target_persistence_envelope_cli` in addition to the earlier setup/activation/import/path suites.
+The platform validators run `nxb-core` library tests before the focused CLI suites, so the shared workspace create-only primitive tests run before full workspace regression. The focused Linux and Windows lists include `target_activation_recovery_cli`, `target_scope_failclosed_cli`, `target_subdomain_failclosed_cli`, and `target_persistence_envelope_cli` in addition to the earlier setup/activation/import/path suites.
 
 ## Validation state
 
@@ -319,6 +330,6 @@ NXB-153 roadmap acceptance is addressed as follows:
 | Compile imported scope into existing policy contracts | canonical `TargetPolicy` for exact host/scheme/method/authorization/budget plus exact-preview and target-identity binding for path prefixes; guided subdomain broadening disabled pending PSL validation |
 | Display inclusions, exclusions, rate limits and prohibited actions | deterministic setup preview |
 | Reject ambiguous wildcard/domain/port mappings fail-closed | pre-parser raw origin grammar + parsed public-DNS/HTTPS/443 validation + exact-host-only subdomain contract + path-scope contradiction checks + serialized persistence-envelope admission |
-| Create target without hand-editing TOML/JSON | exact-preview `activate` / `activate-import`, artifact-first/profile-last publication, shared create-only no-clobber namespace claim |
+| Create target without hand-editing TOML/JSON | exact-preview `activate` / `activate-import`, artifact-first/profile-last publication, exact inert-continuity recovery, shared create-only no-clobber namespace claim |
 
 NXB-154 must build on the admitted NXB-153 target identity and authorization boundary rather than bypassing it. Any later request/session execution must enforce the path rules from the target profile in addition to the compiled `TargetPolicy` host/method boundary.
