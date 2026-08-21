@@ -171,8 +171,13 @@ pub(super) fn activate_value(
     )?;
 
     if let Err(error) = workspace::create_document(&profile_path, &profile_bytes) {
+        if workspace::create_document_error_published(&error) {
+            bail!(
+                "guided target profile became visible but create-only publication finalization failed after continuity metadata publication; no rollback deletion was attempted: {error:#}"
+            );
+        }
         bail!(
-            "guided target profile publication failed after continuity metadata publication; no rollback deletion was attempted: {error:#}"
+            "guided target profile was not published after continuity metadata publication; continuity remains inert and no rollback deletion was attempted: {error:#}"
         );
     }
     verify_published_bytes(
@@ -247,16 +252,10 @@ fn publish_guided_artifact(
     let artifact_bytes = canonical_json(&artifact)?;
 
     if let Err(publication_error) = workspace::create_document(artifact_path, &artifact_bytes) {
-        if workspace::safe_exists(artifact_path)? {
-            let current = workspace::read_document(
-                artifact_path,
-                "guided activation artifact after publication error",
-            )?;
-            if current == artifact_bytes {
-                bail!(
-                    "guided activation artifact became visible even though publication returned an error; target profile publication was not attempted and no rollback deletion was attempted: {publication_error:#}"
-                );
-            }
+        if workspace::create_document_error_published(&publication_error) {
+            bail!(
+                "guided activation artifact became visible but create-only publication finalization failed; target profile publication was not attempted and no rollback deletion was attempted: {publication_error:#}"
+            );
         }
         return Err(publication_error);
     }
