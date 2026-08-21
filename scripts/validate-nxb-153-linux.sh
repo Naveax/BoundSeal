@@ -39,6 +39,34 @@ json_escape() {
     printf '%s' "$value"
 }
 
+fsync_file() {
+    python3 - "$1" <<'PY'
+import os
+import sys
+
+path = sys.argv[1]
+fd = os.open(path, os.O_RDONLY)
+try:
+    os.fsync(fd)
+finally:
+    os.close(fd)
+PY
+}
+
+fsync_directory() {
+    python3 - "$1" <<'PY'
+import os
+import sys
+
+path = sys.argv[1]
+fd = os.open(path, os.O_RDONLY)
+try:
+    os.fsync(fd)
+finally:
+    os.close(fd)
+PY
+}
+
 cargo_run() {
     rustup run "$rust_toolchain" cargo "$@"
 }
@@ -59,7 +87,7 @@ tool_version() {
 command -v git >/dev/null 2>&1 || fail 'git is unavailable'
 command -v rustup >/dev/null 2>&1 || fail 'rustup is unavailable'
 command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is unavailable'
-command -v python3 >/dev/null 2>&1 || fail 'python3 is unavailable for tooling-receipt verification'
+command -v python3 >/dev/null 2>&1 || fail 'python3 is unavailable for tooling-receipt verification and durable evidence publication'
 
 head_sha="$(git rev-parse HEAD)"
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'exact Git HEAD could not be resolved'
@@ -256,10 +284,13 @@ cat > "$evidence_temp" <<JSON
 }
 JSON
 
+fsync_file "$evidence_temp" || fail 'could not sync validation evidence temporary file before namespace claim'
 if ln "$evidence_temp" "$evidence_path" 2>/dev/null; then
     rm -f "$evidence_temp" || fail 'could not remove claimed validation evidence temporary link'
+    fsync_directory "$validation_directory" || fail 'could not sync validation directory after evidence publication'
 else
     rm -f "$evidence_temp" || fail 'could not remove unclaimed validation evidence temporary file'
+    fsync_directory "$validation_directory" || fail 'could not sync validation directory after evidence cleanup'
     if [[ -e "$evidence_path" ]]; then
         fail "exact-head Linux validation evidence already exists and will not be overwritten: $evidence_path; review/remove it explicitly before validating again"
     fi
