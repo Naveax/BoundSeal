@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{fs, path::Path};
 
 use anyhow::{bail, Result};
 use serde::Serialize;
@@ -19,6 +19,7 @@ struct GuidedActivationArtifact<'a> {
     profile_identity_sha256: &'a str,
     preview: &'a SetupPreview,
     policy_document: &'a str,
+    publication_nonce: String,
     created_at: String,
     network_activity: &'static str,
 }
@@ -113,7 +114,7 @@ pub(super) fn activate_value(
     if value.get("policy_sha256").and_then(Value::as_str)
         != Some(expected_policy_sha256.as_str())
     {
-        rollback_profile(&root, &identity.target_id, None)?;
+        rollback_profile(&root, &identity.target_id)?;
         bail!("activated target policy digest does not match the confirmed preview policy");
     }
 
@@ -126,7 +127,7 @@ pub(super) fn activate_value(
     ) {
         Ok(sha256) => sha256,
         Err(error) => {
-            rollback_profile(&root, &identity.target_id, Some(&artifact_path))?;
+            rollback_profile(&root, &identity.target_id)?;
             bail!("guided target activation continuity publication failed: {error:#}");
         }
     };
@@ -163,52 +164,49 @@ fn publish_guided_artifact(
         profile_identity_sha256,
         preview,
         policy_document,
+        publication_nonce: workspace::random_hex(16)?,
         created_at: workspace::now(),
         network_activity: "none",
     };
     let artifact_bytes = canonical_json(&artifact)?;
-    workspace::create_document(artifact_path, &artifact_bytes)?;
+
+    if let Err(publication_error) = workspace::create_document(artifact_path, &artifact_bytes) {
+        if let Err(cleanup_error) = cleanup_owned_artifact(artifact_path, &artifact_bytes) {
+            bail!(
+                "artifact publication failed ({publication_error:#}); owned-artifact cleanup also failed ({cleanup_error:#})"
+            );
+        }
+        return Err(publication_error);
+    }
+
     Ok(workspace::sha256(&artifact_bytes))
 }
 
-fn rollback_profile(root: &Path, target_id: &str, artifact_path: Option<&Path>) -> Result<()> {
-    let profile_path = root.join("targets").join(format!("{target_id}.json"));
-    let mut cleanup_errors = Vec::new();
-
-    if let Some(path) = artifact_path {
-        match workspace::safe_exists(path) {
-            Ok(true) => {
-                if let Err(error) = workspace::remove_regular(path) {
-                    cleanup_errors.push(format!(
-                        "guided activation artifact cleanup failed: {error:#}"
-                    ));
-                }
-            }
-            Ok(false) => {}
-            Err(error) => cleanup_errors.push(format!(
-                "guided activation artifact cleanup inspection failed: {error:#}"
-            )),
-        }
+fn cleanup_owned_artifact(path: &Path, expected_bytes: &[u8]) -> Result<()> {
+    if !workspace::safe_exists(path)? {
+        return Ok(());
     }
 
-    match workspace::safe_exists(&profile_path) {
-        Ok(true) => {
-            if let Err(error) = workspace::remove_regular(&profile_path) {
-                cleanup_errors.push(format!("target profile rollback failed: {error:#}"));
-            }
-        }
-        Ok(false) => {}
-        Err(error) => cleanup_errors.push(format!(
-            "target profile rollback inspection failed: {error:#}"
-        )),
+    workspace::reject_path_indirections(path, "guided activation artifact rollback")?;
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_file() {
+        bail!("guided activation artifact rollback path is not a regular file");
     }
 
-    if !cleanup_errors.is_empty() {
-        bail!(
-            "guided activation rollback was incomplete: {}",
-            cleanup_errors.join("; ")
-        );
+    let existing = fs::read(path)?;
+    if existing == expected_bytes {
+        workspace::remove_regular(path)?;
     }
 
     Ok(())
+}
+
+fn rollback_profile(root: &Path, target_id: &str) -> Result<()> {
+    let profile_path = root.join("targets").join(format!("{target_id}.json"));
+
+    match workspace::safe_exists(&profile_path) {
+        Ok(true) => workspace::remove_regular(&profile_path),
+        Ok(false) => Ok(()),
+        Err(error) => Err(error),
+    }
 }
