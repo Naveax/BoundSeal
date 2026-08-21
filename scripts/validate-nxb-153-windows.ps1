@@ -55,13 +55,109 @@ function Get-NxbToolVersion {
     )
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        throw "$Label is unavailable at $Path. Prepare the pinned NXB validation tools first."
+        throw "$Label is unavailable at $Path. Run scripts/prepare-and-validate-nxb-153-windows.ps1 first."
     }
     $value = (& $Path --version | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $value -notmatch ('(^|\s)' + [regex]::Escape($ExpectedVersion) + '($|\s)')) {
         throw "$Label version mismatch: expected $ExpectedVersion, found '$value'."
     }
     return $value
+}
+
+function Assert-LowerSha256 {
+    param(
+        [Parameter(Mandatory = $true)][string]$Value,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if ($Value -notmatch '^[0-9a-f]{64}$') {
+        throw "$Label is not a lowercase SHA-256."
+    }
+}
+
+function Assert-ToolingReceipt {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$HeadSha,
+        [Parameter(Mandatory = $true)][string]$RustcVersion,
+        [Parameter(Mandatory = $true)][string]$AuditVersion,
+        [Parameter(Mandatory = $true)][string]$AuditSha256,
+        [Parameter(Mandatory = $true)][string]$DenyVersion,
+        [Parameter(Mandatory = $true)][string]$DenySha256
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw 'Exact-head tooling receipt is missing. Run scripts/prepare-and-validate-nxb-153-windows.ps1 first.'
+    }
+    $item = Get-Item -LiteralPath $Path -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'Tooling receipt must not be a reparse point.'
+    }
+    if ($item.Length -le 0 -or $item.Length -gt 65536) {
+        throw 'Tooling receipt size is invalid.'
+    }
+
+    try {
+        $receipt = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+    }
+    catch {
+        throw "Tooling receipt is invalid JSON: $($_.Exception.Message)"
+    }
+
+    $expectedFields = @(
+        'schema_version',
+        'milestone',
+        'gate',
+        'platform',
+        'head_sha',
+        'rust_toolchain',
+        'cargo_audit',
+        'cargo_audit_sha256',
+        'cargo_deny',
+        'cargo_deny_sha256',
+        'tools_root',
+        'network_activity',
+        'prepared_at'
+    )
+    $actualFields = @($receipt.PSObject.Properties.Name | Sort-Object)
+    $sortedExpected = @($expectedFields | Sort-Object)
+    if (($actualFields -join "`n") -cne ($sortedExpected -join "`n")) {
+        throw 'Tooling receipt fields do not match the NXB-153 bootstrap contract.'
+    }
+
+    if (
+        $receipt.schema_version -ne 1 -or
+        $receipt.milestone -cne 'NXB-153' -or
+        $receipt.gate -cne 'validation_tool_bootstrap' -or
+        $receipt.platform -cne 'windows' -or
+        $receipt.head_sha -cne $HeadSha -or
+        $receipt.rust_toolchain -cne $RustcVersion -or
+        $receipt.cargo_audit -cne $AuditVersion -or
+        $receipt.cargo_audit_sha256 -cne $AuditSha256 -or
+        $receipt.cargo_deny -cne $DenyVersion -or
+        $receipt.cargo_deny_sha256 -cne $DenySha256 -or
+        $receipt.tools_root -cne 'target/nxb-tools' -or
+        $receipt.network_activity -cne 'rustup_and_crates_io_tool_installation_only'
+    ) {
+        throw 'Tooling receipt does not match the current exact-head validation tools.'
+    }
+
+    Assert-LowerSha256 -Value $receipt.cargo_audit_sha256 -Label 'Receipt cargo-audit SHA-256'
+    Assert-LowerSha256 -Value $receipt.cargo_deny_sha256 -Label 'Receipt cargo-deny SHA-256'
+
+    $parsedPreparedAt = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParseExact(
+        [string]$receipt.prepared_at,
+        'yyyy-MM-ddTHH:mm:ssZ',
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::AssumeUniversal,
+        [ref]$parsedPreparedAt
+    )) {
+        throw 'Tooling receipt prepared_at is not canonical UTC.'
+    }
+    if ($parsedPreparedAt -gt [DateTimeOffset]::UtcNow.AddMinutes(5)) {
+        throw 'Tooling receipt prepared_at is unreasonably in the future.'
+    }
 }
 
 Push-Location $RepoRoot
@@ -99,6 +195,21 @@ try {
         -Label 'cargo-deny'
     $auditSha256 = (Get-FileHash -LiteralPath $auditPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $denySha256 = (Get-FileHash -LiteralPath $denyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Assert-LowerSha256 -Value $auditSha256 -Label 'cargo-audit SHA-256'
+    Assert-LowerSha256 -Value $denySha256 -Label 'cargo-deny SHA-256'
+
+    $validationDirectory = Join-Path $RepoRoot 'target\nxb-validation'
+    $receiptPath = Join-Path $validationDirectory "nxb-153-tooling-windows-$headSha.json"
+    Assert-ToolingReceipt `
+        -Path $receiptPath `
+        -HeadSha $headSha `
+        -RustcVersion $rustcVersion `
+        -AuditVersion $auditVersion `
+        -AuditSha256 $auditSha256 `
+        -DenyVersion $denyVersion `
+        -DenySha256 $denySha256
+    $receiptSha256 = (Get-FileHash -LiteralPath $receiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Assert-LowerSha256 -Value $receiptSha256 -Label 'Tooling receipt SHA-256'
 
     $lockPath = Join-Path $RepoRoot 'Cargo.lock'
     if (-not (Test-Path -LiteralPath $lockPath -PathType Leaf)) {
@@ -196,7 +307,19 @@ try {
         throw 'Working tree changed during validation.'
     }
 
-    $validationDirectory = Join-Path $RepoRoot 'target\nxb-validation'
+    $finalAuditSha256 = (Get-FileHash -LiteralPath $auditPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $finalDenySha256 = (Get-FileHash -LiteralPath $denyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $finalReceiptSha256 = (Get-FileHash -LiteralPath $receiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($finalAuditSha256 -cne $auditSha256) {
+        throw 'cargo-audit bytes changed during validation.'
+    }
+    if ($finalDenySha256 -cne $denySha256) {
+        throw 'cargo-deny bytes changed during validation.'
+    }
+    if ($finalReceiptSha256 -cne $receiptSha256) {
+        throw 'Tooling receipt changed during validation.'
+    }
+
     New-Item -ItemType Directory -Path $validationDirectory -Force | Out-Null
     $evidencePath = Join-Path $validationDirectory "nxb-153-windows-$headSha.json"
     $evidence = [ordered]@{
@@ -211,6 +334,9 @@ try {
         cargo_audit_sha256 = $auditSha256
         cargo_deny = $denyVersion
         cargo_deny_sha256 = $denySha256
+        tooling_receipt = "target/nxb-validation/nxb-153-tooling-windows-$headSha.json"
+        tooling_receipt_sha256 = $receiptSha256
+        tooling_receipt_verified = $true
         cargo_lock_sha256 = $lockSha256
         cargo_lock_expected_sha256 = $expectedCargoLockSha256
         lockfile_pinned_and_unchanged = $true
@@ -234,6 +360,7 @@ try {
     Write-Host 'NXB-153 Windows validation passed.'
     Write-Host "HEAD: $headSha"
     Write-Host "Cargo.lock SHA-256: $lockSha256"
+    Write-Host "Tooling receipt SHA-256: $receiptSha256"
     Write-Host "Evidence: $evidencePath"
 }
 finally {
