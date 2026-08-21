@@ -64,6 +64,7 @@ cargo_run test -p nxb-policy --locked -- --test-threads=1
 
 cargo_run check -p nxb-core --all-targets --locked
 cargo_run clippy -p nxb-core --all-targets --locked -- -D warnings
+cargo_run test -p nxb-core --lib --locked -- --test-threads=1
 for test_name in "${focused_tests[@]}"; do
     cargo_run test -p nxb-core --test "$test_name" --locked -- --test-threads=1
 done
@@ -103,7 +104,7 @@ cat > "$evidence_path" <<JSON
   "lockfile_unchanged": true,
   "fmt": "passed",
   "nxb_policy_check_clippy_tests": "passed",
-  "nxb_core_check_clippy": "passed",
+  "nxb_core_check_clippy_unit_tests": "passed",
   "focused_target_tests": "passed",
   "workspace_check_clippy_tests_all_features": "passed",
   "test_threads": 1,
