@@ -425,8 +425,15 @@ fn create_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     create_document(path, &bytes)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PublishedDocumentFinalization {
+    temporary_link_cleanup_failed: bool,
+    parent_directory_sync_failed: bool,
+}
+
 #[derive(Debug)]
 struct PublishedDocumentError {
+    finalization: PublishedDocumentFinalization,
     detail: String,
 }
 
@@ -434,7 +441,9 @@ impl std::fmt::Display for PublishedDocumentError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "create-only destination is visible but publication finalization is incomplete: {}",
+            "create-only destination is visible but publication finalization is incomplete (temporary_link_cleanup_failed={}, parent_directory_sync_failed={}): {}",
+            self.finalization.temporary_link_cleanup_failed,
+            self.finalization.parent_directory_sync_failed,
             self.detail
         )
     }
@@ -442,8 +451,16 @@ impl std::fmt::Display for PublishedDocumentError {
 
 impl std::error::Error for PublishedDocumentError {}
 
+fn create_document_error_finalization(
+    error: &anyhow::Error,
+) -> Option<PublishedDocumentFinalization> {
+    error
+        .downcast_ref::<PublishedDocumentError>()
+        .map(|error| error.finalization)
+}
+
 pub(crate) fn create_document_error_published(error: &anyhow::Error) -> bool {
-    error.downcast_ref::<PublishedDocumentError>().is_some()
+    create_document_error_finalization(error).is_some()
 }
 
 fn should_cleanup_initialization(error: &anyhow::Error) -> bool {
@@ -451,12 +468,27 @@ fn should_cleanup_initialization(error: &anyhow::Error) -> bool {
 }
 
 pub(crate) fn create_document(path: &Path, bytes: &[u8]) -> Result<()> {
-    create_document_with_sync(path, bytes, sync_parent)
+    create_document_with_finalizers(
+        path,
+        bytes,
+        |temporary| {
+            fs::remove_file(temporary).with_context(|| {
+                format!("could not remove temporary link {}", temporary.display())
+            })
+        },
+        sync_parent,
+    )
 }
 
-fn create_document_with_sync<F>(path: &Path, bytes: &[u8], sync_directory: F) -> Result<()>
+fn create_document_with_finalizers<R, S>(
+    path: &Path,
+    bytes: &[u8],
+    remove_temporary: R,
+    sync_directory: S,
+) -> Result<()>
 where
-    F: FnOnce(&Path) -> Result<()>,
+    R: FnOnce(&Path) -> Result<()>,
+    S: FnOnce(&Path) -> Result<()>,
 {
     if bytes.is_empty() || bytes.len() as u64 > MAX_DOCUMENT_BYTES {
         bail!("output document size is invalid");
@@ -503,17 +535,22 @@ where
         });
     }
 
-    let cleanup_error = fs::remove_file(&temporary).err();
+    let cleanup_error = remove_temporary(&temporary).err();
     let sync_error = sync_directory(parent).err();
     if cleanup_error.is_some() || sync_error.is_some() {
+        let finalization = PublishedDocumentFinalization {
+            temporary_link_cleanup_failed: cleanup_error.is_some(),
+            parent_directory_sync_failed: sync_error.is_some(),
+        };
         let mut details = Vec::new();
         if let Some(error) = cleanup_error {
-            details.push(format!("temporary-link cleanup failed: {error}"));
+            details.push(format!("temporary-link cleanup failed: {error:#}"));
         }
         if let Some(error) = sync_error {
             details.push(format!("parent-directory sync failed: {error:#}"));
         }
         return Err(PublishedDocumentError {
+            finalization,
             detail: details.join("; "),
         }
         .into());
@@ -915,6 +952,10 @@ mod tests {
     #[test]
     fn initialization_cleanup_skips_published_document_errors() {
         let published: anyhow::Error = PublishedDocumentError {
+            finalization: PublishedDocumentFinalization {
+                temporary_link_cleanup_failed: false,
+                parent_directory_sync_failed: true,
+            },
             detail: "injected parent sync failure".to_owned(),
         }
         .into();
@@ -973,16 +1014,74 @@ mod tests {
     }
 
     #[test]
-    fn post_claim_failure_reports_destination_as_published_without_deleting_it() {
-        let root = temporary_path("create-post-claim");
+    fn post_claim_parent_sync_failure_is_classified_without_deleting_destination() {
+        let root = temporary_path("create-post-claim-sync");
         fs::create_dir(&root).unwrap();
         set_private_directory_permissions(&root).unwrap();
         let path = root.join("record.json");
 
-        let error = create_document_with_sync(&path, b"owned\n", |_| {
-            bail!("injected parent sync failure")
-        })
+        let error = create_document_with_finalizers(
+            &path,
+            b"owned\n",
+            |temporary| {
+                fs::remove_file(temporary)?;
+                Ok(())
+            },
+            |_| bail!("injected parent sync failure"),
+        )
         .unwrap_err();
+        let finalization = create_document_error_finalization(&error).unwrap();
+        assert!(!finalization.temporary_link_cleanup_failed);
+        assert!(finalization.parent_directory_sync_failed);
+        assert_eq!(read_document(&path, "published test record").unwrap(), b"owned\n");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn post_claim_temporary_cleanup_failure_is_classified_without_deleting_destination() {
+        let root = temporary_path("create-post-claim-cleanup");
+        fs::create_dir(&root).unwrap();
+        set_private_directory_permissions(&root).unwrap();
+        let path = root.join("record.json");
+
+        let error = create_document_with_finalizers(
+            &path,
+            b"owned\n",
+            |_| bail!("injected temporary-link cleanup failure"),
+            |_| Ok(()),
+        )
+        .unwrap_err();
+        let finalization = create_document_error_finalization(&error).unwrap();
+        assert!(finalization.temporary_link_cleanup_failed);
+        assert!(!finalization.parent_directory_sync_failed);
+        assert_eq!(read_document(&path, "published test record").unwrap(), b"owned\n");
+        assert_eq!(
+            fs::read_dir(&root).unwrap().count(),
+            2,
+            "failed temp-link cleanup must leave only destination plus its private temporary hard link"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn combined_post_claim_failures_report_both_finalization_components() {
+        let root = temporary_path("create-post-claim-combined");
+        fs::create_dir(&root).unwrap();
+        set_private_directory_permissions(&root).unwrap();
+        let path = root.join("record.json");
+
+        let error = create_document_with_finalizers(
+            &path,
+            b"owned\n",
+            |_| bail!("injected temporary-link cleanup failure"),
+            |_| bail!("injected parent sync failure"),
+        )
+        .unwrap_err();
+        let finalization = create_document_error_finalization(&error).unwrap();
+        assert!(finalization.temporary_link_cleanup_failed);
+        assert!(finalization.parent_directory_sync_failed);
         assert!(create_document_error_published(&error));
         assert_eq!(read_document(&path, "published test record").unwrap(), b"owned\n");
 
