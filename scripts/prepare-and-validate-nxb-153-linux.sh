@@ -135,11 +135,19 @@ JSON
 
 fsync_file "$receipt_temp" || fail 'could not sync tooling receipt temporary file before namespace claim'
 if ln "$receipt_temp" "$receipt_path" 2>/dev/null; then
-    rm -f "$receipt_temp" || fail 'could not remove claimed tooling receipt temporary link'
-    fsync_directory "$validation_directory" || fail 'could not sync validation directory after tooling receipt publication'
+    cleanup_error=''
+    if ! rm -f "$receipt_temp"; then
+        cleanup_error='could not remove claimed tooling receipt temporary link'
+    fi
+    fsync_directory "$validation_directory" || fail 'could not sync validation directory after tooling receipt finalization'
+    [[ -z "$cleanup_error" ]] || fail "$cleanup_error"
 else
-    rm -f "$receipt_temp" || fail 'could not remove unclaimed tooling receipt temporary file'
-    fsync_directory "$validation_directory" || fail 'could not sync validation directory after tooling receipt cleanup'
+    cleanup_error=''
+    if ! rm -f "$receipt_temp"; then
+        cleanup_error='could not remove unclaimed tooling receipt temporary file'
+    fi
+    fsync_directory "$validation_directory" || fail 'could not sync validation directory after tooling receipt cleanup attempt'
+    [[ -z "$cleanup_error" ]] || fail "$cleanup_error"
     if [[ -e "$receipt_path" ]]; then
         fail "exact-head tooling receipt already exists and will not be overwritten: $receipt_path; run the validator directly with the existing receipt, or review/remove it explicitly before preparing again"
     fi
