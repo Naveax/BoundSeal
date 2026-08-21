@@ -25,7 +25,7 @@ initial_lock_sha256="$(sha256sum Cargo.lock | awk '{print $1}')"
     fail "Cargo.lock SHA-256 mismatch before evidence review: expected $expected_lock_sha256, found $initial_lock_sha256"
 
 review_output="$(python3 \
-    "$repo_root/scripts/review-nxb-153-evidence-linux.py" \
+    "$repo_root/scripts/review-nxb-153-evidence-linux-secure.py" \
     "$repo_root" \
     "$evidence_directory")"
 
