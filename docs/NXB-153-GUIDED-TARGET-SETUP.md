@@ -197,17 +197,22 @@ The create-only namespace claim now uses a same-directory hard link rather than 
 
 The destination and temporary path refer to the same prepared file object after the hard-link claim, so no post-claim permission mutation is required. Concurrent creators cannot both claim the same destination name. There is intentionally **no fallback to overwrite-capable rename** when hard-link creation is unsupported; unsupported filesystems fail closed.
 
-### Explicit published-error state
+### Explicit publication and cleanup error states
 
-A failure before the hard-link claim means the destination was not published by that call. A failure after the namespace claim, such as temporary-link cleanup or parent-directory synchronization failure, is represented by a dedicated publication error type. `create_document_error_published()` lets callers distinguish this state from ordinary unpublished failure.
+A failed namespace claim means the destination was not published by that call. If cleanup of the already-prepared private temporary file also fails, the writer now returns a dedicated `UnpublishedDocumentCleanupError` that retains both the claim failure and cleanup failure. `create_document_error_published()` remains false for that state, so callers do not mistake a private temp leak for a published destination. A pre-existing winner remains untouched.
+
+A failure after the namespace claim, such as temporary-link cleanup or parent-directory synchronization failure, is represented by `PublishedDocumentError`. Its typed `PublishedDocumentFinalization` flags distinguish `temporary_link_cleanup_failed` from `parent_directory_sync_failed`, including the case where both fail. `create_document_error_published()` remains the caller-facing discriminator between definitely-unpublished failure and a visible destination whose finalization is incomplete.
 
 The primitive never deletes the destination after a successful namespace claim merely because finalization later fails. This prevents error cleanup from turning an uncertain durability condition into destructive pathname rollback.
 
 Workspace unit coverage stages:
 
 - a pre-existing destination that remains byte-for-byte unchanged after a second create attempt;
+- a failed namespace claim plus injected temp-cleanup failure that remains explicitly unpublished, preserves the winner and exposes the private temp residue;
 - eight concurrent creators with exactly one successful destination claimant;
-- a post-claim injected parent-sync failure that reports `published=true` while leaving the destination intact and readable;
+- a post-claim parent-sync-only failure with the destination intact;
+- a post-claim temporary-link-cleanup-only failure with the destination intact and the extra private hard link visible to recovery/diagnostics;
+- a combined post-claim temp-cleanup + parent-sync failure with both typed flags set;
 - private-permission validation for the successful concurrent destination;
 - workspace initialization preserving a claimed manifest instead of destructively cleaning the workspace after a published-state error.
 
@@ -235,13 +240,13 @@ The existing continuity bytes are never rewritten during this recovery. Successf
 
 `target_activation_recovery_cli` stages both sides of the recovery contract. It removes only the profile inside an isolated test workspace to simulate continuity-only state, then verifies that exact retry recreates the same profile identity without changing the artifact bytes. A changed path-scope preview is rejected while the artifact remains unchanged and no profile is created. Source-level recovery coverage additionally rejects semantically valid but noncanonical artifact bytes.
 
-The remaining #90 source concern is the **published-but-finalization-incomplete** case itself, especially a temporary-link cleanup failure after the destination claim. The current error type deterministically distinguishes published from unpublished state but does not yet classify which finalization component failed. That postcondition detail plus real Linux/Windows validation remain explicit blockers; no durability-completion claim is made yet.
+The remaining #90 source concern is narrower: a failure during **temporary-file preparation itself** still performs best-effort direct cleanup, and a secondary cleanup failure on that preparation-error path is not yet typed. Namespace-claim cleanup and all post-claim finalization outcomes are now explicit. That preparation-cleanup edge plus real Linux/Windows validation remain blockers; no durability-completion claim is made yet.
 
 ### Cross-cutting caller audit
 
 The shared create-only primitive is used beyond NXB-153 activation, including workspace initialization/migration, target lifecycle records and release-manifest output. Caller audit found the destructive error-cleanup cases in workspace initialization and migration prepare; both now consume explicit published state instead of deleting claimed records. Ordinary target/release create paths do not delete their destinations after create errors and therefore remain fail-closed.
 
-Issue #90 remains open until the remaining published-finalization semantics and Linux/Windows Rust validation close. The hard-link publication path, explicit publication state, caller fixes, canonical inert recovery and its tests are source hardening, not validation evidence.
+Issue #90 remains open until the preparation-cleanup edge and Linux/Windows Rust validation close. The hard-link publication path, explicit publication/finalization state, caller fixes, canonical inert recovery and their source tests are source hardening, not validation evidence.
 
 Existing migration status remains compatible because migration recovery recognizes only its dedicated `migration-active.json`, `migration-source.json`, and `migration-applied.json` files as transient migration state.
 
@@ -293,7 +298,8 @@ The NXB-153 branch contains CLI or source-level acceptance tests for:
 - guided continuity artifact content, digest binding and secret boundary;
 - prospective profile identity reconstruction before publication;
 - hard-link create-only no-clobber behavior for pre-existing and concurrent destinations;
-- explicit published-state reporting for post-claim finalization failure;
+- explicit unpublished-state reporting when a losing claim also cannot clean its private temp file;
+- per-component published-state reporting for post-claim temp cleanup and parent-directory sync failures;
 - artifact-first/profile-last activation with no pathname rollback deletion;
 - exact inert-continuity recovery without artifact rewrite;
 - changed-preview recovery rejection with artifact bytes preserved;
