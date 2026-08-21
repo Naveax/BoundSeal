@@ -8,6 +8,9 @@ cargo_audit_version="0.22.2"
 cargo_deny_version="0.20.2"
 tools_root="$repo_root/target/nxb-tools"
 tools_bin="$tools_root/bin"
+install_root=''
+prep_lock=''
+validation_directory=''
 
 fail() {
     printf 'NXB-153 Linux tool preparation failed: %s\n' "$1" >&2
@@ -42,6 +45,19 @@ finally:
 PY
 }
 
+cleanup() {
+    if [[ -n "$install_root" && -d "$install_root" ]]; then
+        rm -rf "$install_root" || true
+    fi
+    if [[ -n "$prep_lock" && -d "$prep_lock" ]]; then
+        rmdir "$prep_lock" || true
+        if [[ -n "$validation_directory" && -d "$validation_directory" ]]; then
+            fsync_directory "$validation_directory" >/dev/null 2>&1 || true
+        fi
+    fi
+}
+trap cleanup EXIT
+
 command -v git >/dev/null 2>&1 || fail 'git is unavailable'
 command -v rustup >/dev/null 2>&1 ||
     fail 'rustup is unavailable; install rustup from the official Rust distribution first'
@@ -53,6 +69,23 @@ head_sha="$(git rev-parse HEAD)"
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'exact Git HEAD could not be resolved'
 [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]] ||
     fail 'working tree must be clean before tool preparation'
+
+validation_directory="$repo_root/target/nxb-validation"
+mkdir -p "$validation_directory"
+fsync_directory "$repo_root/target" || fail 'could not sync target directory after validation-directory preparation'
+receipt_path="$validation_directory/nxb-153-tooling-linux-$head_sha.json"
+if [[ -e "$receipt_path" ]]; then
+    fail "exact-head tooling receipt already exists; tool bytes were not mutated: $receipt_path; run the validator directly with the existing receipt, or review/remove it explicitly before preparing again"
+fi
+
+prep_lock="$validation_directory/.nxb-153-tool-prep-$head_sha.lock"
+if ! mkdir "$prep_lock" 2>/dev/null; then
+    fail "exact-head tool preparation is already in progress or requires explicit stale-lock recovery: $prep_lock"
+fi
+fsync_directory "$validation_directory" || fail 'could not sync validation directory after preparation-lock claim'
+if [[ -e "$receipt_path" ]]; then
+    fail "exact-head tooling receipt appeared while claiming the preparation lock; tool bytes were not mutated: $receipt_path"
+fi
 
 rustup toolchain install "$rust_toolchain" \
     --profile minimal \
@@ -71,10 +104,6 @@ tool_has_version() {
 }
 
 install_root="$(mktemp -d)"
-cleanup() {
-    rm -rf "$install_root"
-}
-trap cleanup EXIT
 cd "$install_root"
 
 rustup run "$rust_toolchain" cargo install \
@@ -102,10 +131,6 @@ final_head="$(git rev-parse HEAD)"
 [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]] ||
     fail 'working tree changed during tool preparation'
 
-validation_directory="$repo_root/target/nxb-validation"
-mkdir -p "$validation_directory"
-fsync_directory "$repo_root/target" || fail 'could not sync target directory after validation-directory preparation'
-receipt_path="$validation_directory/nxb-153-tooling-linux-$head_sha.json"
 rustc_version="$(rustup run "$rust_toolchain" rustc --version)"
 audit_version="$($audit_path --version)"
 deny_version="$($deny_path --version)"
@@ -149,10 +174,16 @@ else
     fsync_directory "$validation_directory" || fail 'could not sync validation directory after tooling receipt cleanup attempt'
     [[ -z "$cleanup_error" ]] || fail "$cleanup_error"
     if [[ -e "$receipt_path" ]]; then
-        fail "exact-head tooling receipt already exists and will not be overwritten: $receipt_path; run the validator directly with the existing receipt, or review/remove it explicitly before preparing again"
+        fail "exact-head tooling receipt was claimed by another process and will not be overwritten: $receipt_path"
     fi
     fail 'could not create-only claim the exact-head tooling receipt'
 fi
+
+rm -rf "$install_root" || fail 'could not remove tool-installation temporary directory'
+install_root=''
+rmdir "$prep_lock" || fail 'could not release exact-head tool-preparation lock'
+prep_lock=''
+fsync_directory "$validation_directory" || fail 'could not sync validation directory after preparation-lock release'
 
 printf 'NXB-153 fresh pinned Linux validation tools are ready.\n'
 printf 'HEAD: %s\n' "$head_sha"
