@@ -361,6 +361,9 @@ pub(crate) fn reject_path_indirections(path: &Path, label: &str) -> Result<()> {
         match component {
             Component::Prefix(prefix) => {
                 current.push(prefix.as_os_str());
+                // A Windows drive/UNC prefix is not itself a filesystem
+                // entry. Inspect only after RootDir or a normal component
+                // has completed an inspectable path.
                 continue;
             }
             Component::RootDir => current.push(Path::new(std::path::MAIN_SEPARATOR_STR)),
