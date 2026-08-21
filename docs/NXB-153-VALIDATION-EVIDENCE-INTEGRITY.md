@@ -4,125 +4,160 @@
 
 This document records the source-staged integrity contract for NXB-153 exact-head validation evidence. It does **not** claim that the current feature head has passed Rust, Linux or Windows validation.
 
-The purpose is to prevent a rerun, concurrent reviewer or stale preparation step from silently rewriting evidence that was already associated with an exact Git head, while also making the evidence publication boundary explicit about mutation ordering, repository-authority drift and durability.
+The evidence chain must remain attributable to one exact Git head without silent overwrite, duplicate expensive validation, repository-authority drift, pathname substitution or misleading premature success output.
 
 ## Exact-head artifact classes
 
-NXB-153 validation uses three persistent evidence classes under `target/nxb-validation`:
+NXB-153 uses three persistent artifact classes under `target/nxb-validation`:
 
-1. **Tooling receipt** — records the exact head, Rust toolchain, cargo-audit/cargo-deny versions and binary SHA-256 values produced by fresh tool preparation.
-2. **Platform validation evidence** — records a successful Linux or Windows validation result for one exact head and links it to the immutable tooling receipt.
-3. **Dual-platform closure** — accepts Linux and Windows evidence only for the same exact head and canonical Cargo.lock, and emits `admission=blocker_review_required` rather than automatically admitting NXB-153.
+1. **Tooling receipt** — exact head, pinned Rust toolchain, cargo-audit/cargo-deny versions and tool binary SHA-256 values.
+2. **Platform validation evidence** — successful Linux or Windows gates for one exact head, cryptographically linked to its tooling receipt.
+3. **Dual-platform closure** — accepts Linux + Windows evidence only for the same exact head and Cargo.lock and emits `admission=blocker_review_required` rather than automatically admitting NXB-153.
 
-All three classes are intended to be create-only for their canonical exact-head pathname.
+Canonical exact-head artifact names are create-only.
 
 ## Tool preparation serialization
 
-The validation tools live under a shared `target/nxb-tools` directory. Therefore an immutable receipt is insufficient if a later preparation can mutate those tool binaries before noticing that the exact-head receipt already exists.
+Validation tools live in the shared `target/nxb-tools` directory. Both platform preparation scripts therefore enforce:
 
-Both preparation scripts now enforce this ordering:
-
-1. resolve and verify the exact clean Git head;
-2. compute the exact-head tooling-receipt pathname;
-3. if that receipt already exists, fail **before** `rustup toolchain install` or any `cargo install --force` tool mutation;
+1. resolve a clean exact Git head;
+2. derive the exact-head tooling-receipt pathname;
+3. fail before `rustup` / `cargo install --force` mutation if that receipt already exists;
 4. claim an exact-head preparation lock with create-new semantics;
-5. recheck the receipt after the lock is owned, closing the check/claim race;
-6. only then install/refresh the pinned Rust components and cargo-audit/cargo-deny binaries;
-7. publish the immutable receipt;
-8. release the preparation lock before entering the validator.
+5. recheck the receipt after lock ownership;
+6. prepare the pinned Rust components and audit/deny tools;
+7. publish the immutable receipt create-only;
+8. release the lock before entering validation.
 
-A stale or racing preparation lock is never silently replaced. It requires explicit recovery.
+A stale or racing preparation lock requires explicit recovery. It is never silently replaced.
 
-Linux uses an atomic `mkdir` exact-head lock directory and synchronizes the evidence directory after lock claim/release. Windows uses `.NET FileMode.CreateNew` for the exact-head lock file and `Flush(true)` for the lock bytes. These source contracts still require real platform validation before durability is considered admitted.
+Linux uses an atomic `mkdir` lock directory plus evidence-directory sync around lock claim/release. Windows uses `.NET FileMode.CreateNew` for the lock file and `Flush(true)` for its bytes. These remain source contracts until real platform validation executes them.
+
+## Duplicate validation suppression
+
+Both platform validators resolve the exact clean head and then check whether canonical platform evidence for that head already exists.
+
+If it exists, validation fails **before** Rust/tool version resolution, fmt, check, Clippy, tests, RustSec or cargo-deny are rerun. Existing evidence must be reviewed or explicitly recovered instead of turning validation into a polling loop.
 
 ## Linux publication contract
 
-### Tooling receipt
+### Tooling receipt and platform evidence
 
-`prepare-and-validate-nxb-153-linux.sh` writes the receipt into a unique private temporary file inside the validation directory and claims the canonical exact-head receipt name with a same-directory hard link.
+Linux receipt/evidence publication uses a unique private temporary file plus same-directory hard-link create-only namespace claim.
 
-- the canonical receipt is never opened with shell truncation;
-- an existing exact-head receipt is checked before tool mutation and is not overwritten;
-- exact-head preparations are serialized by the preparation lock;
-- a losing publication removes only its own unclaimed temporary path;
-- the temporary receipt bytes are `fsync`'d before the hard-link namespace claim;
-- creation of the validation directory is followed by a sync of its `target` parent;
-- after namespace claim and temporary-link cleanup, the validation directory is `fsync`'d before success is reported;
-- temporary-link cleanup failure does not skip the directory-sync attempt; the cleanup outcome is reported after the durability attempt;
-- rerunning preparation against an existing receipt fails explicitly and tells the operator to validate against the existing receipt or review/remove it intentionally.
+- temporary bytes are `fsync`'d before claim;
+- an existing canonical destination is never overwritten;
+- losing publication cleans only its own unclaimed temp;
+- the evidence directory is synchronized after claim/cleanup before success;
+- a cleanup error does not skip the durability attempt.
 
-### Platform validation evidence
+### Descriptor-anchored evidence review — #98
 
-`validate-nxb-153-linux.sh` uses the same temporary-file plus hard-link create-only pattern for the canonical Linux evidence pathname.
+The canonical Linux closure entrypoint is:
 
-Immediately after exact-head and clean-worktree checks, the validator checks whether canonical Linux evidence already exists. If it does, the validator fails before resolving Rust/tool versions or re-running fmt/check/Clippy/tests/RustSec/cargo-deny. The existing evidence must be reviewed or explicitly recovered instead of manufacturing a second expensive result for the same exact-head pathname.
+`scripts/review-nxb-153-evidence-linux.sh`
 
-When no evidence exists, the validator proves the pinned Rust/tooling receipt/tool bytes, canonical Cargo.lock and all validation gates. Only after those gates succeed does it attempt the create-only evidence claim.
+It routes review through:
 
-Before the hard-link claim the temporary evidence file is `fsync`'d. After claim/cleanup, the validation directory is `fsync`'d before the validator reports success. A temporary-link cleanup failure is retained as an error but does not prevent the directory durability attempt from running first.
+`scripts/review-nxb-153-evidence-linux-secure.py`
 
-### Dual-platform closure
+which loads the existing schema/semantic closure implementation while replacing the filesystem trust primitives used for exact-head evidence review.
 
-The canonical Linux entrypoint is `review-nxb-153-evidence-linux.sh`; it invokes the stdlib-only `review-nxb-153-evidence-linux.py` implementation.
+The secure Linux launcher:
 
-The Python reviewer:
+- requires Linux `O_DIRECTORY` and `O_NOFOLLOW`; unsupported environments fail closed;
+- opens the repository root and evidence directory component-by-component from `/` with descriptor-relative `os.open(..., dir_fd=...)` traversal;
+- rejects symlink traversal for every opened directory/file component;
+- keeps the evidence-directory descriptor pinned across receipt/evidence reads and closure publication;
+- opens final evidence/receipt/Cargo.lock objects relative to a pinned directory descriptor;
+- validates regular-file type and bounded size using `fstat()` on the opened descriptor;
+- reads bytes from that same descriptor rather than reopening a checked pathname;
+- requires device/inode/size/mtime/ctime metadata to remain stable across the bounded read;
+- computes receipt/evidence/Cargo.lock hashes from those opened bytes;
+- publishes the closure with descriptor-relative `O_CREAT | O_EXCL | O_NOFOLLOW` under the pinned evidence-directory object;
+- `fsync`'s the created closure and the pinned evidence-directory descriptor;
+- reopens the published closure relative to the same pinned directory descriptor and requires exact canonical bytes;
+- never deletes a partially visible create-new closure by pathname after a write/finalization failure.
 
-- strictly validates evidence and tooling-receipt schemas, types, timestamps and SHA-256 values;
-- rejects symbolic-link/reparse-point path components where the platform exposes them;
-- requires Linux and Windows evidence for the same exact head, Rust/Cargo/tool versions and Cargo.lock;
-- publishes the final closure directly with `O_CREAT | O_EXCL`;
-- file-syncs the newly created closure before reporting success;
-- syncs the containing evidence directory on non-Windows platforms;
-- if another process wins the closure-name race, accepts the existing closure only when its parsed deterministic value is exactly equal;
-- never uses overwrite-capable `os.replace()` for the canonical closure pathname;
-- never performs path-based deletion of a partially visible closure after a write failure.
+The launcher contains a networkless `--self-test` that stages:
 
-The shell entrypoint adds a repository-authority guard around that implementation. It captures the clean exact Git head and canonical Cargo.lock SHA-256 before review, runs the reviewer, then requires the final head, clean worktree and Cargo.lock bytes to remain exactly unchanged. If another agent moves the branch or mutates the worktree/lockfile during review, the guarded command fails and any newly visible closure is explicitly treated as requiring recovery/review rather than as a successful current-authority admission artifact.
+- ordinary anchored regular-file read;
+- final symlink rejection;
+- parent-directory rename + replacement by a symlink to different bytes while proving the already pinned directory descriptor still reads the original object.
 
-The current Linux guarded wrapper passes a local `bash -n` syntax check. That is script syntax evidence only, not Rust/platform validation.
+Current local source checks for this launcher are:
+
+- Python `py_compile`: PASS;
+- descriptor self-test: PASS;
+- canonical Linux shell wrapper `bash -n`: PASS.
+
+These are source/primitive checks, not Rust or Linux admission evidence.
+
+### Guarded repository authority
+
+The shell entrypoint additionally captures the initial clean Git head and Cargo.lock SHA-256, buffers the secure reviewer output, and requires final head/worktree/Cargo.lock equality before printing any review PASS output.
+
+If repository authority changes during review, the command fails and any newly visible closure requires explicit recovery/review.
 
 ## Windows publication contract
 
-### Tooling receipt
+### Tooling receipt and platform evidence
 
-`prepare-and-validate-nxb-153-windows.ps1` checks the canonical exact-head receipt before tool mutation, serializes preparation with an exact-head `FileMode.CreateNew` lock file, rechecks the receipt after lock claim, then publishes the final tooling receipt using `.NET FileMode.CreateNew`, `FileAccess.Write` and `FileShare.None` with `Flush(true)`.
+Windows tooling receipt and validation evidence use `.NET FileMode.CreateNew` and `Flush(true)`. Existing canonical evidence prevents the heavy validation gates from being repeated for the same exact head.
 
-An existing exact-head receipt is not overwritten and the shared tool binaries are not refreshed before that condition is detected. A racing/stale preparation lock requires explicit recovery rather than being replaced.
+### Handle-pinned evidence review — #98
 
-### Platform validation evidence
+The canonical Windows closure entrypoint is:
 
-`validate-nxb-153-windows.ps1` performs the same early existing-evidence preflight immediately after exact-head and clean-worktree verification. Existing canonical Windows evidence prevents the heavy validation gates from being rerun for the same exact head.
+`scripts/review-nxb-153-evidence-windows.ps1`
 
-When validation is genuinely needed, final exact-head Windows evidence is published with `FileMode.CreateNew` and `Flush(true)`. `WriteAllText` overwrite semantics are not used for the canonical evidence pathname.
+Before invoking the existing semantic closure implementation, the wrapper now uses native Win32 handles through `CreateFileW` and `GetFinalPathNameByHandleW`.
 
-### Dual-platform closure
+It pins and retains handles for:
 
-The canonical Windows entrypoint is `review-nxb-153-evidence-windows.ps1`. It captures the initial clean exact head and Cargo.lock SHA-256, invokes `review-nxb-153-evidence.ps1` as the closure implementation, then rechecks the final head, worktree and lock bytes.
+- repository root;
+- Cargo.lock;
+- evidence directory;
+- exact-head Windows platform evidence;
+- exact-head Linux platform evidence;
+- exact-head Windows tooling receipt;
+- exact-head Linux tooling receipt.
 
-The implementation creates a unique pending closure with `FileMode.CreateNew` and moves it to the canonical closure pathname without `-Force`. An existing canonical closure therefore remains a no-overwrite condition; a racing or stale pending file requires explicit recovery rather than silent replacement.
+The source-staged Windows contract is:
 
-If repository authority changes while the implementation is running, the guarded Windows entrypoint fails after the implementation returns and explicitly marks any newly published closure as requiring recovery/review. The current execution environment has no PowerShell parser/runtime, so this guarded entrypoint is source-staged only and has **no claimed PowerShell PASS**.
+- repository/evidence directories are opened with `FILE_FLAG_BACKUP_SEMANTICS`;
+- directory handles allow read/write sharing but intentionally omit delete sharing so rename/delete requests remain blocked while review is active;
+- evidence/receipt/Cargo.lock handles allow read sharing only, withholding write/delete sharing while the inner reviewer consumes them;
+- `GetFinalPathNameByHandleW` retrieves the normalized path of the object actually opened;
+- the resolved handle path must equal the expected absolute path case-insensitively, so a pre-existing junction/symlink/reparse redirection is rejected rather than silently trusted;
+- pinned handles stay alive for the complete semantic review and final repository-authority recheck;
+- inner reviewer output remains buffered until final HEAD/worktree/Cargo.lock equality succeeds.
 
-Windows directory-entry durability remains a platform-validation concern rather than a source-only claim; the real Windows Rust/PowerShell validation pass must verify the supported filesystem behavior before admission.
+Microsoft's CreateFile contract defines share modes as lasting for the lifetime of the handle, and omitting `FILE_SHARE_DELETE` prevents subsequent opens requesting delete access; Windows delete access includes rename. `FILE_FLAG_BACKUP_SEMANTICS` is the required CreateFile mode for obtaining a directory handle. `GetFinalPathNameByHandleW` returns the final normalized path for the opened file/directory handle. These semantics are relied on by the source staging but **must still be exercised on real supported Windows before admission**.
 
-## Immutability, authority and reruns
+The current execution environment has no PowerShell runtime/parser, so no PowerShell syntax/runtime PASS is claimed for this handle-pinning implementation.
 
-The exact-head artifact name is part of the evidence identity. Re-running a preparation, validator or closure operation must not silently mutate an existing canonical artifact merely to obtain a fresh timestamp or replace earlier bytes.
+### Closure publication
+
+The existing Windows semantic reviewer creates a unique pending closure with `FileMode.CreateNew` and moves it to the canonical closure pathname without `-Force`. Conflicting/racing state is not silently replaced.
+
+Windows directory-entry durability remains a real-platform validation concern.
+
+## Immutability and recovery
 
 If a canonical receipt/evidence/closure already exists:
 
-- preparation checks the receipt before shared tool mutation;
-- validators stop before repeating expensive gates when platform evidence already exists;
-- normal reviewers verify or reject existing evidence according to their contract;
-- guarded closure entrypoints additionally require repository head/worktree/Cargo.lock authority to remain unchanged across the whole review command;
-- preparation/validation does not overwrite canonical artifacts;
-- conflicting, stale-lock, repository-drift or partial state requires explicit inspection/recovery;
-- no GitHub Actions rerun is used as a substitute for evidence recovery.
+- preparation does not mutate shared tools before detecting the existing receipt;
+- validation does not repeat expensive gates merely to refresh evidence;
+- reviewers verify or reject existing canonical content;
+- exact-head artifact bytes are not overwritten to obtain a new timestamp;
+- stale preparation locks, conflicting evidence, repository drift, pathname/object mismatch or partial closure state require explicit recovery;
+- no GitHub Actions rerun is used as polling or evidence recovery.
 
-This keeps historical validation evidence attributable to the exact bytes that first claimed its exact-head path instead of turning that path into a mutable status file, and it prevents repeated tool/test work from being used as an accidental polling mechanism.
+## Current admission boundary
 
-## Current validation boundary
+Issues #90–#98 remain open until their source-staged filesystem/evidence contracts receive the required exact-head platform execution.
 
-The Linux shell scripts have source-level shell syntax checks available, and the Python reviewer is stdlib-only. These checks are not substitutes for the required repository validation gates.
+The exact final NXB-153 head still requires real Rust 1.97.1 Linux + Windows validation covering fmt, check, Clippy, unit/focused/full-workspace tests, RustSec, cargo-deny, filesystem publication behavior, Linux descriptor anchoring, Windows handle pinning, guarded same-head dual-platform closure and final blocker review.
 
-The exact final NXB-153 head still requires real Rust 1.97.1 validation on Linux and Windows, including fmt, check, Clippy, unit/focused/full-workspace tests, RustSec, cargo-deny, filesystem behavior, guarded same-head evidence closure and blocker review. PR #89 must remain draft/not admitted until those gates complete.
+PR #89 remains draft/not admitted and NXB-154 must not use this branch as an implementation base until those gates complete.
