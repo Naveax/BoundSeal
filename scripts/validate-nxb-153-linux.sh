@@ -286,11 +286,19 @@ JSON
 
 fsync_file "$evidence_temp" || fail 'could not sync validation evidence temporary file before namespace claim'
 if ln "$evidence_temp" "$evidence_path" 2>/dev/null; then
-    rm -f "$evidence_temp" || fail 'could not remove claimed validation evidence temporary link'
-    fsync_directory "$validation_directory" || fail 'could not sync validation directory after evidence publication'
+    cleanup_error=''
+    if ! rm -f "$evidence_temp"; then
+        cleanup_error='could not remove claimed validation evidence temporary link'
+    fi
+    fsync_directory "$validation_directory" || fail 'could not sync validation directory after evidence finalization'
+    [[ -z "$cleanup_error" ]] || fail "$cleanup_error"
 else
-    rm -f "$evidence_temp" || fail 'could not remove unclaimed validation evidence temporary file'
-    fsync_directory "$validation_directory" || fail 'could not sync validation directory after evidence cleanup'
+    cleanup_error=''
+    if ! rm -f "$evidence_temp"; then
+        cleanup_error='could not remove unclaimed validation evidence temporary file'
+    fi
+    fsync_directory "$validation_directory" || fail 'could not sync validation directory after evidence cleanup attempt'
+    [[ -z "$cleanup_error" ]] || fail "$cleanup_error"
     if [[ -e "$evidence_path" ]]; then
         fail "exact-head Linux validation evidence already exists and will not be overwritten: $evidence_path; review/remove it explicitly before validating again"
     fi
