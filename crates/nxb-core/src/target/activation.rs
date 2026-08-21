@@ -107,6 +107,16 @@ pub(super) fn validate_persistence_envelope(
     preview: &SetupPreview,
     policy_document: &str,
 ) -> Result<()> {
+    if preview
+        .identity
+        .include_paths
+        .iter()
+        .chain(preview.identity.exclude_paths.iter())
+        .any(|path| !path.is_ascii())
+    {
+        bail!("guided target path prefixes must use literal ASCII syntax");
+    }
+
     let profile = prospective_profile(&preview.identity, PERSISTENCE_PREFLIGHT_TIME)?;
     let profile_bytes = canonical_json(&profile)?;
     enforce_persistence_envelope("target profile", profile_bytes.len())?;
