@@ -229,19 +229,19 @@ No activation failure path performs compare-then-delete rollback of the target p
 
 If continuity publication fails before publication, the target profile is never attempted. If continuity is published but profile publication fails before its destination claim, the continuity record remains inert and the command fails. If either create-only call reports the explicit published-but-finalization-incomplete state, activation fails loudly and does not delete the visible destination.
 
-A later activation may recover an **inert continuity-only** state only when the target profile is still absent and the existing continuity artifact exactly binds the same activation contract. Recovery verifies the artifact field set, schema version, target ID, `network_activity`, complete confirmed preview, canonical policy-document value and digest, 32-character lowercase-hex publication nonce, UTC creation time, and the prospective target-profile identity reconstructed using that stored creation time. On Unix the continuity parent directory is synchronized again before the artifact is reused. A mismatch is left untouched and rejected fail-closed.
+A later activation may recover an **inert continuity-only** state only when the target profile is still absent and the existing continuity artifact exactly binds the same activation contract. Recovery parses the artifact through an owned, `deny_unknown_fields` mirror of the persisted schema and requires byte-for-byte equality with the canonical serializer before any reuse. It then verifies the schema version, target ID, `network_activity`, complete confirmed preview, canonical policy-document value and digest, 32-character lowercase-hex publication nonce, UTC creation time, and the prospective target-profile identity reconstructed using that stored creation time. On Unix the continuity parent directory is synchronized again before the artifact is reused. A field, byte-layout or semantic mismatch is left untouched and rejected fail-closed.
 
 The existing continuity bytes are never rewritten during this recovery. Successful prior activations remain non-idempotent: if the target profile already exists, repeating activation is still rejected as a duplicate instead of being silently treated as success.
 
-`target_activation_recovery_cli` stages both sides of the recovery contract. It removes only the profile inside an isolated test workspace to simulate continuity-only state, then verifies that exact retry recreates the same profile identity without changing the artifact bytes. A changed path-scope preview is rejected while the artifact remains unchanged and no profile is created.
+`target_activation_recovery_cli` stages both sides of the recovery contract. It removes only the profile inside an isolated test workspace to simulate continuity-only state, then verifies that exact retry recreates the same profile identity without changing the artifact bytes. A changed path-scope preview is rejected while the artifact remains unchanged and no profile is created. Source-level recovery coverage additionally rejects semantically valid but noncanonical artifact bytes.
 
-The remaining #90 source concern is the **published-but-finalization-incomplete** case itself, especially a temporary-link cleanup failure after the destination claim. The current error type distinguishes published from unpublished state but does not yet classify which finalization component failed, and continuity recovery currently checks semantic artifact bindings rather than proving byte-canonical serialization. Those edge semantics plus real Linux/Windows validation remain explicit blockers; no race/durability completion claim is made yet.
+The remaining #90 source concern is the **published-but-finalization-incomplete** case itself, especially a temporary-link cleanup failure after the destination claim. The current error type deterministically distinguishes published from unpublished state but does not yet classify which finalization component failed. That postcondition detail plus real Linux/Windows validation remain explicit blockers; no durability-completion claim is made yet.
 
 ### Cross-cutting caller audit
 
 The shared create-only primitive is used beyond NXB-153 activation, including workspace initialization/migration, target lifecycle records and release-manifest output. Caller audit found the destructive error-cleanup cases in workspace initialization and migration prepare; both now consume explicit published state instead of deleting claimed records. Ordinary target/release create paths do not delete their destinations after create errors and therefore remain fail-closed.
 
-Issue #90 remains open until the remaining published-finalization/canonical-recovery edge semantics and Linux/Windows Rust validation close. The hard-link publication path, explicit publication state, caller fixes and inert recovery are source hardening, not validation evidence.
+Issue #90 remains open until the remaining published-finalization semantics and Linux/Windows Rust validation close. The hard-link publication path, explicit publication state, caller fixes, canonical inert recovery and its tests are source hardening, not validation evidence.
 
 Existing migration status remains compatible because migration recovery recognizes only its dedicated `migration-active.json`, `migration-source.json`, and `migration-applied.json` files as transient migration state.
 
@@ -297,6 +297,7 @@ The NXB-153 branch contains CLI or source-level acceptance tests for:
 - artifact-first/profile-last activation with no pathname rollback deletion;
 - exact inert-continuity recovery without artifact rewrite;
 - changed-preview recovery rejection with artifact bytes preserved;
+- noncanonical continuity-byte recovery rejection;
 - post-activation `target show` operation with the continuity state record present.
 
 The platform validators run `nxb-core` library tests before the focused CLI suites, so the shared workspace create-only primitive tests run before full workspace regression. The focused Linux and Windows lists include `target_activation_recovery_cli`, `target_scope_failclosed_cli`, `target_subdomain_failclosed_cli`, and `target_persistence_envelope_cli` in addition to the earlier setup/activation/import/path suites.
