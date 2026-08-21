@@ -18,6 +18,7 @@ focused_tests=(
     target_path_binding_cli
     target_scope_failclosed_cli
     target_subdomain_failclosed_cli
+    target_persistence_envelope_cli
 )
 
 cd "$repo_root"
