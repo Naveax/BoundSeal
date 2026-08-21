@@ -355,11 +355,33 @@ try {
         network_activity = 'cargo_dependency_and_advisory_sources_only'
         validated_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
     }
-    [IO.File]::WriteAllText(
-        $evidencePath,
-        (($evidence | ConvertTo-Json -Depth 8) + [Environment]::NewLine),
-        [Text.UTF8Encoding]::new($false)
-    )
+    $evidenceText = (($evidence | ConvertTo-Json -Depth 8) + [Environment]::NewLine)
+    $evidenceBytes = [Text.UTF8Encoding]::new($false).GetBytes($evidenceText)
+    $evidenceStream = $null
+    try {
+        try {
+            $evidenceStream = [IO.File]::Open(
+                $evidencePath,
+                [IO.FileMode]::CreateNew,
+                [IO.FileAccess]::Write,
+                [IO.FileShare]::None
+            )
+        }
+        catch [IO.IOException] {
+            if (Test-Path -LiteralPath $evidencePath) {
+                throw "Exact-head Windows validation evidence already exists and will not be overwritten: $evidencePath. Review/remove it explicitly before validating again."
+            }
+            throw
+        }
+
+        $evidenceStream.Write($evidenceBytes, 0, $evidenceBytes.Length)
+        $evidenceStream.Flush($true)
+    }
+    finally {
+        if ($null -ne $evidenceStream) {
+            $evidenceStream.Dispose()
+        }
+    }
 
     Write-Host 'NXB-153 Windows validation passed.'
     Write-Host "HEAD: $headSha"
