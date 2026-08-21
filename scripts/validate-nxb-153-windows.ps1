@@ -23,7 +23,8 @@ $focusedTests = @(
     'target_path_binding_cli',
     'target_scope_failclosed_cli',
     'target_subdomain_failclosed_cli',
-    'target_persistence_envelope_cli'
+    'target_persistence_envelope_cli',
+    'target_unicode_path_failclosed_cli'
 )
 
 function Invoke-NxbCargo {
@@ -181,6 +182,12 @@ try {
         throw 'Working tree must be clean.'
     }
 
+    $validationDirectory = Join-Path $RepoRoot 'target\nxb-validation'
+    $evidencePath = Join-Path $validationDirectory "nxb-153-windows-$headSha.json"
+    if (Test-Path -LiteralPath $evidencePath) {
+        throw "Exact-head Windows validation evidence already exists; validation gates were not rerun: $evidencePath. Use the evidence reviewer or perform explicit recovery."
+    }
+
     $rustcVersion = (& rustup run $rustToolchain rustc --version | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or -not $rustcVersion.StartsWith('rustc 1.97.1 ')) {
         throw "Expected rustc 1.97.1, found '$rustcVersion'."
@@ -202,7 +209,6 @@ try {
     Assert-LowerSha256 -Value $auditSha256 -Label 'cargo-audit SHA-256'
     Assert-LowerSha256 -Value $denySha256 -Label 'cargo-deny SHA-256'
 
-    $validationDirectory = Join-Path $RepoRoot 'target\nxb-validation'
     $receiptPath = Join-Path $validationDirectory "nxb-153-tooling-windows-$headSha.json"
     Assert-ToolingReceipt `
         -Path $receiptPath `
@@ -325,7 +331,6 @@ try {
     }
 
     New-Item -ItemType Directory -Path $validationDirectory -Force | Out-Null
-    $evidencePath = Join-Path $validationDirectory "nxb-153-windows-$headSha.json"
     $evidence = [ordered]@{
         schema_version = 1
         milestone = 'NXB-153'
