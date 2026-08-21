@@ -167,12 +167,14 @@ fn guided_activation_persists_verified_non_secret_continuity_artifact() {
 
     let artifact_path = root.join(artifact_relative);
     let artifact_bytes = fs::read(&artifact_path).expect("guided artifact is missing");
-    let artifact_text = String::from_utf8(artifact_bytes.clone()).expect("artifact is not UTF-8");
+    let artifact_text =
+        std::str::from_utf8(&artifact_bytes).expect("guided artifact is not UTF-8");
 
     assert!(!artifact_text.contains("GUIDED-RAW-AUTHORIZATION-SENTINEL"));
     assert!(!artifact_text.contains(authorization.to_string_lossy().as_ref()));
 
-    let artifact: Value = serde_json::from_slice(&artifact_bytes).expect("artifact JSON is invalid");
+    let artifact: Value =
+        serde_json::from_slice(&artifact_bytes).expect("guided artifact JSON is invalid");
     assert_eq!(
         artifact.get("artifact_version").and_then(Value::as_u64),
         Some(1)
@@ -230,7 +232,8 @@ fn guided_activation_persists_verified_non_secret_continuity_artifact() {
     assert!(policy_document.contains("credential_bruteforce = false"));
     assert!(policy_document.contains("destructive_testing = false"));
 
-    let artifact_sha256 = lower_hex(&Sha256::digest(&artifact_bytes));
+    let digest = Sha256::digest(artifact_bytes.as_slice());
+    let artifact_sha256 = lower_hex(digest.as_ref());
     assert_eq!(
         activated
             .pointer("/activation/guided_artifact_sha256")
@@ -250,7 +253,10 @@ fn guided_activation_persists_verified_non_secret_continuity_artifact() {
         "example-app".into(),
         "--json".into(),
     ]);
-    assert_eq!(shown.get("status").and_then(Value::as_str), Some("active"));
+    assert_eq!(
+        shown.get("status").and_then(Value::as_str),
+        Some("active")
+    );
     assert_eq!(
         shown.get("identity_sha256").and_then(Value::as_str),
         activated.get("identity_sha256").and_then(Value::as_str)
