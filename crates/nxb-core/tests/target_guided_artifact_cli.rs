@@ -122,6 +122,11 @@ fn lower_hex(bytes: &[u8]) -> String {
     output
 }
 
+fn sha256(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    lower_hex(digest.as_ref())
+}
+
 #[test]
 fn guided_activation_persists_verified_non_secret_continuity_artifact() {
     let root = temporary_workspace();
@@ -232,8 +237,25 @@ fn guided_activation_persists_verified_non_secret_continuity_artifact() {
     assert!(policy_document.contains("credential_bruteforce = false"));
     assert!(policy_document.contains("destructive_testing = false"));
 
-    let digest = Sha256::digest(artifact_bytes.as_slice());
-    let artifact_sha256 = lower_hex(digest.as_ref());
+    let policy_document_sha256 = sha256(policy_document.as_bytes());
+    assert_eq!(
+        artifact
+            .pointer("/preview/policy/policy_document_sha256")
+            .and_then(Value::as_str),
+        Some(policy_document_sha256.as_str())
+    );
+    assert_eq!(
+        activated.get("policy_sha256").and_then(Value::as_str),
+        Some(policy_document_sha256.as_str())
+    );
+    assert_eq!(
+        activated
+            .pointer("/activation/policy_document_sha256")
+            .and_then(Value::as_str),
+        Some(policy_document_sha256.as_str())
+    );
+
+    let artifact_sha256 = sha256(artifact_bytes.as_slice());
     assert_eq!(
         activated
             .pointer("/activation/guided_artifact_sha256")
