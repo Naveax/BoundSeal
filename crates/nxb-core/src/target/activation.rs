@@ -3,7 +3,7 @@ use std::fs::File;
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
@@ -16,16 +16,6 @@ pub(super) const ACTIVATION_ACKNOWLEDGEMENT: &str = "I_CONFIRM_THIS_EXACT_PREVIE
 const GUIDED_ACTIVATION_ARTIFACT_VERSION: u32 = 1;
 const GUIDED_PERSISTENCE_MARGIN_BYTES: u64 = 4 * 1024;
 const PERSISTENCE_PREFLIGHT_TIME: &str = "2000-01-01T00:00:00Z";
-const GUIDED_ARTIFACT_FIELDS: &[&str] = &[
-    "artifact_version",
-    "target_id",
-    "profile_identity_sha256",
-    "preview",
-    "policy_document",
-    "publication_nonce",
-    "created_at",
-    "network_activity",
-];
 
 #[derive(Serialize)]
 struct GuidedActivationArtifact<'a> {
@@ -37,6 +27,80 @@ struct GuidedActivationArtifact<'a> {
     publication_nonce: String,
     created_at: &'a str,
     network_activity: &'static str,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredGuidedActivationArtifact {
+    artifact_version: u32,
+    target_id: String,
+    profile_identity_sha256: String,
+    preview: StoredSetupPreview,
+    policy_document: String,
+    publication_nonce: String,
+    created_at: String,
+    network_activity: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredSetupPreview {
+    schema_version: u32,
+    status: String,
+    target_id: String,
+    name: String,
+    origin: String,
+    include_paths: Vec<String>,
+    exclude_paths: Vec<String>,
+    program: StoredSetupProgram,
+    authorization: StoredSetupAuthorization,
+    automation: StoredSetupAutomation,
+    policy: StoredSetupPolicyBinding,
+    hard_denied_actions: Vec<String>,
+    network_activity: String,
+    preview_sha256: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredSetupProgram {
+    name: String,
+    platform: String,
+    reference: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredSetupAuthorization {
+    reference: String,
+    document_sha256: String,
+    researcher: String,
+    basis: AuthorizationBasis,
+    expires_at: String,
+    acknowledged: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredSetupAutomation {
+    allowed_methods: Vec<String>,
+    allow_subdomains: bool,
+    active_testing: bool,
+    oob_callbacks: bool,
+    credential_bruteforce: bool,
+    destructive_testing: bool,
+    max_requests_per_second: f64,
+    max_concurrency: u16,
+    max_total_requests: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredSetupPolicyBinding {
+    schema_version: u32,
+    policy_snapshot_sha256: String,
+    policy_document_sha256: String,
+    compiled: bool,
 }
 
 pub(super) fn validate_persistence_envelope(
@@ -314,33 +378,27 @@ fn recover_inert_continuity(
         artifact_path,
         "guided activation inert continuity artifact",
     )?;
-    let artifact: Value = serde_json::from_slice(&artifact_bytes)
+    let artifact: StoredGuidedActivationArtifact = serde_json::from_slice(&artifact_bytes)
         .context("guided activation inert continuity artifact is invalid JSON")?;
-    let object = artifact
-        .as_object()
-        .ok_or_else(|| anyhow::anyhow!("guided activation continuity artifact must be a JSON object"))?;
-
-    if object.len() != GUIDED_ARTIFACT_FIELDS.len()
-        || GUIDED_ARTIFACT_FIELDS
-            .iter()
-            .any(|field| !object.contains_key(*field))
-    {
-        bail!("guided activation continuity artifact schema is not canonical");
+    if artifact_bytes != canonical_json(&artifact)? {
+        bail!("guided activation inert continuity artifact is not canonical JSON");
     }
-    if object.get("artifact_version").and_then(Value::as_u64)
-        != Some(u64::from(GUIDED_ACTIVATION_ARTIFACT_VERSION))
-        || object.get("target_id").and_then(Value::as_str) != Some(target_id)
-        || object.get("network_activity").and_then(Value::as_str) != Some("none")
+
+    if artifact.artifact_version != GUIDED_ACTIVATION_ARTIFACT_VERSION
+        || artifact.target_id != target_id
+        || artifact.network_activity != "none"
     {
         bail!("guided activation continuity artifact header does not match this activation");
     }
 
     let expected_preview = serde_json::to_value(preview)
         .context("could not serialize current guided preview for continuity recovery")?;
-    if object.get("preview") != Some(&expected_preview) {
+    let stored_preview = serde_json::to_value(&artifact.preview)
+        .context("could not serialize stored guided preview for continuity recovery")?;
+    if stored_preview != expected_preview {
         bail!("existing guided activation continuity does not match the exact confirmed preview");
     }
-    if object.get("policy_document").and_then(Value::as_str) != Some(policy_document) {
+    if artifact.policy_document != policy_document {
         bail!("existing guided activation continuity policy does not match the confirmed preview");
     }
     if workspace::sha256(policy_document.as_bytes())
@@ -349,31 +407,20 @@ fn recover_inert_continuity(
         bail!("guided activation continuity policy digest does not match the preview binding");
     }
 
-    let profile_identity_sha256 = object
-        .get("profile_identity_sha256")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow::anyhow!("guided activation continuity profile identity is missing"))?;
     workspace::validate_sha(
-        profile_identity_sha256,
+        &artifact.profile_identity_sha256,
         "guided activation continuity profile identity SHA-256",
     )?;
-
-    let publication_nonce = object
-        .get("publication_nonce")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow::anyhow!("guided activation continuity publication nonce is missing"))?;
-    if !is_lower_hex(publication_nonce, 32) {
+    if !is_lower_hex(&artifact.publication_nonce, 32) {
         bail!("guided activation continuity publication nonce is invalid");
     }
+    super::validate_time(
+        &artifact.created_at,
+        "guided activation continuity created_at",
+    )?;
 
-    let created_at = object
-        .get("created_at")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow::anyhow!("guided activation continuity created_at is missing"))?;
-    super::validate_time(created_at, "guided activation continuity created_at")?;
-
-    let profile = prospective_profile(&preview.identity, created_at)?;
-    if profile.identity_sha256 != profile_identity_sha256 {
+    let profile = prospective_profile(&preview.identity, &artifact.created_at)?;
+    if profile.identity_sha256 != artifact.profile_identity_sha256 {
         bail!("existing guided activation continuity does not bind the prospective target profile");
     }
 
@@ -501,7 +548,7 @@ mod tests {
     }
 
     #[test]
-    fn inert_continuity_recovery_requires_exact_preview_and_profile_binding() {
+    fn inert_continuity_recovery_requires_exact_preview_profile_and_canonical_bytes() {
         let root = std::env::temp_dir().join(format!(
             "nxb153-inert-continuity-{}-{}",
             std::process::id(),
@@ -549,6 +596,19 @@ mod tests {
             policy_document,
         )
         .is_err());
+
+        let noncanonical_path = root.join("noncanonical.json");
+        let mut noncanonical_bytes = vec![b' '];
+        noncanonical_bytes.extend_from_slice(&artifact_bytes);
+        workspace::create_document(&noncanonical_path, &noncanonical_bytes).unwrap();
+        let error = recover_inert_continuity(
+            &noncanonical_path,
+            &preview.identity.target_id,
+            &preview,
+            policy_document,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("not canonical JSON"));
 
         std::fs::remove_dir_all(root).unwrap();
     }
