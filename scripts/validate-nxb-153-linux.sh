@@ -221,8 +221,10 @@ rustc_json="$(json_escape "$rustc_version")"
 cargo_json="$(json_escape "$cargo_version")"
 audit_json="$(json_escape "$audit_version")"
 deny_json="$(json_escape "$deny_version")"
+evidence_temp="$(mktemp "$validation_directory/.nxb-153-linux-$head_sha.XXXXXX.tmp")"
+chmod 600 "$evidence_temp"
 
-cat > "$evidence_path" <<JSON
+cat > "$evidence_temp" <<JSON
 {
   "schema_version": 1,
   "milestone": "NXB-153",
@@ -253,6 +255,16 @@ cat > "$evidence_path" <<JSON
   "validated_at": "$validated_at"
 }
 JSON
+
+if ln "$evidence_temp" "$evidence_path" 2>/dev/null; then
+    rm -f "$evidence_temp" || fail 'could not remove claimed validation evidence temporary link'
+else
+    rm -f "$evidence_temp" || fail 'could not remove unclaimed validation evidence temporary file'
+    if [[ -e "$evidence_path" ]]; then
+        fail "exact-head Linux validation evidence already exists and will not be overwritten: $evidence_path; review/remove it explicitly before validating again"
+    fi
+    fail 'could not create-only claim exact-head Linux validation evidence'
+fi
 
 printf 'NXB-153 Linux validation passed.\n'
 printf 'HEAD: %s\n' "$head_sha"
