@@ -22,6 +22,8 @@ The guided path therefore separates setup into two phases:
 - `nxb target setup`
 - `nxb target activate`
 
+Manual guided setup requires at least one explicit `--include-path`. Omission is rejected rather than being silently widened to `/`. An operator may still explicitly choose `--include-path /` when the entire admitted origin is intentionally in scope.
+
 ### Bounded scope import
 
 - `nxb target setup-import`
@@ -69,6 +71,24 @@ The guided boundary is intentionally narrower than the general internal policy s
 - maximum request rate between 0 and 5 requests/second;
 - maximum concurrency between 1 and 8;
 - maximum total request budget between 1 and 100,000.
+
+### Raw guided origin grammar
+
+Guided origin admission now performs a narrow lexical check **before** WHATWG URL parsing. This prevents operator syntax from being normalized away into a broader or apparently cleaner authority boundary.
+
+Accepted raw guided origins use:
+
+- the literal lowercase `https://` scheme prefix;
+- a literal ASCII DNS authority;
+- no userinfo delimiter;
+- no percent-encoded authority bytes;
+- no query or fragment delimiter, including empty `?` or `#` forms;
+- no path syntax beyond an optional single literal root `/`;
+- either no port or the exact literal `:443` spelling.
+
+Host case normalization remains intentional, so `https://EXAMPLE.ORG:443` canonicalizes to `https://example.org`. Unicode/IDNA input is not silently converted by the guided path; the operator must supply the literal ASCII DNS representation that is actually being authorized.
+
+This lexical gate rejects normalization-equivalent forms such as empty userinfo, dot-path traversal that collapses to `/`, percent-encoded dot or host text, empty ports and zero-padded `:0443` before the URL parser can reinterpret them. The ordinary parsed-component and public-DNS checks still run afterward as a second layer.
 
 `allow_subdomains` is explicit and is visible in the preview. The generated policy is compiled through the existing `nxb-policy` checks, and activation binds the canonical policy document SHA-256 into the immutable target profile.
 
@@ -143,21 +163,23 @@ The evidence file itself remains operator-controlled input and is represented on
 
 The target profile is published through the existing private workspace writer. The continuity record is then published through the same bounded workspace primitive.
 
-After target-profile creation, activation reads the canonical persisted profile back, validates its content-derived `identity_sha256`, and captures the exact bytes associated with this invocation. If continuity publication later fails, target-profile rollback removes the profile only when its current bounded bytes are still exactly equal to those captured bytes. A foreign or racing replacement is left untouched.
+After target-profile creation, activation reads the canonical persisted profile back, validates its content-derived `identity_sha256`, and captures the exact bytes associated with this invocation. If continuity publication later fails, target-profile rollback attempts removal only after the current bounded bytes still match those captured bytes.
 
-A potentially partially published continuity artifact is likewise removed only when its bounded size and exact bytes match the artifact prepared by this invocation. A foreign or racing artifact is left untouched. The per-invocation publication nonce makes accidental byte identity across competing publishers impractical.
+A potentially partially published continuity artifact is treated similarly: cleanup is attempted only when its bounded size and bytes match the artifact prepared by this invocation. The per-invocation publication nonce makes accidental byte identity across competing publishers impractical.
 
-Rollback inspection does not read an arbitrarily large collision file: a differing file size is treated as foreign and left untouched before any content read occurs.
+Rollback inspection does not read an arbitrarily large collision file: a differing file size is treated as foreign before any content read occurs.
 
-The command fails instead of reporting a successful guided activation with incomplete continuity metadata. If ownership has changed and safe rollback cannot be proven, the command reports the rollback failure rather than deleting foreign state.
+These checks materially reduce destructive cleanup risk, but they are **not race-atomic ownership proof**. The current path-based `verify(path) -> remove(path)` sequence can still race with a pathname replacement between verification and deletion. If cleanup cannot establish its expected state, activation reports the failure rather than pretending continuity succeeded.
 
 #### Cross-cutting create-new limitation
 
 The underlying `workspace::create_document()` implementation currently writes a private temporary file, checks whether the destination exists, then publishes with `fs::rename`. On Unix, destination creation between the existence check and `rename` can make that rename overwrite a competing destination. The existence pre-check is therefore not a race-atomic no-overwrite guarantee.
 
-This limitation is tracked explicitly in issue #90: **Hardening: make workspace create_document publication atomically no-overwrite**.
+The same shared primitive can also publish a destination and then return `Err` if post-publication permission hardening or parent-directory durability fails. In addition, caller-side path verification followed by path deletion cannot by itself prove race-atomic cleanup ownership.
 
-NXB-153's ownership-aware rollback reduces destructive cleanup risk but does not claim to fix the underlying publisher race. PR #89 must not claim race-atomic create-only publication until #90 is implemented and receives Linux and Windows validation. A likely implementation is fully written/synced temp bytes followed by an atomic no-overwrite namespace claim such as same-filesystem hard-link creation, with fail-closed handling on unsupported filesystems.
+These limitations are tracked explicitly in issue #90: **Hardening: make workspace create_document publication atomically no-overwrite**.
+
+NXB-153's exact-byte rollback guards reduce destructive cleanup risk but do not claim to fix the underlying publisher or compare-delete races. PR #89 must not claim race-atomic create-only publication or cleanup ownership until #90 is implemented and receives Linux and Windows validation.
 
 Existing migration status remains compatible because migration recovery recognizes only its dedicated `migration-active.json`, `migration-source.json`, and `migration-applied.json` files as transient migration state.
 
@@ -170,10 +192,13 @@ The JSON import parser rejects:
 - oversized documents;
 - missing or empty `include_paths`;
 - wildcard or otherwise invalid origins;
+- origin syntax that depends on URL-parser normalization;
 - non-HTTPS/443 origins;
 - duplicate/noncanonical path rules;
+- repeated interior path separators such as `/api//admin`;
 - exclusions outside every included prefix;
-- exclusions that remove an entire included prefix.
+- exclusions that remove an entire included prefix;
+- exclusions that shadow another explicit include prefix.
 
 After parsing, import provenance disappears from the effective preview. Equivalent manual and imported input must produce the same normalized preview and preview SHA-256.
 
@@ -183,8 +208,12 @@ The NXB-153 branch contains CLI or source-level acceptance tests for:
 
 - deterministic networkless preview;
 - exact HTTPS/443 normalization;
+- raw origin syntax that WHATWG parsing can normalize away, including empty userinfo, dot/encoded path forms, empty/zero-padded port and percent-encoded authority text;
+- documented positive origin canonicalization for host case, literal `:443` and optional root `/`;
 - authorization acknowledgement and expiry rejection;
 - wildcard/domain/port/path rejection;
+- explicit manual guided include scope, with omission rejected and explicit `/` retained as an intentional choice;
+- exclude/include contradiction rejection and interior repeated-separator rejection;
 - budget limits and digest binding;
 - exact-preview activation;
 - path-only scope changes invalidating stale preview activation and appearing in target identity;
@@ -193,10 +222,10 @@ The NXB-153 branch contains CLI or source-level acceptance tests for:
 - bounded scope-import equivalence and rejection cases;
 - missing/empty imported path scope fail-closed behavior;
 - guided continuity artifact content, digest binding and secret boundary;
-- ownership-aware cleanup that preserves foreign same-size artifact/profile bytes;
+- exact-byte guarded rollback behavior plus explicit documentation of its non-atomic race limitation;
 - post-activation `target show` operation with the continuity state record present.
 
-The platform validators run `nxb-core` library tests before the focused CLI suites so rollback ownership unit tests fail early rather than being deferred until the full workspace regression.
+The platform validators run `nxb-core` library tests before the focused CLI suites so rollback ownership unit tests fail early rather than being deferred until the full workspace regression. `target_scope_failclosed_cli` is included in the focused suite and contains the manual/import path-scope and raw-origin negative controls.
 
 ## Validation state
 
@@ -210,6 +239,8 @@ Before the PR can leave draft, the exact final head still requires real Rust val
 - `cargo check --workspace --all-targets`;
 - `cargo test -p nxb-core --lib` plus focused `nxb-policy` and NXB-153 CLI tests;
 - Clippy with repository warning policy;
+- RustSec and cargo-deny through the exact-head tooling receipts;
+- same-head Linux and Windows evidence closure;
 - relevant broader regressions on the supported platform matrix.
 
 Race-atomic create-only publication remains separately blocked on issue #90 and must not be claimed until that primitive is fixed and validated.
@@ -220,11 +251,11 @@ NXB-153 roadmap acceptance is addressed as follows:
 
 | Roadmap requirement | Implementation |
 | --- | --- |
-| Import or manually record program scope/rules | `setup` and bounded `setup-import`; imported path scope must be explicit |
+| Import or manually record program scope/rules | `setup` and bounded `setup-import`; both manual and imported path scope must be explicit |
 | Explicit authorization evidence, ownership metadata and acknowledgement | evidence digest/reference + researcher + basis + expiry + two acknowledgements |
 | Compile imported scope into existing policy contracts | canonical `TargetPolicy` for host/scheme/method/subdomain/authorization/budget plus exact-preview and target-identity binding for path prefixes |
 | Display inclusions, exclusions, rate limits and prohibited actions | deterministic setup preview |
-| Reject ambiguous wildcard/domain/port mappings fail-closed | guided origin and import validation |
+| Reject ambiguous wildcard/domain/port mappings fail-closed | pre-parser raw origin grammar + parsed public-DNS/HTTPS/443 validation + path-scope contradiction checks |
 | Create target without hand-editing TOML/JSON | exact-preview `activate` / `activate-import` |
 
 NXB-154 must build on the admitted NXB-153 target identity and authorization boundary rather than bypassing it. Any later request/session execution must enforce the path rules from the target profile in addition to the compiled `TargetPolicy` host/method boundary.
