@@ -1,12 +1,12 @@
 use std::{fs, path::Path};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use serde_json::Value;
 
 use super::{
     build_guided_setup, canonical_json, create_value_from_bytes, workspace, AuthorizationBasis,
-    SetupPreview,
+    SetupPreview, TargetProfile,
 };
 
 pub(super) const ACTIVATION_ACKNOWLEDGEMENT: &str = "I_CONFIRM_THIS_EXACT_PREVIEW";
@@ -111,10 +111,25 @@ pub(super) fn activate_value(
         build.policy.document.as_bytes(),
     )?;
 
+    let expected_profile_identity_sha256 = value
+        .get("identity_sha256")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("activated target profile is missing its identity digest"))?
+        .to_owned();
+    workspace::validate_sha(
+        &expected_profile_identity_sha256,
+        "activated target identity SHA-256",
+    )?;
+    let expected_profile_bytes = capture_owned_profile_bytes(
+        &root,
+        &identity.target_id,
+        &expected_profile_identity_sha256,
+    )?;
+
     if value.get("policy_sha256").and_then(Value::as_str)
         != Some(expected_policy_sha256.as_str())
     {
-        rollback_profile(&root, &identity.target_id)?;
+        rollback_profile(&root, &identity.target_id, &expected_profile_bytes)?;
         bail!("activated target policy digest does not match the confirmed preview policy");
     }
 
@@ -127,7 +142,13 @@ pub(super) fn activate_value(
     ) {
         Ok(sha256) => sha256,
         Err(error) => {
-            rollback_profile(&root, &identity.target_id)?;
+            if let Err(rollback_error) =
+                rollback_profile(&root, &identity.target_id, &expected_profile_bytes)
+            {
+                bail!(
+                    "guided target activation continuity publication failed ({error:#}); target-profile rollback also failed ({rollback_error:#})"
+                );
+            }
             bail!("guided target activation continuity publication failed: {error:#}");
         }
     };
@@ -143,6 +164,25 @@ pub(super) fn activate_value(
     });
 
     Ok(value)
+}
+
+fn capture_owned_profile_bytes(
+    root: &Path,
+    target_id: &str,
+    expected_identity_sha256: &str,
+) -> Result<Vec<u8>> {
+    let profile_path = root.join("targets").join(format!("{target_id}.json"));
+    let bytes = workspace::read_document(&profile_path, "guided activation target profile")?;
+    let profile: TargetProfile = serde_json::from_slice(&bytes)
+        .context("guided activation target profile is invalid JSON")?;
+    super::validate_profile(&profile)?;
+    if bytes != canonical_json(&profile)? {
+        bail!("guided activation target profile is not canonical JSON");
+    }
+    if profile.target_id != target_id || profile.identity_sha256 != expected_identity_sha256 {
+        bail!("guided activation target profile ownership changed during activation");
+    }
+    Ok(bytes)
 }
 
 fn publish_guided_artifact(
@@ -171,7 +211,11 @@ fn publish_guided_artifact(
     let artifact_bytes = canonical_json(&artifact)?;
 
     if let Err(publication_error) = workspace::create_document(artifact_path, &artifact_bytes) {
-        if let Err(cleanup_error) = cleanup_owned_artifact(artifact_path, &artifact_bytes) {
+        if let Err(cleanup_error) = cleanup_owned_document(
+            artifact_path,
+            &artifact_bytes,
+            "guided activation artifact rollback",
+        ) {
             bail!(
                 "artifact publication failed ({publication_error:#}); owned-artifact cleanup also failed ({cleanup_error:#})"
             );
@@ -182,15 +226,15 @@ fn publish_guided_artifact(
     Ok(workspace::sha256(&artifact_bytes))
 }
 
-fn cleanup_owned_artifact(path: &Path, expected_bytes: &[u8]) -> Result<()> {
+fn cleanup_owned_document(path: &Path, expected_bytes: &[u8], label: &str) -> Result<()> {
     if !workspace::safe_exists(path)? {
         return Ok(());
     }
 
-    workspace::reject_path_indirections(path, "guided activation artifact rollback")?;
+    workspace::reject_path_indirections(path, label)?;
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_file() {
-        bail!("guided activation artifact rollback path is not a regular file");
+        bail!("{label} path is not a regular file");
     }
     if metadata.len() != expected_bytes.len() as u64 {
         return Ok(());
@@ -204,14 +248,13 @@ fn cleanup_owned_artifact(path: &Path, expected_bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn rollback_profile(root: &Path, target_id: &str) -> Result<()> {
+fn rollback_profile(root: &Path, target_id: &str, expected_bytes: &[u8]) -> Result<()> {
     let profile_path = root.join("targets").join(format!("{target_id}.json"));
-
-    match workspace::safe_exists(&profile_path) {
-        Ok(true) => workspace::remove_regular(&profile_path),
-        Ok(false) => Ok(()),
-        Err(error) => Err(error),
-    }
+    cleanup_owned_document(
+        &profile_path,
+        expected_bytes,
+        "guided activation target-profile rollback",
+    )
 }
 
 #[cfg(test)]
@@ -219,27 +262,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn owned_artifact_cleanup_never_removes_foreign_same_size_bytes() {
+    fn owned_document_cleanup_never_removes_foreign_same_size_bytes() {
         let root = std::env::temp_dir().join(format!(
-            "nxb153-artifact-ownership-{}-{}",
+            "nxb153-document-ownership-{}-{}",
             std::process::id(),
             workspace::random_hex(8).unwrap()
         ));
         fs::create_dir(&root).unwrap();
         workspace::set_private_directory_permissions(&root).unwrap();
-        let path = root.join("artifact.json");
+        let path = root.join("record.json");
 
         let foreign = b"foreign\n";
         let owned = b"owned!!\n";
         assert_eq!(foreign.len(), owned.len());
 
         workspace::create_document(&path, foreign).unwrap();
-        cleanup_owned_artifact(&path, owned).unwrap();
+        cleanup_owned_document(&path, owned, "test rollback").unwrap();
         assert_eq!(fs::read(&path).unwrap(), foreign);
 
         workspace::remove_regular(&path).unwrap();
         workspace::create_document(&path, owned).unwrap();
-        cleanup_owned_artifact(&path, owned).unwrap();
+        cleanup_owned_document(&path, owned, "test rollback").unwrap();
         assert!(!workspace::safe_exists(&path).unwrap());
 
         fs::remove_dir(root).unwrap();
