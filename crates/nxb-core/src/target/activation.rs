@@ -192,6 +192,9 @@ fn cleanup_owned_artifact(path: &Path, expected_bytes: &[u8]) -> Result<()> {
     if !metadata.is_file() {
         bail!("guided activation artifact rollback path is not a regular file");
     }
+    if metadata.len() != expected_bytes.len() as u64 {
+        return Ok(());
+    }
 
     let existing = fs::read(path)?;
     if existing == expected_bytes {
