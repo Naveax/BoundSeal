@@ -199,7 +199,9 @@ The destination and temporary path refer to the same prepared file object after 
 
 ### Explicit publication and cleanup error states
 
-A failed namespace claim means the destination was not published by that call. If cleanup of the already-prepared private temporary file also fails, the writer now returns a dedicated `UnpublishedDocumentCleanupError` that retains both the claim failure and cleanup failure. `create_document_error_published()` remains false for that state, so callers do not mistake a private temp leak for a published destination. A pre-existing winner remains untouched.
+A failure during temporary-file preparation or during the namespace claim means the destination was not published by that call. Cleanup uses the same bounded private-temp cleanup operation; a missing temp is treated as already clean. If an actual temp remains and cleanup also fails, the writer returns `UnpublishedDocumentCleanupError`, retaining both the failed operation and cleanup failure while `create_document_error_published()` remains false.
+
+A failed namespace claim therefore cannot be confused with partial publication. A pre-existing winner remains untouched even when the losing creator also cannot clean its own temp residue.
 
 A failure after the namespace claim, such as temporary-link cleanup or parent-directory synchronization failure, is represented by `PublishedDocumentError`. Its typed `PublishedDocumentFinalization` flags distinguish `temporary_link_cleanup_failed` from `parent_directory_sync_failed`, including the case where both fail. `create_document_error_published()` remains the caller-facing discriminator between definitely-unpublished failure and a visible destination whose finalization is incomplete.
 
@@ -208,6 +210,7 @@ The primitive never deletes the destination after a successful namespace claim m
 Workspace unit coverage stages:
 
 - a pre-existing destination that remains byte-for-byte unchanged after a second create attempt;
+- an injected prepared-file validation failure plus temp-cleanup failure that remains explicitly unpublished and leaves only the private temp residue;
 - a failed namespace claim plus injected temp-cleanup failure that remains explicitly unpublished, preserves the winner and exposes the private temp residue;
 - eight concurrent creators with exactly one successful destination claimant;
 - a post-claim parent-sync-only failure with the destination intact;
@@ -240,13 +243,13 @@ The existing continuity bytes are never rewritten during this recovery. Successf
 
 `target_activation_recovery_cli` stages both sides of the recovery contract. It removes only the profile inside an isolated test workspace to simulate continuity-only state, then verifies that exact retry recreates the same profile identity without changing the artifact bytes. A changed path-scope preview is rejected while the artifact remains unchanged and no profile is created. Source-level recovery coverage additionally rejects semantically valid but noncanonical artifact bytes.
 
-The remaining #90 source concern is narrower: a failure during **temporary-file preparation itself** still performs best-effort direct cleanup, and a secondary cleanup failure on that preparation-error path is not yet typed. Namespace-claim cleanup and all post-claim finalization outcomes are now explicit. That preparation-cleanup edge plus real Linux/Windows validation remain blockers; no durability-completion claim is made yet.
+For #90, the intended create-only source outcome classes are now staged: definitely unpublished failure, explicitly unpublished failure with temp-cleanup residue, successful publication, and published-but-finalization-incomplete with per-component flags. This remains **source hardening, not validation evidence**. Real Rust 1.97.1 execution on Linux and Windows is still required before any race/durability completion claim.
 
 ### Cross-cutting caller audit
 
 The shared create-only primitive is used beyond NXB-153 activation, including workspace initialization/migration, target lifecycle records and release-manifest output. Caller audit found the destructive error-cleanup cases in workspace initialization and migration prepare; both now consume explicit published state instead of deleting claimed records. Ordinary target/release create paths do not delete their destinations after create errors and therefore remain fail-closed.
 
-Issue #90 remains open until the preparation-cleanup edge and Linux/Windows Rust validation close. The hard-link publication path, explicit publication/finalization state, caller fixes, canonical inert recovery and their source tests are source hardening, not validation evidence.
+Issue #90 remains open until Linux/Windows Rust validation proves the staged filesystem contract, hard-link behavior and failure outcomes on supported platforms. The hard-link publication path, explicit publication/finalization state, caller fixes, canonical inert recovery and their source tests are not sufficient by themselves for admission.
 
 Existing migration status remains compatible because migration recovery recognizes only its dedicated `migration-active.json`, `migration-source.json`, and `migration-applied.json` files as transient migration state.
 
@@ -298,7 +301,7 @@ The NXB-153 branch contains CLI or source-level acceptance tests for:
 - guided continuity artifact content, digest binding and secret boundary;
 - prospective profile identity reconstruction before publication;
 - hard-link create-only no-clobber behavior for pre-existing and concurrent destinations;
-- explicit unpublished-state reporting when a losing claim also cannot clean its private temp file;
+- explicit unpublished-state reporting for preparation or losing-claim cleanup failures;
 - per-component published-state reporting for post-claim temp cleanup and parent-directory sync failures;
 - artifact-first/profile-last activation with no pathname rollback deletion;
 - exact inert-continuity recovery without artifact rewrite;
