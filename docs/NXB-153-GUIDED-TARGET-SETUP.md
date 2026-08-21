@@ -62,6 +62,7 @@ The guided boundary is intentionally narrower than the general internal policy s
 - port 443 only;
 - canonical public DNS host, no IP literals;
 - no wildcard origin syntax;
+- exact-host only while registrable-domain / Public Suffix List validation is unavailable;
 - canonical include/exclude path prefixes;
 - `GET`, `HEAD`, and `OPTIONS` only;
 - active testing disabled;
@@ -74,7 +75,7 @@ The guided boundary is intentionally narrower than the general internal policy s
 
 ### Raw guided origin grammar
 
-Guided origin admission now performs a narrow lexical check **before** WHATWG URL parsing. This prevents operator syntax from being normalized away into a broader or apparently cleaner authority boundary.
+Guided origin admission performs a narrow lexical check **before** WHATWG URL parsing. This prevents operator syntax from being normalized away into a broader or apparently cleaner authority boundary.
 
 Accepted raw guided origins use:
 
@@ -90,7 +91,18 @@ Host case normalization remains intentional, so `https://EXAMPLE.ORG:443` canoni
 
 This lexical gate rejects normalization-equivalent forms such as empty userinfo, dot-path traversal that collapses to `/`, percent-encoded dot or host text, empty ports and zero-padded `:0443` before the URL parser can reinterpret them. The ordinary parsed-component and public-DNS checks still run afterward as a second layer.
 
-`allow_subdomains` is explicit and is visible in the preview. The generated policy is compiled through the existing `nxb-policy` checks, and activation binds the canonical policy document SHA-256 into the immutable target profile.
+### Exact-host-only subdomain contract
+
+`TargetPolicy` schema v1 supports `allow_subdomains`, and its compiled matcher expands a host by DNS suffix when that flag is true. The current guided layer does not have a pinned Public Suffix List / registrable-domain validator. A syntactically valid host can therefore be a public suffix, making suffix expansion much broader than the operator's intended program boundary.
+
+NXB-153 fails closed instead of approximating this with a small hardcoded suffix list:
+
+- guided `allow_subdomains=true` is rejected;
+- imported `allow_subdomains: true` is rejected through the same compiler;
+- admitted previews and generated policy documents therefore contain `allow_subdomains = false`;
+- exact-host operation remains available.
+
+Future subdomain support requires a reproducible PSL-backed registrable-domain check, representative wildcard/exception controls, Cargo.lock evidence and platform validation. Until then, the boolean is visible in the input schema but enabling it is not an admitted guided capability.
 
 ### Split scope binding in policy schema v1
 
@@ -117,7 +129,7 @@ The preview exposes the normalized values that matter to an operator before acti
 - program metadata;
 - authorization reference, evidence digest, researcher, basis and expiry;
 - allowed methods;
-- subdomain behavior;
+- `allow_subdomains: false` for admitted guided scopes;
 - request rate, concurrency and total-request budgets;
 - active/OOB/bruteforce/destructive flags;
 - policy snapshot and canonical policy document SHA-256 values;
@@ -148,6 +160,14 @@ The continuity record contains:
 - `network_activity: none`.
 
 The activation result returns the relative artifact path and SHA-256 so later product layers can verify the record before using it.
+
+### Persistence-envelope preflight
+
+The workspace writer has a 64 KiB document limit. NXB-153 now contains a serialization-based persistence preflight helper that reconstructs the canonical target-profile representation and the complete guided continuity-artifact representation from the preview, including the exact policy document. It checks both representations against the workspace writer cap with a 4 KiB schema-evolution margin.
+
+The preflight uses fixed-width placeholders for the 32-character publication nonce and canonical UTC timestamp, so those runtime fields cannot silently increase the admitted serialized size. Raw authorization evidence bytes are not part of the representation.
+
+This helper is staged for #91 and must be invoked from the common guided build path before #91 can be considered source-fixed. Until that call is wired and acceptance tests run, the branch must not claim persistence-envelope admission is complete.
 
 ### Secret boundary
 
@@ -194,6 +214,7 @@ The JSON import parser rejects:
 - wildcard or otherwise invalid origins;
 - origin syntax that depends on URL-parser normalization;
 - non-HTTPS/443 origins;
+- subdomain expansion while no registrable-domain/PSL boundary is available;
 - duplicate/noncanonical path rules;
 - repeated interior path separators such as `/api//admin`;
 - exclusions outside every included prefix;
@@ -214,6 +235,8 @@ The NXB-153 branch contains CLI or source-level acceptance tests for:
 - wildcard/domain/port/path rejection;
 - explicit manual guided include scope, with omission rejected and explicit `/` retained as an intentional choice;
 - exclude/include contradiction rejection and interior repeated-separator rejection;
+- manual and imported subdomain expansion rejection until a PSL-backed registrable boundary exists;
+- exact-host generated policy/continuity behavior with `allow_subdomains=false`;
 - budget limits and digest binding;
 - exact-preview activation;
 - path-only scope changes invalidating stale preview activation and appearing in target identity;
@@ -225,7 +248,7 @@ The NXB-153 branch contains CLI or source-level acceptance tests for:
 - exact-byte guarded rollback behavior plus explicit documentation of its non-atomic race limitation;
 - post-activation `target show` operation with the continuity state record present.
 
-The platform validators run `nxb-core` library tests before the focused CLI suites so rollback ownership unit tests fail early rather than being deferred until the full workspace regression. `target_scope_failclosed_cli` is included in the focused suite and contains the manual/import path-scope and raw-origin negative controls.
+The platform validators run `nxb-core` library tests before the focused CLI suites so rollback ownership unit tests fail early rather than being deferred until the full workspace regression. `target_scope_failclosed_cli` is included in the focused suite and contains the manual/import path-scope and raw-origin negative controls. `target_subdomain_failclosed_cli` stages manual/import exact-host-only negative controls and must be included in the final focused platform lists.
 
 ## Validation state
 
@@ -253,9 +276,9 @@ NXB-153 roadmap acceptance is addressed as follows:
 | --- | --- |
 | Import or manually record program scope/rules | `setup` and bounded `setup-import`; both manual and imported path scope must be explicit |
 | Explicit authorization evidence, ownership metadata and acknowledgement | evidence digest/reference + researcher + basis + expiry + two acknowledgements |
-| Compile imported scope into existing policy contracts | canonical `TargetPolicy` for host/scheme/method/subdomain/authorization/budget plus exact-preview and target-identity binding for path prefixes |
+| Compile imported scope into existing policy contracts | canonical `TargetPolicy` for exact host/scheme/method/authorization/budget plus exact-preview and target-identity binding for path prefixes; guided subdomain broadening disabled pending PSL validation |
 | Display inclusions, exclusions, rate limits and prohibited actions | deterministic setup preview |
-| Reject ambiguous wildcard/domain/port mappings fail-closed | pre-parser raw origin grammar + parsed public-DNS/HTTPS/443 validation + path-scope contradiction checks |
+| Reject ambiguous wildcard/domain/port mappings fail-closed | pre-parser raw origin grammar + parsed public-DNS/HTTPS/443 validation + exact-host-only subdomain contract + path-scope contradiction checks |
 | Create target without hand-editing TOML/JSON | exact-preview `activate` / `activate-import` |
 
 NXB-154 must build on the admitted NXB-153 target identity and authorization boundary rather than bypassing it. Any later request/session execution must enforce the path rules from the target profile in addition to the compiled `TargetPolicy` host/method boundary.
