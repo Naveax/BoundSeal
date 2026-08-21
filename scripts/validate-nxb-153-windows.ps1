@@ -16,6 +16,7 @@ $denyPath = Join-Path $toolsBin 'cargo-deny.exe'
 $focusedTests = @(
     'target_setup_cli',
     'target_activation_cli',
+    'target_activation_recovery_cli',
     'target_guided_artifact_cli',
     'target_import_cli',
     'target_import_failclosed_cli',
