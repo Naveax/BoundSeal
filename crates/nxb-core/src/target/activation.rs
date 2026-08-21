@@ -115,29 +115,19 @@ pub(super) fn activate_value(
         bail!("activated target policy digest does not match the confirmed preview policy");
     }
 
-    let profile_identity_sha256 = value
-        .get("identity_sha256")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow::anyhow!("activated target profile is missing its identity digest"))?;
-    workspace::validate_sha(profile_identity_sha256, "activated target identity SHA-256")?;
-
-    let artifact = GuidedActivationArtifact {
-        artifact_version: GUIDED_ACTIVATION_ARTIFACT_VERSION,
-        target_id: &identity.target_id,
-        profile_identity_sha256,
-        preview: &build.preview,
-        policy_document: &build.policy.document,
-        created_at: workspace::now(),
-        network_activity: "none",
+    let artifact_sha256 = match publish_guided_artifact(
+        &artifact_path,
+        &identity.target_id,
+        &value,
+        &build.preview,
+        &build.policy.document,
+    ) {
+        Ok(sha256) => sha256,
+        Err(error) => {
+            rollback_profile(&root, &identity.target_id, Some(&artifact_path))?;
+            bail!("guided target activation continuity publication failed: {error:#}");
+        }
     };
-    let artifact_bytes = canonical_json(&artifact)?;
-
-    if let Err(error) = workspace::create_document(&artifact_path, &artifact_bytes) {
-        rollback_profile(&root, &identity.target_id, Some(&artifact_path))?;
-        bail!("guided target activation metadata publication failed: {error:#}");
-    }
-
-    let artifact_sha256 = workspace::sha256(&artifact_bytes);
 
     value["activation"] = serde_json::json!({
         "confirmation": "exact_preview",
@@ -150,6 +140,33 @@ pub(super) fn activate_value(
     });
 
     Ok(value)
+}
+
+fn publish_guided_artifact(
+    artifact_path: &Path,
+    target_id: &str,
+    activated_profile: &Value,
+    preview: &SetupPreview,
+    policy_document: &str,
+) -> Result<String> {
+    let profile_identity_sha256 = activated_profile
+        .get("identity_sha256")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("activated target profile is missing its identity digest"))?;
+    workspace::validate_sha(profile_identity_sha256, "activated target identity SHA-256")?;
+
+    let artifact = GuidedActivationArtifact {
+        artifact_version: GUIDED_ACTIVATION_ARTIFACT_VERSION,
+        target_id,
+        profile_identity_sha256,
+        preview,
+        policy_document,
+        created_at: workspace::now(),
+        network_activity: "none",
+    };
+    let artifact_bytes = canonical_json(&artifact)?;
+    workspace::create_document(artifact_path, &artifact_bytes)?;
+    Ok(workspace::sha256(&artifact_bytes))
 }
 
 fn rollback_profile(root: &Path, target_id: &str, artifact_path: Option<&Path>) -> Result<()> {
