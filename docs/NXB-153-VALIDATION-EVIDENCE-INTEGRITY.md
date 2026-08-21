@@ -4,7 +4,7 @@
 
 This document records the source-staged integrity contract for NXB-153 exact-head validation evidence. It does **not** claim that the current feature head has passed Rust, Linux or Windows validation.
 
-The purpose is to prevent a rerun, concurrent reviewer or stale preparation step from silently rewriting evidence that was already associated with an exact Git head, while also making the evidence publication boundary explicit about mutation ordering and durability.
+The purpose is to prevent a rerun, concurrent reviewer or stale preparation step from silently rewriting evidence that was already associated with an exact Git head, while also making the evidence publication boundary explicit about mutation ordering, repository-authority drift and durability.
 
 ## Exact-head artifact classes
 
@@ -63,7 +63,7 @@ Before the hard-link claim the temporary evidence file is `fsync`'d. After claim
 
 ### Dual-platform closure
 
-`review-nxb-153-evidence-linux.sh` is a thin wrapper over `review-nxb-153-evidence-linux.py`.
+The canonical Linux entrypoint is `review-nxb-153-evidence-linux.sh`; it invokes the stdlib-only `review-nxb-153-evidence-linux.py` implementation.
 
 The Python reviewer:
 
@@ -76,6 +76,10 @@ The Python reviewer:
 - if another process wins the closure-name race, accepts the existing closure only when its parsed deterministic value is exactly equal;
 - never uses overwrite-capable `os.replace()` for the canonical closure pathname;
 - never performs path-based deletion of a partially visible closure after a write failure.
+
+The shell entrypoint adds a repository-authority guard around that implementation. It captures the clean exact Git head and canonical Cargo.lock SHA-256 before review, runs the reviewer, then requires the final head, clean worktree and Cargo.lock bytes to remain exactly unchanged. If another agent moves the branch or mutates the worktree/lockfile during review, the guarded command fails and any newly visible closure is explicitly treated as requiring recovery/review rather than as a successful current-authority admission artifact.
+
+The current Linux guarded wrapper passes a local `bash -n` syntax check. That is script syntax evidence only, not Rust/platform validation.
 
 ## Windows publication contract
 
@@ -93,11 +97,15 @@ When validation is genuinely needed, final exact-head Windows evidence is publis
 
 ### Dual-platform closure
 
-`review-nxb-153-evidence.ps1` creates a unique pending closure with `FileMode.CreateNew` and moves it to the canonical closure pathname without `-Force`. An existing canonical closure therefore remains a no-overwrite condition; a racing or stale pending file requires explicit recovery rather than silent replacement.
+The canonical Windows entrypoint is `review-nxb-153-evidence-windows.ps1`. It captures the initial clean exact head and Cargo.lock SHA-256, invokes `review-nxb-153-evidence.ps1` as the closure implementation, then rechecks the final head, worktree and lock bytes.
+
+The implementation creates a unique pending closure with `FileMode.CreateNew` and moves it to the canonical closure pathname without `-Force`. An existing canonical closure therefore remains a no-overwrite condition; a racing or stale pending file requires explicit recovery rather than silent replacement.
+
+If repository authority changes while the implementation is running, the guarded Windows entrypoint fails after the implementation returns and explicitly marks any newly published closure as requiring recovery/review. The current execution environment has no PowerShell parser/runtime, so this guarded entrypoint is source-staged only and has **no claimed PowerShell PASS**.
 
 Windows directory-entry durability remains a platform-validation concern rather than a source-only claim; the real Windows Rust/PowerShell validation pass must verify the supported filesystem behavior before admission.
 
-## Immutability and reruns
+## Immutability, authority and reruns
 
 The exact-head artifact name is part of the evidence identity. Re-running a preparation, validator or closure operation must not silently mutate an existing canonical artifact merely to obtain a fresh timestamp or replace earlier bytes.
 
@@ -106,8 +114,9 @@ If a canonical receipt/evidence/closure already exists:
 - preparation checks the receipt before shared tool mutation;
 - validators stop before repeating expensive gates when platform evidence already exists;
 - normal reviewers verify or reject existing evidence according to their contract;
+- guarded closure entrypoints additionally require repository head/worktree/Cargo.lock authority to remain unchanged across the whole review command;
 - preparation/validation does not overwrite canonical artifacts;
-- conflicting, stale-lock or partial state requires explicit inspection/recovery;
+- conflicting, stale-lock, repository-drift or partial state requires explicit inspection/recovery;
 - no GitHub Actions rerun is used as a substitute for evidence recovery.
 
 This keeps historical validation evidence attributable to the exact bytes that first claimed its exact-head path instead of turning that path into a mutable status file, and it prevents repeated tool/test work from being used as an accidental polling mechanism.
@@ -116,4 +125,4 @@ This keeps historical validation evidence attributable to the exact bytes that f
 
 The Linux shell scripts have source-level shell syntax checks available, and the Python reviewer is stdlib-only. These checks are not substitutes for the required repository validation gates.
 
-The exact final NXB-153 head still requires real Rust 1.97.1 validation on Linux and Windows, including fmt, check, Clippy, unit/focused/full-workspace tests, RustSec, cargo-deny, filesystem behavior and same-head evidence closure. PR #89 must remain draft/not admitted until those gates and blocker review complete.
+The exact final NXB-153 head still requires real Rust 1.97.1 validation on Linux and Windows, including fmt, check, Clippy, unit/focused/full-workspace tests, RustSec, cargo-deny, filesystem behavior, guarded same-head evidence closure and blocker review. PR #89 must remain draft/not admitted until those gates complete.
