@@ -96,7 +96,7 @@ cat > "$receipt_path" <<JSON
   "cargo_deny": "$deny_version",
   "cargo_deny_sha256": "$deny_sha256",
   "tools_root": "target/nxb-tools",
-  "network_activity": "rustup_and_crates_io_fresh_locked_tool_installation_only",
+  "network_activity": "rustup_and_crates_io_tool_installation_only",
   "prepared_at": "$prepared_at"
 }
 JSON
