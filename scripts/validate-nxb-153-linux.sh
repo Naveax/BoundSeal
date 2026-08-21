@@ -44,7 +44,7 @@ tool_version() {
     local expected="$2"
     local label="$3"
     [[ -x "$path" ]] ||
-        fail "$label is unavailable at $path; prepare the pinned NXB validation tools first"
+        fail "$label is unavailable at $path; run scripts/prepare-and-validate-nxb-153-linux.sh first"
     local value
     value="$($path --version)" || fail "$label version could not be resolved"
     printf '%s\n' "$value" | grep -Eq "(^|[[:space:]])${expected}($|[[:space:]])" ||
@@ -55,6 +55,7 @@ tool_version() {
 command -v git >/dev/null 2>&1 || fail 'git is unavailable'
 command -v rustup >/dev/null 2>&1 || fail 'rustup is unavailable'
 command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is unavailable'
+command -v python3 >/dev/null 2>&1 || fail 'python3 is unavailable for tooling-receipt verification'
 
 head_sha="$(git rev-parse HEAD)"
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'exact Git HEAD could not be resolved'
@@ -69,6 +70,97 @@ audit_version="$(tool_version "$audit_path" "$cargo_audit_version" 'cargo-audit'
 deny_version="$(tool_version "$deny_path" "$cargo_deny_version" 'cargo-deny')"
 audit_sha256="$(sha256sum "$audit_path" | awk '{print $1}')"
 deny_sha256="$(sha256sum "$deny_path" | awk '{print $1}')"
+
+validation_directory="$repo_root/target/nxb-validation"
+receipt_path="$validation_directory/nxb-153-tooling-linux-$head_sha.json"
+[[ -f "$receipt_path" ]] ||
+    fail "exact-head tooling receipt is missing; run scripts/prepare-and-validate-nxb-153-linux.sh first"
+receipt_sha256="$(sha256sum "$receipt_path" | awk '{print $1}')"
+
+python3 - \
+    "$receipt_path" \
+    "$head_sha" \
+    "$rustc_version" \
+    "$audit_version" \
+    "$audit_sha256" \
+    "$deny_version" \
+    "$deny_sha256" <<'PY'
+import datetime as dt
+import json
+import os
+import pathlib
+import stat
+import sys
+
+(
+    receipt_text,
+    head_sha,
+    rustc_version,
+    audit_version,
+    audit_sha256,
+    deny_version,
+    deny_sha256,
+) = sys.argv[1:]
+path = pathlib.Path(receipt_text)
+try:
+    metadata = path.lstat()
+except FileNotFoundError:
+    raise SystemExit("tooling receipt disappeared during validation")
+if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+    raise SystemExit("tooling receipt must be a regular non-symlink file")
+if metadata.st_size <= 0 or metadata.st_size > 65536:
+    raise SystemExit("tooling receipt size is invalid")
+try:
+    receipt = json.loads(path.read_bytes().decode("utf-8", errors="strict"))
+except (UnicodeDecodeError, json.JSONDecodeError) as error:
+    raise SystemExit(f"tooling receipt is invalid UTF-8 JSON: {error}")
+expected_fields = {
+    "schema_version",
+    "milestone",
+    "gate",
+    "platform",
+    "head_sha",
+    "rust_toolchain",
+    "cargo_audit",
+    "cargo_audit_sha256",
+    "cargo_deny",
+    "cargo_deny_sha256",
+    "tools_root",
+    "network_activity",
+    "prepared_at",
+}
+if not isinstance(receipt, dict) or set(receipt) != expected_fields:
+    raise SystemExit("tooling receipt fields do not match the NXB-153 bootstrap contract")
+expected = {
+    "schema_version": 1,
+    "milestone": "NXB-153",
+    "gate": "validation_tool_bootstrap",
+    "platform": "linux",
+    "head_sha": head_sha,
+    "rust_toolchain": rustc_version,
+    "cargo_audit": audit_version,
+    "cargo_audit_sha256": audit_sha256,
+    "cargo_deny": deny_version,
+    "cargo_deny_sha256": deny_sha256,
+    "tools_root": "target/nxb-tools",
+    "network_activity": "rustup_and_crates_io_tool_installation_only",
+}
+for field, value in expected.items():
+    if receipt.get(field) != value:
+        raise SystemExit(f"tooling receipt mismatch for {field}")
+for field in ("cargo_audit_sha256", "cargo_deny_sha256"):
+    value = receipt[field]
+    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+        raise SystemExit(f"tooling receipt {field} is not a lowercase SHA-256")
+try:
+    prepared_at = dt.datetime.strptime(receipt["prepared_at"], "%Y-%m-%dT%H:%M:%SZ").replace(
+        tzinfo=dt.timezone.utc
+    )
+except (TypeError, ValueError) as error:
+    raise SystemExit(f"tooling receipt prepared_at is invalid: {error}")
+if prepared_at > dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=5):
+    raise SystemExit("tooling receipt prepared_at is unreasonably in the future")
+PY
 
 [[ -f Cargo.lock ]] || fail 'Cargo.lock is missing'
 lock_sha256="$(sha256sum Cargo.lock | awk '{print $1}')"
@@ -112,7 +204,13 @@ final_head="$(git rev-parse HEAD)"
 [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]] ||
     fail 'working tree changed during validation'
 
-validation_directory="$repo_root/target/nxb-validation"
+final_audit_sha256="$(sha256sum "$audit_path" | awk '{print $1}')"
+final_deny_sha256="$(sha256sum "$deny_path" | awk '{print $1}')"
+[[ "$final_audit_sha256" == "$audit_sha256" ]] || fail 'cargo-audit bytes changed during validation'
+[[ "$final_deny_sha256" == "$deny_sha256" ]] || fail 'cargo-deny bytes changed during validation'
+final_receipt_sha256="$(sha256sum "$receipt_path" | awk '{print $1}')"
+[[ "$final_receipt_sha256" == "$receipt_sha256" ]] || fail 'tooling receipt changed during validation'
+
 mkdir -p "$validation_directory"
 evidence_path="$validation_directory/nxb-153-linux-$head_sha.json"
 validated_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
@@ -134,6 +232,9 @@ cat > "$evidence_path" <<JSON
   "cargo_audit_sha256": "$audit_sha256",
   "cargo_deny": "$deny_json",
   "cargo_deny_sha256": "$deny_sha256",
+  "tooling_receipt": "target/nxb-validation/nxb-153-tooling-linux-$head_sha.json",
+  "tooling_receipt_sha256": "$receipt_sha256",
+  "tooling_receipt_verified": true,
   "cargo_lock_sha256": "$lock_sha256",
   "cargo_lock_expected_sha256": "$expected_lock_sha256",
   "lockfile_pinned_and_unchanged": true,
@@ -153,4 +254,5 @@ JSON
 printf 'NXB-153 Linux validation passed.\n'
 printf 'HEAD: %s\n' "$head_sha"
 printf 'Cargo.lock SHA-256: %s\n' "$lock_sha256"
+printf 'Tooling receipt SHA-256: %s\n' "$receipt_sha256"
 printf 'Evidence: %s\n' "$evidence_path"
