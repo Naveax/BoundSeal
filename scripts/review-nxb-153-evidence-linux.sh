@@ -24,10 +24,10 @@ initial_lock_sha256="$(sha256sum Cargo.lock | awk '{print $1}')"
 [[ "$initial_lock_sha256" == "$expected_lock_sha256" ]] ||
     fail "Cargo.lock SHA-256 mismatch before evidence review: expected $expected_lock_sha256, found $initial_lock_sha256"
 
-python3 \
+review_output="$(python3 \
     "$repo_root/scripts/review-nxb-153-evidence-linux.py" \
     "$repo_root" \
-    "$evidence_directory"
+    "$evidence_directory")"
 
 final_head="$(git rev-parse HEAD)"
 [[ "$final_head" == "$initial_head" ]] ||
@@ -38,6 +38,9 @@ final_lock_sha256="$(sha256sum Cargo.lock | awk '{print $1}')"
 [[ "$final_lock_sha256" == "$initial_lock_sha256" ]] ||
     fail 'Cargo.lock bytes changed during evidence review; any newly published closure requires explicit recovery/review'
 
+if [[ -n "$review_output" ]]; then
+    printf '%s\n' "$review_output"
+fi
 printf 'NXB-153 guarded Linux closure authority remained stable.\n'
 printf 'HEAD: %s\n' "$initial_head"
 printf 'Cargo.lock SHA-256: %s\n' "$initial_lock_sha256"
