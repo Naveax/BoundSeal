@@ -510,10 +510,13 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         workspace::set_private_directory_permissions(&root).unwrap();
         let artifact_path = root.join("target-example-app.guided-activation.json");
-        let preview = preview_with_paths(vec!["/api".to_owned()], vec!["/api/logout".to_owned()]);
+        let policy_document = "schema_version = 1\n";
+        let mut preview =
+            preview_with_paths(vec!["/api".to_owned()], vec!["/api/logout".to_owned()]);
+        preview.identity.policy.policy_document_sha256 =
+            workspace::sha256(policy_document.as_bytes());
         let created_at = "2026-08-21T11:00:00Z";
         let profile = prospective_profile(&preview.identity, created_at).unwrap();
-        let policy_document = "schema_version = 1\n";
         let artifact = GuidedActivationArtifact {
             artifact_version: GUIDED_ACTIVATION_ARTIFACT_VERSION,
             target_id: &preview.identity.target_id,
