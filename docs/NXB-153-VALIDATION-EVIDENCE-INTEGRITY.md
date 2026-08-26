@@ -111,27 +111,32 @@ The canonical Windows closure entrypoint is:
 
 `scripts/review-nxb-153-evidence-windows.ps1`
 
-Before invoking the existing semantic closure implementation, the wrapper now uses native Win32 handles through `CreateFileW` and `GetFinalPathNameByHandleW`.
+Before invoking the semantic closure implementation, the wrapper uses native Win32 handles through `CreateFileW` and `GetFinalPathNameByHandleW`.
 
 It pins and retains handles for:
 
 - repository root;
 - Cargo.lock;
+- the semantic evidence-reviewer script;
 - evidence directory;
 - exact-head Windows platform evidence;
 - exact-head Linux platform evidence;
 - exact-head Windows tooling receipt;
-- exact-head Linux tooling receipt.
+- exact-head Linux tooling receipt;
+- any pre-existing canonical closure, or the newly published canonical closure immediately after the inner review returns.
 
 The source-staged Windows contract is:
 
 - repository/evidence directories are opened with `FILE_FLAG_BACKUP_SEMANTICS`;
 - directory handles allow read/write sharing but intentionally omit delete sharing so rename/delete requests remain blocked while review is active;
-- evidence/receipt/Cargo.lock handles allow read sharing only, withholding write/delete sharing while the inner reviewer consumes them;
+- evidence/receipt/Cargo.lock/reviewer/closure file handles allow read sharing only, withholding write/delete sharing while review is active;
 - `GetFinalPathNameByHandleW` retrieves the normalized path of the object actually opened;
 - the resolved handle path must equal the expected absolute path case-insensitively, so a pre-existing junction/symlink/reparse redirection is rejected rather than silently trusted;
-- pinned handles stay alive for the complete semantic review and final repository-authority recheck;
-- inner reviewer output remains buffered until final HEAD/worktree/Cargo.lock equality succeeds.
+- pinned input handles stay alive for the complete semantic review and final repository-authority recheck;
+- after the first semantic review publishes or accepts the closure, the wrapper pins the canonical closure object and runs the semantic review again while that exact object is locked;
+- if a pathname substitution occurred between inner publication and the outer closure open, the second review validates the exact substituted object rather than trusting the earlier pathname result;
+- the canonical closure handle remains pinned through the final HEAD/worktree/Cargo.lock checks;
+- inner reviewer output remains buffered until final authority equality succeeds.
 
 Microsoft's CreateFile contract defines share modes as lasting for the lifetime of the handle, and omitting `FILE_SHARE_DELETE` prevents subsequent opens requesting delete access; Windows delete access includes rename. `FILE_FLAG_BACKUP_SEMANTICS` is the required CreateFile mode for obtaining a directory handle. `GetFinalPathNameByHandleW` returns the final normalized path for the opened file/directory handle. These semantics are relied on by the source staging but **must still be exercised on real supported Windows before admission**.
 
@@ -139,16 +144,17 @@ The current execution environment has no PowerShell runtime/parser, so no PowerS
 
 ### Closure publication
 
-The Windows semantic reviewer now publishes directly to the canonical closure pathname with `.NET FileMode.CreateNew`; it no longer closes a pending file and then performs a pathname-based move.
+The Windows semantic reviewer publishes directly to the canonical closure pathname with `.NET FileMode.CreateNew`; it no longer closes a pending file and then performs a pathname-based move.
 
 - the canonical destination is claimed create-only, so a pre-existing or racing destination is never overwritten;
 - one `FileStream` remains open with `FileShare.None` while deterministic bytes are written and `Flush(true)` completes;
 - the same open handle is rewound and read back completely before success;
 - read-back bytes must exactly equal the deterministic canonical closure representation and must contain no trailing bytes;
 - closure bytes are bounded by the shared 65,536-byte evidence envelope;
-- once create-new succeeds, any write/flush/read-back failure leaves the visible canonical path for explicit recovery rather than deleting it by pathname.
+- once create-new succeeds, any write/flush/read-back failure leaves the visible canonical path for explicit recovery rather than deleting it by pathname;
+- after the inner publisher closes its stream, the outer wrapper reopens the canonical closure with write/delete sharing withheld, re-runs semantic review against that pinned object and retains the handle until final authority checks finish.
 
-This removes the earlier close-pending-then-`Move-Item` object-substitution window. Windows directory-entry durability remains a real-platform validation concern.
+This removes the earlier close-pending-then-`Move-Item` object-substitution window and prevents the canonical closure from being modified or renamed between semantic acceptance and guarded success output. Windows directory-entry durability remains a real-platform validation concern.
 
 ## Immutability and recovery
 
