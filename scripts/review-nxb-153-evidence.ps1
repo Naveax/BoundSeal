@@ -322,7 +322,6 @@ try {
     }
 
     $closurePath = Join-Path $EvidenceDirectory "nxb-153-closure-$headSha.json"
-    $pendingPath = "$closurePath.pending"
     Assert-NoReparseComponents -Path $closurePath -Label 'closure evidence'
     if (Test-Path -LiteralPath $closurePath) {
         $existing = Read-StrictJsonRecord -Path $closurePath -Label 'existing closure evidence'
@@ -332,26 +331,45 @@ try {
             throw 'Existing closure evidence differs from deterministic review result.'
         }
     } else {
-        Assert-NoReparseComponents -Path $pendingPath -Label 'pending closure evidence'
-        if (Test-Path -LiteralPath $pendingPath) {
-            throw 'Pending closure evidence already exists; manual recovery is required.'
-        }
         $json = $closure | ConvertTo-Json -Depth 24
         $bytes = [Text.UTF8Encoding]::new($false).GetBytes($json + [Environment]::NewLine)
+        if ($bytes.Length -le 0 -or $bytes.Length -gt $maximumEvidenceBytes) {
+            throw 'Canonical closure evidence size is invalid.'
+        }
+
         $stream = [IO.File]::Open(
-            $pendingPath,
+            $closurePath,
             [IO.FileMode]::CreateNew,
-            [IO.FileAccess]::Write,
+            [IO.FileAccess]::ReadWrite,
             [IO.FileShare]::None
         )
         try {
             $stream.Write($bytes, 0, $bytes.Length)
             $stream.Flush($true)
+            $stream.Position = 0
+
+            $persisted = [byte[]]::new($bytes.Length)
+            $offset = 0
+            while ($offset -lt $persisted.Length) {
+                $read = $stream.Read($persisted, $offset, $persisted.Length - $offset)
+                if ($read -le 0) {
+                    throw 'Published closure evidence could not be read back completely from its create-new handle.'
+                }
+                $offset += $read
+            }
+            if ($stream.ReadByte() -ne -1) {
+                throw 'Published closure evidence grew beyond the deterministic canonical bytes.'
+            }
+            if ([Convert]::ToBase64String($persisted) -cne [Convert]::ToBase64String($bytes)) {
+                throw 'Published closure evidence bytes differ from the deterministic canonical review result.'
+            }
         }
         finally {
+            # Once FileMode.CreateNew succeeds the canonical destination is visible. Never
+            # path-delete it after a write/flush/read-back failure; explicit recovery owns
+            # any partial state.
             $stream.Dispose()
         }
-        Move-Item -LiteralPath $pendingPath -Destination $closurePath
     }
 
     Write-Host 'NXB-153 dual-platform evidence closure passed.'
