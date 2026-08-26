@@ -85,6 +85,15 @@ tool_version() {
     printf '%s' "$value"
 }
 
+validation_lock_directory=''
+validation_lock_claimed=false
+cleanup_validation_lock() {
+    if [[ "$validation_lock_claimed" == true && -n "$validation_lock_directory" ]]; then
+        rmdir "$validation_lock_directory" 2>/dev/null || true
+    fi
+}
+trap cleanup_validation_lock EXIT
+
 command -v git >/dev/null 2>&1 || fail 'git is unavailable'
 command -v rustup >/dev/null 2>&1 || fail 'rustup is unavailable'
 command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is unavailable'
@@ -94,9 +103,23 @@ head_sha="$(git rev-parse HEAD)"
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'exact Git HEAD could not be resolved'
 [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]] || fail 'working tree must be clean'
 validation_directory="$repo_root/target/nxb-validation"
+mkdir -p "$validation_directory"
 evidence_path="$validation_directory/nxb-153-linux-$head_sha.json"
 if [[ -e "$evidence_path" ]]; then
     fail "exact-head Linux validation evidence already exists; validation gates were not rerun: $evidence_path; use the evidence reviewer or perform explicit recovery"
+fi
+
+validation_lock_directory="$validation_directory/.nxb-153-validation-linux-$head_sha.lock"
+if ! mkdir "$validation_lock_directory" 2>/dev/null; then
+    if [[ -e "$evidence_path" ]]; then
+        fail "exact-head Linux validation evidence appeared before lock acquisition; validation gates were not rerun: $evidence_path"
+    fi
+    fail "exact-head Linux validation is already in progress or requires explicit stale-lock recovery: $validation_lock_directory"
+fi
+validation_lock_claimed=true
+fsync_directory "$validation_directory" || fail 'could not sync validation directory after exact-head validation lock claim'
+if [[ -e "$evidence_path" ]]; then
+    fail "exact-head Linux validation evidence appeared while claiming the validation lock; heavy validation was not started: $evidence_path"
 fi
 
 rustc_version="$(rustup run "$rust_toolchain" rustc --version)" ||
@@ -247,7 +270,6 @@ final_deny_sha256="$(sha256sum "$deny_path" | awk '{print $1}')"
 final_receipt_sha256="$(sha256sum "$receipt_path" | awk '{print $1}')"
 [[ "$final_receipt_sha256" == "$receipt_sha256" ]] || fail 'tooling receipt changed during validation'
 
-mkdir -p "$validation_directory"
 validated_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 rustc_json="$(json_escape "$rustc_version")"
 cargo_json="$(json_escape "$cargo_version")"
@@ -308,6 +330,11 @@ else
     fi
     fail 'could not create-only claim exact-head Linux validation evidence'
 fi
+
+rmdir "$validation_lock_directory" || fail 'could not release exact-head Linux validation lock after evidence publication'
+validation_lock_claimed=false
+fsync_directory "$validation_directory" || fail 'could not sync validation directory after exact-head validation lock release'
+trap - EXIT
 
 printf 'NXB-153 Linux validation passed.\n'
 printf 'HEAD: %s\n' "$head_sha"
