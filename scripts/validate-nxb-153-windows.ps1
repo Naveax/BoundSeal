@@ -165,12 +165,16 @@ function Assert-ToolingReceipt {
     }
 }
 
+$validationLockStream = $null
 Push-Location $RepoRoot
 try {
     foreach ($command in @('git', 'rustup')) {
         if ($null -eq (Get-Command $command -ErrorAction SilentlyContinue)) {
             throw "$command is unavailable."
         }
+    }
+    if (-not $IsWindows) {
+        throw 'The Windows NXB-153 validator must run on Windows.'
     }
 
     $headSha = (git rev-parse HEAD).Trim()
@@ -183,9 +187,38 @@ try {
     }
 
     $validationDirectory = Join-Path $RepoRoot 'target\nxb-validation'
+    New-Item -ItemType Directory -Path $validationDirectory -Force | Out-Null
     $evidencePath = Join-Path $validationDirectory "nxb-153-windows-$headSha.json"
     if (Test-Path -LiteralPath $evidencePath) {
         throw "Exact-head Windows validation evidence already exists; validation gates were not rerun: $evidencePath. Use the evidence reviewer or perform explicit recovery."
+    }
+
+    $validationLockPath = Join-Path $validationDirectory ".nxb-153-validation-windows-$headSha.lock"
+    try {
+        $validationLockStream = [IO.FileStream]::new(
+            $validationLockPath,
+            [IO.FileMode]::CreateNew,
+            [IO.FileAccess]::ReadWrite,
+            [IO.FileShare]::None,
+            4096,
+            [IO.FileOptions]::DeleteOnClose
+        )
+    }
+    catch [IO.IOException] {
+        if (Test-Path -LiteralPath $evidencePath) {
+            throw "Exact-head Windows validation evidence appeared before lock acquisition; validation gates were not rerun: $evidencePath"
+        }
+        if (Test-Path -LiteralPath $validationLockPath) {
+            throw "Exact-head Windows validation is already in progress or requires explicit stale-lock recovery: $validationLockPath"
+        }
+        throw
+    }
+    $validationLockBytes = [Text.UTF8Encoding]::new($false).GetBytes("$headSha`n")
+    $validationLockStream.Write($validationLockBytes, 0, $validationLockBytes.Length)
+    $validationLockStream.Flush($true)
+
+    if (Test-Path -LiteralPath $evidencePath) {
+        throw "Exact-head Windows validation evidence appeared while claiming the validation lock; heavy validation was not started: $evidencePath"
     }
 
     $rustcVersion = (& rustup run $rustToolchain rustc --version | Out-String).Trim()
@@ -330,7 +363,6 @@ try {
         throw 'Tooling receipt changed during validation.'
     }
 
-    New-Item -ItemType Directory -Path $validationDirectory -Force | Out-Null
     $evidence = [ordered]@{
         schema_version = 1
         milestone = 'NXB-153'
@@ -395,5 +427,8 @@ try {
     Write-Host "Evidence: $evidencePath"
 }
 finally {
+    if ($null -ne $validationLockStream) {
+        $validationLockStream.Dispose()
+    }
     Pop-Location
 }
