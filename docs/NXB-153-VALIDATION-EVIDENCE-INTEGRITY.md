@@ -35,9 +35,25 @@ Linux uses an atomic `mkdir` lock directory plus evidence-directory sync around 
 
 ## Duplicate validation suppression
 
-Both platform validators resolve the exact clean head and then check whether canonical platform evidence for that head already exists.
+A simple "evidence does not exist yet" preflight is not sufficient to suppress duplicate expensive work: two validators can pass the same absence check before either publishes evidence. NXB-153 therefore serializes the heavy validation phase per platform and exact Git head.
 
-If it exists, validation fails **before** Rust/tool version resolution, fmt, check, Clippy, tests, RustSec or cargo-deny are rerun. Existing evidence must be reviewed or explicitly recovered instead of turning validation into a polling loop.
+Both validators now enforce this order:
+
+1. resolve the exact clean head and canonical platform-evidence path;
+2. fail immediately if exact-head platform evidence already exists;
+3. claim a platform + exact-head validation lock **before** resolving the Rust/tool versions or starting Cargo gates;
+4. after lock ownership, recheck the evidence path before any expensive validation begins;
+5. keep the lock for the complete fmt/check/Clippy/test/RustSec/cargo-deny and evidence-publication lifecycle;
+6. publish the canonical evidence create-only;
+7. release the validation lock only after evidence finalization.
+
+Windows uses a create-new `FileStream` with `FileShare.None` and `FileOptions.DeleteOnClose`, retained for the complete validation lifetime. A competing same-head Windows validator therefore fails before Cargo execution; closing the exact lock handle removes its own lock object rather than using a pathname cleanup step.
+
+Linux uses an atomic same-directory `mkdir` lock for the platform + exact head, synchronizes the evidence directory after lock claim, retains the directory for the heavy validation lifetime and removes it only after create-only evidence publication. A competing same-head Linux validator fails before Cargo execution. Failed runs use the exit trap for bounded empty-directory cleanup; an unreleasable lock becomes explicit recovery state rather than permission to start another validation.
+
+The locks are platform-specific by design: one Linux and one Windows validator for the same head may proceed independently because both platform evidence artifacts are required, while duplicate validators for the same platform/head are suppressed.
+
+Existing canonical evidence remains authoritative for duplicate suppression. Validation is never repeated merely to refresh timestamps or as a polling mechanism.
 
 ## Linux publication contract
 
@@ -103,7 +119,7 @@ If repository authority changes during review, the command fails and any newly v
 
 ### Tooling receipt and platform evidence
 
-Windows tooling receipt and validation evidence use `.NET FileMode.CreateNew` and `Flush(true)`. Existing canonical evidence prevents the heavy validation gates from being repeated for the same exact head.
+Windows tooling receipt and validation evidence use `.NET FileMode.CreateNew` and `Flush(true)`. Existing canonical evidence prevents the heavy validation gates from being repeated for the same exact head; the exact-head validation lock additionally closes the concurrent-start race before heavy gates begin.
 
 ### Handle-pinned evidence review — #98
 
@@ -162,15 +178,16 @@ If a canonical receipt/evidence/closure already exists:
 
 - preparation does not mutate shared tools before detecting the existing receipt;
 - validation does not repeat expensive gates merely to refresh evidence;
+- same-platform same-head validation attempts are serialized before the expensive gate sequence;
 - reviewers verify or reject existing canonical content;
 - exact-head artifact bytes are not overwritten to obtain a new timestamp;
-- stale preparation locks, conflicting evidence, repository drift, pathname/object mismatch or partial closure state require explicit recovery;
+- stale preparation/validation locks, conflicting evidence, repository drift, pathname/object mismatch or partial closure state require explicit recovery;
 - no GitHub Actions rerun is used as polling or evidence recovery.
 
 ## Current admission boundary
 
 Issues #90–#98 remain open until their source-staged filesystem/evidence contracts receive the required exact-head platform execution.
 
-The exact final NXB-153 head still requires real Rust 1.97.1 Linux + Windows validation covering fmt, check, Clippy, unit/focused/full-workspace tests, RustSec, cargo-deny, filesystem publication behavior, Linux descriptor anchoring, Windows handle pinning, guarded same-head dual-platform closure and final blocker review.
+The exact final NXB-153 head still requires real Rust 1.97.1 Linux + Windows validation covering fmt, check, Clippy, unit/focused/full-workspace tests, RustSec, cargo-deny, validation-lock concurrency behavior, filesystem publication behavior, Linux descriptor anchoring, Windows handle pinning, guarded same-head dual-platform closure and final blocker review.
 
 PR #89 remains draft/not admitted and NXB-154 must not use this branch as an implementation base until those gates complete.
