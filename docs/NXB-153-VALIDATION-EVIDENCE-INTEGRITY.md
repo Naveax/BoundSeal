@@ -139,9 +139,16 @@ The current execution environment has no PowerShell runtime/parser, so no PowerS
 
 ### Closure publication
 
-The existing Windows semantic reviewer creates a unique pending closure with `FileMode.CreateNew` and moves it to the canonical closure pathname without `-Force`. Conflicting/racing state is not silently replaced.
+The Windows semantic reviewer now publishes directly to the canonical closure pathname with `.NET FileMode.CreateNew`; it no longer closes a pending file and then performs a pathname-based move.
 
-Windows directory-entry durability remains a real-platform validation concern.
+- the canonical destination is claimed create-only, so a pre-existing or racing destination is never overwritten;
+- one `FileStream` remains open with `FileShare.None` while deterministic bytes are written and `Flush(true)` completes;
+- the same open handle is rewound and read back completely before success;
+- read-back bytes must exactly equal the deterministic canonical closure representation and must contain no trailing bytes;
+- closure bytes are bounded by the shared 65,536-byte evidence envelope;
+- once create-new succeeds, any write/flush/read-back failure leaves the visible canonical path for explicit recovery rather than deleting it by pathname.
+
+This removes the earlier close-pending-then-`Move-Item` object-substitution window. Windows directory-entry durability remains a real-platform validation concern.
 
 ## Immutability and recovery
 
