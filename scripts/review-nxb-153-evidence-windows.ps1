@@ -169,6 +169,10 @@ try {
     $lockHandle = Open-NxbPinnedPath -Path $lockPath -Label 'Cargo.lock'
     $pinnedHandles.Add($lockHandle)
 
+    $reviewScript = Join-Path $PSScriptRoot 'review-nxb-153-evidence.ps1'
+    $reviewScriptHandle = Open-NxbPinnedPath -Path $reviewScript -Label 'semantic evidence reviewer'
+    $pinnedHandles.Add($reviewScriptHandle)
+
     $EvidenceDirectory = [IO.Path]::GetFullPath($EvidenceDirectory)
     $evidenceDirectoryHandle = Open-NxbPinnedPath `
         -Path $EvidenceDirectory `
@@ -191,7 +195,27 @@ try {
         throw "Cargo.lock SHA-256 mismatch before evidence review: expected $expectedLockSha256, found $initialLockSha256"
     }
 
-    $reviewOutput = (& (Join-Path $PSScriptRoot 'review-nxb-153-evidence.ps1') `
+    $closurePath = Join-Path $EvidenceDirectory "nxb-153-closure-$initialHead.json"
+    $closureHandle = $null
+    if (Test-Path -LiteralPath $closurePath -PathType Leaf) {
+        $closureHandle = Open-NxbPinnedPath -Path $closurePath -Label 'existing closure evidence'
+        $pinnedHandles.Add($closureHandle)
+    }
+
+    $reviewOutput = (& $reviewScript `
+        -RepoRoot $RepoRoot `
+        -EvidenceDirectory $EvidenceDirectory `
+        6>&1 | Out-String)
+
+    if ($null -eq $closureHandle) {
+        $closureHandle = Open-NxbPinnedPath -Path $closurePath -Label 'published closure evidence'
+        $pinnedHandles.Add($closureHandle)
+    }
+
+    # Re-run the inexpensive semantic closure review while the canonical closure is pinned.
+    # If another process substituted the path between inner publication and this open, this
+    # pass validates the exact object that remains locked through the final authority checks.
+    $null = (& $reviewScript `
         -RepoRoot $RepoRoot `
         -EvidenceDirectory $EvidenceDirectory `
         6>&1 | Out-String)
