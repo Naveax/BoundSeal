@@ -24,6 +24,65 @@ function Fail-NxbDependency {
     throw "NXB-153 Windows dependency source authority failed: $Message"
 }
 
+function Assert-NxbAmbientEnvironment {
+    $forbiddenExact = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in @(
+        'CARGO',
+        'CARGO_ENCODED_RUSTFLAGS',
+        'CARGO_ENCODED_RUSTDOCFLAGS',
+        'CARGO_HOME',
+        'CARGO_INCREMENTAL',
+        'CARGO_NET_OFFLINE',
+        'CARGO_TARGET_DIR',
+        'PYTHONHOME',
+        'PYTHONINSPECT',
+        'PYTHONPATH',
+        'PYTHONSTARTUP',
+        'RUSTC',
+        'RUSTC_BOOTSTRAP',
+        'RUSTC_WORKSPACE_WRAPPER',
+        'RUSTC_WRAPPER',
+        'RUSTDOC',
+        'RUSTDOCFLAGS',
+        'RUSTFLAGS'
+    )) {
+        [void]$forbiddenExact.Add($name)
+    }
+    $forbiddenPrefixes = @(
+        'CARGO_ALIAS_',
+        'CARGO_BUILD_',
+        'CARGO_NET_',
+        'CARGO_PROFILE_',
+        'CARGO_REGISTRIES_',
+        'CARGO_REGISTRY_',
+        'CARGO_SOURCE_',
+        'CARGO_TARGET_',
+        'RUSTC_',
+        'RUSTDOC_',
+        'RUSTUP_'
+    )
+    $collisions = [Collections.Generic.List[string]]::new()
+    foreach ($entry in [Environment]::GetEnvironmentVariables().Keys) {
+        $name = [string]$entry
+        $blocked = $forbiddenExact.Contains($name)
+        if (-not $blocked) {
+            foreach ($prefix in $forbiddenPrefixes) {
+                if ($name.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+                    $blocked = $true
+                    break
+                }
+            }
+        }
+        if ($blocked) {
+            $collisions.Add($name)
+        }
+    }
+    if ($collisions.Count -gt 0) {
+        $ordered = @($collisions | Sort-Object { $_.ToUpperInvariant() })
+        Fail-NxbDependency ('ambient Rust/Cargo/Python authority variables are not admitted: ' + ($ordered -join ', '))
+    }
+}
+
 function ConvertTo-NxbDependencyHex {
     param([Parameter(Mandatory = $true)][byte[]]$Bytes)
     return (($Bytes | ForEach-Object { $_.ToString('x2') }) -join '')
@@ -57,13 +116,13 @@ function Resolve-NxbPython {
     foreach ($candidate in @('python3', 'python')) {
         $command = Get-Command $candidate -CommandType Application -ErrorAction SilentlyContinue
         if ($null -ne $command) {
-            $version = (& $command.Source --version 2>&1 | Out-String).Trim()
+            $version = (& $command.Source -I --version 2>&1 | Out-String).Trim()
             if ($LASTEXITCODE -eq 0 -and $version -match '^Python 3\.(1[1-9]|[2-9][0-9])(?:\.|$)') {
                 return $command.Source
             }
         }
     }
-    Fail-NxbDependency 'Python 3.11 or newer is required for registry source authority verification'
+    Fail-NxbDependency 'Python 3.11 or newer with isolated-mode support is required for registry source authority verification'
 }
 
 function Invoke-NxbDependencyCargo {
@@ -96,7 +155,7 @@ function Invoke-NxbRegistryVerifier {
         [Parameter(Mandatory = $true)][string[]]$Arguments,
         [Parameter(Mandatory = $true)][string]$Label
     )
-    & $PythonPath $HelperPath @Arguments
+    & $PythonPath -I $HelperPath @Arguments
     if ($LASTEXITCODE -ne 0) {
         Fail-NxbDependency "$Label failed with exit code $LASTEXITCODE"
     }
@@ -119,6 +178,7 @@ function Invoke-NxbRegistryVerifierWithInput {
         $startInfo.RedirectStandardInput = $true
         $startInfo.RedirectStandardOutput = $true
         $startInfo.RedirectStandardError = $true
+        [void]$startInfo.ArgumentList.Add('-I')
         [void]$startInfo.ArgumentList.Add($HelperPath)
         foreach ($argument in $Arguments) {
             [void]$startInfo.ArgumentList.Add($argument)
@@ -127,7 +187,7 @@ function Invoke-NxbRegistryVerifierWithInput {
         $process = [Diagnostics.Process]::new()
         $process.StartInfo = $startInfo
         if (-not $process.Start()) {
-            Fail-NxbDependency "could not start registry verifier for $Label"
+            Fail-NxbDependency "could not start isolated registry verifier for $Label"
         }
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
@@ -338,6 +398,8 @@ function Assert-NxbDependencyDirectoryDenied {
         Fail-NxbDependency "dependency directory remained capable of creating a subdirectory: $Path"
     }
 }
+
+Assert-NxbAmbientEnvironment
 
 $SnapshotRoot = [IO.Path]::GetFullPath($SnapshotRoot)
 $RuntimeTarget = [IO.Path]::GetFullPath($RuntimeTarget)
