@@ -369,9 +369,7 @@ try {
             [IO.FileSystemRights]::Delete -bor
             [IO.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
             [IO.FileSystemRights]::WriteAttributes -bor
-            [IO.FileSystemRights]::WriteExtendedAttributes -bor
-            [IO.FileSystemRights]::ChangePermissions -bor
-            [IO.FileSystemRights]::TakeOwnership
+            [IO.FileSystemRights]::WriteExtendedAttributes
         $inheritance = [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit
         $propagation = [Security.AccessControl.PropagationFlags]::None
 
