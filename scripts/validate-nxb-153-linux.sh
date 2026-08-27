@@ -6,9 +6,6 @@ rust_toolchain="1.97.1"
 cargo_audit_version="0.22.2"
 cargo_deny_version="0.20.2"
 expected_lock_sha256="f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff"
-tools_bin="$repo_root/target/nxb-tools/bin"
-audit_path="$tools_bin/cargo-audit"
-deny_path="$tools_bin/cargo-deny"
 focused_tests=(
     target_setup_cli
     target_activation_cli
@@ -98,6 +95,7 @@ command -v git >/dev/null 2>&1 || fail 'git is unavailable'
 command -v rustup >/dev/null 2>&1 || fail 'rustup is unavailable'
 command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is unavailable'
 command -v python3 >/dev/null 2>&1 || fail 'python3 is unavailable for tooling-receipt verification and durable evidence publication'
+command -v stat >/dev/null 2>&1 || fail 'stat is unavailable'
 
 head_sha="$(git rev-parse HEAD)"
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'exact Git HEAD could not be resolved'
@@ -122,6 +120,13 @@ if [[ -e "$evidence_path" ]]; then
     fail "exact-head Linux validation evidence appeared while claiming the validation lock; heavy validation was not started: $evidence_path"
 fi
 
+tools_relative="target/nxb-tools/linux/$head_sha"
+tools_root="$repo_root/$tools_relative"
+tools_bin="$tools_root/bin"
+audit_path="$tools_bin/cargo-audit"
+deny_path="$tools_bin/cargo-deny"
+[[ -d "$tools_root" ]] || fail "exact-head Linux tools root is missing: $tools_root; run scripts/prepare-and-validate-nxb-153-linux.sh first"
+
 rustc_version="$(rustup run "$rust_toolchain" rustc --version)" ||
     fail "Rust toolchain $rust_toolchain is unavailable"
 [[ "$rustc_version" == rustc\ 1.97.1\ * ]] ||
@@ -144,7 +149,8 @@ python3 - \
     "$audit_version" \
     "$audit_sha256" \
     "$deny_version" \
-    "$deny_sha256" <<'PY'
+    "$deny_sha256" \
+    "$tools_relative" <<'PY'
 import datetime as dt
 import json
 import pathlib
@@ -159,6 +165,7 @@ import sys
     audit_sha256,
     deny_version,
     deny_sha256,
+    expected_tools_root,
 ) = sys.argv[1:]
 path = pathlib.Path(receipt_text)
 try:
@@ -201,7 +208,7 @@ expected = {
     "cargo_audit_sha256": audit_sha256,
     "cargo_deny": deny_version,
     "cargo_deny_sha256": deny_sha256,
-    "tools_root": "target/nxb-tools",
+    "tools_root": expected_tools_root,
     "network_activity": "rustup_and_crates_io_tool_installation_only",
 }
 for field, value in expected.items():
@@ -310,6 +317,8 @@ cat > "$evidence_temp" <<JSON
 }
 JSON
 
+evidence_size="$(stat -c '%s' "$evidence_temp")" || fail 'could not resolve validation evidence size'
+[[ "$evidence_size" -gt 0 && "$evidence_size" -le 65536 ]] || fail 'Linux validation evidence size is invalid'
 fsync_file "$evidence_temp" || fail 'could not sync validation evidence temporary file before namespace claim'
 if ln "$evidence_temp" "$evidence_path" 2>/dev/null; then
     cleanup_error=''
@@ -338,6 +347,7 @@ trap - EXIT
 
 printf 'NXB-153 Linux validation passed.\n'
 printf 'HEAD: %s\n' "$head_sha"
+printf 'Tool root: %s\n' "$tools_relative"
 printf 'Cargo.lock SHA-256: %s\n' "$lock_sha256"
 printf 'Tooling receipt SHA-256: %s\n' "$receipt_sha256"
 printf 'Evidence: %s\n' "$evidence_path"
