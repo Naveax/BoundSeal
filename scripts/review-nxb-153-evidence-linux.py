@@ -14,6 +14,8 @@ from typing import Any
 EXPECTED_LOCK_SHA256 = "f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff"
 EXPECTED_AUDIT_VERSION = "0.22.2"
 EXPECTED_DENY_VERSION = "0.20.2"
+EXPECTED_ENVIRONMENT_POLICY = "nxb-153-compiler-cargo-python-authority-v2"
+EXPECTED_HOST_RUST_IDENTITY = "version_pinned_object_identity_pending"
 MAXIMUM_BYTES = 65536
 EXPECTED_EVIDENCE_FIELDS = {
     "schema_version",
@@ -33,6 +35,14 @@ EXPECTED_EVIDENCE_FIELDS = {
     "cargo_lock_sha256",
     "cargo_lock_expected_sha256",
     "lockfile_pinned_and_unchanged",
+    "validation_environment_policy",
+    "validation_environment_authority",
+    "python_isolated_helper_authority",
+    "workspace_namespace_authority",
+    "workspace_git_object_authority",
+    "dependency_source_authority",
+    "security_tool_object_authority",
+    "host_rust_toolchain_identity",
     "fmt",
     "nxb_policy_check_clippy_tests",
     "nxb_core_check_clippy_unit_tests",
@@ -240,7 +250,7 @@ def read_evidence(
         if type(evidence[field]) is not bool:
             fail(f"{platform} evidence field {field} must be boolean")
     if (
-        evidence["schema_version"] != 1
+        evidence["schema_version"] != 2
         or evidence["milestone"] != "NXB-153"
         or evidence["gate"] != "guided_target_authorization_setup"
         or evidence["platform"] != platform
@@ -270,6 +280,14 @@ def read_evidence(
         or evidence["cargo_lock_expected_sha256"] != EXPECTED_LOCK_SHA256
         or evidence["tooling_receipt_verified"] is not True
         or evidence["lockfile_pinned_and_unchanged"] is not True
+        or evidence["validation_environment_policy"] != EXPECTED_ENVIRONMENT_POLICY
+        or evidence["validation_environment_authority"] != "passed"
+        or evidence["python_isolated_helper_authority"] != "passed"
+        or evidence["workspace_namespace_authority"] != "passed"
+        or evidence["workspace_git_object_authority"] != "passed"
+        or evidence["dependency_source_authority"] != "passed"
+        or evidence["security_tool_object_authority"] != "passed"
+        or evidence["host_rust_toolchain_identity"] != EXPECTED_HOST_RUST_IDENTITY
         or evidence["fmt"] != "passed"
         or evidence["nxb_policy_check_clippy_tests"] != "passed"
         or evidence["nxb_core_check_clippy_unit_tests"] != "passed"
@@ -295,6 +313,14 @@ def read_evidence(
         "cargo_deny_sha256": evidence["cargo_deny_sha256"],
         "tooling_receipt_sha256": evidence["tooling_receipt_sha256"],
         "cargo_lock_sha256": evidence["cargo_lock_sha256"],
+        "validation_environment_policy": evidence["validation_environment_policy"],
+        "validation_environment_authority": evidence["validation_environment_authority"],
+        "python_isolated_helper_authority": evidence["python_isolated_helper_authority"],
+        "workspace_namespace_authority": evidence["workspace_namespace_authority"],
+        "workspace_git_object_authority": evidence["workspace_git_object_authority"],
+        "dependency_source_authority": evidence["dependency_source_authority"],
+        "security_tool_object_authority": evidence["security_tool_object_authority"],
+        "host_rust_toolchain_identity": evidence["host_rust_toolchain_identity"],
     }
 
 
@@ -399,12 +425,20 @@ def main() -> None:
 
     linux = read_evidence(evidence_directory, "linux", head_sha)
     windows = read_evidence(evidence_directory, "windows", head_sha)
-    for field in ("rustc", "cargo", "cargo_audit", "cargo_deny", "cargo_lock_sha256"):
+    for field in (
+        "rustc",
+        "cargo",
+        "cargo_audit",
+        "cargo_deny",
+        "cargo_lock_sha256",
+        "validation_environment_policy",
+        "host_rust_toolchain_identity",
+    ):
         if linux[field] != windows[field]:
             fail(f"Linux and Windows evidence disagree on {field}")
 
     closure = {
-        "schema_version": 1,
+        "schema_version": 2,
         "milestone": "NXB-153",
         "gate": "dual_platform_evidence_closure",
         "status": "dual_platform_validation_passed",
@@ -415,16 +449,25 @@ def main() -> None:
         "cargo": windows["cargo"],
         "cargo_audit": windows["cargo_audit"],
         "cargo_deny": windows["cargo_deny"],
+        "validation_environment_policy": windows["validation_environment_policy"],
+        "host_rust_toolchain_identity": windows["host_rust_toolchain_identity"],
         "platforms": ["linux", "windows"],
         "evidence": [linux, windows],
         "requirements": {
             "same_exact_head": "passed",
             "canonical_lockfile": "passed",
             "fresh_tool_bootstrap_receipts": "passed",
+            "validation_environment_authority": "passed",
+            "python_isolated_helper_authority": "passed",
+            "workspace_namespace_authority": "passed",
+            "workspace_git_object_authority": "passed",
+            "dependency_source_authority": "passed",
+            "security_tool_object_authority": "passed",
             "package_and_workspace_gates": "passed",
             "focused_nxb153_tests": "passed",
             "rustsec": "passed",
             "cargo_deny": "passed",
+            "host_rust_toolchain_identity": "blocker_pending",
         },
         "network_activity": "none",
     }
