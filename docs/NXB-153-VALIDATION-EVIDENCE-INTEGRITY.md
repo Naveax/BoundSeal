@@ -91,7 +91,24 @@ The canonical Linux closure entrypoint is:
 
 `scripts/review-nxb-153-evidence-linux.sh`
 
-It routes review through:
+The shell entrypoint now contains an outer descriptor guard before loading the deeper secure reviewer. The shell first changes into the repository and captures the initial head/lockfile authority. The embedded Python guard then treats that already-open inherited working-directory object as the first repository trust anchor rather than reopening the repository pathname as a fresh authority source.
+
+The outer guard:
+
+- opens the inherited repository CWD as a directory descriptor and requires the canonical repository pathname to resolve to the same device/inode object;
+- opens every parent component with `O_DIRECTORY | O_NOFOLLOW` when checking namespace bindings;
+- loads `scripts/review-nxb-153-evidence-linux-secure.py` from the pinned repository descriptor, bounds and `fstat()`-checks that exact file object, decodes strict UTF-8 and executes code compiled from those exact bytes rather than invoking the secure launcher by pathname;
+- opens the canonical evidence directory relative to the pinned repository descriptor when the evidence directory is repository-local;
+- substitutes duplicates of the already pinned repository/evidence descriptors when the inner secure launcher asks to open those authority roots;
+- intercepts semantic-reviewer `git` subprocesses whose requested `cwd` is the repository root and executes them only after `fchdir(repo_fd)`, so a later repository pathname replacement cannot redirect `git rev-parse` or `git status` to another directory object;
+- restores the guard process working directory after every anchored subprocess invocation;
+- keeps inner semantic-review PASS output in memory until repository and evidence namespace paths are re-opened securely and proven to still name the pinned device/inode objects;
+- fails closed with no buffered PASS output if either canonical namespace no longer names its pinned object;
+- leaves any closure that may have become visible before a late authority failure for explicit recovery rather than attempting pathname rollback.
+
+The outer guard's networkless process-anchor self-test renames the trusted directory, installs a normal replacement directory at the original pathname, launches a child from the pinned directory descriptor and requires the child to observe the trusted marker rather than the replacement marker. It also requires the namespace-binding check to detect that the original pathname now names the replacement object.
+
+After the outer guard establishes the trust roots, review routes through:
 
 `scripts/review-nxb-153-evidence-linux-secure.py`
 
@@ -100,7 +117,7 @@ which loads the semantic closure implementation while replacing the filesystem t
 The secure Linux launcher:
 
 - requires Linux `O_DIRECTORY` and `O_NOFOLLOW`; unsupported environments fail closed;
-- opens the repository root and evidence directory component-by-component from `/` with descriptor-relative `os.open(..., dir_fd=...)` traversal;
+- opens the repository root and evidence directory component-by-component from `/` with descriptor-relative `os.open(..., dir_fd=...)` traversal when not supplied by the outer pinned guard;
 - rejects symlink traversal for every opened directory/file component;
 - opens `scripts/review-nxb-153-evidence-linux.py` relative to the pinned repository descriptor rather than importing it again by pathname;
 - reads the semantic reviewer bytes from that pinned object, requires strict UTF-8, compiles those exact bytes and executes the resulting code object in an isolated module;
@@ -118,28 +135,33 @@ The secure Linux launcher:
 - reopens the published closure relative to the same pinned directory descriptor and requires exact canonical bytes;
 - never deletes a partially visible create-new closure by pathname after a write/finalization failure.
 
-The networkless `--self-test` now stages:
+The secure launcher's networkless self-test stages:
 
 - ordinary anchored regular-file read;
 - final symlink rejection;
 - evidence parent-directory rename + replacement resistance;
 - repository parent-directory rename + replacement by another repository while proving semantic-reviewer loading still comes from the already pinned original repository object.
 
-The new reviewer-authority replacement primitive was exercised locally on Linux after staging and returned the trusted reviewer value rather than the substituted-path value. This is a primitive check only, not NXB-153 admission evidence.
+Current local primitive checks for the exact outer-guard source include:
 
-Historical broader source/primitive checks for earlier launcher source were:
+- remote Git blob identity matched the locally tested blob byte-for-byte;
+- canonical Linux shell wrapper `bash -n`: PASS;
+- embedded outer-guard Python `py_compile`: PASS;
+- normal-directory process-CWD substitution: PASS, child observed the pinned trusted object;
+- adversarial `git rev-parse HEAD` substitution: PASS, semantic-style Git execution returned the pinned repository HEAD rather than the replacement repository HEAD;
+- namespace-drift output guard: PASS, an inner synthetic PASS was withheld and the command failed when the canonical repository pathname no longer named the pinned object.
 
-- Python `py_compile`: PASS;
-- descriptor self-test: PASS;
-- canonical Linux shell wrapper `bash -n`: PASS.
+Earlier secure-launcher primitive checks also returned the trusted reviewer value rather than a substituted-path reviewer after repository pathname replacement.
 
-Those historical checks do not validate the current exact-head tool-root/reviewer-authority delta. Fresh exact-head execution is still required.
+These are narrow source/primitive checks only. They are **not** NXB-153 exact-head Linux admission evidence and do not replace the required Rust 1.97.1 platform closure.
 
 ### Guarded repository authority
 
-The shell entrypoint captures the initial clean Git head and Cargo.lock SHA-256, buffers the secure reviewer output, and requires final head/worktree/Cargo.lock equality before printing any review PASS output.
+The shell entrypoint captures the initial clean Git head and Cargo.lock SHA-256 before the descriptor-anchored review, buffers both self-test and secure-review output, and requires final head/worktree/Cargo.lock equality before printing any review PASS output.
 
-If repository authority changes during review, the command fails and any newly visible closure requires explicit recovery/review.
+The outer descriptor guard additionally binds semantic `git` execution and the secure-launcher source itself to the inherited pinned repository object, and requires the canonical repository/evidence namespace paths to still name their pinned objects before returning buffered inner output to the shell.
+
+If repository authority or namespace identity changes during review, the command fails and any newly visible closure requires explicit recovery/review.
 
 ## Windows publication contract
 
@@ -209,7 +231,9 @@ If a canonical receipt/evidence/closure already exists:
 - validation does not repeat expensive gates merely to refresh evidence;
 - same-platform same-head validation attempts are serialized before the expensive gate sequence;
 - reviewers verify or reject existing canonical content and exact tool-root identity;
+- Linux secure-launcher authority and semantic Git authority come from the inherited pinned repository object rather than later pathname opens;
 - Linux semantic-reviewer authority comes from the pinned repository object rather than a later pathname import;
+- Linux repository/evidence namespace paths must still name the pinned objects before guarded output is released;
 - exact-head artifact bytes are not overwritten to obtain a new timestamp;
 - stale preparation/validation locks, conflicting evidence, repository drift, pathname/object mismatch or partial publication state require explicit recovery;
 - no GitHub Actions rerun is used as polling or evidence recovery.
@@ -218,6 +242,6 @@ If a canonical receipt/evidence/closure already exists:
 
 Issues #90–#98 remain open until their source-staged filesystem/evidence contracts receive the required exact-head platform execution.
 
-The exact final NXB-153 head still requires real Rust 1.97.1 Linux + Windows validation covering fmt, check, Clippy, unit/focused/full-workspace tests, RustSec, cargo-deny, exact-head tool-root isolation, preparation/validation lock concurrency behavior, receipt/evidence publication read-back, filesystem publication behavior, Linux descriptor/reviewer anchoring, Windows handle pinning, guarded same-head dual-platform closure and final blocker review.
+The exact final NXB-153 head still requires real Rust 1.97.1 Linux + Windows validation covering fmt, check, Clippy, unit/focused/full-workspace tests, RustSec, cargo-deny, exact-head tool-root isolation, preparation/validation lock concurrency behavior, receipt/evidence publication read-back, filesystem publication behavior, Linux outer/inner descriptor and Git-authority anchoring, Windows handle pinning, guarded same-head dual-platform closure and final blocker review.
 
 PR #89 remains draft/not admitted and NXB-154 must not use this branch as an implementation base until those gates complete.
