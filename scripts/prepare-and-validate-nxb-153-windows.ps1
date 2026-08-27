@@ -41,6 +41,64 @@ function Get-ToolVersion {
     return $value
 }
 
+function Assert-LowerSha256 {
+    param(
+        [Parameter(Mandatory = $true)][string]$Value,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if ($Value -notmatch '^[0-9a-f]{64}$') {
+        throw "$Label is not a lowercase SHA-256."
+    }
+}
+
+function Open-NxbPinnedToolStream {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "$Label is missing: $Path"
+    }
+    $item = Get-Item -LiteralPath $Path -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "$Label must not be a reparse point."
+    }
+    try {
+        return [IO.File]::Open(
+            $Path,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::Read
+        )
+    }
+    catch {
+        throw "Could not pin $Label with write/delete sharing withheld: $($_.Exception.Message)"
+    }
+}
+
+function Get-NxbStreamSha256 {
+    param(
+        [Parameter(Mandatory = $true)][IO.FileStream]$Stream,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if (-not $Stream.CanRead -or -not $Stream.CanSeek) {
+        throw "$Label pinned stream must be readable and seekable."
+    }
+    $savedPosition = $Stream.Position
+    try {
+        $Stream.Position = 0
+        $hash = (Get-FileHash -InputStream $Stream -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    finally {
+        $Stream.Position = $savedPosition
+    }
+    Assert-LowerSha256 -Value $hash -Label "$Label pinned SHA-256"
+    return $hash
+}
+
 function Assert-ExactStreamBytes {
     param(
         [Parameter(Mandatory = $true)][IO.FileStream]$Stream,
@@ -78,6 +136,8 @@ if (-not $IsWindows) {
 
 $prepLockStream = $null
 $prepLockPath = $null
+$auditToolStream = $null
+$denyToolStream = $null
 
 Push-Location $RepoRoot
 try {
@@ -169,10 +229,27 @@ try {
         Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force -ErrorAction SilentlyContinue
     }
 
+    # Pin the exact files produced by cargo install before version/hash inspection.
+    # Receipt identity is derived from these handles and write/delete sharing stays
+    # withheld until the create-new receipt has been published and read back.
+    $auditToolStream = Open-NxbPinnedToolStream -Path $auditPath -Label 'fresh cargo-audit'
+    $denyToolStream = Open-NxbPinnedToolStream -Path $denyPath -Label 'fresh cargo-deny'
+
     $auditVersion = Get-ToolVersion -Path $auditPath -ExpectedVersion $cargoAuditVersion
     $denyVersion = Get-ToolVersion -Path $denyPath -ExpectedVersion $cargoDenyVersion
     if ($null -eq $auditVersion -or $null -eq $denyVersion) {
         throw 'Fresh validation tools were not installed correctly.'
+    }
+
+    $auditSha256 = Get-NxbStreamSha256 -Stream $auditToolStream -Label 'fresh cargo-audit'
+    $denySha256 = Get-NxbStreamSha256 -Stream $denyToolStream -Label 'fresh cargo-deny'
+    $auditPathSha256 = (Get-FileHash -LiteralPath $auditPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $denyPathSha256 = (Get-FileHash -LiteralPath $denyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($auditPathSha256 -cne $auditSha256) {
+        throw 'cargo-audit pathname drifted before tooling receipt publication.'
+    }
+    if ($denyPathSha256 -cne $denySha256) {
+        throw 'cargo-deny pathname drifted before tooling receipt publication.'
     }
 
     $finalHead = (git rev-parse HEAD).Trim()
@@ -192,9 +269,9 @@ try {
         head_sha = $headSha
         rust_toolchain = (& rustup run $rustToolchain rustc --version | Out-String).Trim()
         cargo_audit = $auditVersion
-        cargo_audit_sha256 = (Get-FileHash -LiteralPath $auditPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        cargo_audit_sha256 = $auditSha256
         cargo_deny = $denyVersion
-        cargo_deny_sha256 = (Get-FileHash -LiteralPath $denyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        cargo_deny_sha256 = $denySha256
         tools_root = $toolsRelative
         network_activity = 'rustup_and_crates_io_tool_installation_only'
         prepared_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
@@ -232,6 +309,11 @@ try {
         }
     }
 
+    $denyToolStream.Dispose()
+    $denyToolStream = $null
+    $auditToolStream.Dispose()
+    $auditToolStream = $null
+
     $prepLockStream.Dispose()
     $prepLockStream = $null
 
@@ -245,6 +327,12 @@ try {
     }
 }
 finally {
+    if ($null -ne $denyToolStream) {
+        $denyToolStream.Dispose()
+    }
+    if ($null -ne $auditToolStream) {
+        $auditToolStream.Dispose()
+    }
     if ($null -ne $prepLockStream) {
         $prepLockStream.Dispose()
     }
