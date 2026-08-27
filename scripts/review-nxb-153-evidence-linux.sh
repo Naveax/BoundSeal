@@ -28,7 +28,7 @@ initial_lock_sha256="$(sha256sum Cargo.lock | awk '{print $1}')"
 
 guarded_launcher() {
     local mode="$1"
-    python3 - "$repo_root" "$evidence_directory" "$mode" <<'PY'
+    python3 -I - "$repo_root" "$evidence_directory" "$mode" <<'PY'
 from __future__ import annotations
 
 import contextlib
