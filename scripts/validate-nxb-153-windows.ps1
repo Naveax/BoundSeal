@@ -10,45 +10,8 @@ $rustToolchain = '1.97.1'
 $cargoAuditVersion = '0.22.2'
 $cargoDenyVersion = '0.20.2'
 $maximumEvidenceBytes = 65536
+$maximumImplementationBytes = 1048576
 $expectedCargoLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
-$focusedTests = @(
-    'target_setup_cli',
-    'target_activation_cli',
-    'target_activation_recovery_cli',
-    'target_guided_artifact_cli',
-    'target_import_cli',
-    'target_import_failclosed_cli',
-    'target_path_binding_cli',
-    'target_scope_failclosed_cli',
-    'target_subdomain_failclosed_cli',
-    'target_persistence_envelope_cli',
-    'target_unicode_path_failclosed_cli'
-)
-
-function Invoke-NxbCargo {
-    param(
-        [Parameter(Mandatory = $true)][string[]]$Arguments,
-        [Parameter(Mandatory = $true)][string]$Label
-    )
-
-    & rustup run $rustToolchain cargo @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Label failed with exit code $LASTEXITCODE."
-    }
-}
-
-function Invoke-NxbTool {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$Arguments,
-        [Parameter(Mandatory = $true)][string]$Label
-    )
-
-    & $Path @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Label failed with exit code $LASTEXITCODE."
-    }
-}
 
 function Get-NxbToolVersion {
     param(
@@ -78,7 +41,7 @@ function Assert-LowerSha256 {
     }
 }
 
-function Open-NxbPinnedToolStream {
+function Open-NxbPinnedStream {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string]$Label
@@ -123,6 +86,42 @@ function Get-NxbStreamSha256 {
     }
     Assert-LowerSha256 -Value $hash -Label "$Label pinned SHA-256"
     return $hash
+}
+
+function ConvertTo-NxbHex {
+    param([Parameter(Mandatory = $true)][byte[]]$Bytes)
+    return (($Bytes | ForEach-Object { $_.ToString('x2') }) -join '')
+}
+
+function Get-NxbGitBlobOidFromStream {
+    param(
+        [Parameter(Mandatory = $true)][IO.FileStream]$Stream,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if (-not $Stream.CanRead -or -not $Stream.CanSeek) {
+        throw "$Label pinned stream must be readable and seekable for Git blob verification."
+    }
+    $savedPosition = $Stream.Position
+    try {
+        $Stream.Position = 0
+        $header = [Text.Encoding]::UTF8.GetBytes("blob $($Stream.Length)`0")
+        $incremental = [Security.Cryptography.IncrementalHash]::CreateHash([Security.Cryptography.HashAlgorithmName]::SHA1)
+        try {
+            $incremental.AppendData($header)
+            $buffer = [byte[]]::new(1048576)
+            while (($read = $Stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                $incremental.AppendData($buffer, 0, $read)
+            }
+            return ConvertTo-NxbHex -Bytes $incremental.GetHashAndReset()
+        }
+        finally {
+            $incremental.Dispose()
+        }
+    }
+    finally {
+        $Stream.Position = $savedPosition
+    }
 }
 
 if ($null -eq ('Nxb153NativeToolPath' -as [type])) {
@@ -180,26 +179,18 @@ public static class Nxb153NativeToolPath
     public static string GetFinalPath(SafeFileHandle handle)
     {
         var builder = new StringBuilder(32768);
-        uint result = GetFinalPathNameByHandleW(
-            handle,
-            builder,
-            (uint)builder.Capacity,
-            0);
+        uint result = GetFinalPathNameByHandleW(handle, builder, (uint)builder.Capacity, 0);
         if (result == 0)
-        {
             throw new Win32Exception(Marshal.GetLastWin32Error());
-        }
         if (result >= builder.Capacity)
-        {
             throw new InvalidOperationException("Resolved path exceeds the supported buffer.");
-        }
         return builder.ToString();
     }
 }
 '@
 }
 
-function ConvertFrom-NxbToolFinalPath {
+function ConvertFrom-NxbFinalPath {
     param([Parameter(Mandatory = $true)][string]$Path)
 
     $value = $Path
@@ -208,7 +199,6 @@ function ConvertFrom-NxbToolFinalPath {
     } elseif ($value.StartsWith('\\?\', [StringComparison]::OrdinalIgnoreCase)) {
         $value = $value.Substring(4)
     }
-
     $full = [IO.Path]::GetFullPath($value)
     $root = [IO.Path]::GetPathRoot($full)
     if ($full.Length -gt $root.Length) {
@@ -217,16 +207,16 @@ function ConvertFrom-NxbToolFinalPath {
     return $full
 }
 
-function Open-NxbPinnedToolDirectory {
+function Open-NxbPinnedDirectory {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string]$Label
     )
 
-    $expected = ConvertFrom-NxbToolFinalPath -Path ([IO.Path]::GetFullPath($Path))
+    $expected = ConvertFrom-NxbFinalPath -Path ([IO.Path]::GetFullPath($Path))
     $handle = [Nxb153NativeToolPath]::OpenDirectory($expected)
     try {
-        $resolved = ConvertFrom-NxbToolFinalPath -Path ([Nxb153NativeToolPath]::GetFinalPath($handle))
+        $resolved = ConvertFrom-NxbFinalPath -Path ([Nxb153NativeToolPath]::GetFinalPath($handle))
         if (-not [string]::Equals($resolved, $expected, [StringComparison]::OrdinalIgnoreCase)) {
             throw "$Label resolved through a reparse/redirected path: expected '$expected', resolved '$resolved'."
         }
@@ -294,19 +284,10 @@ function Assert-ToolingReceipt {
     }
 
     $expectedFields = @(
-        'schema_version',
-        'milestone',
-        'gate',
-        'platform',
-        'head_sha',
-        'rust_toolchain',
-        'cargo_audit',
-        'cargo_audit_sha256',
-        'cargo_deny',
-        'cargo_deny_sha256',
-        'tools_root',
-        'network_activity',
-        'prepared_at'
+        'schema_version', 'milestone', 'gate', 'platform', 'head_sha',
+        'rust_toolchain', 'cargo_audit', 'cargo_audit_sha256',
+        'cargo_deny', 'cargo_deny_sha256', 'tools_root',
+        'network_activity', 'prepared_at'
     )
     $actualFields = @($receipt.PSObject.Properties.Name | Sort-Object)
     $sortedExpected = @($expectedFields | Sort-Object)
@@ -354,11 +335,12 @@ $auditToolStream = $null
 $denyToolStream = $null
 $receiptStream = $null
 $cargoLockStream = $null
+$immutableSourceStream = $null
 $namespaceHandles = [Collections.Generic.List[IDisposable]]::new()
 
 Push-Location $RepoRoot
 try {
-    foreach ($command in @('git', 'rustup')) {
+    foreach ($command in @('git', 'rustup', 'tar')) {
         if ($null -eq (Get-Command $command -ErrorAction SilentlyContinue)) {
             throw "$command is unavailable."
         }
@@ -367,7 +349,7 @@ try {
         throw 'The Windows NXB-153 validator must run on Windows.'
     }
 
-    $repoHandle = Open-NxbPinnedToolDirectory -Path $RepoRoot -Label 'repository root'
+    $repoHandle = Open-NxbPinnedDirectory -Path $RepoRoot -Label 'repository root'
     $namespaceHandles.Add($repoHandle)
 
     $headSha = (git rev-parse HEAD).Trim()
@@ -383,9 +365,9 @@ try {
     $validationDirectory = Join-Path $targetDirectory 'nxb-validation'
     New-Item -ItemType Directory -Path $validationDirectory -Force | Out-Null
 
-    $targetHandle = Open-NxbPinnedToolDirectory -Path $targetDirectory -Label 'target directory'
+    $targetHandle = Open-NxbPinnedDirectory -Path $targetDirectory -Label 'target directory'
     $namespaceHandles.Add($targetHandle)
-    $validationDirectoryHandle = Open-NxbPinnedToolDirectory -Path $validationDirectory -Label 'validation evidence directory'
+    $validationDirectoryHandle = Open-NxbPinnedDirectory -Path $validationDirectory -Label 'validation evidence directory'
     $namespaceHandles.Add($validationDirectoryHandle)
 
     $evidencePath = Join-Path $validationDirectory "nxb-153-windows-$headSha.json"
@@ -431,27 +413,19 @@ try {
         throw "Exact-head Windows tools root is missing: $toolsRoot. Run scripts/prepare-and-validate-nxb-153-windows.ps1 first."
     }
 
-    # Pin every directory component used by the executable path before opening or
-    # executing the security tools. Directory handles intentionally omit delete
-    # sharing, blocking rename/delete substitution of an ancestor while gates run.
     $nxbToolsDirectory = Join-Path $targetDirectory 'nxb-tools'
     $windowsToolsDirectory = Join-Path $nxbToolsDirectory 'windows'
-
-    $nxbToolsHandle = Open-NxbPinnedToolDirectory -Path $nxbToolsDirectory -Label 'nxb-tools directory'
+    $nxbToolsHandle = Open-NxbPinnedDirectory -Path $nxbToolsDirectory -Label 'nxb-tools directory'
     $namespaceHandles.Add($nxbToolsHandle)
-    $windowsToolsHandle = Open-NxbPinnedToolDirectory -Path $windowsToolsDirectory -Label 'Windows tools platform directory'
+    $windowsToolsHandle = Open-NxbPinnedDirectory -Path $windowsToolsDirectory -Label 'Windows tools platform directory'
     $namespaceHandles.Add($windowsToolsHandle)
-    $toolsRootHandle = Open-NxbPinnedToolDirectory -Path $toolsRoot -Label 'exact-head Windows tools directory'
+    $toolsRootHandle = Open-NxbPinnedDirectory -Path $toolsRoot -Label 'exact-head Windows tools directory'
     $namespaceHandles.Add($toolsRootHandle)
-    $toolsBinHandle = Open-NxbPinnedToolDirectory -Path $toolsBin -Label 'exact-head Windows tools bin directory'
+    $toolsBinHandle = Open-NxbPinnedDirectory -Path $toolsBin -Label 'exact-head Windows tools bin directory'
     $namespaceHandles.Add($toolsBinHandle)
 
-    # Pin the exact security-tool file objects before version/hash resolution and keep
-    # them open until evidence publication completes. FileShare.Read intentionally
-    # withholds write/delete sharing while the directory chain prevents ancestor
-    # rename/delete from redirecting pathname-based executable launch.
-    $auditToolStream = Open-NxbPinnedToolStream -Path $auditPath -Label 'cargo-audit'
-    $denyToolStream = Open-NxbPinnedToolStream -Path $denyPath -Label 'cargo-deny'
+    $auditToolStream = Open-NxbPinnedStream -Path $auditPath -Label 'cargo-audit'
+    $denyToolStream = Open-NxbPinnedStream -Path $denyPath -Label 'cargo-deny'
 
     $rustcVersion = (& rustup run $rustToolchain rustc --version | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or -not $rustcVersion.StartsWith('rustc 1.97.1 ')) {
@@ -461,27 +435,13 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw 'Could not resolve pinned Cargo version.'
     }
-    $auditVersion = Get-NxbToolVersion `
-        -Path $auditPath `
-        -ExpectedVersion $cargoAuditVersion `
-        -Label 'cargo-audit'
-    $denyVersion = Get-NxbToolVersion `
-        -Path $denyPath `
-        -ExpectedVersion $cargoDenyVersion `
-        -Label 'cargo-deny'
+    $auditVersion = Get-NxbToolVersion -Path $auditPath -ExpectedVersion $cargoAuditVersion -Label 'cargo-audit'
+    $denyVersion = Get-NxbToolVersion -Path $denyPath -ExpectedVersion $cargoDenyVersion -Label 'cargo-deny'
     $auditSha256 = Get-NxbStreamSha256 -Stream $auditToolStream -Label 'cargo-audit'
     $denySha256 = Get-NxbStreamSha256 -Stream $denyToolStream -Label 'cargo-deny'
-    Assert-LowerSha256 -Value $auditSha256 -Label 'cargo-audit SHA-256'
-    Assert-LowerSha256 -Value $denySha256 -Label 'cargo-deny SHA-256'
 
     $receiptPath = Join-Path $validationDirectory "nxb-153-tooling-windows-$headSha.json"
-
-    # Pin the exact tooling-receipt object before semantic parsing. FileShare.Read
-    # keeps normal read-only parser/hash access available while withholding write
-    # and delete sharing through the complete heavy-validation/evidence lifecycle.
-    # Assert-ToolingReceipt may reopen the pathname for read, but once this stream
-    # is open the receipt object cannot be replaced or mutated underneath it.
-    $receiptStream = Open-NxbPinnedToolStream -Path $receiptPath -Label 'tooling receipt'
+    $receiptStream = Open-NxbPinnedStream -Path $receiptPath -Label 'tooling receipt'
     Assert-ToolingReceipt `
         -Path $receiptPath `
         -HeadSha $headSha `
@@ -492,87 +452,75 @@ try {
         -DenyVersion $denyVersion `
         -DenySha256 $denySha256
     $receiptSha256 = Get-NxbStreamSha256 -Stream $receiptStream -Label 'tooling receipt'
-    Assert-LowerSha256 -Value $receiptSha256 -Label 'Tooling receipt SHA-256'
 
-    # Pin Cargo.lock before any locked Cargo operation. FileShare.Read permits
-    # normal Cargo readers while withholding write/delete sharing, so the lockfile
-    # consumed by metadata/check/clippy/test/security gates cannot be transiently
-    # replaced or mutated and restored only before final validation checks.
     $lockPath = Join-Path $RepoRoot 'Cargo.lock'
-    $cargoLockStream = Open-NxbPinnedToolStream -Path $lockPath -Label 'Cargo.lock'
+    $cargoLockStream = Open-NxbPinnedStream -Path $lockPath -Label 'Cargo.lock'
     $lockSha256 = Get-NxbStreamSha256 -Stream $cargoLockStream -Label 'Cargo.lock'
-    if ($lockSha256 -ne $expectedCargoLockSha256) {
+    if ($lockSha256 -cne $expectedCargoLockSha256) {
         throw "Cargo.lock SHA-256 mismatch: expected $expectedCargoLockSha256, found $lockSha256"
     }
-
     git diff --exit-code -- Cargo.lock
     if ($LASTEXITCODE -ne 0) {
         throw 'Committed Cargo.lock differs before locked validation.'
     }
-    Invoke-NxbCargo `
-        -Arguments @('metadata', '--format-version', '1', '--locked', '--no-deps') `
-        -Label 'cargo metadata --locked'
-    git diff --exit-code -- Cargo.lock
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Cargo.lock changed during cargo metadata --locked.'
+
+    # Pin the implementation used to build and validate the immutable Windows
+    # source snapshot. The scripts directory handle blocks ancestor rename/delete;
+    # the file stream blocks helper mutation/replacement while the child runs.
+    $scriptsDirectory = Join-Path $RepoRoot 'scripts'
+    $scriptsHandle = Open-NxbPinnedDirectory -Path $scriptsDirectory -Label 'scripts directory'
+    $namespaceHandles.Add($scriptsHandle)
+    $immutableSourcePath = Join-Path $scriptsDirectory 'nxb-153-windows-immutable-source.ps1'
+    $immutableSourceStream = Open-NxbPinnedStream -Path $immutableSourcePath -Label 'immutable Windows source runner'
+    if ($immutableSourceStream.Length -le 0 -or $immutableSourceStream.Length -gt $maximumImplementationBytes) {
+        throw 'Immutable Windows source runner size is outside the supported implementation envelope.'
+    }
+    $expectedImmutableObject = (git rev-parse "${headSha}:scripts/nxb-153-windows-immutable-source.ps1").Trim()
+    if ($LASTEXITCODE -ne 0 -or $expectedImmutableObject -notmatch '^[0-9a-f]{40}$') {
+        throw 'Exact-head immutable Windows source runner object could not be resolved.'
+    }
+    $immutableObjectType = (git cat-file -t $expectedImmutableObject).Trim()
+    if ($LASTEXITCODE -ne 0 -or $immutableObjectType -cne 'blob') {
+        throw 'Exact-head immutable Windows source runner authority is not a Git blob.'
+    }
+    $actualImmutableObject = Get-NxbGitBlobOidFromStream -Stream $immutableSourceStream -Label 'immutable Windows source runner'
+    if ($actualImmutableObject -cne $expectedImmutableObject) {
+        throw 'Pinned immutable Windows source runner bytes differ from the exact-head committed Git object.'
     }
 
-    Invoke-NxbCargo `
-        -Arguments @('fmt', '--all', '--', '--check') `
-        -Label 'cargo fmt'
+    # Source-write ACL semantics are a hard prerequisite. This is deliberately
+    # executed only after exact-head validation-lock ownership, so a duplicate
+    # same-platform/head validator does not repeat even the primitive probe.
+    & $immutableSourcePath `
+        -RepoRoot $RepoRoot `
+        -ValidationDirectory $validationDirectory `
+        -HeadSha $headSha `
+        -RustToolchain $rustToolchain `
+        -CargoAuditVersion $cargoAuditVersion `
+        -CargoDenyVersion $cargoDenyVersion `
+        -AuditSha256 $auditSha256 `
+        -DenySha256 $denySha256 `
+        -ExpectedCargoLockSha256 $lockSha256 `
+        -AuditPath $auditPath `
+        -DenyPath $denyPath `
+        -SelfTest
 
-    Invoke-NxbCargo `
-        -Arguments @('check', '-p', 'nxb-policy', '--all-targets', '--locked') `
-        -Label 'nxb-policy cargo check'
-    Invoke-NxbCargo `
-        -Arguments @(
-            'clippy', '-p', 'nxb-policy', '--all-targets', '--locked', '--', '-D', 'warnings'
-        ) `
-        -Label 'nxb-policy cargo clippy'
-    Invoke-NxbCargo `
-        -Arguments @('test', '-p', 'nxb-policy', '--locked', '--', '--test-threads=1') `
-        -Label 'nxb-policy cargo test'
-
-    Invoke-NxbCargo `
-        -Arguments @('check', '-p', 'nxb-core', '--all-targets', '--locked') `
-        -Label 'nxb-core cargo check'
-    Invoke-NxbCargo `
-        -Arguments @(
-            'clippy', '-p', 'nxb-core', '--all-targets', '--locked', '--', '-D', 'warnings'
-        ) `
-        -Label 'nxb-core cargo clippy'
-    Invoke-NxbCargo `
-        -Arguments @('test', '-p', 'nxb-core', '--lib', '--locked', '--', '--test-threads=1') `
-        -Label 'nxb-core unit tests'
-
-    foreach ($testName in $focusedTests) {
-        Invoke-NxbCargo `
-            -Arguments @(
-                'test', '-p', 'nxb-core', '--test', $testName,
-                '--locked', '--', '--test-threads=1'
-            ) `
-            -Label "focused test $testName"
-    }
-
-    Invoke-NxbCargo `
-        -Arguments @(
-            'check', '--workspace', '--all-targets', '--all-features', '--locked'
-        ) `
-        -Label 'workspace cargo check'
-    Invoke-NxbCargo `
-        -Arguments @(
-            'clippy', '--workspace', '--all-targets', '--all-features',
-            '--locked', '--', '-D', 'warnings'
-        ) `
-        -Label 'workspace cargo clippy'
-    Invoke-NxbCargo `
-        -Arguments @(
-            'test', '--workspace', '--all-features', '--locked', '--', '--test-threads=1'
-        ) `
-        -Label 'workspace cargo test'
-
-    Invoke-NxbTool -Path $auditPath -Arguments @('audit') -Label 'RustSec cargo audit'
-    Invoke-NxbTool -Path $denyPath -Arguments @('check') -Label 'cargo-deny checks'
+    # All fmt/check/Clippy/tests/RustSec/cargo-deny gates now run inside the exact
+    # committed Git archive snapshot. Tracked files and directories are pinned,
+    # source creation/mutation/deletion is denied by inherited ACLs, and writable
+    # build/temp/CARGO_HOME state lives in protected runtime subdirectories.
+    & $immutableSourcePath `
+        -RepoRoot $RepoRoot `
+        -ValidationDirectory $validationDirectory `
+        -HeadSha $headSha `
+        -RustToolchain $rustToolchain `
+        -CargoAuditVersion $cargoAuditVersion `
+        -CargoDenyVersion $cargoDenyVersion `
+        -AuditSha256 $auditSha256 `
+        -DenySha256 $denySha256 `
+        -ExpectedCargoLockSha256 $lockSha256 `
+        -AuditPath $auditPath `
+        -DenyPath $denyPath
 
     $finalPinnedLockSha256 = Get-NxbStreamSha256 -Stream $cargoLockStream -Label 'Cargo.lock final pinned object'
     if ($finalPinnedLockSha256 -cne $lockSha256) {
@@ -580,7 +528,7 @@ try {
     }
     $finalLockPathSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($finalLockPathSha256 -cne $lockSha256) {
-        throw 'Cargo.lock pathname no longer names the pinned bytes used during validation.'
+        throw 'Cargo.lock pathname no longer names the pinned bytes used to authorize the immutable snapshot.'
     }
     git diff --exit-code -- Cargo.lock
     if ($LASTEXITCODE -ne 0) {
@@ -588,7 +536,7 @@ try {
     }
 
     $finalHead = (git rev-parse HEAD).Trim()
-    if ($LASTEXITCODE -ne 0 -or $finalHead -ne $headSha) {
+    if ($LASTEXITCODE -ne 0 -or $finalHead -cne $headSha) {
         throw 'Git HEAD changed during validation.'
     }
     $finalStatus = git status --porcelain=v1 --untracked-files=all
@@ -596,22 +544,19 @@ try {
         throw 'Working tree changed during validation.'
     }
 
+    $finalImmutableObject = Get-NxbGitBlobOidFromStream -Stream $immutableSourceStream -Label 'immutable Windows source runner final pinned object'
+    if ($finalImmutableObject -cne $expectedImmutableObject) {
+        throw 'Pinned immutable Windows source runner bytes changed during validation.'
+    }
     $finalPinnedAuditSha256 = Get-NxbStreamSha256 -Stream $auditToolStream -Label 'cargo-audit final pinned object'
     $finalPinnedDenySha256 = Get-NxbStreamSha256 -Stream $denyToolStream -Label 'cargo-deny final pinned object'
-    if ($finalPinnedAuditSha256 -cne $auditSha256) {
-        throw 'Pinned cargo-audit bytes changed during validation.'
+    if ($finalPinnedAuditSha256 -cne $auditSha256 -or $finalPinnedDenySha256 -cne $denySha256) {
+        throw 'Pinned security-tool bytes changed during validation.'
     }
-    if ($finalPinnedDenySha256 -cne $denySha256) {
-        throw 'Pinned cargo-deny bytes changed during validation.'
-    }
-
     $finalAuditPathSha256 = (Get-FileHash -LiteralPath $auditPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $finalDenyPathSha256 = (Get-FileHash -LiteralPath $denyPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($finalAuditPathSha256 -cne $auditSha256) {
-        throw 'cargo-audit pathname no longer names the validated pinned bytes.'
-    }
-    if ($finalDenyPathSha256 -cne $denySha256) {
-        throw 'cargo-deny pathname no longer names the validated pinned bytes.'
+    if ($finalAuditPathSha256 -cne $auditSha256 -or $finalDenyPathSha256 -cne $denySha256) {
+        throw 'Security-tool canonical paths no longer name the validated pinned bytes.'
     }
 
     $finalPinnedReceiptSha256 = Get-NxbStreamSha256 -Stream $receiptStream -Label 'tooling receipt final pinned object'
@@ -674,7 +619,6 @@ try {
             }
             throw
         }
-
         $evidenceStream.Write($evidenceBytes, 0, $evidenceBytes.Length)
         $evidenceStream.Flush($true)
         Assert-ExactStreamBytes -Stream $evidenceStream -Expected $evidenceBytes -Label 'Windows validation evidence'
@@ -685,7 +629,7 @@ try {
         }
     }
 
-    Write-Host 'NXB-153 Windows validation passed with pinned Cargo.lock and tooling receipt authority.'
+    Write-Host 'NXB-153 Windows validation passed from an exact-head pinned write-denied source snapshot.'
     Write-Host "HEAD: $headSha"
     Write-Host "Tool root: $toolsRelative"
     Write-Host "Cargo.lock SHA-256: $lockSha256"
@@ -693,6 +637,9 @@ try {
     Write-Host "Evidence: $evidencePath"
 }
 finally {
+    if ($null -ne $immutableSourceStream) {
+        $immutableSourceStream.Dispose()
+    }
     if ($null -ne $cargoLockStream) {
         $cargoLockStream.Dispose()
     }
