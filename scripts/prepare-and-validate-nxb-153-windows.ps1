@@ -358,15 +358,15 @@ try {
     # pinned namespace component cannot redirect $auditPath/$denyPath execution.
     $nxbToolsDirectory = Join-Path $targetDirectory 'nxb-tools'
     $windowsToolsDirectory = Join-Path $nxbToolsDirectory 'windows'
-    foreach ($entry in @(
-        @($nxbToolsDirectory, 'nxb-tools directory'),
-        @($windowsToolsDirectory, 'Windows tools platform directory'),
-        @($toolsRoot, 'exact-head Windows tools directory'),
-        @($toolsBin, 'exact-head Windows tools bin directory')
-    )) {
-        $handle = Open-NxbPinnedToolDirectory -Path $entry[0] -Label $entry[1]
-        $namespaceHandles.Add($handle)
-    }
+
+    $nxbToolsHandle = Open-NxbPinnedToolDirectory -Path $nxbToolsDirectory -Label 'nxb-tools directory'
+    $namespaceHandles.Add($nxbToolsHandle)
+    $windowsToolsHandle = Open-NxbPinnedToolDirectory -Path $windowsToolsDirectory -Label 'Windows tools platform directory'
+    $namespaceHandles.Add($windowsToolsHandle)
+    $toolsRootHandle = Open-NxbPinnedToolDirectory -Path $toolsRoot -Label 'exact-head Windows tools directory'
+    $namespaceHandles.Add($toolsRootHandle)
+    $toolsBinHandle = Open-NxbPinnedToolDirectory -Path $toolsBin -Label 'exact-head Windows tools bin directory'
+    $namespaceHandles.Add($toolsBinHandle)
 
     # Pin the exact files produced by cargo install before version/hash inspection.
     # Receipt identity is derived from these handles and write/delete sharing stays
