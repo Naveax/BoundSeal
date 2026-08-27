@@ -31,11 +31,19 @@ self_test() {
         mount --make-rprivate /
         mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$mountpoint"
         printf trusted > "$mountpoint/trusted.txt"
-        mkdir "$mountpoint/target" "$mountpoint/tmp" "$mountpoint/cargo-home"
-        mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$mountpoint/target"
-        mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$mountpoint/tmp"
-        mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$mountpoint/cargo-home"
+        for runtime_path in target tmp fetch-home vendor cargo-home config; do
+            mkdir "$mountpoint/$runtime_path"
+            mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$mountpoint/$runtime_path"
+        done
+        printf dependency > "$mountpoint/vendor/dependency.txt"
+        printf "[source.crates-io]\nreplace-with = \"nxb-vendored-sources\"\n" > "$mountpoint/config/config.toml"
+        mount -o remount,ro,nosuid,nodev "$mountpoint/vendor"
+        mount -o remount,ro,nosuid,nodev "$mountpoint/config"
+        touch "$mountpoint/cargo-home/config.toml"
+        mount --bind "$mountpoint/config/config.toml" "$mountpoint/cargo-home/config.toml"
+        mount -o remount,bind,ro "$mountpoint/cargo-home/config.toml"
         mount -o remount,ro,nosuid,nodev "$mountpoint"
+
         [[ "$(cat "$mountpoint/trusted.txt")" == trusted ]]
         if printf changed > "$mountpoint/trusted.txt" 2>/dev/null; then
             exit 71
@@ -43,20 +51,29 @@ self_test() {
         if touch "$mountpoint/injected.txt" 2>/dev/null; then
             exit 72
         fi
+        if printf changed > "$mountpoint/vendor/dependency.txt" 2>/dev/null; then
+            exit 73
+        fi
+        if printf changed > "$mountpoint/cargo-home/config.toml" 2>/dev/null; then
+            exit 74
+        fi
+
         printf build > "$mountpoint/target/build.txt"
         printf temporary > "$mountpoint/tmp/temp.txt"
-        printf cache > "$mountpoint/cargo-home/cache.txt"
+        printf cache > "$mountpoint/fetch-home/cache.txt"
+        printf gate > "$mountpoint/cargo-home/state.txt"
         [[ "$(cat "$mountpoint/target/build.txt")" == build ]]
         [[ "$(cat "$mountpoint/tmp/temp.txt")" == temporary ]]
-        [[ "$(cat "$mountpoint/cargo-home/cache.txt")" == cache ]]
-    ' bash "$mountpoint" || fail 'user/mount namespace private read-only tmpfs self-test failed'
+        [[ "$(cat "$mountpoint/fetch-home/cache.txt")" == cache ]]
+        [[ "$(cat "$mountpoint/cargo-home/state.txt")" == gate ]]
+    ' bash "$mountpoint" || fail 'user/mount namespace private read-only dependency/source self-test failed'
 
     [[ ! -e "$mountpoint/trusted.txt" ]] ||
         fail 'namespace-private tmpfs unexpectedly leaked into the caller mount namespace'
 
     cleanup_mountpoint "$mountpoint"
     trap - RETURN
-    printf 'NXB-153 immutable Linux source primitive self-test passed.\n'
+    printf 'NXB-153 immutable Linux source/dependency primitive self-test passed.\n'
 }
 
 validate_tree_modes() {
@@ -144,13 +161,22 @@ if parts and parts[-1] == b"":
 if not parts or len(parts) != len(set(parts)):
     raise SystemExit("invalid exact-head namespace manifest")
 
-runtime_roots = {b"target", b".nxb-153-tmp", b".nxb-153-cargo-home"}
+runtime_roots = {
+    b"target",
+    b".nxb-153-tmp",
+    b".nxb-153-fetch-home",
+    b".nxb-153-vendor",
+    b".nxb-153-cargo-home",
+    b".nxb-153-config",
+}
 expected_files = set(parts)
 expected_dirs = set()
 for path in expected_files:
     components = path.split(b"/")
     if not path or path.startswith(b"/") or any(component in (b"", b".", b"..") for component in components):
         raise SystemExit("ambiguous exact-head namespace path")
+    if components[0] in runtime_roots:
+        raise SystemExit("exact-head tree collides with a reserved validation runtime root")
     for index in range(1, len(components)):
         expected_dirs.add(b"/".join(components[:index]))
 
@@ -184,6 +210,14 @@ if actual_files != expected_files or actual_dirs != expected_dirs:
                 ) || die "$phase snapshot namespace differs from exact-head Git manifest"
             }
 
+            cargo_raw() {
+                rustup run "$rust_toolchain" cargo "$@"
+            }
+
+            cargo_gate() {
+                rustup run "$rust_toolchain" cargo --offline "$@"
+            }
+
             mount --make-rprivate /
             mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$source_root"
             tar -xf - -C "$source_root"
@@ -197,6 +231,8 @@ if actual_files != expected_files or actual_dirs != expected_dirs:
                 die "exact-head immutable snapshot is missing regular Cargo.lock"
             [[ -f "$source_root/scripts/nxb-153-sealed-tool.py" && ! -L "$source_root/scripts/nxb-153-sealed-tool.py" ]] ||
                 die "immutable snapshot is missing the sealed-tool helper"
+            [[ -f "$source_root/scripts/nxb-153-registry-source.py" && ! -L "$source_root/scripts/nxb-153-registry-source.py" ]] ||
+                die "immutable snapshot is missing the registry source authority helper"
 
             lock_sha256="$(sha256sum "$source_root/Cargo.lock" | awk "{print \$1}")"
             [[ "$lock_sha256" == "$expected_lock_sha256" ]] ||
@@ -205,21 +241,35 @@ if actual_files != expected_files or actual_dirs != expected_dirs:
             [[ "$helper_sha256" == "$sealed_helper_sha256" ]] ||
                 die "immutable snapshot sealed-tool helper differs from the committed authority bytes"
 
-            for runtime_path in target .nxb-153-tmp .nxb-153-cargo-home; do
+            python3 "$source_root/scripts/nxb-153-registry-source.py" validate-lock "$source_root/Cargo.lock" >/dev/null ||
+                die "Cargo.lock registry-source contract is unsupported"
+
+            for runtime_path in \
+                target \
+                .nxb-153-tmp \
+                .nxb-153-fetch-home \
+                .nxb-153-vendor \
+                .nxb-153-cargo-home \
+                .nxb-153-config
+            do
                 [[ ! -e "$source_root/$runtime_path" ]] ||
                     die "exact-head tree already contains reserved runtime path $runtime_path"
                 mkdir "$source_root/$runtime_path"
+                mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$source_root/$runtime_path"
             done
-
-            mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$source_root/target"
-            mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$source_root/.nxb-153-tmp"
-            mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$source_root/.nxb-153-cargo-home"
             mount -o remount,ro,nosuid,nodev "$source_root"
 
             if touch "$source_root/.nxb-153-write-probe" 2>/dev/null; then
                 die "immutable source root remained writable after remount"
             fi
-            for runtime_path in target .nxb-153-tmp .nxb-153-cargo-home; do
+            for runtime_path in \
+                target \
+                .nxb-153-tmp \
+                .nxb-153-fetch-home \
+                .nxb-153-vendor \
+                .nxb-153-cargo-home \
+                .nxb-153-config
+            do
                 printf probe > "$source_root/$runtime_path/.nxb-153-runtime-probe"
                 [[ "$(cat "$source_root/$runtime_path/.nxb-153-runtime-probe")" == probe ]] ||
                     die "runtime mount $runtime_path failed write/read probe"
@@ -227,25 +277,72 @@ if actual_files != expected_files or actual_dirs != expected_dirs:
             done
             validate_namespace post
 
-            export CARGO_TARGET_DIR="$source_root/target"
-            export CARGO_HOME="$source_root/.nxb-153-cargo-home"
-            export TMPDIR="$source_root/.nxb-153-tmp"
+            target_root="$source_root/target"
+            tmp_root="$source_root/.nxb-153-tmp"
+            fetch_home="$source_root/.nxb-153-fetch-home"
+            vendor_root="$source_root/.nxb-153-vendor"
+            gate_home="$source_root/.nxb-153-cargo-home"
+            config_root="$source_root/.nxb-153-config"
+
+            export CARGO_TARGET_DIR="$target_root"
+            export TMPDIR="$tmp_root"
             cd "$source_root"
 
-            cargo_run() {
-                rustup run "$rust_toolchain" cargo "$@"
-            }
+            CARGO_HOME="$fetch_home" cargo_raw fetch --locked ||
+                die "cargo fetch --locked failed while preparing checksum-bound dependency sources"
+            CARGO_HOME="$fetch_home" cargo_raw metadata --format-version 1 --locked | \
+                python3 scripts/nxb-153-registry-source.py validate-metadata "$source_root" >/dev/null ||
+                die "cargo metadata contains an unsupported external/local dependency source"
 
-            cargo_run metadata --format-version 1 --locked --no-deps >/dev/null
-            cargo_run fmt --all -- --check
+            CARGO_HOME="$fetch_home" CARGO_NET_OFFLINE=true \
+                cargo_raw vendor --locked --versioned-dirs "$vendor_root" >/dev/null ||
+                die "offline cargo vendor failed from the fetched locked dependency cache"
+            vendor_summary="$(python3 scripts/nxb-153-registry-source.py validate-vendor Cargo.lock "$vendor_root")" ||
+                die "vendored dependency snapshot differs from Cargo.lock/checksum authority"
+            [[ -n "$vendor_summary" ]] || die "vendored dependency authority summary is empty"
 
-            cargo_run check -p nxb-policy --all-targets --locked
-            cargo_run clippy -p nxb-policy --all-targets --locked -- -D warnings
-            cargo_run test -p nxb-policy --locked -- --test-threads=1
+            mount -o remount,ro,nosuid,nodev "$vendor_root"
+            if touch "$vendor_root/.nxb-153-vendor-write-probe" 2>/dev/null; then
+                die "vendored dependency snapshot remained writable after remount"
+            fi
 
-            cargo_run check -p nxb-core --all-targets --locked
-            cargo_run clippy -p nxb-core --all-targets --locked -- -D warnings
-            cargo_run test -p nxb-core --lib --locked -- --test-threads=1
+            cat > "$config_root/config.toml" <<EOF
+[source.crates-io]
+replace-with = "nxb-vendored-sources"
+
+[source.nxb-vendored-sources]
+directory = "$vendor_root"
+EOF
+            config_sha256="$(sha256sum "$config_root/config.toml" | awk "{print \$1}")"
+            [[ "$config_sha256" =~ ^[0-9a-f]{64}$ ]] || die "gate Cargo config SHA-256 is invalid"
+            mount -o remount,ro,nosuid,nodev "$config_root"
+            if printf changed > "$config_root/config.toml" 2>/dev/null; then
+                die "gate Cargo config root remained writable after remount"
+            fi
+
+            touch "$gate_home/config.toml"
+            mount --bind "$config_root/config.toml" "$gate_home/config.toml"
+            mount -o remount,bind,ro "$gate_home/config.toml"
+            if printf changed > "$gate_home/config.toml" 2>/dev/null; then
+                die "gate CARGO_HOME config binding remained writable"
+            fi
+            printf state > "$gate_home/.nxb-153-gate-home-probe"
+            [[ "$(cat "$gate_home/.nxb-153-gate-home-probe")" == state ]] ||
+                die "gate CARGO_HOME did not remain writable outside the pinned config file"
+            rm -f "$gate_home/.nxb-153-gate-home-probe"
+
+            export CARGO_HOME="$gate_home"
+            cargo_gate metadata --format-version 1 --locked >/dev/null ||
+                die "offline metadata failed against the immutable vendored dependency source"
+            cargo_gate fmt --all -- --check
+
+            cargo_gate check -p nxb-policy --all-targets --locked
+            cargo_gate clippy -p nxb-policy --all-targets --locked -- -D warnings
+            cargo_gate test -p nxb-policy --locked -- --test-threads=1
+
+            cargo_gate check -p nxb-core --all-targets --locked
+            cargo_gate clippy -p nxb-core --all-targets --locked -- -D warnings
+            cargo_gate test -p nxb-core --lib --locked -- --test-threads=1
             for test_name in \
                 target_setup_cli \
                 target_activation_cli \
@@ -259,12 +356,12 @@ if actual_files != expected_files or actual_dirs != expected_dirs:
                 target_persistence_envelope_cli \
                 target_unicode_path_failclosed_cli
             do
-                cargo_run test -p nxb-core --test "$test_name" --locked -- --test-threads=1
+                cargo_gate test -p nxb-core --test "$test_name" --locked -- --test-threads=1
             done
 
-            cargo_run check --workspace --all-targets --all-features --locked
-            cargo_run clippy --workspace --all-targets --all-features --locked -- -D warnings
-            cargo_run test --workspace --all-features --locked -- --test-threads=1
+            cargo_gate check --workspace --all-targets --all-features --locked
+            cargo_gate clippy --workspace --all-targets --all-features --locked -- -D warnings
+            cargo_gate test --workspace --all-features --locked -- --test-threads=1
 
             audit_path="/proc/self/fd/$repo_fd/$tools_relative/bin/cargo-audit"
             deny_path="/proc/self/fd/$repo_fd/$tools_relative/bin/cargo-deny"
@@ -281,9 +378,13 @@ if actual_files != expected_files or actual_dirs != expected_dirs:
             final_lock_sha256="$(sha256sum Cargo.lock | awk "{print \$1}")"
             [[ "$final_lock_sha256" == "$expected_lock_sha256" ]] ||
                 die "immutable snapshot Cargo.lock changed during validation"
+            [[ "$(sha256sum "$config_root/config.toml" | awk "{print \$1}")" == "$config_sha256" ]] ||
+                die "gate Cargo source-replacement config changed during validation"
+            python3 scripts/nxb-153-registry-source.py validate-vendor Cargo.lock "$vendor_root" >/dev/null ||
+                die "vendored dependency snapshot failed final checksum/namespace verification"
             validate_namespace post
 
-            printf "NXB-153 exact-head Linux gates passed inside immutable private source snapshot.\n"
+            printf "NXB-153 exact-head Linux gates passed inside immutable workspace/dependency snapshots.\n"
         ' bash \
             "$mountpoint" \
             "$repo_fd" \
