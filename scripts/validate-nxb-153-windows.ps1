@@ -11,9 +11,6 @@ $cargoAuditVersion = '0.22.2'
 $cargoDenyVersion = '0.20.2'
 $maximumEvidenceBytes = 65536
 $expectedCargoLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
-$toolsBin = Join-Path $RepoRoot 'target\nxb-tools\bin'
-$auditPath = Join-Path $toolsBin 'cargo-audit.exe'
-$denyPath = Join-Path $toolsBin 'cargo-deny.exe'
 $focusedTests = @(
     'target_setup_cli',
     'target_activation_cli',
@@ -110,6 +107,7 @@ function Assert-ToolingReceipt {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string]$HeadSha,
+        [Parameter(Mandatory = $true)][string]$ExpectedToolsRoot,
         [Parameter(Mandatory = $true)][string]$RustcVersion,
         [Parameter(Mandatory = $true)][string]$AuditVersion,
         [Parameter(Mandatory = $true)][string]$AuditSha256,
@@ -167,7 +165,7 @@ function Assert-ToolingReceipt {
         $receipt.cargo_audit_sha256 -cne $AuditSha256 -or
         $receipt.cargo_deny -cne $DenyVersion -or
         $receipt.cargo_deny_sha256 -cne $DenySha256 -or
-        $receipt.tools_root -cne 'target/nxb-tools' -or
+        $receipt.tools_root -cne $ExpectedToolsRoot -or
         $receipt.network_activity -cne 'rustup_and_crates_io_tool_installation_only'
     ) {
         throw 'Tooling receipt does not match the current exact-head validation tools.'
@@ -248,6 +246,15 @@ try {
         throw "Exact-head Windows validation evidence appeared while claiming the validation lock; heavy validation was not started: $evidencePath"
     }
 
+    $toolsRelative = "target/nxb-tools/windows/$headSha"
+    $toolsRoot = Join-Path $RepoRoot ($toolsRelative -replace '/', [IO.Path]::DirectorySeparatorChar)
+    $toolsBin = Join-Path $toolsRoot 'bin'
+    $auditPath = Join-Path $toolsBin 'cargo-audit.exe'
+    $denyPath = Join-Path $toolsBin 'cargo-deny.exe'
+    if (-not (Test-Path -LiteralPath $toolsRoot -PathType Container)) {
+        throw "Exact-head Windows tools root is missing: $toolsRoot. Run scripts/prepare-and-validate-nxb-153-windows.ps1 first."
+    }
+
     $rustcVersion = (& rustup run $rustToolchain rustc --version | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or -not $rustcVersion.StartsWith('rustc 1.97.1 ')) {
         throw "Expected rustc 1.97.1, found '$rustcVersion'."
@@ -273,6 +280,7 @@ try {
     Assert-ToolingReceipt `
         -Path $receiptPath `
         -HeadSha $headSha `
+        -ExpectedToolsRoot $toolsRelative `
         -RustcVersion $rustcVersion `
         -AuditVersion $auditVersion `
         -AuditSha256 $auditSha256 `
@@ -454,6 +462,7 @@ try {
 
     Write-Host 'NXB-153 Windows validation passed.'
     Write-Host "HEAD: $headSha"
+    Write-Host "Tool root: $toolsRelative"
     Write-Host "Cargo.lock SHA-256: $lockSha256"
     Write-Host "Tooling receipt SHA-256: $receiptSha256"
     Write-Host "Evidence: $evidencePath"
