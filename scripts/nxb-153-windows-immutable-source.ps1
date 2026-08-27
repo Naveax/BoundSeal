@@ -17,52 +17,47 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Fail-NxbH2Entry {
+function Fail-NxbH2CopyEntry {
     param([Parameter(Mandatory = $true)][string]$Message)
-    throw "NXB-153 Windows H2 entrypoint failed: $Message"
+    throw "NXB-153 Windows bounded H2 entrypoint failed: $Message"
 }
 
-function ConvertTo-NxbH2EntryHex {
+function ConvertTo-NxbH2CopyHex {
     param([Parameter(Mandatory = $true)][byte[]]$Bytes)
     return (($Bytes | ForEach-Object { $_.ToString('x2') }) -join '')
 }
 
-function Open-NxbH2EntryPinnedFile {
+function Open-NxbH2CopyPinnedFile {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string]$Label
     )
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
     if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-        Fail-NxbH2Entry "$Label must be a regular non-reparse file: $Path"
+        Fail-NxbH2CopyEntry "$Label must be a regular non-reparse file: $Path"
     }
     try {
-        return [IO.File]::Open(
-            $Path,
-            [IO.FileMode]::Open,
-            [IO.FileAccess]::Read,
-            [IO.FileShare]::Read
-        )
+        return [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
     }
     catch {
-        Fail-NxbH2Entry "could not pin $Label with write/delete sharing withheld: $($_.Exception.Message)"
+        Fail-NxbH2CopyEntry "could not pin $Label with write/delete sharing withheld: $($_.Exception.Message)"
     }
 }
 
-function Get-NxbH2EntryGitBlobOid {
+function Get-NxbH2CopyGitBlobOid {
     param(
         [Parameter(Mandatory = $true)][IO.FileStream]$Stream,
         [Parameter(Mandatory = $true)][string]$Label
     )
     if (-not $Stream.CanRead -or -not $Stream.CanSeek) {
-        Fail-NxbH2Entry "$Label stream must be readable and seekable"
+        Fail-NxbH2CopyEntry "$Label stream must be readable and seekable"
     }
     $saved = $Stream.Position
     try {
         $Stream.Position = 0
         $length = $Stream.Length
         if ($length -le 0 -or $length -gt 2097152) {
-            Fail-NxbH2Entry "$Label size is outside the supported implementation envelope"
+            Fail-NxbH2CopyEntry "$Label size is outside the supported implementation envelope"
         }
         $sha1 = [Security.Cryptography.SHA1]::Create()
         try {
@@ -75,10 +70,10 @@ function Get-NxbH2EntryGitBlobOid {
                 [void]$sha1.TransformBlock($buffer, 0, $read, $null, 0)
             }
             if ($total -ne $length) {
-                Fail-NxbH2Entry "$Label changed size while hashing"
+                Fail-NxbH2CopyEntry "$Label changed size while hashing"
             }
             [void]$sha1.TransformFinalBlock([byte[]]::new(0), 0, 0)
-            return (ConvertTo-NxbH2EntryHex -Bytes $sha1.Hash)
+            return (ConvertTo-NxbH2CopyHex -Bytes $sha1.Hash)
         }
         finally {
             $sha1.Dispose()
@@ -89,34 +84,48 @@ function Get-NxbH2EntryGitBlobOid {
     }
 }
 
-function Assert-NxbH2EntryCommittedFile {
+function Assert-NxbH2CopyCommittedFile {
     param(
         [Parameter(Mandatory = $true)][IO.FileStream]$Stream,
         [Parameter(Mandatory = $true)][string]$RelativePath,
         [Parameter(Mandatory = $true)][string]$Label
     )
-    $expected = (git rev-parse "${HeadSha}:$RelativePath").Trim()
+    $expected = (git -C $RepoRoot rev-parse "${HeadSha}:$RelativePath").Trim()
     if ($LASTEXITCODE -ne 0 -or $expected -notmatch '^[0-9a-f]{40}$') {
-        Fail-NxbH2Entry "exact-head $Label Git object could not be resolved"
+        Fail-NxbH2CopyEntry "exact-head $Label Git object could not be resolved"
     }
-    $type = (git cat-file -t $expected).Trim()
+    $type = (git -C $RepoRoot cat-file -t $expected).Trim()
     if ($LASTEXITCODE -ne 0 -or $type -cne 'blob') {
-        Fail-NxbH2Entry "exact-head $Label is not a Git blob"
+        Fail-NxbH2CopyEntry "exact-head $Label is not a Git blob"
     }
-    $actual = Get-NxbH2EntryGitBlobOid -Stream $Stream -Label $Label
+    $actual = Get-NxbH2CopyGitBlobOid -Stream $Stream -Label $Label
     if ($actual -cne $expected) {
-        Fail-NxbH2Entry "pinned $Label bytes differ from exact-head Git authority"
+        Fail-NxbH2CopyEntry "pinned $Label bytes differ from exact-head Git authority"
     }
+    return $expected
 }
 
-if ($null -eq ('Nxb153H2SelfTestNative' -as [type])) {
+function Resolve-NxbH2CopyPython {
+    foreach ($candidate in @('python3', 'python')) {
+        $command = Get-Command $candidate -CommandType Application -ErrorAction SilentlyContinue
+        if ($null -ne $command) {
+            $version = (& $command.Source -I --version 2>&1 | Out-String).Trim()
+            if ($LASTEXITCODE -eq 0 -and $version -match '^Python 3\.(1[1-9]|[2-9][0-9])(?:\.|$)') {
+                return $command.Source
+            }
+        }
+    }
+    Fail-NxbH2CopyEntry 'Python 3.11 or newer with isolated-mode support is required'
+}
+
+if ($null -eq ('Nxb153H2CopyEntryNative' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
-public static class Nxb153H2SelfTestNative
+public static class Nxb153H2CopyEntryNative
 {
     private const uint GENERIC_READ = 0x80000000;
     private const uint FILE_SHARE_READ = 0x00000001;
@@ -156,189 +165,159 @@ public static class Nxb153H2SelfTestNative
 '@
 }
 
-function Invoke-NxbH2EntryPrimitiveSelfTest {
-    param([Parameter(Mandatory = $true)][string]$Root)
-
-    $testRoot = Join-Path $Root ('.nxb-153-h2-selftest-' + [Guid]::NewGuid().ToString('N'))
-    $guardedDirectory = Join-Path $testRoot 'guarded'
-    $renameTarget = Join-Path $testRoot 'renamed'
-    $guardedFile = Join-Path $guardedDirectory 'trusted.txt'
-    $executableProbe = Join-Path $guardedDirectory 'cmd-probe.exe'
-    $fileStream = $null
-    $directoryHandle = $null
-    $originalAcl = $null
-    $aclApplied = $false
-    $primaryError = $null
-    $cleanupErrors = [Collections.Generic.List[string]]::new()
-
-    try {
-        [void](New-Item -ItemType Directory -Path $guardedDirectory -Force -ErrorAction Stop)
-        [IO.File]::WriteAllText($guardedFile, 'trusted')
-
-        $comSpec = [Environment]::GetEnvironmentVariable('ComSpec')
-        if ([string]::IsNullOrWhiteSpace($comSpec) -or -not (Test-Path -LiteralPath $comSpec -PathType Leaf)) {
-            Fail-NxbH2Entry 'ComSpec is unavailable for H2 process-launch self-test'
-        }
-        Copy-Item -LiteralPath $comSpec -Destination $executableProbe -ErrorAction Stop
-
-        $fileStream = [IO.File]::Open(
-            $guardedFile,
-            [IO.FileMode]::Open,
-            [IO.FileAccess]::Read,
-            [IO.FileShare]::Read
-        )
-        $writeOpened = $false
-        try {
-            $probe = [IO.File]::Open($guardedFile, [IO.FileMode]::Open, [IO.FileAccess]::Write, [IO.FileShare]::None)
-            $probe.Dispose()
-            $writeOpened = $true
-        }
-        catch [UnauthorizedAccessException] {}
-        catch [IO.IOException] {}
-        if ($writeOpened) {
-            Fail-NxbH2Entry 'FileShare.Read self-test allowed concurrent write access'
-        }
-
-        $deleteSucceeded = $false
-        try {
-            [IO.File]::Delete($guardedFile)
-            $deleteSucceeded = $true
-        }
-        catch [UnauthorizedAccessException] {}
-        catch [IO.IOException] {}
-        if ($deleteSucceeded -or -not (Test-Path -LiteralPath $guardedFile -PathType Leaf)) {
-            Fail-NxbH2Entry 'FileShare.Read self-test allowed delete access'
-        }
-
-        $directoryHandle = [Nxb153H2SelfTestNative]::OpenDirectoryNoDeleteShare($guardedDirectory)
-        $renameSucceeded = $false
-        try {
-            [IO.Directory]::Move($guardedDirectory, $renameTarget)
-            $renameSucceeded = $true
-        }
-        catch [UnauthorizedAccessException] {}
-        catch [IO.IOException] {}
-        if ($renameSucceeded -or -not (Test-Path -LiteralPath $guardedDirectory -PathType Container)) {
-            Fail-NxbH2Entry 'directory handle self-test allowed rename/delete authority'
-        }
-
-        $originalAcl = Get-Acl -LiteralPath $guardedDirectory -ErrorAction Stop
-        $acl = Get-Acl -LiteralPath $guardedDirectory -ErrorAction Stop
-        $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-        $denyRights = [IO.FileSystemRights]::WriteData -bor
-            [IO.FileSystemRights]::AppendData -bor
-            [IO.FileSystemRights]::CreateFiles -bor
-            [IO.FileSystemRights]::CreateDirectories -bor
-            [IO.FileSystemRights]::Delete -bor
-            [IO.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
-            [IO.FileSystemRights]::WriteAttributes -bor
-            [IO.FileSystemRights]::WriteExtendedAttributes
-        $rule = [Security.AccessControl.FileSystemAccessRule]::new(
-            $sid,
-            $denyRights,
-            ([Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit),
-            [Security.AccessControl.PropagationFlags]::None,
-            [Security.AccessControl.AccessControlType]::Deny
-        )
-        [void]$acl.AddAccessRule($rule)
-        Set-Acl -LiteralPath $guardedDirectory -AclObject $acl -ErrorAction Stop
-        $aclApplied = $true
-
-        $fileInjection = Join-Path $guardedDirectory ('file-' + [Guid]::NewGuid().ToString('N'))
-        $dirInjection = Join-Path $guardedDirectory ('dir-' + [Guid]::NewGuid().ToString('N'))
-        $created = $false
-        try { [IO.File]::WriteAllText($fileInjection, 'x'); $created = $true }
-        catch [UnauthorizedAccessException] {}
-        catch [IO.IOException] {}
-        if ($created -or (Test-Path -LiteralPath $fileInjection)) {
-            Fail-NxbH2Entry 'ACL self-test allowed file injection'
-        }
-        $created = $false
-        try { [void][IO.Directory]::CreateDirectory($dirInjection); $created = $true }
-        catch [UnauthorizedAccessException] {}
-        catch [IO.IOException] {}
-        if ($created -or (Test-Path -LiteralPath $dirInjection)) {
-            Fail-NxbH2Entry 'ACL self-test allowed directory injection'
-        }
-
-        & $executableProbe /d /c exit 0
-        if ($LASTEXITCODE -ne 0) {
-            Fail-NxbH2Entry "ACL/share-mode self-test blocked executable process launch: exit $LASTEXITCODE"
-        }
-    }
-    catch {
-        $primaryError = $_
-    }
-    finally {
-        if ($aclApplied -and $null -ne $originalAcl) {
-            try { Set-Acl -LiteralPath $guardedDirectory -AclObject $originalAcl -ErrorAction Stop }
-            catch { $cleanupErrors.Add("ACL restore failed: $($_.Exception.Message)") }
-        }
-        if ($null -ne $directoryHandle) {
-            try { $directoryHandle.Dispose() }
-            catch { $cleanupErrors.Add("directory handle dispose failed: $($_.Exception.Message)") }
-        }
-        if ($null -ne $fileStream) {
-            try { $fileStream.Dispose() }
-            catch { $cleanupErrors.Add("file handle dispose failed: $($_.Exception.Message)") }
-        }
-        if (Test-Path -LiteralPath $testRoot) {
-            try { Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction Stop }
-            catch { $cleanupErrors.Add("self-test cleanup failed: $($_.Exception.Message)") }
-        }
-    }
-
-    if ($null -ne $primaryError) {
-        if ($cleanupErrors.Count -gt 0) {
-            throw "H2 primitive self-test failed: $($primaryError.Exception.Message); cleanup: $($cleanupErrors -join ' | ')"
-        }
-        throw $primaryError
-    }
-    if ($cleanupErrors.Count -gt 0) {
-        Fail-NxbH2Entry ("H2 primitive self-test cleanup failed: " + ($cleanupErrors -join ' | '))
-    }
-}
-
 if (-not $IsWindows) {
-    Fail-NxbH2Entry 'Windows H2 entrypoint must run on Windows'
+    Fail-NxbH2CopyEntry 'Windows bounded H2 entrypoint must run on Windows'
 }
 if ($HeadSha -notmatch '^[0-9a-f]{40}$') {
-    Fail-NxbH2Entry 'exact head is not canonical 40-hex SHA-1'
+    Fail-NxbH2CopyEntry 'exact head is not canonical 40-hex SHA-1'
 }
 
 $RepoRoot = [IO.Path]::GetFullPath($RepoRoot)
 $ValidationDirectory = [IO.Path]::GetFullPath($ValidationDirectory)
-$h2InnerRelative = 'scripts/nxb-153-windows-immutable-source-h2-inner.ps1'
-$h2InnerPath = Join-Path (Join-Path $RepoRoot 'scripts') 'nxb-153-windows-immutable-source-h2-inner.ps1'
-$h2InnerStream = $null
+$scriptsRoot = Join-Path $RepoRoot 'scripts'
+$entryInnerRelative = 'scripts/nxb-153-windows-immutable-source-h2-entry-inner.ps1'
+$copyHelperRelative = 'scripts/nxb-153-rust-toolchain-snapshot-copy.py'
+$entryInnerPath = Join-Path $scriptsRoot 'nxb-153-windows-immutable-source-h2-entry-inner.ps1'
+$copyHelperPath = Join-Path $scriptsRoot 'nxb-153-rust-toolchain-snapshot-copy.py'
+$entryInnerStream = $null
+$copyHelperStream = $null
+$scriptsHandle = $null
+$script:NxbH2CopyExpected = $null
+$script:NxbH2CopySourceRoot = $null
+$script:NxbH2CopyDestination = $null
+$script:NxbH2CopyInvoked = $false
+$script:NxbH2CopyPython = $null
+$script:NxbH2CopyHelperPath = $null
+$primaryError = $null
+$cleanupErrors = [Collections.Generic.List[string]]::new()
 
 try {
-    $h2InnerStream = Open-NxbH2EntryPinnedFile -Path $h2InnerPath -Label 'Windows H2 inner runner'
-    Assert-NxbH2EntryCommittedFile -Stream $h2InnerStream -RelativePath $h2InnerRelative -Label 'Windows H2 inner runner'
+    $scriptsItem = Get-Item -LiteralPath $scriptsRoot -Force -ErrorAction Stop
+    if (-not $scriptsItem.PSIsContainer -or ($scriptsItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        Fail-NxbH2CopyEntry 'scripts namespace must be a normal non-reparse directory'
+    }
+    $scriptsHandle = [Nxb153H2CopyEntryNative]::OpenDirectoryNoDeleteShare($scriptsRoot)
+    $entryInnerStream = Open-NxbH2CopyPinnedFile -Path $entryInnerPath -Label 'Windows H2 entry inner runner'
+    $copyHelperStream = Open-NxbH2CopyPinnedFile -Path $copyHelperPath -Label 'bounded Rust snapshot-copy helper'
+    [void](Assert-NxbH2CopyCommittedFile -Stream $entryInnerStream -RelativePath $entryInnerRelative -Label 'Windows H2 entry inner runner')
+    [void](Assert-NxbH2CopyCommittedFile -Stream $copyHelperStream -RelativePath $copyHelperRelative -Label 'bounded Rust snapshot-copy helper')
+
+    $script:NxbH2CopyPython = Resolve-NxbH2CopyPython
+    $script:NxbH2CopyHelperPath = $copyHelperPath
+    & $script:NxbH2CopyPython -I $script:NxbH2CopyHelperPath self-test | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Fail-NxbH2CopyEntry "bounded Rust snapshot-copy helper self-test failed with exit $LASTEXITCODE"
+    }
+
+    if (-not $SelfTest) {
+        function Copy-Item {
+            [CmdletBinding()]
+            param(
+                [Parameter(Mandatory = $true)][string]$LiteralPath,
+                [Parameter(Mandatory = $true)][string]$Destination,
+                [switch]$Recurse,
+                [switch]$Force
+            )
+
+            if (-not $Recurse -or -not $Force) {
+                Fail-NxbH2CopyEntry 'bounded Copy-Item shim rejected non-recursive/non-force invocation'
+            }
+
+            $sourceFull = [IO.Path]::GetFullPath($LiteralPath)
+            $destinationFull = [IO.Path]::GetFullPath($Destination)
+            $sourceRoot = [IO.Path]::GetDirectoryName($sourceFull)
+            if ([string]::IsNullOrWhiteSpace($sourceRoot)) {
+                Fail-NxbH2CopyEntry 'bounded Copy-Item shim could not resolve source root'
+            }
+            $sourceRoot = [IO.Path]::GetFullPath($sourceRoot)
+
+            if ($null -eq $script:NxbH2CopyExpected) {
+                $expected = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+                foreach ($item in Get-ChildItem -LiteralPath $sourceRoot -Force -ErrorAction Stop) {
+                    [void]$expected.Add([IO.Path]::GetFullPath($item.FullName))
+                }
+                if ($expected.Count -eq 0 -or -not $expected.Contains($sourceFull)) {
+                    Fail-NxbH2CopyEntry 'bounded Copy-Item shim source enumeration disagrees with H2 capture loop'
+                }
+                $script:NxbH2CopyExpected = $expected
+                $script:NxbH2CopySourceRoot = $sourceRoot
+                $script:NxbH2CopyDestination = $destinationFull
+
+                & $script:NxbH2CopyPython -I $script:NxbH2CopyHelperPath copy $sourceRoot $destinationFull --platform-model windows | Out-Null
+                if ($LASTEXITCODE -ne 0) {
+                    Fail-NxbH2CopyEntry "bounded Rust sysroot copy failed with exit $LASTEXITCODE"
+                }
+                $script:NxbH2CopyInvoked = $true
+            }
+            else {
+                if (-not [string]::Equals($sourceRoot, $script:NxbH2CopySourceRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                    Fail-NxbH2CopyEntry 'bounded Copy-Item shim observed a second source root'
+                }
+                if (-not [string]::Equals($destinationFull, $script:NxbH2CopyDestination, [StringComparison]::OrdinalIgnoreCase)) {
+                    Fail-NxbH2CopyEntry 'bounded Copy-Item shim observed a second destination root'
+                }
+            }
+
+            if (-not $script:NxbH2CopyExpected.Remove($sourceFull)) {
+                Fail-NxbH2CopyEntry "bounded Copy-Item shim observed duplicate/unexpected source entry: $sourceFull"
+            }
+        }
+    }
 
     $innerParameters = @{}
     foreach ($entry in $PSBoundParameters.GetEnumerator()) {
         $innerParameters[$entry.Key] = $entry.Value
     }
+    & $entryInnerPath @innerParameters
 
-    if ($SelfTest) {
-        Invoke-NxbH2EntryPrimitiveSelfTest -Root $ValidationDirectory
+    if (-not $SelfTest) {
+        if (-not $script:NxbH2CopyInvoked) {
+            Fail-NxbH2CopyEntry 'Windows H2 validation returned without invoking bounded sysroot copy'
+        }
+        if ($null -eq $script:NxbH2CopyExpected -or $script:NxbH2CopyExpected.Count -ne 0) {
+            Fail-NxbH2CopyEntry 'Windows H2 capture loop did not consume the complete bounded source enumeration'
+        }
     }
 
-    & $h2InnerPath @innerParameters
-
-    $finalOid = Get-NxbH2EntryGitBlobOid -Stream $h2InnerStream -Label 'Windows H2 inner runner final pinned object'
-    $expectedOid = (git rev-parse "${HeadSha}:$h2InnerRelative").Trim()
-    if ($LASTEXITCODE -ne 0 -or $finalOid -cne $expectedOid) {
-        Fail-NxbH2Entry 'Windows H2 inner runner authority changed during execution'
+    $finalEntryOid = Get-NxbH2CopyGitBlobOid -Stream $entryInnerStream -Label 'Windows H2 entry inner runner final pinned object'
+    $expectedEntryOid = (git -C $RepoRoot rev-parse "${HeadSha}:$entryInnerRelative").Trim()
+    if ($LASTEXITCODE -ne 0 -or $finalEntryOid -cne $expectedEntryOid) {
+        Fail-NxbH2CopyEntry 'Windows H2 entry inner runner authority changed during execution'
     }
-
-    if ($SelfTest) {
-        Write-Host 'NXB-153 Windows H2 file-share/directory-handle/ACL/process primitive self-test passed.'
+    $finalCopyOid = Get-NxbH2CopyGitBlobOid -Stream $copyHelperStream -Label 'bounded Rust snapshot-copy helper final pinned object'
+    $expectedCopyOid = (git -C $RepoRoot rev-parse "${HeadSha}:$copyHelperRelative").Trim()
+    if ($LASTEXITCODE -ne 0 -or $finalCopyOid -cne $expectedCopyOid) {
+        Fail-NxbH2CopyEntry 'bounded Rust snapshot-copy helper authority changed during execution'
     }
 }
+catch {
+    $primaryError = $_
+}
 finally {
-    if ($null -ne $h2InnerStream) {
-        $h2InnerStream.Dispose()
+    Remove-Item Function:\Copy-Item -ErrorAction SilentlyContinue
+    if ($null -ne $copyHelperStream) {
+        try { $copyHelperStream.Dispose() }
+        catch { $cleanupErrors.Add("copy helper handle disposal failed: $($_.Exception.Message)") }
     }
+    if ($null -ne $entryInnerStream) {
+        try { $entryInnerStream.Dispose() }
+        catch { $cleanupErrors.Add("entry inner handle disposal failed: $($_.Exception.Message)") }
+    }
+    if ($null -ne $scriptsHandle) {
+        try { $scriptsHandle.Dispose() }
+        catch { $cleanupErrors.Add("scripts namespace handle disposal failed: $($_.Exception.Message)") }
+    }
+}
+
+if ($null -ne $primaryError) {
+    if ($cleanupErrors.Count -gt 0) {
+        throw "NXB-153 Windows bounded H2 failed: $($primaryError.Exception.Message); cleanup: $($cleanupErrors -join ' | ')"
+    }
+    throw $primaryError
+}
+if ($cleanupErrors.Count -gt 0) {
+    Fail-NxbH2CopyEntry ("cleanup failed after otherwise successful validation: " + ($cleanupErrors -join ' | '))
+}
+if ($SelfTest) {
+    Write-Host 'NXB-153 Windows bounded H2 entrypoint source self-test chain passed; real Windows runtime admission remains required.'
 }
