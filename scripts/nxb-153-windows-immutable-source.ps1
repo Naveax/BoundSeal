@@ -150,6 +150,7 @@ $scriptsHandle = $null
 $primaryError = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
 $script:NxbH2OutStringByteLimit = 67108864
+$script:NxbH2OutStringObjectLimit = 4096
 
 $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
 $gitApplication = $gitCommand.Source
@@ -166,36 +167,82 @@ if (Test-Path Function:\Out-String) {
     Fail-NxbH2StringGuard 'ambient Out-String function authority is not admitted'
 }
 
+function Get-NxbH2OutStringProbeText {
+    param([Parameter(Mandatory = $true)]$Value)
+
+    if ($Value -is [string]) {
+        return [string]$Value
+    }
+    if ($Value -is [System.Management.Automation.InformationRecord]) {
+        return [string]$Value.ToString()
+    }
+    if ($Value -is [System.Management.Automation.ErrorRecord]) {
+        return [string]$Value.ToString()
+    }
+
+    Fail-NxbH2StringGuard (
+        'Out-String received an unsupported pipeline object type: ' +
+        $Value.GetType().FullName
+    )
+}
+
 function Out-String {
     [CmdletBinding()]
     param(
         [Parameter(ValueFromPipeline = $true)]$InputObject
     )
     begin {
-        $builder = [Text.StringBuilder]::new()
+        $items = [Collections.Generic.List[object]]::new()
         $encoding = [Text.UTF8Encoding]::new($false, $true)
-        [Int64]$total = 0
+        [Int64]$inputBytes = 0
     }
     process {
-        $piece = Microsoft.PowerShell.Utility\Out-String -InputObject $InputObject
-        $total += $encoding.GetByteCount($piece)
-        if ($total -gt $script:NxbH2OutStringByteLimit) {
-            Fail-NxbH2StringGuard "Out-String capture exceeds $($script:NxbH2OutStringByteLimit) UTF-8 bytes"
+        if ($items.Count + 1 -gt $script:NxbH2OutStringObjectLimit) {
+            Fail-NxbH2StringGuard "Out-String capture exceeds $($script:NxbH2OutStringObjectLimit) pipeline objects"
         }
-        [void]$builder.Append($piece)
+        $probeText = Get-NxbH2OutStringProbeText -Value $InputObject
+        $inputBytes += $encoding.GetByteCount($probeText)
+        if ($inputBytes -gt $script:NxbH2OutStringByteLimit) {
+            Fail-NxbH2StringGuard "Out-String input exceeds $($script:NxbH2OutStringByteLimit) UTF-8 bytes"
+        }
+        $items.Add($InputObject)
     }
     end {
-        $builder.ToString()
+        if ($items.Count -eq 0) {
+            $formatted = (& { } | Microsoft.PowerShell.Utility\Out-String)
+        }
+        else {
+            $formatted = ($items.ToArray() | Microsoft.PowerShell.Utility\Out-String)
+        }
+        $outputBytes = $encoding.GetByteCount($formatted)
+        if ($outputBytes -gt $script:NxbH2OutStringByteLimit) {
+            Fail-NxbH2StringGuard "Out-String output exceeds $($script:NxbH2OutStringByteLimit) UTF-8 bytes"
+        }
+        $formatted
     }
 }
 
 function Invoke-NxbH2StringGuardSelfTest {
-    $normal = ('abc' | Out-String).Trim()
-    if ($normal -cne 'abc') {
-        Fail-NxbH2StringGuard 'bounded Out-String normal self-test changed string content'
+    $expectedStrings = (@('alpha', 'beta') | Microsoft.PowerShell.Utility\Out-String)
+    $actualStrings = (@('alpha', 'beta') | Out-String)
+    if ($actualStrings -cne $expectedStrings) {
+        Fail-NxbH2StringGuard 'bounded Out-String changed multi-string pipeline formatting'
     }
 
-    $saved = $script:NxbH2OutStringByteLimit
+    $expectedMixed = (& {
+        'alpha'
+        Write-Host 'beta'
+    } 6>&1 | Microsoft.PowerShell.Utility\Out-String)
+    $actualMixed = (& {
+        'alpha'
+        Write-Host 'beta'
+    } 6>&1 | Out-String)
+    if ($actualMixed -cne $expectedMixed) {
+        Fail-NxbH2StringGuard 'bounded Out-String changed redirected information-record formatting'
+    }
+
+    $savedByteLimit = $script:NxbH2OutStringByteLimit
+    $savedObjectLimit = $script:NxbH2OutStringObjectLimit
     try {
         $script:NxbH2OutStringByteLimit = 4
         $rejected = $false
@@ -203,17 +250,49 @@ function Invoke-NxbH2StringGuardSelfTest {
             'abcdef' | Out-String | Out-Null
         }
         catch {
-            if ($_.Exception.Message -notlike '*capture exceeds*') {
+            if ($_.Exception.Message -notlike '*input exceeds*') {
                 throw
             }
             $rejected = $true
         }
         if (-not $rejected) {
-            Fail-NxbH2StringGuard 'bounded Out-String self-test did not reject oversized capture'
+            Fail-NxbH2StringGuard 'bounded Out-String self-test did not reject oversized input'
+        }
+
+        $script:NxbH2OutStringByteLimit = $savedByteLimit
+        $script:NxbH2OutStringObjectLimit = 1
+        $rejected = $false
+        try {
+            @('a', 'b') | Out-String | Out-Null
+        }
+        catch {
+            if ($_.Exception.Message -notlike '*pipeline objects*') {
+                throw
+            }
+            $rejected = $true
+        }
+        if (-not $rejected) {
+            Fail-NxbH2StringGuard 'bounded Out-String self-test did not reject excess pipeline objects'
+        }
+
+        $script:NxbH2OutStringObjectLimit = $savedObjectLimit
+        $rejected = $false
+        try {
+            [pscustomobject]@{ value = 'unsupported' } | Out-String | Out-Null
+        }
+        catch {
+            if ($_.Exception.Message -notlike '*unsupported pipeline object type*') {
+                throw
+            }
+            $rejected = $true
+        }
+        if (-not $rejected) {
+            Fail-NxbH2StringGuard 'bounded Out-String self-test did not reject unsupported object formatting'
         }
     }
     finally {
-        $script:NxbH2OutStringByteLimit = $saved
+        $script:NxbH2OutStringByteLimit = $savedByteLimit
+        $script:NxbH2OutStringObjectLimit = $savedObjectLimit
     }
 }
 
