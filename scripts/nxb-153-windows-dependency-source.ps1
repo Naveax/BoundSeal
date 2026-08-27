@@ -27,6 +27,8 @@ function Fail-NxbDependency {
 function Assert-NxbAmbientEnvironment {
     $forbiddenExact = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($name in @(
+        'AR',
+        'BINDGEN_EXTRA_CLANG_ARGS',
         'CARGO',
         'CARGO_ENCODED_RUSTFLAGS',
         'CARGO_ENCODED_RUSTDOCFLAGS',
@@ -34,21 +36,37 @@ function Assert-NxbAmbientEnvironment {
         'CARGO_INCREMENTAL',
         'CARGO_NET_OFFLINE',
         'CARGO_TARGET_DIR',
+        'CC',
+        'CC_ENABLE_DEBUG_OUTPUT',
+        'CFLAGS',
+        'CL',
+        'CPP',
+        'CPPFLAGS',
+        'CRATE_CC_NO_DEFAULTS',
+        'CXX',
+        'CXXFLAGS',
+        'LD',
+        'LDFLAGS',
         'PYTHONHOME',
         'PYTHONINSPECT',
         'PYTHONPATH',
         'PYTHONSTARTUP',
+        'RANLIB',
+        'RANLIBFLAGS',
         'RUSTC',
         'RUSTC_BOOTSTRAP',
         'RUSTC_WORKSPACE_WRAPPER',
         'RUSTC_WRAPPER',
         'RUSTDOC',
         'RUSTDOCFLAGS',
-        'RUSTFLAGS'
+        'RUSTFLAGS',
+        '_CL_'
     )) {
         [void]$forbiddenExact.Add($name)
     }
     $forbiddenPrefixes = @(
+        'AR_',
+        'BINDGEN_EXTRA_CLANG_ARGS_',
         'CARGO_ALIAS_',
         'CARGO_BUILD_',
         'CARGO_NET_',
@@ -57,6 +75,14 @@ function Assert-NxbAmbientEnvironment {
         'CARGO_REGISTRY_',
         'CARGO_SOURCE_',
         'CARGO_TARGET_',
+        'CC_',
+        'CFLAGS_',
+        'CPPFLAGS_',
+        'CXX_',
+        'CXXFLAGS_',
+        'LD_',
+        'LDFLAGS_',
+        'RANLIB_',
         'RUSTC_',
         'RUSTDOC_',
         'RUSTUP_'
@@ -79,7 +105,7 @@ function Assert-NxbAmbientEnvironment {
     }
     if ($collisions.Count -gt 0) {
         $ordered = @($collisions | Sort-Object { $_.ToUpperInvariant() })
-        Fail-NxbDependency ('ambient Rust/Cargo/Python authority variables are not admitted: ' + ($ordered -join ', '))
+        Fail-NxbDependency ('ambient compiler/Cargo/Python authority variables are not admitted: ' + ($ordered -join ', '))
     }
 }
 
