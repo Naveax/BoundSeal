@@ -21,9 +21,9 @@ A concurrent rename/substitution could replace the pathname only for step 3 and 
 
 A second-order Linux problem exists if the helper that performs the sealing is itself reopened by repository pathname. A correct immutable-executable primitive is not an authority boundary if an attacker can redirect `scripts/nxb-153-sealed-tool.py` to different Python bytes immediately before one invocation.
 
-Windows has an additional namespace case: pinning only `cargo-audit.exe` does not prove that a later pathname execution cannot be redirected if an ancestor such as `bin`, the exact-head root, or another tool-root directory is renamed/replaced.
+Windows has additional namespace/object-lifetime cases: pinning only `cargo-audit.exe` does not prove that a later pathname execution cannot be redirected if an ancestor such as `bin`, the exact-head root, or another tool-root directory is renamed/replaced. Likewise, semantically parsing a tooling receipt and later hashing it through a second pathname open can bind evidence to bytes different from those that passed semantic review. Initial/final `Cargo.lock` hashes alone also do not prove the bytes consumed by locked Cargo operations in the middle were unchanged.
 
-NXB-153 therefore separates **tool pathname identity**, **tool object bytes**, **tool namespace authority** and **validation-helper implementation authority**.
+NXB-153 therefore separates **tool pathname identity**, **tool object bytes**, **tool namespace authority**, **validation-helper implementation authority**, **receipt object authority** and **lockfile object authority**.
 
 ## Exact-head roots
 
@@ -191,17 +191,25 @@ After fresh `cargo install` completes, Windows preparation:
 
 ## Windows validation
 
-The Windows validator uses the same model for the complete heavy-validation/evidence lifecycle:
+The Windows validator now retains file-object authority not only for security-tool executables but also for the tooling receipt and `Cargo.lock` across the complete heavy-validation/evidence lifecycle:
 
 1. pin repository/target/evidence directory authority;
 2. acquire the exact-head validation lock;
 3. pin `nxb-tools -> windows -> <head> -> bin` directory authority with native handles that omit delete sharing;
 4. pin both tool files with read-only `FileStream` objects whose sharing mode is `FileShare.Read`;
 5. obtain evidence SHA-256 values from those file streams and require tooling-receipt equality;
-6. execute the security tools by canonical path while the complete ancestor namespace chain and file objects remain pinned;
-7. re-hash pinned streams after security-tool execution and require unchanged bytes;
-8. re-hash canonical pathnames and require they still name the admitted bytes;
-9. retain all relevant handles until create-new Windows validation evidence has been flushed and exact-read back.
+6. **before semantic tooling-receipt parsing**, open the exact receipt read-only with `FileShare.Read`, withholding write/delete sharing until evidence publication completes;
+7. derive `tooling_receipt_sha256` from that pinned receipt stream rather than a later pathname hash;
+8. **before any locked Cargo operation**, open `Cargo.lock` read-only with `FileShare.Read` and derive the admitted lock SHA from that pinned stream;
+9. require the pinned `Cargo.lock` SHA to equal the canonical expected SHA before metadata/check/Clippy/tests/security gates start;
+10. execute the security tools by canonical path while the complete ancestor namespace chain and tool/receipt/lockfile objects remain pinned;
+11. re-hash the pinned tool streams, pinned receipt stream and pinned `Cargo.lock` stream after the heavy gates and require unchanged bytes;
+12. re-hash the canonical tool, receipt and `Cargo.lock` pathnames and require that they still name the admitted pinned bytes;
+13. retain all relevant handles until create-new Windows validation evidence has been flushed and exact-read back.
+
+Opening the tooling receipt before semantic parsing means later read-only parser reopenings cannot race a write/delete/rebind operation: the pinned stream already withholds those sharing modes. The SHA embedded in platform evidence is taken from that same pinned object.
+
+Pinning `Cargo.lock` closes the source-level window where initial and final lockfile hashes could agree even though a concurrent process temporarily substituted or modified the lockfile only while Cargo was resolving locked dependencies.
 
 The earlier nested-array iteration used to stage the directory-handle list has been replaced with explicit individual handle opens, avoiding PowerShell enumeration/flattening ambiguity in the security-critical namespace chain.
 
@@ -210,20 +218,24 @@ The earlier nested-array iteration used to stage the directory-handle list has b
 Source staging is not Windows platform proof. Real supported Windows/NTFS execution must specifically demonstrate:
 
 - normal `cargo-audit.exe` and `cargo-deny.exe` version/gate execution while all pin handles are open;
+- normal tooling-receipt read access while its pinned stream withholds write/delete sharing;
+- normal Cargo metadata/check/Clippy/test operation while the pinned `Cargo.lock` stream is open;
 - attempted executable overwrite is rejected;
 - attempted executable rename/delete is rejected;
+- attempted tooling-receipt overwrite/rename/delete is rejected while validation remains active;
+- attempted `Cargo.lock` overwrite/rename/delete is rejected while locked Cargo gates remain active;
 - attempted `bin`, exact-head tool-root, `windows`, `nxb-tools`, `target` and relevant repository/validation-directory rename/delete or replacement behaves fail-closed as intended;
 - pre-existing junction/symlink/reparse redirection is rejected by final-handle-path comparison;
-- final stream hash and canonical-path hash equality;
+- final pinned-stream and canonical-path hash equality for tools, tooling receipt and `Cargo.lock`;
 - cleanup behavior after a failed gate.
 
-If any supported filesystem permits pathname execution to escape this source-staged namespace/file handle chain, admission remains blocked and the Windows validator must be hardened again before #98 can close.
+If supported Windows semantics prevent normal Cargo/tool execution under the source-staged sharing modes, or permit pathname execution/object authority to escape the pinned chain, admission remains blocked and the Windows validator must be hardened again before #98 can close.
 
 ## Relationship to validation evidence
 
-The tooling receipt answers **which exact tool bytes were prepared**. Platform validation evidence answers **which admitted bytes were used under the platform's immutable/pinned execution model**. On Linux, the receipt SHA stored in platform evidence is now derived from the exact stable receipt bytes that passed semantic verification. The dual-platform reviewer verifies the receipt/evidence cryptographic linkage and exact platform/head tool root.
+The tooling receipt answers **which exact tool bytes were prepared**. Platform validation evidence answers **which admitted bytes were used under the platform's immutable/pinned execution model**. On Linux, the receipt SHA stored in platform evidence is derived from the exact stable receipt bytes that passed semantic verification. On Windows, the receipt SHA and lockfile SHA are derived from pinned streams held through evidence publication. The dual-platform reviewer verifies the receipt/evidence cryptographic linkage and exact platform/head tool root.
 
-None of these files is self-authenticating against a malicious host administrator. The contract is instead designed to remove avoidable local pathname races, helper-implementation redirection, same-inode gate mutation, accidental cross-head mutation, duplicate validation and ambiguous recovery states inside the supported validation workflow.
+None of these files is self-authenticating against a malicious host administrator. The contract is instead designed to remove avoidable local pathname races, helper-implementation redirection, same-inode gate mutation, transient receipt/lockfile substitution, accidental cross-head mutation, duplicate validation and ambiguous recovery states inside the supported validation workflow.
 
 ## Admission boundary
 
@@ -239,6 +251,7 @@ The exact final NXB-153 head still requires real Rust 1.97.1 Linux + Windows exe
 - validator tool-byte binding;
 - Linux security-tool execution from receipt-hash-checked sealed snapshots;
 - Windows security-tool execution under pinned file + ancestor namespace authority;
+- Windows tooling-receipt and `Cargo.lock` pinned-object behavior under normal readers and adversarial write/delete/rename attempts;
 - canonical-path consistency at finalization;
 - Windows share-mode and directory-handle behavior;
 - exact-head receipt and platform-evidence publication;
