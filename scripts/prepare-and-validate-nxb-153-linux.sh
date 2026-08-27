@@ -9,6 +9,8 @@ cargo_deny_version="0.20.2"
 install_root=''
 prep_lock=''
 validation_directory=''
+sealed_tool_object=''
+validator_object=''
 
 fail() {
     printf 'NXB-153 Linux tool preparation failed: %s\n' "$1" >&2
@@ -59,6 +61,30 @@ print(value)
 PY
 }
 
+resolve_committed_blob() {
+    local relative_path="$1"
+    local label="$2"
+    local object
+    local object_type
+    local object_size
+
+    object="$(git rev-parse "$head_sha:$relative_path")" ||
+        fail "$label is not committed at exact head $head_sha: $relative_path"
+    object_type="$(git cat-file -t "$object")" ||
+        fail "could not resolve committed $label object type"
+    [[ "$object_type" == 'blob' ]] || fail "committed $label is not a Git blob"
+    object_size="$(git cat-file -s "$object")" ||
+        fail "could not resolve committed $label object size"
+    [[ "$object_size" =~ ^[0-9]+$ && "$object_size" -gt 0 && "$object_size" -le 1048576 ]] ||
+        fail "committed $label size is outside the supported 1..1048576-byte envelope"
+    printf '%s' "$object"
+}
+
+run_sealed_tool() {
+    [[ -n "$sealed_tool_object" ]] || fail 'sealed Linux validation-tool helper object is unresolved'
+    git cat-file blob "$sealed_tool_object" | python3 - "$@"
+}
+
 cleanup() {
     if [[ -n "$install_root" && -d "$install_root" ]]; then
         rm -rf "$install_root" || true
@@ -76,19 +102,26 @@ command -v git >/dev/null 2>&1 || fail 'git is unavailable'
 command -v rustup >/dev/null 2>&1 ||
     fail 'rustup is unavailable; install rustup from the official Rust distribution first'
 command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is unavailable'
-command -v python3 >/dev/null 2>&1 || fail 'python3 is unavailable for sealed tool inspection and durable tooling-receipt publication'
+command -v python3 >/dev/null 2>&1 || fail 'python3 is unavailable for committed sealed-tool execution and durable tooling-receipt publication'
 
+# The first chdir establishes the repository object used by this process. After
+# this point the parent shell never reopens $repo_root after visiting a temporary
+# installation directory; cargo installation runs in a subshell instead.
 cd "$repo_root"
-sealed_tool_runner="$repo_root/scripts/nxb-153-sealed-tool.py"
-[[ -f "$sealed_tool_runner" && ! -L "$sealed_tool_runner" ]] ||
-    fail "sealed Linux validation-tool runner is missing or redirected: $sealed_tool_runner"
-python3 "$sealed_tool_runner" self-test >/dev/null ||
-    fail 'sealed Linux validation-tool primitive self-test failed before tool preparation'
-
 head_sha="$(git rev-parse HEAD)"
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'exact Git HEAD could not be resolved'
 [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]] ||
     fail 'working tree must be clean before tool preparation'
+
+# Resolve helper/validator implementations from the immutable exact-head Git
+# object graph. Subsequent helper invocations stream those exact committed bytes
+# directly into Python rather than reopening scripts/nxb-153-sealed-tool.py by
+# pathname. A later repository/scripts pathname replacement cannot redirect the
+# helper implementation used for receipt generation.
+sealed_tool_object="$(resolve_committed_blob 'scripts/nxb-153-sealed-tool.py' 'sealed Linux validation-tool helper')"
+validator_object="$(resolve_committed_blob 'scripts/validate-nxb-153-linux.sh' 'Linux validator')"
+run_sealed_tool self-test >/dev/null ||
+    fail 'committed sealed Linux validation-tool primitive self-test failed before tool preparation'
 
 validation_directory="$repo_root/target/nxb-validation"
 mkdir -p "$validation_directory"
@@ -123,34 +156,36 @@ audit_path="$tools_bin/cargo-audit"
 deny_path="$tools_bin/cargo-deny"
 
 install_root="$(mktemp -d)"
-cd "$install_root"
+(
+    cd "$install_root"
 
-rustup run "$rust_toolchain" cargo install \
-    --locked \
-    --force \
-    --version "$cargo_audit_version" \
-    --root "$tools_root" \
-    cargo-audit
+    rustup run "$rust_toolchain" cargo install \
+        --locked \
+        --force \
+        --version "$cargo_audit_version" \
+        --root "$tools_root" \
+        cargo-audit
 
-rustup run "$rust_toolchain" cargo install \
-    --locked \
-    --force \
-    --version "$cargo_deny_version" \
-    --root "$tools_root" \
-    cargo-deny
+    rustup run "$rust_toolchain" cargo install \
+        --locked \
+        --force \
+        --version "$cargo_deny_version" \
+        --root "$tools_root" \
+        cargo-deny
+)
 
-cd "$repo_root"
+# Parent CWD never left the initially opened repository object.
 [[ -f "$audit_path" && ! -L "$audit_path" ]] || fail 'fresh cargo-audit must be a regular non-symlink file'
 [[ -f "$deny_path" && ! -L "$deny_path" ]] || fail 'fresh cargo-deny must be a regular non-symlink file'
 
 # Inspect each freshly installed executable through one stable O_NOFOLLOW read,
 # copy those bytes into a sealed memfd, and derive both version and SHA-256 from
-# that immutable snapshot. Receipt fields therefore cannot mix two transient
-# in-place states of one mutable inode.
-audit_inspection="$(python3 "$sealed_tool_runner" inspect "$audit_path" "$cargo_audit_version")" ||
-    fail 'fresh cargo-audit sealed inspection failed'
-deny_inspection="$(python3 "$sealed_tool_runner" inspect "$deny_path" "$cargo_deny_version")" ||
-    fail 'fresh cargo-deny sealed inspection failed'
+# that immutable snapshot. The Python implementation itself is the exact helper
+# blob resolved from the initial Git head rather than a mutable repository path.
+audit_inspection="$(run_sealed_tool inspect "$audit_path" "$cargo_audit_version")" ||
+    fail 'fresh cargo-audit committed sealed inspection failed'
+deny_inspection="$(run_sealed_tool inspect "$deny_path" "$cargo_deny_version")" ||
+    fail 'fresh cargo-deny committed sealed inspection failed'
 audit_version="$(json_field "$audit_inspection" version)" || fail 'fresh cargo-audit version result is invalid'
 audit_sha256="$(json_field "$audit_inspection" sha256)" || fail 'fresh cargo-audit SHA-256 result is invalid'
 deny_version="$(json_field "$deny_inspection" version)" || fail 'fresh cargo-deny version result is invalid'
@@ -217,11 +252,14 @@ rmdir "$prep_lock" || fail 'could not release exact-head tool-preparation lock'
 prep_lock=''
 fsync_directory "$validation_directory" || fail 'could not sync validation directory after preparation-lock release'
 
-printf 'NXB-153 fresh sealed Linux validation tools are ready.\n'
+printf 'NXB-153 fresh committed/sealed Linux validation tools are ready.\n'
 printf 'HEAD: %s\n' "$head_sha"
 printf 'Tool root: %s\n' "$tools_relative"
 printf 'Tooling receipt: %s\n' "$receipt_path"
 
 if [[ "$prepare_only" != "1" ]]; then
-    exec bash "$repo_root/scripts/validate-nxb-153-linux.sh" "$repo_root"
+    # Stream the exact validator blob from the same initial Git head. Passing '.'
+    # keeps the child on the inherited repository CWD object instead of reopening
+    # $repo_root through a potentially replaced pathname.
+    git cat-file blob "$validator_object" | bash -s -- '.'
 fi
