@@ -434,15 +434,15 @@ try {
     # sharing, blocking rename/delete substitution of an ancestor while gates run.
     $nxbToolsDirectory = Join-Path $targetDirectory 'nxb-tools'
     $windowsToolsDirectory = Join-Path $nxbToolsDirectory 'windows'
-    foreach ($entry in @(
-        @($nxbToolsDirectory, 'nxb-tools directory'),
-        @($windowsToolsDirectory, 'Windows tools platform directory'),
-        @($toolsRoot, 'exact-head Windows tools directory'),
-        @($toolsBin, 'exact-head Windows tools bin directory')
-    )) {
-        $handle = Open-NxbPinnedToolDirectory -Path $entry[0] -Label $entry[1]
-        $namespaceHandles.Add($handle)
-    }
+
+    $nxbToolsHandle = Open-NxbPinnedToolDirectory -Path $nxbToolsDirectory -Label 'nxb-tools directory'
+    $namespaceHandles.Add($nxbToolsHandle)
+    $windowsToolsHandle = Open-NxbPinnedToolDirectory -Path $windowsToolsDirectory -Label 'Windows tools platform directory'
+    $namespaceHandles.Add($windowsToolsHandle)
+    $toolsRootHandle = Open-NxbPinnedToolDirectory -Path $toolsRoot -Label 'exact-head Windows tools directory'
+    $namespaceHandles.Add($toolsRootHandle)
+    $toolsBinHandle = Open-NxbPinnedToolDirectory -Path $toolsBin -Label 'exact-head Windows tools bin directory'
+    $namespaceHandles.Add($toolsBinHandle)
 
     # Pin the exact security-tool file objects before version/hash resolution and keep
     # them open until evidence publication completes. FileShare.Read intentionally
