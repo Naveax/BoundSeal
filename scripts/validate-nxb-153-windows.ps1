@@ -125,6 +125,119 @@ function Get-NxbStreamSha256 {
     return $hash
 }
 
+if ($null -eq ('Nxb153NativeToolPath' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
+
+public static class Nxb153NativeToolPath
+{
+    private const uint GENERIC_READ = 0x80000000;
+    private const uint FILE_SHARE_READ = 0x00000001;
+    private const uint FILE_SHARE_WRITE = 0x00000002;
+    private const uint OPEN_EXISTING = 3;
+    private const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeFileHandle CreateFileW(
+        string lpFileName,
+        uint dwDesiredAccess,
+        uint dwShareMode,
+        IntPtr lpSecurityAttributes,
+        uint dwCreationDisposition,
+        uint dwFlagsAndAttributes,
+        IntPtr hTemplateFile);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetFinalPathNameByHandleW(
+        SafeFileHandle hFile,
+        StringBuilder lpszFilePath,
+        uint cchFilePath,
+        uint dwFlags);
+
+    public static SafeFileHandle OpenDirectory(string path)
+    {
+        SafeFileHandle handle = CreateFileW(
+            path,
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            IntPtr.Zero,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            int error = Marshal.GetLastWin32Error();
+            handle.Dispose();
+            throw new Win32Exception(error, "CreateFileW failed for " + path);
+        }
+        return handle;
+    }
+
+    public static string GetFinalPath(SafeFileHandle handle)
+    {
+        var builder = new StringBuilder(32768);
+        uint result = GetFinalPathNameByHandleW(
+            handle,
+            builder,
+            (uint)builder.Capacity,
+            0);
+        if (result == 0)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+        if (result >= builder.Capacity)
+        {
+            throw new InvalidOperationException("Resolved path exceeds the supported buffer.");
+        }
+        return builder.ToString();
+    }
+}
+'@
+}
+
+function ConvertFrom-NxbToolFinalPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $value = $Path
+    if ($value.StartsWith('\\?\UNC\', [StringComparison]::OrdinalIgnoreCase)) {
+        $value = '\\' + $value.Substring(8)
+    } elseif ($value.StartsWith('\\?\', [StringComparison]::OrdinalIgnoreCase)) {
+        $value = $value.Substring(4)
+    }
+
+    $full = [IO.Path]::GetFullPath($value)
+    $root = [IO.Path]::GetPathRoot($full)
+    if ($full.Length -gt $root.Length) {
+        $full = $full.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    }
+    return $full
+}
+
+function Open-NxbPinnedToolDirectory {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $expected = ConvertFrom-NxbToolFinalPath -Path ([IO.Path]::GetFullPath($Path))
+    $handle = [Nxb153NativeToolPath]::OpenDirectory($expected)
+    try {
+        $resolved = ConvertFrom-NxbToolFinalPath -Path ([Nxb153NativeToolPath]::GetFinalPath($handle))
+        if (-not [string]::Equals($resolved, $expected, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "$Label resolved through a reparse/redirected path: expected '$expected', resolved '$resolved'."
+        }
+        return $handle
+    }
+    catch {
+        $handle.Dispose()
+        throw
+    }
+}
+
 function Assert-ExactStreamBytes {
     param(
         [Parameter(Mandatory = $true)][IO.FileStream]$Stream,
@@ -239,6 +352,8 @@ function Assert-ToolingReceipt {
 $validationLockStream = $null
 $auditToolStream = $null
 $denyToolStream = $null
+$namespaceHandles = [Collections.Generic.List[IDisposable]]::new()
+
 Push-Location $RepoRoot
 try {
     foreach ($command in @('git', 'rustup')) {
@@ -250,6 +365,9 @@ try {
         throw 'The Windows NXB-153 validator must run on Windows.'
     }
 
+    $repoHandle = Open-NxbPinnedToolDirectory -Path $RepoRoot -Label 'repository root'
+    $namespaceHandles.Add($repoHandle)
+
     $headSha = (git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0 -or $headSha -notmatch '^[0-9a-f]{40}$') {
         throw 'Exact Git HEAD could not be resolved.'
@@ -259,8 +377,15 @@ try {
         throw 'Working tree must be clean.'
     }
 
-    $validationDirectory = Join-Path $RepoRoot 'target\nxb-validation'
+    $targetDirectory = Join-Path $RepoRoot 'target'
+    $validationDirectory = Join-Path $targetDirectory 'nxb-validation'
     New-Item -ItemType Directory -Path $validationDirectory -Force | Out-Null
+
+    $targetHandle = Open-NxbPinnedToolDirectory -Path $targetDirectory -Label 'target directory'
+    $namespaceHandles.Add($targetHandle)
+    $validationDirectoryHandle = Open-NxbPinnedToolDirectory -Path $validationDirectory -Label 'validation evidence directory'
+    $namespaceHandles.Add($validationDirectoryHandle)
+
     $evidencePath = Join-Path $validationDirectory "nxb-153-windows-$headSha.json"
     if (Test-Path -LiteralPath $evidencePath) {
         throw "Exact-head Windows validation evidence already exists; validation gates were not rerun: $evidencePath. Use the evidence reviewer or perform explicit recovery."
@@ -304,10 +429,25 @@ try {
         throw "Exact-head Windows tools root is missing: $toolsRoot. Run scripts/prepare-and-validate-nxb-153-windows.ps1 first."
     }
 
+    # Pin every directory component used by the executable path before opening or
+    # executing the security tools. Directory handles intentionally omit delete
+    # sharing, blocking rename/delete substitution of an ancestor while gates run.
+    $nxbToolsDirectory = Join-Path $targetDirectory 'nxb-tools'
+    $windowsToolsDirectory = Join-Path $nxbToolsDirectory 'windows'
+    foreach ($entry in @(
+        @($nxbToolsDirectory, 'nxb-tools directory'),
+        @($windowsToolsDirectory, 'Windows tools platform directory'),
+        @($toolsRoot, 'exact-head Windows tools directory'),
+        @($toolsBin, 'exact-head Windows tools bin directory')
+    )) {
+        $handle = Open-NxbPinnedToolDirectory -Path $entry[0] -Label $entry[1]
+        $namespaceHandles.Add($handle)
+    }
+
     # Pin the exact security-tool file objects before version/hash resolution and keep
     # them open until evidence publication completes. FileShare.Read intentionally
-    # withholds write/delete sharing; supported-Windows validation must prove that
-    # execution remains available while rename/delete/write substitution is blocked.
+    # withholds write/delete sharing while the directory chain prevents ancestor
+    # rename/delete from redirecting pathname-based executable launch.
     $auditToolStream = Open-NxbPinnedToolStream -Path $auditPath -Label 'cargo-audit'
     $denyToolStream = Open-NxbPinnedToolStream -Path $denyPath -Label 'cargo-deny'
 
@@ -542,6 +682,9 @@ finally {
     }
     if ($null -ne $validationLockStream) {
         $validationLockStream.Dispose()
+    }
+    for ($index = $namespaceHandles.Count - 1; $index -ge 0; $index--) {
+        $namespaceHandles[$index].Dispose()
     }
     Pop-Location
 }
