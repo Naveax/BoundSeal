@@ -369,7 +369,7 @@ function New-NxbPinnedGitArchive {
     $stream = $null
     $process = $null
     try {
-        $stream = [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::Read)
+        $stream = [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
         $expected = ConvertFrom-NxbFinalPath -Path ([IO.Path]::GetFullPath($Path))
         $resolved = ConvertFrom-NxbFinalPath -Path ([Nxb153ImmutableWindowsNative]::GetFinalPath($stream.SafeFileHandle))
         if (-not [string]::Equals($resolved, $expected, [StringComparison]::OrdinalIgnoreCase)) {
@@ -429,6 +429,64 @@ function New-NxbPinnedGitArchive {
         if ($null -ne $process) {
             $process.Dispose()
         }
+    }
+}
+
+function Expand-NxbPinnedTarArchive {
+    param(
+        [Parameter(Mandatory = $true)][IO.FileStream]$Stream,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+
+    if (-not $Stream.CanRead -or -not $Stream.CanSeek) {
+        Fail-Nxb 'pinned Git archive stream must be readable and seekable for extraction'
+    }
+    $savedPosition = $Stream.Position
+    $process = $null
+    try {
+        $Stream.Position = 0
+        $tarCommand = Get-Command tar -CommandType Application -ErrorAction Stop
+        $startInfo = [Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = $tarCommand.Source
+        $startInfo.UseShellExecute = $false
+        $startInfo.RedirectStandardInput = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        [void]$startInfo.ArgumentList.Add('-x')
+        [void]$startInfo.ArgumentList.Add('-f')
+        [void]$startInfo.ArgumentList.Add('-')
+        [void]$startInfo.ArgumentList.Add('-C')
+        [void]$startInfo.ArgumentList.Add($Destination)
+
+        $process = [Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
+        if (-not $process.Start()) {
+            Fail-Nxb 'could not start tar extraction process'
+        }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $Stream.CopyTo($process.StandardInput.BaseStream)
+        $process.StandardInput.BaseStream.Flush()
+        $process.StandardInput.Close()
+        $process.WaitForExit()
+        [void]$stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        if ($process.ExitCode -ne 0) {
+            Fail-Nxb "tar extraction failed for exact-head Windows source snapshot: $stderr"
+        }
+    }
+    catch {
+        if ($null -ne $process) {
+            try {
+                if (-not $process.HasExited) { $process.Kill($true) }
+            }
+            catch {}
+        }
+        throw
+    }
+    finally {
+        $Stream.Position = $savedPosition
+        if ($null -ne $process) { $process.Dispose() }
     }
 }
 
@@ -608,11 +666,7 @@ try {
     $sourceDirectories.Add($snapshotRoot)
 
     $archiveStream = New-NxbPinnedGitArchive -RepositoryRoot $repoRootFull -Path $archivePath -CommitSha $HeadSha
-
-    & tar -xf $archivePath -C $snapshotRoot
-    if ($LASTEXITCODE -ne 0) {
-        Fail-Nxb 'tar extraction failed for exact-head Windows source snapshot'
-    }
+    Expand-NxbPinnedTarArchive -Stream $archiveStream -Destination $snapshotRoot
 
     $reparse = Get-ChildItem -LiteralPath $snapshotRoot -Force -Recurse | Where-Object {
         ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
