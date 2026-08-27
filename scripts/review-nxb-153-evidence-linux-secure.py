@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import pathlib
 import stat
 import sys
 import tempfile
+import types
 from typing import Any
 
 EXPECTED_LOCK_SHA256 = "f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff"
@@ -156,12 +156,43 @@ def decode_json(raw: bytes, label: str) -> dict[str, Any]:
     return value
 
 
-def load_implementation(script_path: pathlib.Path):
-    spec = importlib.util.spec_from_file_location("nxb153_evidence_impl", script_path)
-    if spec is None or spec.loader is None:
-        fail(f"could not load evidence implementation: {script_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+def load_implementation_anchored(
+    repo_fd: int,
+    repo_root: pathlib.Path,
+    script_path: pathlib.Path,
+):
+    parts = relative_parts(script_path, repo_root, "semantic evidence reviewer")
+    try:
+        descriptor = open_regular_relative(
+            repo_fd,
+            parts,
+            "semantic evidence reviewer",
+        )
+    except FileNotFoundError:
+        fail(f"semantic evidence reviewer is missing: {script_path}")
+
+    try:
+        raw, _ = read_fd_bytes(
+            descriptor,
+            "semantic evidence reviewer",
+            MAXIMUM_BYTES,
+        )
+    finally:
+        os.close(descriptor)
+
+    try:
+        source = raw.decode("utf-8", errors="strict")
+        code = compile(source, str(script_path), "exec", dont_inherit=True)
+    except (UnicodeDecodeError, SyntaxError) as error:
+        fail(f"semantic evidence reviewer could not be compiled from anchored bytes: {error}")
+
+    module = types.ModuleType("nxb153_evidence_impl")
+    module.__file__ = str(script_path)
+    module.__package__ = None
+    try:
+        exec(code, module.__dict__)
+    except Exception as error:
+        fail(f"semantic evidence reviewer could not be loaded from anchored bytes: {error}")
     return module
 
 
@@ -255,8 +286,11 @@ def main() -> None:
     evidence_fd = -1
     try:
         evidence_fd = open_directory_anchored(evidence_directory, "evidence directory")
-        implementation = load_implementation(
-            repo_root / "scripts" / "review-nxb-153-evidence-linux.py"
+        implementation_path = repo_root / "scripts" / "review-nxb-153-evidence-linux.py"
+        implementation = load_implementation_anchored(
+            repo_fd,
+            repo_root,
+            implementation_path,
         )
 
         def anchor_for(
