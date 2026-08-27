@@ -31,18 +31,24 @@ self_test() {
         mount --make-rprivate /
         mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$mountpoint"
         printf trusted > "$mountpoint/trusted.txt"
-        mkdir "$mountpoint/target" "$mountpoint/tmp"
+        mkdir "$mountpoint/target" "$mountpoint/tmp" "$mountpoint/cargo-home"
         mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$mountpoint/target"
         mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$mountpoint/tmp"
+        mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$mountpoint/cargo-home"
         mount -o remount,ro,nosuid,nodev "$mountpoint"
         [[ "$(cat "$mountpoint/trusted.txt")" == trusted ]]
         if printf changed > "$mountpoint/trusted.txt" 2>/dev/null; then
             exit 71
         fi
+        if touch "$mountpoint/injected.txt" 2>/dev/null; then
+            exit 72
+        fi
         printf build > "$mountpoint/target/build.txt"
         printf temporary > "$mountpoint/tmp/temp.txt"
+        printf cache > "$mountpoint/cargo-home/cache.txt"
         [[ "$(cat "$mountpoint/target/build.txt")" == build ]]
         [[ "$(cat "$mountpoint/tmp/temp.txt")" == temporary ]]
+        [[ "$(cat "$mountpoint/cargo-home/cache.txt")" == cache ]]
     ' bash "$mountpoint" || fail 'user/mount namespace private read-only tmpfs self-test failed'
 
     [[ ! -e "$mountpoint/trusted.txt" ]] ||
@@ -71,79 +77,6 @@ validate_tree_modes() {
             *) fail "exact-head tree contains unsupported mode $mode (symlink/gitlink/special source authority is not admitted)" ;;
         esac
     done < <(git ls-tree -rz "$head_sha")
-}
-
-validate_snapshot_namespace() {
-    local source_root="$1"
-    local repo_fd="$2"
-    local head_sha="$3"
-    local phase="$4"
-
-    [[ "$phase" == pre || "$phase" == post ]] || fail 'snapshot namespace phase is invalid'
-
-    python3 -c '
-import os
-import sys
-
-source_root = os.fsencode(sys.argv[1])
-phase = sys.argv[2]
-raw = sys.stdin.buffer.read()
-parts = raw.split(b"\0")
-if parts and parts[-1] == b"":
-    parts.pop()
-if not parts:
-    raise SystemExit("exact-head namespace manifest is empty")
-if len(parts) != len(set(parts)):
-    raise SystemExit("exact-head namespace manifest contains duplicate paths")
-
-runtime_roots = {b"target", b".nxb-153-tmp", b".nxb-153-cargo-home"}
-expected_files = set(parts)
-expected_dirs = set()
-for path in expected_files:
-    if not path or path.startswith(b"/") or b"\0" in path:
-        raise SystemExit("exact-head namespace manifest contains an invalid path")
-    components = path.split(b"/")
-    if any(component in (b"", b".", b"..") for component in components):
-        raise SystemExit("exact-head namespace manifest contains an ambiguous path")
-    for index in range(1, len(components)):
-        expected_dirs.add(b"/".join(components[:index]))
-
-actual_files = set()
-actual_dirs = set()
-for current_root, dirnames, filenames in os.walk(source_root, topdown=True, followlinks=False):
-    relative_root = os.path.relpath(current_root, source_root)
-    if relative_root == b".":
-        relative_root = b""
-
-    if phase == "post" and relative_root == b"":
-        dirnames[:] = [name for name in dirnames if os.fsencode(name) not in runtime_roots]
-
-    for dirname in dirnames:
-        encoded = os.fsencode(dirname)
-        relative = encoded if not relative_root else relative_root + b"/" + encoded
-        actual_dirs.add(relative)
-    for filename in filenames:
-        encoded = os.fsencode(filename)
-        relative = encoded if not relative_root else relative_root + b"/" + encoded
-        actual_files.add(relative)
-
-unexpected_files = actual_files - expected_files
-missing_files = expected_files - actual_files
-unexpected_dirs = actual_dirs - expected_dirs
-missing_dirs = expected_dirs - actual_dirs
-if unexpected_files or missing_files or unexpected_dirs or missing_dirs:
-    def render(values):
-        return [os.fsdecode(value) for value in sorted(values)[:8]]
-    raise SystemExit(
-        "snapshot namespace mismatch: "
-        f"unexpected_files={render(unexpected_files)!r} "
-        f"missing_files={render(missing_files)!r} "
-        f"unexpected_dirs={render(unexpected_dirs)!r} "
-        f"missing_dirs={render(missing_dirs)!r}"
-    )
-' "$source_root" "$phase" < <(
-        git -C "/proc/self/fd/$repo_fd" -c core.quotePath=false ls-tree -rz --name-only "$head_sha"
-    ) || fail "exact-head $phase snapshot namespace differs from the Git manifest"
 }
 
 validate_snapshot() {
@@ -181,14 +114,15 @@ validate_snapshot() {
             set -euo pipefail
             source_root="$1"
             repo_fd="$2"
-            rust_toolchain="$3"
-            cargo_audit_version="$4"
-            cargo_deny_version="$5"
-            audit_sha256="$6"
-            deny_sha256="$7"
-            expected_lock_sha256="$8"
-            sealed_helper_sha256="$9"
-            tools_relative="${10}"
+            head_sha="$3"
+            rust_toolchain="$4"
+            cargo_audit_version="$5"
+            cargo_deny_version="$6"
+            audit_sha256="$7"
+            deny_sha256="$8"
+            expected_lock_sha256="$9"
+            sealed_helper_sha256="${10}"
+            tools_relative="${11}"
 
             die() {
                 printf "NXB-153 immutable validation child failed: %s\n" "$1" >&2
@@ -200,37 +134,51 @@ validate_snapshot() {
                 python3 -c '\''
 import os
 import sys
+
 source_root = os.fsencode(sys.argv[1])
 phase = sys.argv[2]
 raw = sys.stdin.buffer.read()
 parts = raw.split(b"\0")
-if parts and parts[-1] == b"": parts.pop()
+if parts and parts[-1] == b"":
+    parts.pop()
 if not parts or len(parts) != len(set(parts)):
     raise SystemExit("invalid exact-head namespace manifest")
+
 runtime_roots = {b"target", b".nxb-153-tmp", b".nxb-153-cargo-home"}
 expected_files = set(parts)
 expected_dirs = set()
 for path in expected_files:
     components = path.split(b"/")
-    if not path or path.startswith(b"/") or any(c in (b"", b".", b"..") for c in components):
+    if not path or path.startswith(b"/") or any(component in (b"", b".", b"..") for component in components):
         raise SystemExit("ambiguous exact-head namespace path")
-    for i in range(1, len(components)):
-        expected_dirs.add(b"/".join(components[:i]))
+    for index in range(1, len(components)):
+        expected_dirs.add(b"/".join(components[:index]))
+
 actual_files = set()
 actual_dirs = set()
-for root, dirs, files in os.walk(source_root, topdown=True, followlinks=False):
-    relroot = os.path.relpath(root, source_root)
-    if relroot == b".": relroot = b""
-    if phase == "post" and relroot == b"":
-        dirs[:] = [name for name in dirs if os.fsencode(name) not in runtime_roots]
-    for name in dirs:
-        enc = os.fsencode(name)
-        actual_dirs.add(enc if not relroot else relroot + b"/" + enc)
-    for name in files:
-        enc = os.fsencode(name)
-        actual_files.add(enc if not relroot else relroot + b"/" + enc)
+for current_root, dirnames, filenames in os.walk(source_root, topdown=True, followlinks=False):
+    relative_root = os.path.relpath(current_root, source_root)
+    if relative_root == b".":
+        relative_root = b""
+    if phase == "post" and relative_root == b"":
+        dirnames[:] = [name for name in dirnames if os.fsencode(name) not in runtime_roots]
+    for dirname in dirnames:
+        encoded = os.fsencode(dirname)
+        actual_dirs.add(encoded if not relative_root else relative_root + b"/" + encoded)
+    for filename in filenames:
+        encoded = os.fsencode(filename)
+        actual_files.add(encoded if not relative_root else relative_root + b"/" + encoded)
+
 if actual_files != expected_files or actual_dirs != expected_dirs:
-    raise SystemExit("snapshot namespace differs from exact-head Git manifest")
+    def render(values):
+        return [os.fsdecode(value) for value in sorted(values)[:8]]
+    raise SystemExit(
+        "snapshot namespace differs from exact-head Git manifest: "
+        f"unexpected_files={render(actual_files - expected_files)!r} "
+        f"missing_files={render(expected_files - actual_files)!r} "
+        f"unexpected_dirs={render(actual_dirs - expected_dirs)!r} "
+        f"missing_dirs={render(expected_dirs - actual_dirs)!r}"
+    )
 '\'' "$source_root" "$phase" < <(
                     git -C "/proc/self/fd/$repo_fd" -c core.quotePath=false ls-tree -rz --name-only "$head_sha"
                 ) || die "$phase snapshot namespace differs from exact-head Git manifest"
@@ -271,6 +219,12 @@ if actual_files != expected_files or actual_dirs != expected_dirs:
             if touch "$source_root/.nxb-153-write-probe" 2>/dev/null; then
                 die "immutable source root remained writable after remount"
             fi
+            for runtime_path in target .nxb-153-tmp .nxb-153-cargo-home; do
+                printf probe > "$source_root/$runtime_path/.nxb-153-runtime-probe"
+                [[ "$(cat "$source_root/$runtime_path/.nxb-153-runtime-probe")" == probe ]] ||
+                    die "runtime mount $runtime_path failed write/read probe"
+                rm -f "$source_root/$runtime_path/.nxb-153-runtime-probe"
+            done
             validate_namespace post
 
             export CARGO_TARGET_DIR="$source_root/target"
@@ -333,6 +287,7 @@ if actual_files != expected_files or actual_dirs != expected_dirs:
         ' bash \
             "$mountpoint" \
             "$repo_fd" \
+            "$head_sha" \
             "$rust_toolchain" \
             "$cargo_audit_version" \
             "$cargo_deny_version" \
