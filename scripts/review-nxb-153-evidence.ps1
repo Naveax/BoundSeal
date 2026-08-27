@@ -132,6 +132,7 @@ function Read-ToolingReceipt {
 
     $receipt = Read-StrictJsonRecord -Path $Path -Label "$ExpectedPlatform tooling receipt"
     Assert-ExactFields -Value $receipt -Expected $expectedReceiptFields -Label "$ExpectedPlatform tooling receipt"
+    $expectedToolsRoot = "target/nxb-tools/$ExpectedPlatform/$ExpectedHead"
 
     if (
         $receipt.schema_version -ne 1 -or
@@ -139,7 +140,7 @@ function Read-ToolingReceipt {
         $receipt.gate -cne 'validation_tool_bootstrap' -or
         $receipt.platform -cne $ExpectedPlatform -or
         $receipt.head_sha -cne $ExpectedHead -or
-        $receipt.tools_root -cne 'target/nxb-tools' -or
+        $receipt.tools_root -cne $expectedToolsRoot -or
         $receipt.network_activity -cne 'rustup_and_crates_io_tool_installation_only'
     ) {
         throw "$ExpectedPlatform tooling receipt identity is invalid."
