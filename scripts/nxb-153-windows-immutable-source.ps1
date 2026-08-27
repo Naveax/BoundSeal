@@ -94,7 +94,7 @@ function Get-NxbGitBlobOidFromStream {
             while (($read = $Stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
                 $incremental.AppendData($buffer, 0, $read)
             }
-            return ConvertTo-NxbHex -Bytes $incremental.GetHashAndReset()
+            return (ConvertTo-NxbHex -Bytes ($incremental.GetHashAndReset()))
         }
         finally {
             $incremental.Dispose()
@@ -375,16 +375,30 @@ function Invoke-NxbSelfTest {
         $runtime = Join-Path $root 'target'
         Protect-NxbRuntimeDirectory -Path $runtime
         Set-NxbSourceWriteDeny -Path $root
-        $blocked = $false
+
+        $existingWriteBlocked = $false
         try {
             [IO.File]::WriteAllText($source, 'changed', [Text.UTF8Encoding]::new($false))
         }
         catch [UnauthorizedAccessException] {
-            $blocked = $true
+            $existingWriteBlocked = $true
         }
-        if (-not $blocked) {
-            Fail-Nxb 'write-deny ACL self-test did not block source mutation'
+        if (-not $existingWriteBlocked -or (Get-Content -LiteralPath $source -Raw) -cne 'trusted') {
+            Fail-Nxb 'write-deny ACL self-test did not preserve existing source bytes'
         }
+
+        $createProbe = Join-Path $root 'injected.txt'
+        $createBlocked = $false
+        try {
+            [IO.File]::WriteAllText($createProbe, 'injected', [Text.UTF8Encoding]::new($false))
+        }
+        catch [UnauthorizedAccessException] {
+            $createBlocked = $true
+        }
+        if (-not $createBlocked -or (Test-Path -LiteralPath $createProbe)) {
+            Fail-Nxb 'write-deny ACL self-test did not block creation of a new source-root file'
+        }
+
         [IO.File]::WriteAllText((Join-Path $runtime 'build.txt'), 'ok', [Text.UTF8Encoding]::new($false))
         if ((Get-Content -LiteralPath (Join-Path $runtime 'build.txt') -Raw) -cne 'ok') {
             Fail-Nxb 'runtime directory did not remain writable under protected inheritance'
@@ -517,15 +531,16 @@ try {
     $originalRootAcl = Get-Acl -LiteralPath $snapshotRoot
     Set-NxbSourceWriteDeny -Path $snapshotRoot
 
+    $sourceProbe = Join-Path $snapshotRoot '.nxb-153-source-write-probe'
     $probeBlocked = $false
     try {
-        [IO.File]::WriteAllText((Join-Path $snapshotRoot '.nxb-153-source-write-probe'), 'blocked', [Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText($sourceProbe, 'blocked', [Text.UTF8Encoding]::new($false))
     }
     catch [UnauthorizedAccessException] {
         $probeBlocked = $true
     }
-    if (-not $probeBlocked) {
-        Fail-Nxb 'source root remained writable after deny ACL staging'
+    if (-not $probeBlocked -or (Test-Path -LiteralPath $sourceProbe)) {
+        Fail-Nxb 'source root remained capable of creating a file after deny ACL staging'
     }
     $runtimeProbe = Join-Path $runtimeTarget '.nxb-153-runtime-write-probe'
     [IO.File]::WriteAllText($runtimeProbe, 'ok', [Text.UTF8Encoding]::new($false))
