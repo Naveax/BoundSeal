@@ -10,6 +10,7 @@ install_root=''
 prep_lock=''
 validation_directory=''
 sealed_tool_object=''
+environment_guard_object=''
 validator_object=''
 repo_fd=''
 validation_fd=''
@@ -85,7 +86,12 @@ resolve_committed_blob() {
 
 run_sealed_tool() {
     [[ -n "$sealed_tool_object" ]] || fail 'sealed Linux validation-tool helper object is unresolved'
-    git cat-file blob "$sealed_tool_object" | python3 - "$@"
+    git cat-file blob "$sealed_tool_object" | python3 -I - "$@"
+}
+
+run_environment_guard() {
+    [[ -n "$environment_guard_object" ]] || fail 'validation environment helper object is unresolved'
+    git cat-file blob "$environment_guard_object" | python3 -I - "$@"
 }
 
 cleanup() {
@@ -119,6 +125,7 @@ repo_anchor="/proc/self/fd/$repo_fd"
 [[ -d "$repo_anchor" ]] || fail 'pinned repository descriptor is unavailable'
 
 sealed_tool_object="$(resolve_committed_blob 'scripts/nxb-153-sealed-tool.py' 'sealed Linux validation-tool helper')"
+environment_guard_object="$(resolve_committed_blob 'scripts/nxb-153-validation-environment.py' 'validation environment authority helper')"
 validator_object="$(resolve_committed_blob 'scripts/validate-nxb-153-linux.sh' 'Linux validator')"
 
 # Pin validation artifact namespace before lock/receipt operations. A final
@@ -143,6 +150,14 @@ fsync_directory "$validation_directory" || fail 'could not sync validation direc
 if [[ -e "$receipt_path" ]]; then
     fail "exact-head tooling receipt appeared while claiming the preparation lock; tool bytes were not mutated: $receipt_relative"
 fi
+
+# Audit the caller environment before rustup/cargo is allowed to mutate or build
+# validation tools. The guard itself is streamed from the exact-head Git blob and
+# runs in Python isolated mode so PYTHONPATH/PYTHONHOME cannot alter its imports.
+run_environment_guard self-test >/dev/null ||
+    fail 'committed validation environment authority self-test failed before tool preparation'
+run_environment_guard audit >/dev/null ||
+    fail 'ambient Rust/Cargo/Python authority variables are not admitted for tool preparation'
 
 run_sealed_tool self-test >/dev/null ||
     fail 'committed sealed Linux validation-tool primitive self-test failed before tool preparation'
