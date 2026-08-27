@@ -36,29 +36,6 @@ function Assert-LowerSha256 {
     }
 }
 
-function Invoke-NxbCargo {
-    param(
-        [Parameter(Mandatory = $true)][string[]]$Arguments,
-        [Parameter(Mandatory = $true)][string]$Label
-    )
-    & rustup run $RustToolchain cargo @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        Fail-Nxb "$Label failed with exit code $LASTEXITCODE"
-    }
-}
-
-function Invoke-NxbTool {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string[]]$Arguments,
-        [Parameter(Mandatory = $true)][string]$Label
-    )
-    & $Path @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        Fail-Nxb "$Label failed with exit code $LASTEXITCODE"
-    }
-}
-
 function Get-NxbExactToolVersion {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -831,81 +808,52 @@ try {
     Assert-NxbRuntimeWritable -Path $runtimeCargoHome -Label 'Cargo home directory'
     Assert-NxbSnapshotNamespace -SnapshotRoot $snapshotRoot -ExpectedFiles $actualFiles -ExpectedDirectories $expectedSourceDirectories -Label 'pre-gate namespace check'
 
-    $previousTarget = $env:CARGO_TARGET_DIR
-    $previousCargoHome = $env:CARGO_HOME
-    $previousTmp = $env:TMP
-    $previousTemp = $env:TEMP
-    $env:CARGO_TARGET_DIR = $runtimeTarget
-    $env:CARGO_HOME = $runtimeCargoHome
-    $env:TMP = $runtimeTmp
-    $env:TEMP = $runtimeTmp
-
-    Push-Location $snapshotRoot
+    $dependencyHelperRelative = 'scripts/nxb-153-windows-dependency-source.ps1'
+    if (-not $actualFiles.ContainsKey($dependencyHelperRelative)) {
+        Fail-Nxb 'exact-head snapshot is missing the Windows dependency source authority helper'
+    }
+    $dependencyHelperPath = $actualFiles[$dependencyHelperRelative]
     try {
-        Invoke-NxbCargo -Arguments @('metadata', '--format-version', '1', '--locked', '--no-deps') -Label 'cargo metadata --locked'
-        Invoke-NxbCargo -Arguments @('fmt', '--all', '--', '--check') -Label 'cargo fmt'
-
-        Invoke-NxbCargo -Arguments @('check', '-p', 'nxb-policy', '--all-targets', '--locked') -Label 'nxb-policy cargo check'
-        Invoke-NxbCargo -Arguments @('clippy', '-p', 'nxb-policy', '--all-targets', '--locked', '--', '-D', 'warnings') -Label 'nxb-policy cargo clippy'
-        Invoke-NxbCargo -Arguments @('test', '-p', 'nxb-policy', '--locked', '--', '--test-threads=1') -Label 'nxb-policy cargo test'
-
-        Invoke-NxbCargo -Arguments @('check', '-p', 'nxb-core', '--all-targets', '--locked') -Label 'nxb-core cargo check'
-        Invoke-NxbCargo -Arguments @('clippy', '-p', 'nxb-core', '--all-targets', '--locked', '--', '-D', 'warnings') -Label 'nxb-core cargo clippy'
-        Invoke-NxbCargo -Arguments @('test', '-p', 'nxb-core', '--lib', '--locked', '--', '--test-threads=1') -Label 'nxb-core unit tests'
-        foreach ($testName in @(
-            'target_setup_cli',
-            'target_activation_cli',
-            'target_activation_recovery_cli',
-            'target_guided_artifact_cli',
-            'target_import_cli',
-            'target_import_failclosed_cli',
-            'target_path_binding_cli',
-            'target_scope_failclosed_cli',
-            'target_subdomain_failclosed_cli',
-            'target_persistence_envelope_cli',
-            'target_unicode_path_failclosed_cli'
-        )) {
-            Invoke-NxbCargo -Arguments @('test', '-p', 'nxb-core', '--test', $testName, '--locked', '--', '--test-threads=1') -Label "focused test $testName"
-        }
-
-        Invoke-NxbCargo -Arguments @('check', '--workspace', '--all-targets', '--all-features', '--locked') -Label 'workspace cargo check'
-        Invoke-NxbCargo -Arguments @('clippy', '--workspace', '--all-targets', '--all-features', '--locked', '--', '-D', 'warnings') -Label 'workspace cargo clippy'
-        Invoke-NxbCargo -Arguments @('test', '--workspace', '--all-features', '--locked', '--', '--test-threads=1') -Label 'workspace cargo test'
-
-        Invoke-NxbTool -Path $AuditPath -Arguments @('audit') -Label 'RustSec cargo audit'
-        Invoke-NxbTool -Path $DenyPath -Arguments @('check') -Label 'cargo-deny checks'
-
-        $finalLockSha = Get-NxbStreamSha256 -Stream $cargoLockStream -Label 'final snapshot Cargo.lock'
-        if ($finalLockSha -cne $ExpectedCargoLockSha256) {
-            Fail-Nxb 'immutable snapshot Cargo.lock changed during validation'
-        }
-        for ($index = 0; $index -lt $manifest.Count; $index++) {
-            $entry = $manifest[$index]
-            $stream = $fileStreams[$index]
-            if ((Get-NxbGitBlobOidFromStream -Stream $stream) -cne $entry.ObjectId) {
-                Fail-Nxb "pinned tracked source object changed during validation: $($entry.Path)"
-            }
-            $path = $actualFiles[$entry.Path]
-            $item = Get-Item -LiteralPath $path -Force
-            if ($item.Length -ne $entry.Size -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-                Fail-Nxb "tracked source pathname/object metadata changed during validation: $($entry.Path)"
-            }
-        }
-        Assert-NxbSnapshotNamespace -SnapshotRoot $snapshotRoot -ExpectedFiles $actualFiles -ExpectedDirectories $expectedSourceDirectories -Label 'post-gate namespace check'
-        $finalAuditPathSha = (Get-FileHash -LiteralPath $AuditPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        $finalDenyPathSha = (Get-FileHash -LiteralPath $DenyPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($finalAuditPathSha -cne $AuditSha256 -or $finalDenyPathSha -cne $DenySha256) {
-            Fail-Nxb 'security-tool canonical paths drifted during immutable source validation'
-        }
-        $validationSucceeded = $true
+        & $dependencyHelperPath `
+            -SnapshotRoot $snapshotRoot `
+            -RuntimeTarget $runtimeTarget `
+            -RuntimeTmp $runtimeTmp `
+            -RuntimeCargoHome $runtimeCargoHome `
+            -RustToolchain $RustToolchain `
+            -CargoAuditVersion $CargoAuditVersion `
+            -CargoDenyVersion $CargoDenyVersion `
+            -AuditSha256 $AuditSha256 `
+            -DenySha256 $DenySha256 `
+            -AuditPath $AuditPath `
+            -DenyPath $DenyPath
     }
-    finally {
-        Pop-Location
-        $env:CARGO_TARGET_DIR = $previousTarget
-        $env:CARGO_HOME = $previousCargoHome
-        $env:TMP = $previousTmp
-        $env:TEMP = $previousTemp
+    catch {
+        Fail-Nxb "dependency-source-bounded Windows gate sequence failed: $($_.Exception.Message)"
     }
+
+    $finalLockSha = Get-NxbStreamSha256 -Stream $cargoLockStream -Label 'final snapshot Cargo.lock'
+    if ($finalLockSha -cne $ExpectedCargoLockSha256) {
+        Fail-Nxb 'immutable snapshot Cargo.lock changed during validation'
+    }
+    for ($index = 0; $index -lt $manifest.Count; $index++) {
+        $entry = $manifest[$index]
+        $stream = $fileStreams[$index]
+        if ((Get-NxbGitBlobOidFromStream -Stream $stream) -cne $entry.ObjectId) {
+            Fail-Nxb "pinned tracked source object changed during validation: $($entry.Path)"
+        }
+        $path = $actualFiles[$entry.Path]
+        $item = Get-Item -LiteralPath $path -Force
+        if ($item.Length -ne $entry.Size -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            Fail-Nxb "tracked source pathname/object metadata changed during validation: $($entry.Path)"
+        }
+    }
+    Assert-NxbSnapshotNamespace -SnapshotRoot $snapshotRoot -ExpectedFiles $actualFiles -ExpectedDirectories $expectedSourceDirectories -Label 'post-gate namespace check'
+    $finalAuditPathSha = (Get-FileHash -LiteralPath $AuditPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $finalDenyPathSha = (Get-FileHash -LiteralPath $DenyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($finalAuditPathSha -cne $AuditSha256 -or $finalDenyPathSha -cne $DenySha256) {
+        Fail-Nxb 'security-tool canonical paths drifted during immutable source validation'
+    }
+    $validationSucceeded = $true
 }
 catch {
     $primaryFailure = $_
@@ -945,4 +893,4 @@ if ($null -ne $primaryFailure -or $cleanupErrors.Count -gt 0 -or -not $validatio
     Fail-Nxb ($parts -join ' | ')
 }
 
-Write-Host 'NXB-153 exact-head Windows gates passed inside a pinned write-denied source snapshot.'
+Write-Host 'NXB-153 exact-head Windows gates passed inside pinned source and dependency snapshots.'
