@@ -7,9 +7,9 @@ fail() {
 }
 
 require_commands() {
-    local command
-    for command in git unshare mount tar find sha256sum python3 rustup; do
-        command -v "$command" >/dev/null 2>&1 || fail "$command is unavailable"
+    local required_command
+    for required_command in git unshare mount tar find grep sha256sum awk touch python3 rustup; do
+        command -v "$required_command" >/dev/null 2>&1 || fail "$required_command is unavailable"
     done
 }
 
