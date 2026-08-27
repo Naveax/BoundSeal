@@ -353,6 +353,7 @@ $validationLockStream = $null
 $auditToolStream = $null
 $denyToolStream = $null
 $receiptStream = $null
+$cargoLockStream = $null
 $namespaceHandles = [Collections.Generic.List[IDisposable]]::new()
 
 Push-Location $RepoRoot
@@ -493,11 +494,13 @@ try {
     $receiptSha256 = Get-NxbStreamSha256 -Stream $receiptStream -Label 'tooling receipt'
     Assert-LowerSha256 -Value $receiptSha256 -Label 'Tooling receipt SHA-256'
 
+    # Pin Cargo.lock before any locked Cargo operation. FileShare.Read permits
+    # normal Cargo readers while withholding write/delete sharing, so the lockfile
+    # consumed by metadata/check/clippy/test/security gates cannot be transiently
+    # replaced or mutated and restored only before final validation checks.
     $lockPath = Join-Path $RepoRoot 'Cargo.lock'
-    if (-not (Test-Path -LiteralPath $lockPath -PathType Leaf)) {
-        throw 'Cargo.lock is missing.'
-    }
-    $lockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $cargoLockStream = Open-NxbPinnedToolStream -Path $lockPath -Label 'Cargo.lock'
+    $lockSha256 = Get-NxbStreamSha256 -Stream $cargoLockStream -Label 'Cargo.lock'
     if ($lockSha256 -ne $expectedCargoLockSha256) {
         throw "Cargo.lock SHA-256 mismatch: expected $expectedCargoLockSha256, found $lockSha256"
     }
@@ -571,9 +574,13 @@ try {
     Invoke-NxbTool -Path $auditPath -Arguments @('audit') -Label 'RustSec cargo audit'
     Invoke-NxbTool -Path $denyPath -Arguments @('check') -Label 'cargo-deny checks'
 
-    $finalLockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($finalLockSha256 -ne $expectedCargoLockSha256) {
-        throw 'Cargo.lock bytes changed during validation.'
+    $finalPinnedLockSha256 = Get-NxbStreamSha256 -Stream $cargoLockStream -Label 'Cargo.lock final pinned object'
+    if ($finalPinnedLockSha256 -cne $lockSha256) {
+        throw 'Pinned Cargo.lock bytes changed during validation.'
+    }
+    $finalLockPathSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($finalLockPathSha256 -cne $lockSha256) {
+        throw 'Cargo.lock pathname no longer names the pinned bytes used during validation.'
     }
     git diff --exit-code -- Cargo.lock
     if ($LASTEXITCODE -ne 0) {
@@ -678,7 +685,7 @@ try {
         }
     }
 
-    Write-Host 'NXB-153 Windows validation passed with pinned tooling receipt authority.'
+    Write-Host 'NXB-153 Windows validation passed with pinned Cargo.lock and tooling receipt authority.'
     Write-Host "HEAD: $headSha"
     Write-Host "Tool root: $toolsRelative"
     Write-Host "Cargo.lock SHA-256: $lockSha256"
@@ -686,6 +693,9 @@ try {
     Write-Host "Evidence: $evidencePath"
 }
 finally {
+    if ($null -ne $cargoLockStream) {
+        $cargoLockStream.Dispose()
+    }
     if ($null -ne $receiptStream) {
         $receiptStream.Dispose()
     }
