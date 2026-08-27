@@ -197,6 +197,7 @@ def read_receipt(
     receipt, raw = read_json(path, f"{platform} tooling receipt")
     if set(receipt) != EXPECTED_RECEIPT_FIELDS:
         fail(f"{platform} tooling receipt field mismatch")
+    expected_tools_root = f"target/nxb-tools/{platform}/{head_sha}"
     if (
         type(receipt["schema_version"]) is not int
         or receipt["schema_version"] != 1
@@ -204,7 +205,7 @@ def read_receipt(
         or receipt["gate"] != "validation_tool_bootstrap"
         or receipt["platform"] != platform
         or receipt["head_sha"] != head_sha
-        or receipt["tools_root"] != "target/nxb-tools"
+        or receipt["tools_root"] != expected_tools_root
         or receipt["network_activity"] != "rustup_and_crates_io_tool_installation_only"
     ):
         fail(f"{platform} tooling receipt identity is invalid")
