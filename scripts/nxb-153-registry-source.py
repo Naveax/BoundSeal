@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 import stat
 import sys
 import tomllib
+from typing import NoReturn
 
 CRATES_IO_SOURCE = "registry+https://github.com/rust-lang/crates.io-index"
 MAX_LOCK_BYTES = 8 * 1024 * 1024
@@ -23,7 +24,7 @@ class AuthorityError(RuntimeError):
     pass
 
 
-def fail(message: str) -> "NoReturn":
+def fail(message: str) -> NoReturn:
     raise AuthorityError(message)
 
 
@@ -106,7 +107,11 @@ def safe_relative(value: str, label: str) -> PurePosixPath:
     if not isinstance(value, str) or not value or "\\" in value or "\x00" in value:
         fail(f"{label} is not a canonical relative path")
     path = PurePosixPath(value)
-    if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
+    if (
+        path.is_absolute()
+        or any(part in ("", ".", "..") for part in path.parts)
+        or path.as_posix() != value
+    ):
         fail(f"{label} is not a canonical relative path: {value!r}")
     return path
 
@@ -217,7 +222,10 @@ def validate_vendor(lock_path: Path, vendor_root: Path) -> None:
     if not stat.S_ISDIR(vendor_stat.st_mode) or stat.S_ISLNK(vendor_stat.st_mode):
         fail("vendor root must be a real directory")
 
-    expected_directories = {f"{name}-{version}": (name, version, checksum) for (name, version), checksum in registry.items()}
+    expected_directories = {
+        f"{name}-{version}": (name, version, checksum)
+        for (name, version), checksum in registry.items()
+    }
     if len(expected_directories) != len(registry):
         fail("versioned vendor directory names collide")
 
@@ -240,7 +248,10 @@ def validate_vendor(lock_path: Path, vendor_root: Path) -> None:
     if set(actual_directories) != set(expected_directories):
         unexpected = sorted(set(actual_directories) - set(expected_directories))[:8]
         missing = sorted(set(expected_directories) - set(actual_directories))[:8]
-        fail(f"vendor package set differs from Cargo.lock: unexpected={unexpected!r} missing={missing!r}")
+        fail(
+            f"vendor package set differs from Cargo.lock: "
+            f"unexpected={unexpected!r} missing={missing!r}"
+        )
 
     total_files = 0
     total_bytes = 0
@@ -271,13 +282,20 @@ def validate_vendor(lock_path: Path, vendor_root: Path) -> None:
         for relative, digest in files.items():
             if not is_lower_sha256(digest):
                 fail(f"invalid vendored file SHA-256 for {directory_name}/{relative}")
-            canonical = safe_relative(relative, f"vendored path {directory_name}/{relative}").as_posix()
+            canonical = safe_relative(
+                relative,
+                f"vendored path {directory_name}/{relative}",
+            ).as_posix()
             if canonical in expected_files:
                 fail(f"duplicate vendored checksum path: {directory_name}/{canonical}")
             expected_files[canonical] = digest
 
         actual_files: dict[str, Path] = {}
-        for current_root, dirnames, filenames in os.walk(package_root, topdown=True, followlinks=False):
+        for current_root, dirnames, filenames in os.walk(
+            package_root,
+            topdown=True,
+            followlinks=False,
+        ):
             current = Path(current_root)
             for dirname in list(dirnames):
                 candidate = current / dirname
@@ -320,9 +338,15 @@ def validate_vendor(lock_path: Path, vendor_root: Path) -> None:
         manifest_digest.update(expected_package_checksum.encode("ascii"))
         manifest_digest.update(b"\0")
         for relative in sorted(expected_files):
-            digest = sha256_file(actual_files[relative], f"vendored file {directory_name}/{relative}")
+            digest = sha256_file(
+                actual_files[relative],
+                f"vendored file {directory_name}/{relative}",
+            )
             if digest != expected_files[relative]:
-                fail(f"vendored file bytes differ from Cargo checksum map: {directory_name}/{relative}")
+                fail(
+                    f"vendored file bytes differ from Cargo checksum map: "
+                    f"{directory_name}/{relative}"
+                )
             manifest_digest.update(relative.encode("utf-8"))
             manifest_digest.update(b"\0")
             manifest_digest.update(digest.encode("ascii"))
