@@ -210,6 +210,100 @@ if actual_files != expected_files or actual_dirs != expected_dirs:
                 ) || die "$phase snapshot namespace differs from exact-head Git manifest"
             }
 
+            validate_objects() {
+                local phase="$1"
+                python3 -I -c '\''
+import hashlib
+import os
+import stat
+import sys
+
+source_root = os.fsencode(sys.argv[1])
+phase = sys.argv[2]
+raw = sys.stdin.buffer.read()
+records = raw.split(b"\0")
+if records and records[-1] == b"":
+    records.pop()
+if not records:
+    raise SystemExit("exact-head object manifest is empty")
+
+root_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+file_flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+root_fd = os.open(source_root, root_flags)
+seen = set()
+try:
+    for record in records:
+        try:
+            metadata, path = record.split(b"\t", 1)
+        except ValueError:
+            raise SystemExit("unparseable exact-head ls-tree record")
+        fields = metadata.split()
+        if len(fields) != 3:
+            raise SystemExit("unexpected exact-head ls-tree metadata")
+        mode, object_type, object_id = fields
+        components = path.split(b"/")
+        if (
+            mode not in (b"100644", b"100755")
+            or object_type != b"blob"
+            or len(object_id) != 40
+            or any(byte not in b"0123456789abcdef" for byte in object_id)
+            or not path
+            or path.startswith(b"/")
+            or any(component in (b"", b".", b"..") for component in components)
+            or path in seen
+        ):
+            raise SystemExit("invalid exact-head Git object record")
+        seen.add(path)
+
+        directory_fd = os.dup(root_fd)
+        try:
+            for component in components[:-1]:
+                next_fd = os.open(component, root_flags, dir_fd=directory_fd)
+                os.close(directory_fd)
+                directory_fd = next_fd
+            file_fd = os.open(components[-1], file_flags, dir_fd=directory_fd)
+        finally:
+            os.close(directory_fd)
+
+        try:
+            before = os.fstat(file_fd)
+            if not stat.S_ISREG(before.st_mode):
+                raise SystemExit("snapshot Git object is not a regular file")
+            digest = hashlib.sha1()
+            digest.update(b"blob " + str(before.st_size).encode("ascii") + b"\0")
+            total = 0
+            while True:
+                chunk = os.read(file_fd, 1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                digest.update(chunk)
+            after = os.fstat(file_fd)
+            if (
+                total != before.st_size
+                or after.st_dev != before.st_dev
+                or after.st_ino != before.st_ino
+                or after.st_size != before.st_size
+                or getattr(after, "st_mtime_ns", None) != getattr(before, "st_mtime_ns", None)
+                or getattr(after, "st_ctime_ns", None) != getattr(before, "st_ctime_ns", None)
+            ):
+                raise SystemExit("snapshot Git object changed while hashing")
+            if digest.hexdigest().encode("ascii") != object_id:
+                raise SystemExit(
+                    "snapshot file bytes differ from exact-head Git blob: "
+                    + os.fsdecode(path)
+                    + " phase="
+                    + phase
+                )
+        finally:
+            os.close(file_fd)
+finally:
+    os.close(root_fd)
+'\'' "$source_root" "$phase" < <(
+                    git -C "/proc/self/fd/$repo_fd" -c core.quotePath=false ls-tree -rz --full-tree "$head_sha"
+                ) || die "$phase snapshot file bytes differ from exact-head Git object authority"
+            }
+
             cargo_raw() {
                 rustup run "$rust_toolchain" cargo "$@"
             }
@@ -226,6 +320,7 @@ if actual_files != expected_files or actual_dirs != expected_dirs:
                 die "exact-head archive unexpectedly contains a symlink"
             fi
             validate_namespace pre
+            validate_objects pre
 
             [[ -f "$source_root/Cargo.lock" && ! -L "$source_root/Cargo.lock" ]] ||
                 die "exact-head immutable snapshot is missing regular Cargo.lock"
@@ -390,6 +485,7 @@ EOF
                 die "gate Cargo source-replacement config changed during validation"
             python3 -I scripts/nxb-153-registry-source.py validate-vendor Cargo.lock "$vendor_root" >/dev/null ||
                 die "vendored dependency snapshot failed final checksum/namespace verification"
+            validate_objects post
             validate_namespace post
 
             printf "NXB-153 exact-head Linux gates passed inside immutable workspace/dependency snapshots.\n"
