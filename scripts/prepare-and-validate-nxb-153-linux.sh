@@ -6,8 +6,6 @@ prepare_only="${NXB_PREPARE_ONLY:-0}"
 rust_toolchain="1.97.1"
 cargo_audit_version="0.22.2"
 cargo_deny_version="0.20.2"
-tools_root="$repo_root/target/nxb-tools"
-tools_bin="$tools_root/bin"
 install_root=''
 prep_lock=''
 validation_directory=''
@@ -87,12 +85,18 @@ if [[ -e "$receipt_path" ]]; then
     fail "exact-head tooling receipt appeared while claiming the preparation lock; tool bytes were not mutated: $receipt_path"
 fi
 
+tools_relative="target/nxb-tools/linux/$head_sha"
+tools_root="$repo_root/$tools_relative"
+tools_bin="$tools_root/bin"
+if [[ -e "$tools_root" ]]; then
+    fail "exact-head Linux tools root already exists without an admitted tooling receipt; explicit recovery is required: $tools_root"
+fi
+
 rustup toolchain install "$rust_toolchain" \
     --profile minimal \
     --component rustfmt \
     --component clippy
 
-mkdir -p "$tools_root"
 audit_path="$tools_bin/cargo-audit"
 deny_path="$tools_bin/cargo-deny"
 
@@ -152,12 +156,14 @@ cat > "$receipt_temp" <<JSON
   "cargo_audit_sha256": "$audit_sha256",
   "cargo_deny": "$deny_version",
   "cargo_deny_sha256": "$deny_sha256",
-  "tools_root": "target/nxb-tools",
+  "tools_root": "$tools_relative",
   "network_activity": "rustup_and_crates_io_tool_installation_only",
   "prepared_at": "$prepared_at"
 }
 JSON
 
+receipt_size="$(stat -c '%s' "$receipt_temp")" || fail 'could not resolve tooling receipt size'
+[[ "$receipt_size" -gt 0 && "$receipt_size" -le 65536 ]] || fail 'tooling receipt size is invalid'
 fsync_file "$receipt_temp" || fail 'could not sync tooling receipt temporary file before namespace claim'
 if ln "$receipt_temp" "$receipt_path" 2>/dev/null; then
     cleanup_error=''
@@ -187,6 +193,7 @@ fsync_directory "$validation_directory" || fail 'could not sync validation direc
 
 printf 'NXB-153 fresh pinned Linux validation tools are ready.\n'
 printf 'HEAD: %s\n' "$head_sha"
+printf 'Tool root: %s\n' "$tools_relative"
 printf 'Tooling receipt: %s\n' "$receipt_path"
 
 if [[ "$prepare_only" != "1" ]]; then
