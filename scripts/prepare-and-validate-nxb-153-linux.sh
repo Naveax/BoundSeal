@@ -43,6 +43,22 @@ finally:
 PY
 }
 
+json_field() {
+    local payload="$1"
+    local field="$2"
+    python3 - "$payload" "$field" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+field = sys.argv[2]
+value = payload.get(field)
+if not isinstance(value, str) or not value:
+    raise SystemExit(f"missing or invalid JSON field: {field}")
+print(value)
+PY
+}
+
 cleanup() {
     if [[ -n "$install_root" && -d "$install_root" ]]; then
         rm -rf "$install_root" || true
@@ -60,11 +76,15 @@ command -v git >/dev/null 2>&1 || fail 'git is unavailable'
 command -v rustup >/dev/null 2>&1 ||
     fail 'rustup is unavailable; install rustup from the official Rust distribution first'
 command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is unavailable'
-command -v python3 >/dev/null 2>&1 || fail 'python3 is unavailable for durable tooling-receipt publication'
-command -v awk >/dev/null 2>&1 || fail 'awk is unavailable for exact validation-tool version matching'
-[[ -d /proc/self/fd ]] || fail '/proc/self/fd is unavailable for pinned validation-tool receipt generation'
+command -v python3 >/dev/null 2>&1 || fail 'python3 is unavailable for sealed tool inspection and durable tooling-receipt publication'
 
 cd "$repo_root"
+sealed_tool_runner="$repo_root/scripts/nxb-153-sealed-tool.py"
+[[ -f "$sealed_tool_runner" && ! -L "$sealed_tool_runner" ]] ||
+    fail "sealed Linux validation-tool runner is missing or redirected: $sealed_tool_runner"
+python3 "$sealed_tool_runner" self-test >/dev/null ||
+    fail 'sealed Linux validation-tool primitive self-test failed before tool preparation'
+
 head_sha="$(git rev-parse HEAD)"
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'exact Git HEAD could not be resolved'
 [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]] ||
@@ -102,22 +122,6 @@ rustup toolchain install "$rust_toolchain" \
 audit_path="$tools_bin/cargo-audit"
 deny_path="$tools_bin/cargo-deny"
 
-tool_has_version() {
-    local path="$1"
-    local expected="$2"
-    [[ -x "$path" ]] || return 1
-    "$path" --version 2>/dev/null | awk -v expected="$expected" '
-        {
-            for (index = 1; index <= NF; index++) {
-                if ($index == expected) {
-                    found = 1
-                }
-            }
-        }
-        END { exit(found ? 0 : 1) }
-    '
-}
-
 install_root="$(mktemp -d)"
 cd "$install_root"
 
@@ -139,18 +143,18 @@ cd "$repo_root"
 [[ -f "$audit_path" && ! -L "$audit_path" ]] || fail 'fresh cargo-audit must be a regular non-symlink file'
 [[ -f "$deny_path" && ! -L "$deny_path" ]] || fail 'fresh cargo-deny must be a regular non-symlink file'
 
-# Pin the exact files produced by cargo install before version/hash inspection.
-# Receipt identity is derived from these file objects, not from later pathname
-# reopenings that could be redirected by a concurrent rename/substitution.
-exec 8<"$audit_path" || fail 'could not pin freshly installed cargo-audit object'
-exec 9<"$deny_path" || fail 'could not pin freshly installed cargo-deny object'
-audit_exec='/proc/self/fd/8'
-deny_exec='/proc/self/fd/9'
-
-tool_has_version "$audit_exec" "$cargo_audit_version" ||
-    fail 'fresh cargo-audit installation is invalid'
-tool_has_version "$deny_exec" "$cargo_deny_version" ||
-    fail 'fresh cargo-deny installation is invalid'
+# Inspect each freshly installed executable through one stable O_NOFOLLOW read,
+# copy those bytes into a sealed memfd, and derive both version and SHA-256 from
+# that immutable snapshot. Receipt fields therefore cannot mix two transient
+# in-place states of one mutable inode.
+audit_inspection="$(python3 "$sealed_tool_runner" inspect "$audit_path" "$cargo_audit_version")" ||
+    fail 'fresh cargo-audit sealed inspection failed'
+deny_inspection="$(python3 "$sealed_tool_runner" inspect "$deny_path" "$cargo_deny_version")" ||
+    fail 'fresh cargo-deny sealed inspection failed'
+audit_version="$(json_field "$audit_inspection" version)" || fail 'fresh cargo-audit version result is invalid'
+audit_sha256="$(json_field "$audit_inspection" sha256)" || fail 'fresh cargo-audit SHA-256 result is invalid'
+deny_version="$(json_field "$deny_inspection" version)" || fail 'fresh cargo-deny version result is invalid'
+deny_sha256="$(json_field "$deny_inspection" sha256)" || fail 'fresh cargo-deny SHA-256 result is invalid'
 
 final_head="$(git rev-parse HEAD)"
 [[ "$final_head" == "$head_sha" ]] || fail 'Git HEAD changed during tool preparation'
@@ -158,10 +162,6 @@ final_head="$(git rev-parse HEAD)"
     fail 'working tree changed during tool preparation'
 
 rustc_version="$(rustup run "$rust_toolchain" rustc --version)"
-audit_version="$($audit_exec --version)"
-deny_version="$($deny_exec --version)"
-audit_sha256="$(sha256sum "$audit_exec" | awk '{print $1}')"
-deny_sha256="$(sha256sum "$deny_exec" | awk '{print $1}')"
 audit_path_sha256="$(sha256sum "$audit_path" | awk '{print $1}')"
 deny_path_sha256="$(sha256sum "$deny_path" | awk '{print $1}')"
 [[ "$audit_path_sha256" == "$audit_sha256" ]] || fail 'cargo-audit pathname drifted before tooling receipt publication'
@@ -211,15 +211,13 @@ else
     fail 'could not create-only claim the exact-head tooling receipt'
 fi
 
-exec 8<&-
-exec 9<&-
 rm -rf "$install_root" || fail 'could not remove tool-installation temporary directory'
 install_root=''
 rmdir "$prep_lock" || fail 'could not release exact-head tool-preparation lock'
 prep_lock=''
 fsync_directory "$validation_directory" || fail 'could not sync validation directory after preparation-lock release'
 
-printf 'NXB-153 fresh pinned Linux validation tools are ready.\n'
+printf 'NXB-153 fresh sealed Linux validation tools are ready.\n'
 printf 'HEAD: %s\n' "$head_sha"
 printf 'Tool root: %s\n' "$tools_relative"
 printf 'Tooling receipt: %s\n' "$receipt_path"
