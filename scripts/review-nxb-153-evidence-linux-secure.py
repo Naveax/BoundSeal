@@ -256,6 +256,32 @@ def self_test() -> None:
         finally:
             os.close(evidence_fd)
 
+        repository = root / "repository"
+        replacement_repository = root / "replacement-repository"
+        (repository / "scripts").mkdir(parents=True)
+        (replacement_repository / "scripts").mkdir(parents=True)
+        reviewer = repository / "scripts" / "reviewer.py"
+        reviewer.write_text('VALUE = "trusted"\n', encoding="utf-8")
+        (replacement_repository / "scripts" / "reviewer.py").write_text(
+            'VALUE = "substituted"\n',
+            encoding="utf-8",
+        )
+
+        repository_fd = open_directory_anchored(repository, "self-test repository root")
+        try:
+            pinned_repository = root / "repository-pinned"
+            repository.rename(pinned_repository)
+            os.symlink(replacement_repository, repository)
+            module = load_implementation_anchored(
+                repository_fd,
+                repository,
+                reviewer,
+            )
+            if getattr(module, "VALUE", None) != "trusted":
+                fail("self-test repository replacement redirected semantic reviewer load")
+        finally:
+            os.close(repository_fd)
+
     print("NXB-153 Linux descriptor-anchored evidence primitive self-test passed.")
 
 
@@ -352,6 +378,8 @@ def main() -> None:
             value: dict[str, Any],
         ) -> None:
             canonical = (json.dumps(value, indent=2) + "\n").encode("utf-8")
+            if len(canonical) <= 0 or len(canonical) > implementation.MAXIMUM_BYTES:
+                implementation.fail("canonical closure evidence size is invalid")
             parts = relative_parts(path, evidence_directory, "closure evidence")
 
             def read_existing(label: str) -> dict[str, Any]:
