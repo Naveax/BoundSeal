@@ -37,7 +37,12 @@ function Open-NxbH2CopyPinnedFile {
         Fail-NxbH2CopyEntry "$Label must be a regular non-reparse file: $Path"
     }
     try {
-        return [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        return [IO.File]::Open(
+            $Path,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::Read
+        )
     }
     catch {
         Fail-NxbH2CopyEntry "could not pin $Label with write/delete sharing withheld: $($_.Exception.Message)"
@@ -118,6 +123,228 @@ function Resolve-NxbH2CopyPython {
     Fail-NxbH2CopyEntry 'Python 3.11 or newer with isolated-mode support is required'
 }
 
+function Read-NxbH2BrokerLine {
+    param(
+        [Parameter(Mandatory = $true)][Diagnostics.Process]$Process,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][int]$TimeoutMilliseconds
+    )
+    $task = $Process.StandardOutput.ReadLineAsync()
+    if (-not $task.Wait($TimeoutMilliseconds)) {
+        Fail-NxbH2CopyEntry "$Label timed out"
+    }
+    $line = $task.Result
+    if ($null -eq $line) {
+        $exit = if ($Process.HasExited) { $Process.ExitCode } else { 'running' }
+        Fail-NxbH2CopyEntry "$Label control stream closed unexpectedly; broker=$exit"
+    }
+    $utf8 = [Text.UTF8Encoding]::new($false, $true)
+    if ($utf8.GetByteCount($line) -gt 65536) {
+        Fail-NxbH2CopyEntry "$Label response exceeds 64 KiB"
+    }
+    return $line
+}
+
+function ConvertFrom-NxbH2BrokerRecord {
+    param(
+        [Parameter(Mandatory = $true)][string]$Line,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    try {
+        return ($Line | ConvertFrom-Json -ErrorAction Stop)
+    }
+    catch {
+        Fail-NxbH2CopyEntry "$Label returned invalid JSON: $($_.Exception.Message)"
+    }
+}
+
+function Start-NxbH2DestinationBroker {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourceRoot,
+        [Parameter(Mandatory = $true)][string]$SnapshotRoot
+    )
+    if ($null -ne $script:NxbH2BrokerProcess) {
+        Fail-NxbH2CopyEntry 'destination broker is already active'
+    }
+    $sourceFull = [IO.Path]::GetFullPath($SourceRoot)
+    $snapshotFull = [IO.Path]::GetFullPath($SnapshotRoot)
+    $validationFull = [IO.Path]::GetFullPath($ValidationDirectory)
+    if (-not [string]::Equals(
+        [IO.Path]::GetDirectoryName($snapshotFull),
+        $validationFull,
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        Fail-NxbH2CopyEntry 'destination broker snapshot root is not an immediate child of the validation directory'
+    }
+    if (Test-Path -LiteralPath $snapshotFull) {
+        Fail-NxbH2CopyEntry 'destination broker requires an absent snapshot root'
+    }
+
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = $script:NxbH2CopyPython
+    $start.UseShellExecute = $false
+    $start.RedirectStandardInput = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $false
+    $start.CreateNoWindow = $true
+    $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false, $true)
+    foreach ($argument in @(
+        '-I',
+        $script:NxbH2BrokerHelperPath,
+        'broker',
+        $sourceFull,
+        $validationFull,
+        $snapshotFull
+    )) {
+        [void]$start.ArgumentList.Add([string]$argument)
+    }
+
+    $process = [Diagnostics.Process]::Start($start)
+    if ($null -eq $process) {
+        Fail-NxbH2CopyEntry 'could not start Windows H2 destination broker'
+    }
+    $script:NxbH2BrokerProcess = $process
+    $script:NxbH2BrokerSnapshotRoot = $snapshotFull
+
+    try {
+        $line = Read-NxbH2BrokerLine -Process $process -Label 'destination broker readiness' -TimeoutMilliseconds 1800000
+        $record = ConvertFrom-NxbH2BrokerRecord -Line $line -Label 'destination broker readiness'
+        if (
+            [string]$record.phase -cne 'ready' -or
+            [string]$record.status -cne 'healthy' -or
+            [string]$record.policy -cne 'nxb-153-windows-h2-destination-authority-v1' -or
+            -not [string]::Equals(
+                [IO.Path]::GetFullPath([string]$record.snapshot_root),
+                $snapshotFull,
+                [StringComparison]::OrdinalIgnoreCase
+            )
+        ) {
+            Fail-NxbH2CopyEntry 'destination broker did not establish healthy exact snapshot authority'
+        }
+        if (
+            [Int64]$record.file_count -lt 1 -or
+            [Int64]$record.file_count -gt 65536 -or
+            [Int64]$record.directory_count -lt 1 -or
+            [Int64]$record.directory_count -gt 65536 -or
+            [Int64]$record.total_bytes -lt 0 -or
+            [Int64]$record.total_bytes -gt 4294967296
+        ) {
+            Fail-NxbH2CopyEntry 'destination broker summary exceeds the admitted H2 envelope'
+        }
+    }
+    catch {
+        try {
+            if (-not $process.HasExited) {
+                $process.Kill($true)
+                [void]$process.WaitForExit(30000)
+            }
+        }
+        catch {}
+        try { $process.Dispose() } catch {}
+        $script:NxbH2BrokerProcess = $null
+        $script:NxbH2BrokerSnapshotRoot = $null
+        throw
+    }
+}
+
+function Assert-NxbH2DestinationBroker {
+    param([Parameter(Mandatory = $true)][string]$SnapshotRoot)
+    $process = $script:NxbH2BrokerProcess
+    if ($null -eq $process) {
+        Fail-NxbH2CopyEntry 'destination broker is not active at authority handoff'
+    }
+    $snapshotFull = [IO.Path]::GetFullPath($SnapshotRoot)
+    if (-not [string]::Equals(
+        $snapshotFull,
+        $script:NxbH2BrokerSnapshotRoot,
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        Fail-NxbH2CopyEntry 'destination broker authority was requested for the wrong snapshot root'
+    }
+    if ($process.HasExited) {
+        Fail-NxbH2CopyEntry "destination broker exited before authority handoff: $($process.ExitCode)"
+    }
+
+    $process.StandardInput.WriteLine('CHECK')
+    $process.StandardInput.Flush()
+    $line = Read-NxbH2BrokerLine -Process $process -Label 'destination broker health check' -TimeoutMilliseconds 30000
+    $record = ConvertFrom-NxbH2BrokerRecord -Line $line -Label 'destination broker health check'
+    if (
+        [string]$record.status -cne 'healthy' -or
+        [string]$record.policy -cne 'nxb-153-windows-h2-destination-authority-v1' -or
+        -not [string]::Equals(
+            [IO.Path]::GetFullPath([string]$record.snapshot_root),
+            $snapshotFull,
+            [StringComparison]::OrdinalIgnoreCase
+        )
+    ) {
+        Fail-NxbH2CopyEntry ("destination broker observed pre-handoff mutation: " + [string]$record.violation)
+    }
+}
+
+function Stop-NxbH2DestinationBroker {
+    param(
+        [Parameter(Mandatory = $true)][string]$SnapshotRoot,
+        [switch]$AllowMissing
+    )
+    $process = $script:NxbH2BrokerProcess
+    if ($null -eq $process) {
+        if ($AllowMissing) { return }
+        Fail-NxbH2CopyEntry 'destination broker is not active'
+    }
+
+    $snapshotFull = [IO.Path]::GetFullPath($SnapshotRoot)
+    if (-not [string]::Equals(
+        $snapshotFull,
+        $script:NxbH2BrokerSnapshotRoot,
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        Fail-NxbH2CopyEntry 'destination broker stop requested for the wrong snapshot root'
+    }
+
+    $failure = $null
+    try {
+        if ($process.HasExited) {
+            Fail-NxbH2CopyEntry "destination broker exited before controlled handoff: $($process.ExitCode)"
+        }
+        $process.StandardInput.WriteLine('STOP')
+        $process.StandardInput.Flush()
+        $line = Read-NxbH2BrokerLine -Process $process -Label 'destination broker stop' -TimeoutMilliseconds 30000
+        $record = ConvertFrom-NxbH2BrokerRecord -Line $line -Label 'destination broker stop'
+        if (-not $process.WaitForExit(30000)) {
+            try { $process.Kill($true) } catch {}
+            Fail-NxbH2CopyEntry 'destination broker did not exit after STOP'
+        }
+        if (
+            [string]$record.phase -cne 'stopped' -or
+            [string]$record.status -cne 'healthy' -or
+            $process.ExitCode -ne 0
+        ) {
+            Fail-NxbH2CopyEntry ("destination broker closed after detected mutation: " + [string]$record.violation)
+        }
+    }
+    catch {
+        $failure = $_
+        try {
+            if (-not $process.HasExited) {
+                $process.Kill($true)
+                [void]$process.WaitForExit(30000)
+            }
+        }
+        catch {}
+    }
+    finally {
+        try { $process.StandardInput.Dispose() } catch {}
+        try { $process.StandardOutput.Dispose() } catch {}
+        try { $process.Dispose() } catch {}
+        $script:NxbH2BrokerProcess = $null
+        $script:NxbH2BrokerSnapshotRoot = $null
+    }
+    if ($null -ne $failure) {
+        throw $failure
+    }
+}
+
 if ($null -eq ('Nxb153H2CopyEntryNative' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
@@ -132,6 +359,7 @@ public static class Nxb153H2CopyEntryNative
     private const uint FILE_SHARE_WRITE = 0x00000002;
     private const uint OPEN_EXISTING = 3;
     private const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+    private const uint FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000;
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern SafeFileHandle CreateFileW(
@@ -151,7 +379,7 @@ public static class Nxb153H2CopyEntryNative
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             IntPtr.Zero,
             OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
             IntPtr.Zero);
         if (handle.IsInvalid)
         {
@@ -175,19 +403,21 @@ if ($HeadSha -notmatch '^[0-9a-f]{40}$') {
 $RepoRoot = [IO.Path]::GetFullPath($RepoRoot)
 $ValidationDirectory = [IO.Path]::GetFullPath($ValidationDirectory)
 $scriptsRoot = Join-Path $RepoRoot 'scripts'
-$entryInnerRelative = 'scripts/nxb-153-windows-immutable-source-h2-entry-inner.ps1'
-$copyHelperRelative = 'scripts/nxb-153-rust-toolchain-snapshot-copy.py'
-$entryInnerPath = Join-Path $scriptsRoot 'nxb-153-windows-immutable-source-h2-entry-inner.ps1'
-$copyHelperPath = Join-Path $scriptsRoot 'nxb-153-rust-toolchain-snapshot-copy.py'
+$entryInnerRelative = 'scripts/nxb-153-windows-immutable-source-h2-broker-entry.ps1'
+$brokerHelperRelative = 'scripts/nxb-153-windows-h2-destination-broker.py'
+$entryInnerPath = Join-Path $scriptsRoot 'nxb-153-windows-immutable-source-h2-broker-entry.ps1'
+$brokerHelperPath = Join-Path $scriptsRoot 'nxb-153-windows-h2-destination-broker.py'
 $entryInnerStream = $null
-$copyHelperStream = $null
+$brokerHelperStream = $null
 $scriptsHandle = $null
 $script:NxbH2CopyExpected = $null
 $script:NxbH2CopySourceRoot = $null
 $script:NxbH2CopyDestination = $null
 $script:NxbH2CopyInvoked = $false
 $script:NxbH2CopyPython = $null
-$script:NxbH2CopyHelperPath = $null
+$script:NxbH2BrokerHelperPath = $null
+$script:NxbH2BrokerProcess = $null
+$script:NxbH2BrokerSnapshotRoot = $null
 $primaryError = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
 
@@ -197,16 +427,16 @@ try {
         Fail-NxbH2CopyEntry 'scripts namespace must be a normal non-reparse directory'
     }
     $scriptsHandle = [Nxb153H2CopyEntryNative]::OpenDirectoryNoDeleteShare($scriptsRoot)
-    $entryInnerStream = Open-NxbH2CopyPinnedFile -Path $entryInnerPath -Label 'Windows H2 entry inner runner'
-    $copyHelperStream = Open-NxbH2CopyPinnedFile -Path $copyHelperPath -Label 'bounded Rust snapshot-copy helper'
-    [void](Assert-NxbH2CopyCommittedFile -Stream $entryInnerStream -RelativePath $entryInnerRelative -Label 'Windows H2 entry inner runner')
-    [void](Assert-NxbH2CopyCommittedFile -Stream $copyHelperStream -RelativePath $copyHelperRelative -Label 'bounded Rust snapshot-copy helper')
+    $entryInnerStream = Open-NxbH2CopyPinnedFile -Path $entryInnerPath -Label 'Windows H2 broker entry runner'
+    $brokerHelperStream = Open-NxbH2CopyPinnedFile -Path $brokerHelperPath -Label 'Windows H2 destination broker'
+    [void](Assert-NxbH2CopyCommittedFile -Stream $entryInnerStream -RelativePath $entryInnerRelative -Label 'Windows H2 broker entry runner')
+    [void](Assert-NxbH2CopyCommittedFile -Stream $brokerHelperStream -RelativePath $brokerHelperRelative -Label 'Windows H2 destination broker')
 
     $script:NxbH2CopyPython = Resolve-NxbH2CopyPython
-    $script:NxbH2CopyHelperPath = $copyHelperPath
-    & $script:NxbH2CopyPython -I $script:NxbH2CopyHelperPath self-test | Out-Null
+    $script:NxbH2BrokerHelperPath = $brokerHelperPath
+    & $script:NxbH2CopyPython -I $script:NxbH2BrokerHelperPath self-test | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        Fail-NxbH2CopyEntry "bounded Rust snapshot-copy helper self-test failed with exit $LASTEXITCODE"
+        Fail-NxbH2CopyEntry "Windows H2 destination broker self-test failed with exit $LASTEXITCODE"
     }
 
     if (-not $SelfTest) {
@@ -243,10 +473,7 @@ try {
                 $script:NxbH2CopySourceRoot = $sourceRoot
                 $script:NxbH2CopyDestination = $destinationFull
 
-                & $script:NxbH2CopyPython -I $script:NxbH2CopyHelperPath copy $sourceRoot $destinationFull --platform-model windows | Out-Null
-                if ($LASTEXITCODE -ne 0) {
-                    Fail-NxbH2CopyEntry "bounded Rust sysroot copy failed with exit $LASTEXITCODE"
-                }
+                Start-NxbH2DestinationBroker -SourceRoot $sourceRoot -SnapshotRoot $destinationFull
                 $script:NxbH2CopyInvoked = $true
             }
             else {
@@ -272,32 +499,46 @@ try {
 
     if (-not $SelfTest) {
         if (-not $script:NxbH2CopyInvoked) {
-            Fail-NxbH2CopyEntry 'Windows H2 validation returned without invoking bounded sysroot copy'
+            Fail-NxbH2CopyEntry 'Windows H2 validation returned without invoking destination broker copy'
         }
         if ($null -eq $script:NxbH2CopyExpected -or $script:NxbH2CopyExpected.Count -ne 0) {
-            Fail-NxbH2CopyEntry 'Windows H2 capture loop did not consume the complete bounded source enumeration'
+            Fail-NxbH2CopyEntry 'Windows H2 capture loop did not consume the complete source enumeration'
+        }
+        if ($null -ne $script:NxbH2BrokerProcess) {
+            Fail-NxbH2CopyEntry 'Windows H2 returned before broker-to-PowerShell authority handoff completed'
         }
     }
 
-    $finalEntryOid = Get-NxbH2CopyGitBlobOid -Stream $entryInnerStream -Label 'Windows H2 entry inner runner final pinned object'
+    $finalEntryOid = Get-NxbH2CopyGitBlobOid -Stream $entryInnerStream -Label 'Windows H2 broker entry runner final pinned object'
     $expectedEntryOid = (git -C $RepoRoot rev-parse "${HeadSha}:$entryInnerRelative").Trim()
     if ($LASTEXITCODE -ne 0 -or $finalEntryOid -cne $expectedEntryOid) {
-        Fail-NxbH2CopyEntry 'Windows H2 entry inner runner authority changed during execution'
+        Fail-NxbH2CopyEntry 'Windows H2 broker entry runner authority changed during execution'
     }
-    $finalCopyOid = Get-NxbH2CopyGitBlobOid -Stream $copyHelperStream -Label 'bounded Rust snapshot-copy helper final pinned object'
-    $expectedCopyOid = (git -C $RepoRoot rev-parse "${HeadSha}:$copyHelperRelative").Trim()
-    if ($LASTEXITCODE -ne 0 -or $finalCopyOid -cne $expectedCopyOid) {
-        Fail-NxbH2CopyEntry 'bounded Rust snapshot-copy helper authority changed during execution'
+    $finalBrokerOid = Get-NxbH2CopyGitBlobOid -Stream $brokerHelperStream -Label 'Windows H2 destination broker final pinned object'
+    $expectedBrokerOid = (git -C $RepoRoot rev-parse "${HeadSha}:$brokerHelperRelative").Trim()
+    if ($LASTEXITCODE -ne 0 -or $finalBrokerOid -cne $expectedBrokerOid) {
+        Fail-NxbH2CopyEntry 'Windows H2 destination broker authority changed during execution'
     }
 }
 catch {
     $primaryError = $_
 }
 finally {
+    if ($null -ne $script:NxbH2BrokerProcess) {
+        try {
+            Stop-NxbH2DestinationBroker -SnapshotRoot $script:NxbH2BrokerSnapshotRoot -AllowMissing
+        }
+        catch {
+            $cleanupErrors.Add("destination broker cleanup failed: $($_.Exception.Message)")
+        }
+    }
+
     Remove-Item Function:\Copy-Item -ErrorAction SilentlyContinue
-    if ($null -ne $copyHelperStream) {
-        try { $copyHelperStream.Dispose() }
-        catch { $cleanupErrors.Add("copy helper handle disposal failed: $($_.Exception.Message)") }
+    Remove-Item Function:\Assert-NxbH2DestinationBroker -ErrorAction SilentlyContinue
+    Remove-Item Function:\Stop-NxbH2DestinationBroker -ErrorAction SilentlyContinue
+    if ($null -ne $brokerHelperStream) {
+        try { $brokerHelperStream.Dispose() }
+        catch { $cleanupErrors.Add("broker helper handle disposal failed: $($_.Exception.Message)") }
     }
     if ($null -ne $entryInnerStream) {
         try { $entryInnerStream.Dispose() }
@@ -319,5 +560,5 @@ if ($cleanupErrors.Count -gt 0) {
     Fail-NxbH2CopyEntry ("cleanup failed after otherwise successful validation: " + ($cleanupErrors -join ' | '))
 }
 if ($SelfTest) {
-    Write-Host 'NXB-153 Windows bounded H2 entrypoint source self-test chain passed; real Windows runtime admission remains required.'
+    Write-Host 'NXB-153 Windows H2 creator-handle broker self-test chain passed; real Windows runtime admission remains required.'
 }
