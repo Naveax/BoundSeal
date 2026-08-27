@@ -121,7 +121,8 @@ $h2EntryRelative = 'scripts/nxb-153-windows-immutable-source-h2-entry-inner.ps1'
 $h2EntryPath = Join-Path (Join-Path $RepoRoot 'scripts') 'nxb-153-windows-immutable-source-h2-entry-inner.ps1'
 $h2EntryStream = $null
 $script:NxbH2DeferredSnapshotRoot = $null
-$script:NxbH2BrokerHandoffComplete = $false
+$script:NxbH2BrokerHandoffEstablished = $false
+$script:NxbH2BrokerStopped = $false
 $primaryError = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
 
@@ -187,7 +188,7 @@ try {
             }
 
             if (
-                -not $script:NxbH2BrokerHandoffComplete -and
+                -not $script:NxbH2BrokerHandoffEstablished -and
                 $null -ne $script:NxbH2DeferredSnapshotRoot -and
                 -not [string]::IsNullOrWhiteSpace($candidate)
             ) {
@@ -198,9 +199,12 @@ try {
                     [IO.Path]::GetFullPath($expectedRustc),
                     [StringComparison]::OrdinalIgnoreCase
                 )) {
+                    # Existing H2 has already pinned every snapshot file/directory and
+                    # staged its ACL before reaching the first required-rustc probe.
+                    # Prove the creator broker observed no mutation, but deliberately
+                    # keep it alive through the complete heavy-gate lifetime.
                     Assert-NxbH2DestinationBroker -SnapshotRoot $script:NxbH2DeferredSnapshotRoot
-                    Stop-NxbH2DestinationBroker -SnapshotRoot $script:NxbH2DeferredSnapshotRoot
-                    $script:NxbH2BrokerHandoffComplete = $true
+                    $script:NxbH2BrokerHandoffEstablished = $true
                 }
             }
 
@@ -224,7 +228,7 @@ try {
             }
 
             if (
-                -not $script:NxbH2BrokerHandoffComplete -and
+                -not $script:NxbH2BrokerStopped -and
                 $null -ne $script:NxbH2DeferredSnapshotRoot -and
                 -not [string]::IsNullOrWhiteSpace($candidate)
             ) {
@@ -238,8 +242,16 @@ try {
                         [StringComparison]::OrdinalIgnoreCase
                     )
                 ) {
+                    # H2 cleanup reaches this only after ACL restoration and its own
+                    # snapshot file/directory handles have been disposed. Keep the
+                    # broker watcher and creator-derived guards alive until this exact
+                    # boundary, then require one final healthy observation before the
+                    # snapshot namespace is allowed to disappear.
+                    if ($script:NxbH2BrokerHandoffEstablished) {
+                        Assert-NxbH2DestinationBroker -SnapshotRoot $script:NxbH2DeferredSnapshotRoot
+                    }
                     Stop-NxbH2DestinationBroker -SnapshotRoot $script:NxbH2DeferredSnapshotRoot -AllowMissing
-                    $script:NxbH2BrokerHandoffComplete = $true
+                    $script:NxbH2BrokerStopped = $true
                 }
             }
 
@@ -257,8 +269,11 @@ try {
         if ($null -eq $script:NxbH2DeferredSnapshotRoot) {
             Fail-NxbH2BrokerEntry 'H2 validation returned without requesting the broker-owned snapshot root'
         }
-        if (-not $script:NxbH2BrokerHandoffComplete) {
-            Fail-NxbH2BrokerEntry 'H2 validation returned without completing creator-to-PowerShell authority handoff'
+        if (-not $script:NxbH2BrokerHandoffEstablished) {
+            Fail-NxbH2BrokerEntry 'H2 validation returned without establishing creator-to-PowerShell authority overlap'
+        }
+        if (-not $script:NxbH2BrokerStopped) {
+            Fail-NxbH2BrokerEntry 'H2 validation returned without retaining and closing broker authority at final snapshot cleanup'
         }
     }
 
@@ -273,12 +288,15 @@ catch {
 }
 finally {
     if (
-        -not $script:NxbH2BrokerHandoffComplete -and
+        -not $script:NxbH2BrokerStopped -and
         $null -ne $script:NxbH2DeferredSnapshotRoot
     ) {
         try {
+            if ($script:NxbH2BrokerHandoffEstablished) {
+                Assert-NxbH2DestinationBroker -SnapshotRoot $script:NxbH2DeferredSnapshotRoot
+            }
             Stop-NxbH2DestinationBroker -SnapshotRoot $script:NxbH2DeferredSnapshotRoot -AllowMissing
-            $script:NxbH2BrokerHandoffComplete = $true
+            $script:NxbH2BrokerStopped = $true
         }
         catch {
             $cleanupErrors.Add("destination broker final cleanup failed: $($_.Exception.Message)")
@@ -302,7 +320,7 @@ if ($null -ne $primaryError) {
     throw $primaryError
 }
 if ($cleanupErrors.Count -gt 0) {
-    Fail-NxbH2BrokerEntry ("cleanup failed after otherwise successful handoff: " + ($cleanupErrors -join ' | '))
+    Fail-NxbH2BrokerEntry ("cleanup failed after otherwise successful broker lifetime: " + ($cleanupErrors -join ' | '))
 }
 if ($SelfTest) {
     Write-Host 'NXB-153 Windows H2 broker-entry source self-test chain passed.'
