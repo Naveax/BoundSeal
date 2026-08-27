@@ -53,26 +53,6 @@ function Get-NxbDependencyStreamSha256 {
     }
 }
 
-function Get-NxbDependencyFileSha256 {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string]$Label
-    )
-    $stream = $null
-    try {
-        $stream = [IO.File]::Open(
-            $Path,
-            [IO.FileMode]::Open,
-            [IO.FileAccess]::Read,
-            [IO.FileShare]::Read
-        )
-        return Get-NxbDependencyStreamSha256 -Stream $stream -Label $Label
-    }
-    finally {
-        if ($null -ne $stream) { $stream.Dispose() }
-    }
-}
-
 function Resolve-NxbPython {
     foreach ($candidate in @('python3', 'python')) {
         $command = Get-Command $candidate -CommandType Application -ErrorAction SilentlyContinue
@@ -333,16 +313,29 @@ function Set-NxbDependencyWriteDeny {
 
 function Assert-NxbDependencyDirectoryDenied {
     param([Parameter(Mandatory = $true)][string]$Path)
-    $probe = Join-Path $Path ('.nxb-153-dependency-probe-' + [Guid]::NewGuid().ToString('N'))
-    $blocked = $false
+
+    $fileProbe = Join-Path $Path ('.nxb-153-dependency-file-probe-' + [Guid]::NewGuid().ToString('N'))
+    $fileBlocked = $false
     try {
-        [IO.File]::WriteAllText($probe, 'blocked', [Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText($fileProbe, 'blocked', [Text.UTF8Encoding]::new($false))
     }
     catch [UnauthorizedAccessException] {
-        $blocked = $true
+        $fileBlocked = $true
     }
-    if (-not $blocked -or (Test-Path -LiteralPath $probe)) {
-        Fail-NxbDependency "dependency directory remained writable after deny ACL staging: $Path"
+    if (-not $fileBlocked -or (Test-Path -LiteralPath $fileProbe)) {
+        Fail-NxbDependency "dependency directory remained capable of creating a file: $Path"
+    }
+
+    $directoryProbe = Join-Path $Path ('.nxb-153-dependency-dir-probe-' + [Guid]::NewGuid().ToString('N'))
+    $directoryBlocked = $false
+    try {
+        [void][IO.Directory]::CreateDirectory($directoryProbe)
+    }
+    catch [UnauthorizedAccessException] {
+        $directoryBlocked = $true
+    }
+    if (-not $directoryBlocked -or (Test-Path -LiteralPath $directoryProbe)) {
+        Fail-NxbDependency "dependency directory remained capable of creating a subdirectory: $Path"
     }
 }
 
@@ -386,6 +379,9 @@ foreach ($path in @($fetchHome, $vendorRoot, $gateHome)) {
 
 $vendorDirectoryHandles = [Collections.Generic.List[IDisposable]]::new()
 $vendorFileStreams = [Collections.Generic.List[IO.FileStream]]::new()
+$runtimeCargoHomeHandle = $null
+$fetchHomeHandle = $null
+$vendorRootHandle = $null
 $gateHomeHandle = $null
 $configStream = $null
 $vendorOriginalAcl = $null
@@ -399,6 +395,11 @@ $oldTemp = $env:TEMP
 $oldOffline = $env:CARGO_NET_OFFLINE
 
 try {
+    $runtimeCargoHomeHandle = Open-NxbDependencyDirectory -Path $RuntimeCargoHome -Label 'dependency runtime root'
+    $fetchHomeHandle = Open-NxbDependencyDirectory -Path $fetchHome -Label 'fetch CARGO_HOME'
+    $vendorRootHandle = Open-NxbDependencyDirectory -Path $vendorRoot -Label 'vendor root'
+    $gateHomeHandle = Open-NxbDependencyDirectory -Path $gateHome -Label 'gate CARGO_HOME'
+
     $env:CARGO_TARGET_DIR = $RuntimeTarget
     $env:TMP = $RuntimeTmp
     $env:TEMP = $RuntimeTmp
@@ -433,7 +434,6 @@ try {
         $vendorOriginalAcl = Get-Acl -LiteralPath $vendorRoot
         Set-NxbDependencyWriteDeny -Path $vendorRoot
 
-        $vendorDirectoryHandles.Add((Open-NxbDependencyDirectory -Path $vendorRoot -Label 'vendor root'))
         [Int64]$pinnedBytes = 0
         $pinnedFiles = 0
         foreach ($directory in @(Get-ChildItem -LiteralPath $vendorRoot -Directory -Force -Recurse | Sort-Object { $_.FullName.Length } | ForEach-Object { $_.FullName })) {
@@ -455,7 +455,6 @@ try {
             -Arguments @('validate-vendor', $lockPath, $vendorRoot) `
             -Label 'pinned vendored registry dependency authority'
 
-        $gateHomeHandle = Open-NxbDependencyDirectory -Path $gateHome -Label 'gate CARGO_HOME'
         $configPath = Join-Path $gateHome 'config.toml'
         $vendorForToml = ConvertTo-NxbTomlBasicString -Value $vendorRoot
         $configText = @"
@@ -569,9 +568,6 @@ finally {
     if ($null -ne $configStream) {
         try { $configStream.Dispose() } catch { $cleanupErrors.Add("config stream dispose: $($_.Exception.Message)") }
     }
-    if ($null -ne $gateHomeHandle) {
-        try { $gateHomeHandle.Dispose() } catch { $cleanupErrors.Add("gate-home handle dispose: $($_.Exception.Message)") }
-    }
     for ($index = $vendorFileStreams.Count - 1; $index -ge 0; $index--) {
         try { $vendorFileStreams[$index].Dispose() } catch { $cleanupErrors.Add("vendor file stream dispose: $($_.Exception.Message)") }
     }
@@ -580,6 +576,16 @@ finally {
     }
     if ($null -ne $vendorOriginalAcl -and (Test-Path -LiteralPath $vendorRoot)) {
         try { Set-Acl -LiteralPath $vendorRoot -AclObject $vendorOriginalAcl -ErrorAction Stop } catch { $cleanupErrors.Add("vendor ACL restore: $($_.Exception.Message)") }
+    }
+    foreach ($handleInfo in @(
+        [pscustomobject]@{ Handle = $gateHomeHandle; Label = 'gate-home' },
+        [pscustomobject]@{ Handle = $vendorRootHandle; Label = 'vendor-root' },
+        [pscustomobject]@{ Handle = $fetchHomeHandle; Label = 'fetch-home' },
+        [pscustomobject]@{ Handle = $runtimeCargoHomeHandle; Label = 'dependency-runtime-root' }
+    )) {
+        if ($null -ne $handleInfo.Handle) {
+            try { $handleInfo.Handle.Dispose() } catch { $cleanupErrors.Add("$($handleInfo.Label) handle dispose: $($_.Exception.Message)") }
+        }
     }
     foreach ($path in @($gateHome, $vendorRoot, $fetchHome)) {
         if (Test-Path -LiteralPath $path) {
