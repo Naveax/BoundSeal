@@ -4,7 +4,7 @@
 
 This document records the source-staged integrity contract for NXB-153 exact-head validation evidence. It does **not** claim that the current feature head has passed Rust, Linux or Windows validation.
 
-The evidence chain must remain attributable to one exact Git head without silent overwrite, duplicate expensive validation, cross-head tool mutation, repository-authority drift, pathname substitution or misleading premature success output.
+The evidence chain must remain attributable to one exact Git head without silent overwrite, duplicate expensive validation, cross-head tool mutation, repository-authority drift, reviewer-code substitution, pathname substitution or misleading premature success output.
 
 ## Exact-head artifact classes
 
@@ -102,6 +102,9 @@ The secure Linux launcher:
 - requires Linux `O_DIRECTORY` and `O_NOFOLLOW`; unsupported environments fail closed;
 - opens the repository root and evidence directory component-by-component from `/` with descriptor-relative `os.open(..., dir_fd=...)` traversal;
 - rejects symlink traversal for every opened directory/file component;
+- opens `scripts/review-nxb-153-evidence-linux.py` relative to the pinned repository descriptor rather than importing it again by pathname;
+- reads the semantic reviewer bytes from that pinned object, requires strict UTF-8, compiles those exact bytes and executes the resulting code object in an isolated module;
+- therefore a later rename/replacement of the repository pathname cannot redirect which semantic reviewer implementation is loaded;
 - keeps the evidence-directory descriptor pinned across receipt/evidence reads and closure publication;
 - opens final evidence/receipt/Cargo.lock objects relative to a pinned directory descriptor;
 - validates regular-file type and bounded size using `fstat()` on the opened descriptor;
@@ -109,20 +112,28 @@ The secure Linux launcher:
 - requires device/inode/size/mtime/ctime metadata to remain stable across the bounded read;
 - computes receipt/evidence/Cargo.lock hashes from those opened bytes;
 - requires each tooling receipt to bind `target/nxb-tools/<platform>/<exact-head>`;
+- rejects canonical closure bytes outside the 1..65,536-byte envelope **before** claiming the canonical pathname;
 - publishes the closure with descriptor-relative `O_CREAT | O_EXCL | O_NOFOLLOW` under the pinned evidence-directory object;
 - `fsync`'s the created closure and the pinned evidence-directory descriptor;
 - reopens the published closure relative to the same pinned directory descriptor and requires exact canonical bytes;
 - never deletes a partially visible create-new closure by pathname after a write/finalization failure.
 
-The launcher contains a networkless `--self-test` that stages ordinary anchored regular-file read, final symlink rejection, and parent-directory rename + replacement resistance.
+The networkless `--self-test` now stages:
 
-Historical source/primitive checks for this launcher were:
+- ordinary anchored regular-file read;
+- final symlink rejection;
+- evidence parent-directory rename + replacement resistance;
+- repository parent-directory rename + replacement by another repository while proving semantic-reviewer loading still comes from the already pinned original repository object.
+
+The new reviewer-authority replacement primitive was exercised locally on Linux after staging and returned the trusted reviewer value rather than the substituted-path value. This is a primitive check only, not NXB-153 admission evidence.
+
+Historical broader source/primitive checks for earlier launcher source were:
 
 - Python `py_compile`: PASS;
 - descriptor self-test: PASS;
 - canonical Linux shell wrapper `bash -n`: PASS.
 
-Those historical checks do not validate the current exact-head tool-root delta. Fresh exact-head execution is still required.
+Those historical checks do not validate the current exact-head tool-root/reviewer-authority delta. Fresh exact-head execution is still required.
 
 ### Guarded repository authority
 
@@ -198,6 +209,7 @@ If a canonical receipt/evidence/closure already exists:
 - validation does not repeat expensive gates merely to refresh evidence;
 - same-platform same-head validation attempts are serialized before the expensive gate sequence;
 - reviewers verify or reject existing canonical content and exact tool-root identity;
+- Linux semantic-reviewer authority comes from the pinned repository object rather than a later pathname import;
 - exact-head artifact bytes are not overwritten to obtain a new timestamp;
 - stale preparation/validation locks, conflicting evidence, repository drift, pathname/object mismatch or partial publication state require explicit recovery;
 - no GitHub Actions rerun is used as polling or evidence recovery.
@@ -206,6 +218,6 @@ If a canonical receipt/evidence/closure already exists:
 
 Issues #90–#98 remain open until their source-staged filesystem/evidence contracts receive the required exact-head platform execution.
 
-The exact final NXB-153 head still requires real Rust 1.97.1 Linux + Windows validation covering fmt, check, Clippy, unit/focused/full-workspace tests, RustSec, cargo-deny, exact-head tool-root isolation, preparation/validation lock concurrency behavior, receipt/evidence publication read-back, filesystem publication behavior, Linux descriptor anchoring, Windows handle pinning, guarded same-head dual-platform closure and final blocker review.
+The exact final NXB-153 head still requires real Rust 1.97.1 Linux + Windows validation covering fmt, check, Clippy, unit/focused/full-workspace tests, RustSec, cargo-deny, exact-head tool-root isolation, preparation/validation lock concurrency behavior, receipt/evidence publication read-back, filesystem publication behavior, Linux descriptor/reviewer anchoring, Windows handle pinning, guarded same-head dual-platform closure and final blocker review.
 
 PR #89 remains draft/not admitted and NXB-154 must not use this branch as an implementation base until those gates complete.
