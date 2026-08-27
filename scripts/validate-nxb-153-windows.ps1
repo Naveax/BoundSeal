@@ -253,6 +253,91 @@ function Assert-ExactStreamBytes {
     }
 }
 
+function Assert-NxbAmbientEnvironment {
+    $forbiddenExact = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in @(
+        'AR',
+        'BINDGEN_EXTRA_CLANG_ARGS',
+        'CARGO',
+        'CARGO_ENCODED_RUSTFLAGS',
+        'CARGO_ENCODED_RUSTDOCFLAGS',
+        'CARGO_HOME',
+        'CARGO_INCREMENTAL',
+        'CARGO_NET_OFFLINE',
+        'CARGO_TARGET_DIR',
+        'CC',
+        'CC_ENABLE_DEBUG_OUTPUT',
+        'CFLAGS',
+        'CL',
+        'CPP',
+        'CPPFLAGS',
+        'CRATE_CC_NO_DEFAULTS',
+        'CXX',
+        'CXXFLAGS',
+        'LD',
+        'LDFLAGS',
+        'PYTHONHOME',
+        'PYTHONINSPECT',
+        'PYTHONPATH',
+        'PYTHONSTARTUP',
+        'RANLIB',
+        'RANLIBFLAGS',
+        'RUSTC',
+        'RUSTC_BOOTSTRAP',
+        'RUSTC_WORKSPACE_WRAPPER',
+        'RUSTC_WRAPPER',
+        'RUSTDOC',
+        'RUSTDOCFLAGS',
+        'RUSTFLAGS',
+        '_CL_'
+    )) {
+        [void]$forbiddenExact.Add($name)
+    }
+    $forbiddenPrefixes = @(
+        'AR_',
+        'BINDGEN_EXTRA_CLANG_ARGS_',
+        'CARGO_ALIAS_',
+        'CARGO_BUILD_',
+        'CARGO_NET_',
+        'CARGO_PROFILE_',
+        'CARGO_REGISTRIES_',
+        'CARGO_REGISTRY_',
+        'CARGO_SOURCE_',
+        'CARGO_TARGET_',
+        'CC_',
+        'CFLAGS_',
+        'CPPFLAGS_',
+        'CXX_',
+        'CXXFLAGS_',
+        'LD_',
+        'LDFLAGS_',
+        'RANLIB_',
+        'RUSTC_',
+        'RUSTDOC_',
+        'RUSTUP_'
+    )
+    $collisions = [Collections.Generic.List[string]]::new()
+    foreach ($entry in [Environment]::GetEnvironmentVariables().Keys) {
+        $name = [string]$entry
+        $blocked = $forbiddenExact.Contains($name)
+        if (-not $blocked) {
+            foreach ($prefix in $forbiddenPrefixes) {
+                if ($name.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+                    $blocked = $true
+                    break
+                }
+            }
+        }
+        if ($blocked) {
+            $collisions.Add($name)
+        }
+    }
+    if ($collisions.Count -gt 0) {
+        $ordered = @($collisions | Sort-Object { $_.ToUpperInvariant() })
+        throw ('Ambient compiler/Cargo/Python authority variables are not admitted: ' + ($ordered -join ', '))
+    }
+}
+
 function Assert-ToolingReceipt {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -348,6 +433,7 @@ try {
     if (-not $IsWindows) {
         throw 'The Windows NXB-153 validator must run on Windows.'
     }
+    Assert-NxbAmbientEnvironment
 
     $repoHandle = Open-NxbPinnedDirectory -Path $RepoRoot -Label 'repository root'
     $namespaceHandles.Add($repoHandle)
