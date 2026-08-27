@@ -189,6 +189,179 @@ def stable_file_record(
     )
 
 
+def linux_record_from_fd(
+    directory_fd: int,
+    name: str,
+    relative: bytes,
+) -> FileRecord:
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+        raise AuthorityError("Linux descriptor authority requires O_NOFOLLOW and O_DIRECTORY")
+    if not relative or relative.startswith(b"/") or b"\0" in relative:
+        raise AuthorityError("invalid Linux descriptor-relative path")
+    components = relative.split(b"/")
+    if any(component in (b"", b".", b"..") for component in components):
+        raise AuthorityError("ambiguous Linux descriptor-relative path component")
+
+    flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    try:
+        file_fd = os.open(name, flags, dir_fd=directory_fd)
+    except OSError as error:
+        raise AuthorityError(
+            f"could not descriptor-open Linux toolchain file {os.fsdecode(relative)}: {error}"
+        ) from error
+
+    try:
+        before = os.fstat(file_fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise AuthorityError(
+                f"Linux toolchain entry is not a regular file: {os.fsdecode(relative)}"
+            )
+        if before.st_size < 0 or before.st_size > MAX_FILE_BYTES:
+            raise AuthorityError(
+                f"toolchain file exceeds per-file bound: {os.fsdecode(relative)}"
+            )
+
+        digest = hashlib.sha256()
+        total = 0
+        while True:
+            chunk = os.read(file_fd, READ_CHUNK_BYTES)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_FILE_BYTES:
+                raise AuthorityError(
+                    f"toolchain file exceeds per-file bound: {os.fsdecode(relative)}"
+                )
+            digest.update(chunk)
+
+        after = os.fstat(file_fd)
+        if (
+            total != before.st_size
+            or after.st_dev != before.st_dev
+            or after.st_ino != before.st_ino
+            or after.st_size != before.st_size
+            or getattr(after, "st_mtime_ns", None) != getattr(before, "st_mtime_ns", None)
+            or getattr(after, "st_ctime_ns", None) != getattr(before, "st_ctime_ns", None)
+        ):
+            raise AuthorityError(
+                f"toolchain file changed while descriptor-hashing: {os.fsdecode(relative)}"
+            )
+
+        return FileRecord(
+            relative=relative,
+            sort_key=relative,
+            mode_class=b"x" if before.st_mode & 0o111 else b"f",
+            size=total,
+            sha256=digest.digest(),
+        )
+    finally:
+        os.close(file_fd)
+
+
+def linux_descriptor_records(root: pathlib.Path) -> list[FileRecord]:
+    if os.name == "nt":
+        raise AuthorityError("Linux descriptor authority cannot run on Windows")
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+        raise AuthorityError("Linux descriptor authority requires O_NOFOLLOW and O_DIRECTORY")
+
+    root_flags = (
+        os.O_RDONLY
+        | os.O_DIRECTORY
+        | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    try:
+        root_fd = os.open(os.fsencode(root), root_flags)
+    except OSError as error:
+        raise AuthorityError(f"could not pin Linux toolchain root descriptor: {error}") from error
+
+    records: list[FileRecord] = []
+    seen_directories: set[tuple[int, int]] = set()
+
+    def walk(directory_fd: int, prefix: bytes) -> None:
+        metadata = os.fstat(directory_fd)
+        directory_key = (metadata.st_dev, metadata.st_ino)
+        if directory_key in seen_directories:
+            raise AuthorityError("Linux toolchain directory object appeared more than once")
+        seen_directories.add(directory_key)
+
+        try:
+            names = os.listdir(directory_fd)
+        except OSError as error:
+            raise AuthorityError(f"could not enumerate pinned Linux toolchain directory: {error}") from error
+
+        for name in names:
+            encoded = os.fsencode(name)
+            if encoded in (b"", b".", b"..") or b"/" in encoded or b"\0" in encoded:
+                raise AuthorityError("invalid Linux toolchain directory entry name")
+            relative = encoded if not prefix else prefix + b"/" + encoded
+
+            try:
+                entry = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+            except OSError as error:
+                raise AuthorityError(
+                    f"could not stat Linux toolchain entry {os.fsdecode(relative)}: {error}"
+                ) from error
+
+            if stat.S_ISLNK(entry.st_mode):
+                raise AuthorityError(
+                    f"Linux toolchain symbolic link is not admitted: {os.fsdecode(relative)}"
+                )
+            if stat.S_ISDIR(entry.st_mode):
+                try:
+                    child_fd = os.open(name, root_flags, dir_fd=directory_fd)
+                except OSError as error:
+                    raise AuthorityError(
+                        f"could not descriptor-open Linux toolchain directory "
+                        f"{os.fsdecode(relative)}: {error}"
+                    ) from error
+                try:
+                    opened = os.fstat(child_fd)
+                    if (
+                        opened.st_dev != entry.st_dev
+                        or opened.st_ino != entry.st_ino
+                        or not stat.S_ISDIR(opened.st_mode)
+                    ):
+                        raise AuthorityError(
+                            f"Linux toolchain directory changed while being opened: "
+                            f"{os.fsdecode(relative)}"
+                        )
+                    walk(child_fd, relative)
+                finally:
+                    os.close(child_fd)
+                continue
+            if stat.S_ISREG(entry.st_mode):
+                record = linux_record_from_fd(directory_fd, name, relative)
+                if record.size != entry.st_size:
+                    raise AuthorityError(
+                        f"Linux toolchain file metadata drifted before descriptor read: "
+                        f"{os.fsdecode(relative)}"
+                    )
+                records.append(record)
+                continue
+
+            raise AuthorityError(
+                f"Linux toolchain special entry is not admitted: {os.fsdecode(relative)}"
+            )
+
+    try:
+        root_metadata = os.fstat(root_fd)
+        if not stat.S_ISDIR(root_metadata.st_mode):
+            raise AuthorityError("Linux toolchain root descriptor is not a directory")
+        walk(root_fd, b"")
+        final_root = os.fstat(root_fd)
+        if (
+            final_root.st_dev != root_metadata.st_dev
+            or final_root.st_ino != root_metadata.st_ino
+            or getattr(final_root, "st_mtime_ns", None) != getattr(root_metadata, "st_mtime_ns", None)
+            or getattr(final_root, "st_ctime_ns", None) != getattr(root_metadata, "st_ctime_ns", None)
+        ):
+            raise AuthorityError("Linux toolchain root changed while descriptor traversal ran")
+        return records
+    finally:
+        os.close(root_fd)
+
+
 def iter_plain_files(root: pathlib.Path, platform_model: str) -> Iterable[pathlib.Path]:
     require_plain_directory(root, "toolchain root")
     for current, dirnames, filenames in os.walk(root, topdown=True, followlinks=False):
@@ -224,8 +397,17 @@ def digest_tree(
     seen: set[bytes] = set()
     total_bytes = 0
 
-    for path in iter_plain_files(root, platform_model):
-        record = stable_file_record(root, path, platform_model)
+    if platform_model == "linux":
+        candidate_records = linux_descriptor_records(root)
+    elif platform_model == "windows":
+        candidate_records = [
+            stable_file_record(root, path, platform_model)
+            for path in iter_plain_files(root, platform_model)
+        ]
+    else:
+        raise AuthorityError(f"unsupported platform model: {platform_model}")
+
+    for record in candidate_records:
         if record.sort_key in seen:
             raise AuthorityError(
                 "toolchain tree contains duplicate/colliding relative names under the platform model"
