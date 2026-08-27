@@ -21,6 +21,19 @@ resolve_blob() {
     printf '%s' "$object"
 }
 
+read_blob_text_exact() {
+    local repo_anchor="$1" object="$2" label="$3"
+    local payload sentinel=$'\036'
+    payload="$({
+        git -C "$repo_anchor" cat-file blob "$object" || exit $?
+        printf '%s' "$sentinel"
+    })" || fail "could not load exact-head $label bytes"
+    [[ "${payload: -1}" == "$sentinel" ]] || fail "$label capture sentinel is missing"
+    payload="${payload%$sentinel}"
+    [[ -n "$payload" ]] || fail "$label source is empty"
+    printf '%s' "$payload"
+}
+
 [[ "$#" -ge 1 ]] || fail 'mode is required'
 mode="$1"
 
@@ -46,8 +59,22 @@ fi
 
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'exact head is not canonical 40-hex SHA-1'
 
+envelope_object="$(resolve_blob "$repo_anchor" "$head_sha" 'scripts/nxb-153-linux-source-envelope.py' 'Linux source-envelope helper')"
 inner_object="$(resolve_blob "$repo_anchor" "$head_sha" 'scripts/nxb-153-linux-immutable-source-h2-copy-inner.sh' 'Linux H2 inner runner')"
 copy_object="$(resolve_blob "$repo_anchor" "$head_sha" 'scripts/nxb-153-rust-toolchain-snapshot-copy.py' 'bounded Rust snapshot-copy helper')"
+
+envelope_code="$(read_blob_text_exact "$repo_anchor" "$envelope_object" 'Linux source-envelope helper')"
+python3 -I -c "$envelope_code" self-test >/dev/null ||
+    fail 'Linux source-envelope helper self-test failed'
+
+git -C "$repo_anchor" ls-tree -r -t -l -z --full-tree "$head_sha" |
+    python3 -I -c "$envelope_code" validate-tree >/dev/null ||
+    fail 'exact-head Linux source tree exceeds the admitted source envelope'
+
+git -C "$repo_anchor" archive --format=tar "$head_sha" |
+    python3 -I -c "$envelope_code" validate-archive >/dev/null ||
+    fail 'exact-head Linux source archive exceeds the admitted archive envelope'
+unset envelope_code
 
 git -C "$repo_anchor" cat-file blob "$copy_object" | python3 -I - self-test >/dev/null ||
     fail 'bounded Rust snapshot-copy helper self-test failed'
