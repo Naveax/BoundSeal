@@ -621,8 +621,6 @@ try {
         $env:TMP = $previousTmp
         $env:TEMP = $previousTemp
     }
-
-    Write-Host 'NXB-153 exact-head Windows gates passed inside a pinned write-denied source snapshot.'
 }
 finally {
     if ($null -ne $originalRootAcl -and (Test-Path -LiteralPath $snapshotRoot)) {
@@ -647,3 +645,5 @@ finally {
         Remove-Item -LiteralPath $archivePath -Force -ErrorAction Stop
     }
 }
+
+Write-Host 'NXB-153 exact-head Windows gates passed inside a pinned write-denied source snapshot.'
