@@ -22,8 +22,9 @@ resolve_blob() {
 }
 
 read_blob_text_exact() {
-    local repo_anchor="$1" object="$2" label="$3"
+    local repo_anchor="$1" object="$2" label="$3" output_name="$4"
     local payload sentinel=$'\036'
+    [[ "$output_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || fail "$label output variable name is invalid"
     payload="$({
         git -C "$repo_anchor" cat-file blob "$object" || exit $?
         printf '%s' "$sentinel"
@@ -31,7 +32,7 @@ read_blob_text_exact() {
     [[ "${payload: -1}" == "$sentinel" ]] || fail "$label capture sentinel is missing"
     payload="${payload%$sentinel}"
     [[ -n "$payload" ]] || fail "$label source is empty"
-    printf '%s' "$payload"
+    printf -v "$output_name" '%s' "$payload"
 }
 
 [[ "$#" -ge 1 ]] || fail 'mode is required'
@@ -63,7 +64,8 @@ envelope_object="$(resolve_blob "$repo_anchor" "$head_sha" 'scripts/nxb-153-linu
 inner_object="$(resolve_blob "$repo_anchor" "$head_sha" 'scripts/nxb-153-linux-immutable-source-h2-copy-inner.sh' 'Linux H2 inner runner')"
 copy_object="$(resolve_blob "$repo_anchor" "$head_sha" 'scripts/nxb-153-rust-toolchain-snapshot-copy.py' 'bounded Rust snapshot-copy helper')"
 
-envelope_code="$(read_blob_text_exact "$repo_anchor" "$envelope_object" 'Linux source-envelope helper')"
+envelope_code=''
+read_blob_text_exact "$repo_anchor" "$envelope_object" 'Linux source-envelope helper' envelope_code
 python3 -I -c "$envelope_code" self-test >/dev/null ||
     fail 'Linux source-envelope helper self-test failed'
 
