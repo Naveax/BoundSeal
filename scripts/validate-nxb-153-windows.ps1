@@ -78,6 +78,53 @@ function Assert-LowerSha256 {
     }
 }
 
+function Open-NxbPinnedToolStream {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "$Label is missing: $Path"
+    }
+    $item = Get-Item -LiteralPath $Path -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "$Label must not be a reparse point."
+    }
+    try {
+        return [IO.File]::Open(
+            $Path,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::Read
+        )
+    }
+    catch {
+        throw "Could not pin $Label with write/delete sharing withheld: $($_.Exception.Message)"
+    }
+}
+
+function Get-NxbStreamSha256 {
+    param(
+        [Parameter(Mandatory = $true)][IO.FileStream]$Stream,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if (-not $Stream.CanRead -or -not $Stream.CanSeek) {
+        throw "$Label pinned stream must be readable and seekable."
+    }
+    $savedPosition = $Stream.Position
+    try {
+        $Stream.Position = 0
+        $hash = (Get-FileHash -InputStream $Stream -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    finally {
+        $Stream.Position = $savedPosition
+    }
+    Assert-LowerSha256 -Value $hash -Label "$Label pinned SHA-256"
+    return $hash
+}
+
 function Assert-ExactStreamBytes {
     param(
         [Parameter(Mandatory = $true)][IO.FileStream]$Stream,
@@ -190,6 +237,8 @@ function Assert-ToolingReceipt {
 }
 
 $validationLockStream = $null
+$auditToolStream = $null
+$denyToolStream = $null
 Push-Location $RepoRoot
 try {
     foreach ($command in @('git', 'rustup')) {
@@ -255,6 +304,13 @@ try {
         throw "Exact-head Windows tools root is missing: $toolsRoot. Run scripts/prepare-and-validate-nxb-153-windows.ps1 first."
     }
 
+    # Pin the exact security-tool file objects before version/hash resolution and keep
+    # them open until evidence publication completes. FileShare.Read intentionally
+    # withholds write/delete sharing; supported-Windows validation must prove that
+    # execution remains available while rename/delete/write substitution is blocked.
+    $auditToolStream = Open-NxbPinnedToolStream -Path $auditPath -Label 'cargo-audit'
+    $denyToolStream = Open-NxbPinnedToolStream -Path $denyPath -Label 'cargo-deny'
+
     $rustcVersion = (& rustup run $rustToolchain rustc --version | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or -not $rustcVersion.StartsWith('rustc 1.97.1 ')) {
         throw "Expected rustc 1.97.1, found '$rustcVersion'."
@@ -271,8 +327,8 @@ try {
         -Path $denyPath `
         -ExpectedVersion $cargoDenyVersion `
         -Label 'cargo-deny'
-    $auditSha256 = (Get-FileHash -LiteralPath $auditPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    $denySha256 = (Get-FileHash -LiteralPath $denyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $auditSha256 = Get-NxbStreamSha256 -Stream $auditToolStream -Label 'cargo-audit'
+    $denySha256 = Get-NxbStreamSha256 -Stream $denyToolStream -Label 'cargo-deny'
     Assert-LowerSha256 -Value $auditSha256 -Label 'cargo-audit SHA-256'
     Assert-LowerSha256 -Value $denySha256 -Label 'cargo-deny SHA-256'
 
@@ -385,15 +441,25 @@ try {
         throw 'Working tree changed during validation.'
     }
 
-    $finalAuditSha256 = (Get-FileHash -LiteralPath $auditPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    $finalDenySha256 = (Get-FileHash -LiteralPath $denyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $finalPinnedAuditSha256 = Get-NxbStreamSha256 -Stream $auditToolStream -Label 'cargo-audit final pinned object'
+    $finalPinnedDenySha256 = Get-NxbStreamSha256 -Stream $denyToolStream -Label 'cargo-deny final pinned object'
+    if ($finalPinnedAuditSha256 -cne $auditSha256) {
+        throw 'Pinned cargo-audit bytes changed during validation.'
+    }
+    if ($finalPinnedDenySha256 -cne $denySha256) {
+        throw 'Pinned cargo-deny bytes changed during validation.'
+    }
+
+    $finalAuditPathSha256 = (Get-FileHash -LiteralPath $auditPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $finalDenyPathSha256 = (Get-FileHash -LiteralPath $denyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($finalAuditPathSha256 -cne $auditSha256) {
+        throw 'cargo-audit pathname no longer names the validated pinned bytes.'
+    }
+    if ($finalDenyPathSha256 -cne $denySha256) {
+        throw 'cargo-deny pathname no longer names the validated pinned bytes.'
+    }
+
     $finalReceiptSha256 = (Get-FileHash -LiteralPath $receiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($finalAuditSha256 -cne $auditSha256) {
-        throw 'cargo-audit bytes changed during validation.'
-    }
-    if ($finalDenySha256 -cne $denySha256) {
-        throw 'cargo-deny bytes changed during validation.'
-    }
     if ($finalReceiptSha256 -cne $receiptSha256) {
         throw 'Tooling receipt changed during validation.'
     }
@@ -468,6 +534,12 @@ try {
     Write-Host "Evidence: $evidencePath"
 }
 finally {
+    if ($null -ne $denyToolStream) {
+        $denyToolStream.Dispose()
+    }
+    if ($null -ne $auditToolStream) {
+        $auditToolStream.Dispose()
+    }
     if ($null -ne $validationLockStream) {
         $validationLockStream.Dispose()
     }
