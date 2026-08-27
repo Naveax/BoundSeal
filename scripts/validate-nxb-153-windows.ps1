@@ -645,7 +645,7 @@ try {
     }
 
     $evidence = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         milestone = 'NXB-153'
         gate = 'guided_target_authorization_setup'
         platform = 'windows'
@@ -662,6 +662,14 @@ try {
         cargo_lock_sha256 = $lockSha256
         cargo_lock_expected_sha256 = $expectedCargoLockSha256
         lockfile_pinned_and_unchanged = $true
+        validation_environment_policy = 'nxb-153-compiler-cargo-python-authority-v2'
+        validation_environment_authority = 'passed'
+        python_isolated_helper_authority = 'passed'
+        workspace_namespace_authority = 'passed'
+        workspace_git_object_authority = 'passed'
+        dependency_source_authority = 'passed'
+        security_tool_object_authority = 'passed'
+        host_rust_toolchain_identity = 'version_pinned_object_identity_pending'
         fmt = 'passed'
         nxb_policy_check_clippy_tests = 'passed'
         nxb_core_check_clippy_unit_tests = 'passed'
