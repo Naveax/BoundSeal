@@ -62,6 +62,7 @@ command -v rustup >/dev/null 2>&1 ||
 command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is unavailable'
 command -v python3 >/dev/null 2>&1 || fail 'python3 is unavailable for durable tooling-receipt publication'
 command -v awk >/dev/null 2>&1 || fail 'awk is unavailable for exact validation-tool version matching'
+[[ -d /proc/self/fd ]] || fail '/proc/self/fd is unavailable for pinned validation-tool receipt generation'
 
 cd "$repo_root"
 head_sha="$(git rev-parse HEAD)"
@@ -135,9 +136,20 @@ rustup run "$rust_toolchain" cargo install \
     cargo-deny
 
 cd "$repo_root"
-tool_has_version "$audit_path" "$cargo_audit_version" ||
+[[ -f "$audit_path" && ! -L "$audit_path" ]] || fail 'fresh cargo-audit must be a regular non-symlink file'
+[[ -f "$deny_path" && ! -L "$deny_path" ]] || fail 'fresh cargo-deny must be a regular non-symlink file'
+
+# Pin the exact files produced by cargo install before version/hash inspection.
+# Receipt identity is derived from these file objects, not from later pathname
+# reopenings that could be redirected by a concurrent rename/substitution.
+exec 8<"$audit_path" || fail 'could not pin freshly installed cargo-audit object'
+exec 9<"$deny_path" || fail 'could not pin freshly installed cargo-deny object'
+audit_exec='/proc/self/fd/8'
+deny_exec='/proc/self/fd/9'
+
+tool_has_version "$audit_exec" "$cargo_audit_version" ||
     fail 'fresh cargo-audit installation is invalid'
-tool_has_version "$deny_path" "$cargo_deny_version" ||
+tool_has_version "$deny_exec" "$cargo_deny_version" ||
     fail 'fresh cargo-deny installation is invalid'
 
 final_head="$(git rev-parse HEAD)"
@@ -146,10 +158,14 @@ final_head="$(git rev-parse HEAD)"
     fail 'working tree changed during tool preparation'
 
 rustc_version="$(rustup run "$rust_toolchain" rustc --version)"
-audit_version="$($audit_path --version)"
-deny_version="$($deny_path --version)"
-audit_sha256="$(sha256sum "$audit_path" | awk '{print $1}')"
-deny_sha256="$(sha256sum "$deny_path" | awk '{print $1}')"
+audit_version="$($audit_exec --version)"
+deny_version="$($deny_exec --version)"
+audit_sha256="$(sha256sum "$audit_exec" | awk '{print $1}')"
+deny_sha256="$(sha256sum "$deny_exec" | awk '{print $1}')"
+audit_path_sha256="$(sha256sum "$audit_path" | awk '{print $1}')"
+deny_path_sha256="$(sha256sum "$deny_path" | awk '{print $1}')"
+[[ "$audit_path_sha256" == "$audit_sha256" ]] || fail 'cargo-audit pathname drifted before tooling receipt publication'
+[[ "$deny_path_sha256" == "$deny_sha256" ]] || fail 'cargo-deny pathname drifted before tooling receipt publication'
 prepared_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 receipt_temp="$(mktemp "$validation_directory/.nxb-153-tooling-linux-$head_sha.XXXXXX.tmp")"
 chmod 600 "$receipt_temp"
@@ -195,6 +211,8 @@ else
     fail 'could not create-only claim the exact-head tooling receipt'
 fi
 
+exec 8<&-
+exec 9<&-
 rm -rf "$install_root" || fail 'could not remove tool-installation temporary directory'
 install_root=''
 rmdir "$prep_lock" || fail 'could not release exact-head tool-preparation lock'
