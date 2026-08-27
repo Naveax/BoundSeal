@@ -10,6 +10,7 @@ $ErrorActionPreference = 'Stop'
 $rustToolchain = '1.97.1'
 $cargoAuditVersion = '0.22.2'
 $cargoDenyVersion = '0.20.2'
+$maximumEvidenceBytes = 65536
 $toolsRoot = Join-Path $RepoRoot 'target\nxb-tools'
 $toolsBin = Join-Path $toolsRoot 'bin'
 
@@ -42,15 +43,43 @@ function Get-ToolVersion {
     return $value
 }
 
+function Assert-ExactStreamBytes {
+    param(
+        [Parameter(Mandatory = $true)][IO.FileStream]$Stream,
+        [Parameter(Mandatory = $true)][byte[]]$Expected,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $Stream.Position = 0
+    $persisted = [byte[]]::new($Expected.Length)
+    $offset = 0
+    while ($offset -lt $persisted.Length) {
+        $read = $Stream.Read($persisted, $offset, $persisted.Length - $offset)
+        if ($read -le 0) {
+            throw "$Label could not be read back completely from its create-new handle."
+        }
+        $offset += $read
+    }
+    if ($Stream.ReadByte() -ne -1) {
+        throw "$Label contains trailing bytes beyond the deterministic representation."
+    }
+    if ([Convert]::ToBase64String($persisted) -cne [Convert]::ToBase64String($Expected)) {
+        throw "$Label read-back bytes differ from the deterministic representation."
+    }
+}
+
 if ($null -eq (Get-Command git -ErrorAction SilentlyContinue)) {
     throw 'git is unavailable.'
 }
 if ($null -eq (Get-Command rustup -ErrorAction SilentlyContinue)) {
     throw 'rustup is unavailable. Install rustup from the official Rust distribution before running this script.'
 }
+if (-not $IsWindows) {
+    throw 'The Windows NXB-153 tool preparation script must run on Windows.'
+}
 
+$prepLockStream = $null
 $prepLockPath = $null
-$prepLockClaimed = $false
 
 Push-Location $RepoRoot
 try {
@@ -71,32 +100,29 @@ try {
     }
 
     $prepLockPath = Join-Path $receiptDirectory ".nxb-153-tool-prep-$headSha.lock"
-    $lockStream = $null
     try {
-        try {
-            $lockStream = [IO.File]::Open(
-                $prepLockPath,
-                [IO.FileMode]::CreateNew,
-                [IO.FileAccess]::Write,
-                [IO.FileShare]::None
-            )
-        }
-        catch [IO.IOException] {
-            if (Test-Path -LiteralPath $prepLockPath) {
-                throw "Exact-head tool preparation is already in progress or requires explicit stale-lock recovery: $prepLockPath"
-            }
-            throw
-        }
-        $lockBytes = [Text.UTF8Encoding]::new($false).GetBytes("$headSha`n")
-        $lockStream.Write($lockBytes, 0, $lockBytes.Length)
-        $lockStream.Flush($true)
-        $prepLockClaimed = $true
+        $prepLockStream = [IO.FileStream]::new(
+            $prepLockPath,
+            [IO.FileMode]::CreateNew,
+            [IO.FileAccess]::ReadWrite,
+            [IO.FileShare]::None,
+            4096,
+            [IO.FileOptions]::DeleteOnClose
+        )
     }
-    finally {
-        if ($null -ne $lockStream) {
-            $lockStream.Dispose()
+    catch [IO.IOException] {
+        if (Test-Path -LiteralPath $receiptPath) {
+            throw "Exact-head tooling receipt appeared before preparation-lock acquisition; tool bytes were not mutated: $receiptPath"
         }
+        if (Test-Path -LiteralPath $prepLockPath) {
+            throw "Exact-head tool preparation is already in progress: $prepLockPath"
+        }
+        throw
     }
+    $lockBytes = [Text.UTF8Encoding]::new($false).GetBytes("$headSha`n")
+    $prepLockStream.Write($lockBytes, 0, $lockBytes.Length)
+    $prepLockStream.Flush($true)
+    Assert-ExactStreamBytes -Stream $prepLockStream -Expected $lockBytes -Label 'Tool-preparation lock'
 
     if (Test-Path -LiteralPath $receiptPath) {
         throw "Exact-head tooling receipt appeared while claiming the preparation lock; tool bytes were not mutated: $receiptPath"
@@ -171,13 +197,17 @@ try {
     }
     $receiptText = (($receipt | ConvertTo-Json -Depth 8) + [Environment]::NewLine)
     $receiptBytes = [Text.UTF8Encoding]::new($false).GetBytes($receiptText)
+    if ($receiptBytes.Length -le 0 -or $receiptBytes.Length -gt $maximumEvidenceBytes) {
+        throw 'Tooling receipt size is invalid.'
+    }
+
     $receiptStream = $null
     try {
         try {
             $receiptStream = [IO.File]::Open(
                 $receiptPath,
                 [IO.FileMode]::CreateNew,
-                [IO.FileAccess]::Write,
+                [IO.FileAccess]::ReadWrite,
                 [IO.FileShare]::None
             )
         }
@@ -190,6 +220,7 @@ try {
 
         $receiptStream.Write($receiptBytes, 0, $receiptBytes.Length)
         $receiptStream.Flush($true)
+        Assert-ExactStreamBytes -Stream $receiptStream -Expected $receiptBytes -Label 'Tooling receipt'
     }
     finally {
         if ($null -ne $receiptStream) {
@@ -197,8 +228,8 @@ try {
         }
     }
 
-    Remove-Item -LiteralPath $prepLockPath -Force
-    $prepLockClaimed = $false
+    $prepLockStream.Dispose()
+    $prepLockStream = $null
 
     Write-Host 'NXB-153 fresh pinned Windows validation tools are ready.'
     Write-Host "HEAD: $headSha"
@@ -209,8 +240,8 @@ try {
     }
 }
 finally {
-    if ($prepLockClaimed -and $null -ne $prepLockPath) {
-        Remove-Item -LiteralPath $prepLockPath -Force -ErrorAction SilentlyContinue
+    if ($null -ne $prepLockStream) {
+        $prepLockStream.Dispose()
     }
     Pop-Location
 }
