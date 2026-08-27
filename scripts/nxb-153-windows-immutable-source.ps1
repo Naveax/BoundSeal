@@ -77,6 +77,30 @@ function ConvertTo-NxbHex {
     return (($Bytes | ForEach-Object { $_.ToString('x2') }) -join '')
 }
 
+function Get-NxbStreamSha256 {
+    param(
+        [Parameter(Mandatory = $true)][IO.FileStream]$Stream,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    if (-not $Stream.CanRead -or -not $Stream.CanSeek) {
+        Fail-Nxb "$Label stream must be readable and seekable"
+    }
+    $savedPosition = $Stream.Position
+    try {
+        $Stream.Position = 0
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try {
+            return (ConvertTo-NxbHex -Bytes ($sha.ComputeHash($Stream)))
+        }
+        finally {
+            $sha.Dispose()
+        }
+    }
+    finally {
+        $Stream.Position = $savedPosition
+    }
+}
+
 function Get-NxbGitBlobOidFromStream {
     param([Parameter(Mandatory = $true)][IO.FileStream]$Stream)
 
@@ -129,9 +153,12 @@ function Assert-NxbSafeTrackedPath {
 }
 
 function Get-NxbTreeManifest {
-    param([Parameter(Mandatory = $true)][string]$CommitSha)
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$CommitSha
+    )
 
-    $lines = & git -c core.quotePath=false ls-tree -rl --full-tree $CommitSha
+    $lines = & git -C $RepositoryRoot -c core.quotePath=false ls-tree -rl --full-tree $CommitSha
     if ($LASTEXITCODE -ne 0) {
         Fail-Nxb 'git ls-tree failed for exact-head source manifest'
     }
@@ -332,6 +359,79 @@ function Open-NxbPinnedFile {
     }
 }
 
+function New-NxbPinnedGitArchive {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$CommitSha
+    )
+
+    $stream = $null
+    $process = $null
+    try {
+        $stream = [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::Read)
+        $expected = ConvertFrom-NxbFinalPath -Path ([IO.Path]::GetFullPath($Path))
+        $resolved = ConvertFrom-NxbFinalPath -Path ([Nxb153ImmutableWindowsNative]::GetFinalPath($stream.SafeFileHandle))
+        if (-not [string]::Equals($resolved, $expected, [StringComparison]::OrdinalIgnoreCase)) {
+            Fail-Nxb "create-new Git archive opened a different object: expected '$expected', resolved '$resolved'"
+        }
+
+        $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
+        $startInfo = [Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = $gitCommand.Source
+        $startInfo.UseShellExecute = $false
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        [void]$startInfo.ArgumentList.Add('-C')
+        [void]$startInfo.ArgumentList.Add($RepositoryRoot)
+        [void]$startInfo.ArgumentList.Add('archive')
+        [void]$startInfo.ArgumentList.Add('--format=tar')
+        [void]$startInfo.ArgumentList.Add($CommitSha)
+
+        $process = [Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
+        if (-not $process.Start()) {
+            Fail-Nxb 'could not start git archive process'
+        }
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $buffer = [byte[]]::new(1048576)
+        [Int64]$total = 0
+        while (($read = $process.StandardOutput.BaseStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $total += $read
+            if ($total -gt $maximumArchiveBytes) {
+                try { $process.Kill($true) } catch {}
+                Fail-Nxb "exact-head Git archive exceeds $maximumArchiveBytes bytes"
+            }
+            $stream.Write($buffer, 0, $read)
+        }
+        $process.WaitForExit()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        if ($process.ExitCode -ne 0) {
+            Fail-Nxb "git archive failed for exact-head Windows source snapshot: $stderr"
+        }
+        if ($total -le 0) {
+            Fail-Nxb 'exact-head Git archive is empty'
+        }
+        $stream.Flush($true)
+        if ($stream.Length -ne $total) {
+            Fail-Nxb 'create-new Git archive stream length differs from captured stdout bytes'
+        }
+        $stream.Position = 0
+        return $stream
+    }
+    catch {
+        if ($null -ne $stream) {
+            $stream.Dispose()
+        }
+        throw
+    }
+    finally {
+        if ($null -ne $process) {
+            $process.Dispose()
+        }
+    }
+}
+
 function Protect-NxbRuntimeDirectory {
     param([Parameter(Mandatory = $true)][string]$Path)
     New-Item -ItemType Directory -Path $Path -Force | Out-Null
@@ -362,19 +462,74 @@ function Set-NxbSourceWriteDeny {
     Set-Acl -LiteralPath $Path -AclObject $acl
 }
 
+function Assert-NxbDirectoryCreateDenied {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $fileProbe = Join-Path $Path ('.nxb-153-file-deny-probe-' + [Guid]::NewGuid().ToString('N'))
+    $fileBlocked = $false
+    try {
+        [IO.File]::WriteAllText($fileProbe, 'blocked', [Text.UTF8Encoding]::new($false))
+    }
+    catch [UnauthorizedAccessException] {
+        $fileBlocked = $true
+    }
+    if (-not $fileBlocked -or (Test-Path -LiteralPath $fileProbe)) {
+        Fail-Nxb "$Label remained capable of creating a file after source deny ACL staging"
+    }
+
+    $directoryProbe = Join-Path $Path ('.nxb-153-dir-deny-probe-' + [Guid]::NewGuid().ToString('N'))
+    $directoryBlocked = $false
+    try {
+        [void][IO.Directory]::CreateDirectory($directoryProbe)
+    }
+    catch [UnauthorizedAccessException] {
+        $directoryBlocked = $true
+    }
+    if (-not $directoryBlocked -or (Test-Path -LiteralPath $directoryProbe)) {
+        Fail-Nxb "$Label remained capable of creating a directory after source deny ACL staging"
+    }
+}
+
+function Assert-NxbRuntimeWritable {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    $probe = Join-Path $Path ('.nxb-153-runtime-probe-' + [Guid]::NewGuid().ToString('N'))
+    [IO.File]::WriteAllText($probe, 'ok', [Text.UTF8Encoding]::new($false))
+    if ((Get-Content -LiteralPath $probe -Raw) -cne 'ok') {
+        Fail-Nxb "$Label did not preserve runtime probe bytes"
+    }
+    Remove-Item -LiteralPath $probe -Force -ErrorAction Stop
+    if (Test-Path -LiteralPath $probe) {
+        Fail-Nxb "$Label runtime probe could not be removed"
+    }
+}
+
 function Invoke-NxbSelfTest {
     if (-not $IsWindows) {
         Fail-Nxb 'self-test requires Windows'
     }
+
     $root = Join-Path ([IO.Path]::GetTempPath()) ("nxb-153-windows-source-selftest-" + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $root | Out-Null
     $originalAcl = Get-Acl -LiteralPath $root
+    $cleanupErrors = [Collections.Generic.List[string]]::new()
+    $primaryFailure = $null
     try {
-        $source = Join-Path $root 'source.txt'
+        $nested = Join-Path $root 'nested'
+        New-Item -ItemType Directory -Path $nested | Out-Null
+        $source = Join-Path $nested 'source.txt'
         [IO.File]::WriteAllText($source, 'trusted', [Text.UTF8Encoding]::new($false))
         $runtime = Join-Path $root 'target'
         Protect-NxbRuntimeDirectory -Path $runtime
         Set-NxbSourceWriteDeny -Path $root
+
+        Assert-NxbDirectoryCreateDenied -Path $root -Label 'self-test source root'
+        Assert-NxbDirectoryCreateDenied -Path $nested -Label 'self-test nested source directory'
 
         $existingWriteBlocked = $false
         try {
@@ -384,31 +539,26 @@ function Invoke-NxbSelfTest {
             $existingWriteBlocked = $true
         }
         if (-not $existingWriteBlocked -or (Get-Content -LiteralPath $source -Raw) -cne 'trusted') {
-            Fail-Nxb 'write-deny ACL self-test did not preserve existing source bytes'
+            Fail-Nxb 'write-deny ACL self-test did not preserve existing nested source bytes'
         }
 
-        $createProbe = Join-Path $root 'injected.txt'
-        $createBlocked = $false
-        try {
-            [IO.File]::WriteAllText($createProbe, 'injected', [Text.UTF8Encoding]::new($false))
-        }
-        catch [UnauthorizedAccessException] {
-            $createBlocked = $true
-        }
-        if (-not $createBlocked -or (Test-Path -LiteralPath $createProbe)) {
-            Fail-Nxb 'write-deny ACL self-test did not block creation of a new source-root file'
-        }
-
-        [IO.File]::WriteAllText((Join-Path $runtime 'build.txt'), 'ok', [Text.UTF8Encoding]::new($false))
-        if ((Get-Content -LiteralPath (Join-Path $runtime 'build.txt') -Raw) -cne 'ok') {
-            Fail-Nxb 'runtime directory did not remain writable under protected inheritance'
-        }
+        Assert-NxbRuntimeWritable -Path $runtime -Label 'self-test runtime directory'
+    }
+    catch {
+        $primaryFailure = $_
     }
     finally {
         if (Test-Path -LiteralPath $root) {
-            Set-Acl -LiteralPath $root -AclObject $originalAcl -ErrorAction Stop
-            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop
+            try { Set-Acl -LiteralPath $root -AclObject $originalAcl -ErrorAction Stop } catch { $cleanupErrors.Add("self-test ACL restore: $($_.Exception.Message)") }
+            try { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop } catch { $cleanupErrors.Add("self-test root removal: $($_.Exception.Message)") }
         }
+    }
+
+    if ($null -ne $primaryFailure -or $cleanupErrors.Count -gt 0) {
+        $parts = [Collections.Generic.List[string]]::new()
+        if ($null -ne $primaryFailure) { $parts.Add("primary: $($primaryFailure.Exception.Message)") }
+        foreach ($errorText in $cleanupErrors) { $parts.Add("cleanup: $errorText") }
+        Fail-Nxb ($parts -join ' | ')
     }
     Write-Host 'NXB-153 immutable Windows source ACL primitive self-test passed.'
 }
@@ -433,30 +583,31 @@ Assert-LowerSha256 -Value $AuditSha256 -Label 'cargo-audit SHA-256'
 Assert-LowerSha256 -Value $DenySha256 -Label 'cargo-deny SHA-256'
 Assert-LowerSha256 -Value $ExpectedCargoLockSha256 -Label 'Cargo.lock SHA-256'
 
-$manifest = @(Get-NxbTreeManifest -CommitSha $HeadSha)
+$repoRootFull = [IO.Path]::GetFullPath($RepoRoot)
 $validationRoot = [IO.Path]::GetFullPath($ValidationDirectory)
 $snapshotRoot = Join-Path $validationRoot (".nxb-153-windows-source-$HeadSha-" + [Guid]::NewGuid().ToString('N'))
 $archivePath = "$snapshotRoot.tar"
 $directoryHandles = [Collections.Generic.List[IDisposable]]::new()
 $fileStreams = [Collections.Generic.List[IO.FileStream]]::new()
+$sourceDirectories = [Collections.Generic.List[string]]::new()
 $archiveStream = $null
 $validationRootHandle = $null
+$repoRootHandle = $null
 $originalRootAcl = $null
+$primaryFailure = $null
+$cleanupErrors = [Collections.Generic.List[string]]::new()
+$validationSucceeded = $false
 
 try {
+    $repoRootHandle = Open-NxbPinnedDirectory -Path $repoRootFull -Label 'repository root'
     $validationRootHandle = Open-NxbPinnedDirectory -Path $validationRoot -Label 'validation evidence directory'
+    $manifest = @(Get-NxbTreeManifest -RepositoryRoot $repoRootFull -CommitSha $HeadSha)
+
     New-Item -ItemType Directory -Path $snapshotRoot | Out-Null
     $directoryHandles.Add((Open-NxbPinnedDirectory -Path $snapshotRoot -Label 'immutable source snapshot root'))
+    $sourceDirectories.Add($snapshotRoot)
 
-    & git archive --format=tar --output=$archivePath $HeadSha
-    if ($LASTEXITCODE -ne 0) {
-        Fail-Nxb 'git archive failed for exact-head Windows source snapshot'
-    }
-    $archiveItem = Get-Item -LiteralPath $archivePath -Force
-    if ($archiveItem.Length -le 0 -or $archiveItem.Length -gt $maximumArchiveBytes) {
-        Fail-Nxb 'exact-head Git archive size is outside the supported envelope'
-    }
-    $archiveStream = Open-NxbPinnedFile -Path $archivePath -Label 'exact-head Git archive'
+    $archiveStream = New-NxbPinnedGitArchive -RepositoryRoot $repoRootFull -Path $archivePath -CommitSha $HeadSha
 
     & tar -xf $archivePath -C $snapshotRoot
     if ($LASTEXITCODE -ne 0) {
@@ -471,28 +622,30 @@ try {
     }
 
     foreach ($directory in @(Get-ChildItem -LiteralPath $snapshotRoot -Directory -Force -Recurse | Sort-Object { $_.FullName.Length } | ForEach-Object { $_.FullName })) {
+        $sourceDirectories.Add($directory)
         $directoryHandles.Add((Open-NxbPinnedDirectory -Path $directory -Label 'immutable source directory'))
     }
 
-    $actualFiles = @{}
+    $actualFiles = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($item in Get-ChildItem -LiteralPath $snapshotRoot -File -Force -Recurse) {
         $relative = [IO.Path]::GetRelativePath($snapshotRoot, $item.FullName).Replace([IO.Path]::DirectorySeparatorChar, '/')
         Assert-NxbSafeTrackedPath -RelativePath $relative
         if ($actualFiles.ContainsKey($relative)) {
             Fail-Nxb "duplicate extracted path: $relative"
         }
-        $actualFiles[$relative] = $item.FullName
+        $actualFiles.Add($relative, $item.FullName)
     }
     if ($actualFiles.Count -ne $manifest.Count) {
         Fail-Nxb "snapshot file count differs from exact-head tree: expected $($manifest.Count), found $($actualFiles.Count)"
     }
 
+    $cargoLockStream = $null
     for ($index = 0; $index -lt $manifest.Count; $index++) {
         $entry = $manifest[$index]
         if (-not $actualFiles.ContainsKey($entry.Path)) {
             Fail-Nxb "snapshot is missing exact-head tracked file: $($entry.Path)"
         }
-        $path = [string]$actualFiles[$entry.Path]
+        $path = $actualFiles[$entry.Path]
         $stream = Open-NxbPinnedFile -Path $path -Label "tracked source $($entry.Path)"
         if ($stream.Length -ne $entry.Size) {
             $stream.Dispose()
@@ -504,10 +657,14 @@ try {
             Fail-Nxb "tracked file bytes do not match exact-head Git blob for $($entry.Path)"
         }
         $fileStreams.Add($stream)
+        if ($entry.Path -ceq 'Cargo.lock') {
+            $cargoLockStream = $stream
+        }
     }
-
-    $lockPath = Join-Path $snapshotRoot 'Cargo.lock'
-    $lockSha = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($null -eq $cargoLockStream) {
+        Fail-Nxb 'exact-head snapshot does not contain Cargo.lock'
+    }
+    $lockSha = Get-NxbStreamSha256 -Stream $cargoLockStream -Label 'snapshot Cargo.lock'
     if ($lockSha -cne $ExpectedCargoLockSha256) {
         Fail-Nxb "immutable snapshot Cargo.lock SHA-256 mismatch: expected $ExpectedCargoLockSha256, found $lockSha"
     }
@@ -533,20 +690,12 @@ try {
     $originalRootAcl = Get-Acl -LiteralPath $snapshotRoot
     Set-NxbSourceWriteDeny -Path $snapshotRoot
 
-    $sourceProbe = Join-Path $snapshotRoot '.nxb-153-source-write-probe'
-    $probeBlocked = $false
-    try {
-        [IO.File]::WriteAllText($sourceProbe, 'blocked', [Text.UTF8Encoding]::new($false))
+    foreach ($sourceDirectory in $sourceDirectories) {
+        Assert-NxbDirectoryCreateDenied -Path $sourceDirectory -Label "source directory $sourceDirectory"
     }
-    catch [UnauthorizedAccessException] {
-        $probeBlocked = $true
-    }
-    if (-not $probeBlocked -or (Test-Path -LiteralPath $sourceProbe)) {
-        Fail-Nxb 'source root remained capable of creating a file after deny ACL staging'
-    }
-    $runtimeProbe = Join-Path $runtimeTarget '.nxb-153-runtime-write-probe'
-    [IO.File]::WriteAllText($runtimeProbe, 'ok', [Text.UTF8Encoding]::new($false))
-    Remove-Item -LiteralPath $runtimeProbe -Force
+    Assert-NxbRuntimeWritable -Path $runtimeTarget -Label 'Cargo target directory'
+    Assert-NxbRuntimeWritable -Path $runtimeTmp -Label 'temporary directory'
+    Assert-NxbRuntimeWritable -Path $runtimeCargoHome -Label 'Cargo home directory'
 
     $previousTarget = $env:CARGO_TARGET_DIR
     $previousCargoHome = $env:CARGO_HOME
@@ -592,7 +741,7 @@ try {
         Invoke-NxbTool -Path $AuditPath -Arguments @('audit') -Label 'RustSec cargo audit'
         Invoke-NxbTool -Path $DenyPath -Arguments @('check') -Label 'cargo-deny checks'
 
-        $finalLockSha = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $finalLockSha = Get-NxbStreamSha256 -Stream $cargoLockStream -Label 'final snapshot Cargo.lock'
         if ($finalLockSha -cne $ExpectedCargoLockSha256) {
             Fail-Nxb 'immutable snapshot Cargo.lock changed during validation'
         }
@@ -602,7 +751,7 @@ try {
             if ((Get-NxbGitBlobOidFromStream -Stream $stream) -cne $entry.ObjectId) {
                 Fail-Nxb "pinned tracked source object changed during validation: $($entry.Path)"
             }
-            $path = [string]$actualFiles[$entry.Path]
+            $path = $actualFiles[$entry.Path]
             $item = Get-Item -LiteralPath $path -Force
             if ($item.Length -ne $entry.Size -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
                 Fail-Nxb "tracked source pathname/object metadata changed during validation: $($entry.Path)"
@@ -613,6 +762,7 @@ try {
         if ($finalAuditPathSha -cne $AuditSha256 -or $finalDenyPathSha -cne $DenySha256) {
             Fail-Nxb 'security-tool canonical paths drifted during immutable source validation'
         }
+        $validationSucceeded = $true
     }
     finally {
         Pop-Location
@@ -622,28 +772,42 @@ try {
         $env:TEMP = $previousTemp
     }
 }
+catch {
+    $primaryFailure = $_
+}
 finally {
     if ($null -ne $originalRootAcl -and (Test-Path -LiteralPath $snapshotRoot)) {
-        Set-Acl -LiteralPath $snapshotRoot -AclObject $originalRootAcl -ErrorAction Stop
+        try { Set-Acl -LiteralPath $snapshotRoot -AclObject $originalRootAcl -ErrorAction Stop } catch { $cleanupErrors.Add("snapshot ACL restore: $($_.Exception.Message)") }
     }
     for ($index = $fileStreams.Count - 1; $index -ge 0; $index--) {
-        $fileStreams[$index].Dispose()
+        try { $fileStreams[$index].Dispose() } catch { $cleanupErrors.Add("tracked file handle disposal: $($_.Exception.Message)") }
     }
     for ($index = $directoryHandles.Count - 1; $index -ge 0; $index--) {
-        $directoryHandles[$index].Dispose()
+        try { $directoryHandles[$index].Dispose() } catch { $cleanupErrors.Add("source directory handle disposal: $($_.Exception.Message)") }
     }
     if ($null -ne $archiveStream) {
-        $archiveStream.Dispose()
+        try { $archiveStream.Dispose() } catch { $cleanupErrors.Add("archive handle disposal: $($_.Exception.Message)") }
     }
     if ($null -ne $validationRootHandle) {
-        $validationRootHandle.Dispose()
+        try { $validationRootHandle.Dispose() } catch { $cleanupErrors.Add("validation directory handle disposal: $($_.Exception.Message)") }
+    }
+    if ($null -ne $repoRootHandle) {
+        try { $repoRootHandle.Dispose() } catch { $cleanupErrors.Add("repository handle disposal: $($_.Exception.Message)") }
     }
     if (Test-Path -LiteralPath $snapshotRoot) {
-        Remove-Item -LiteralPath $snapshotRoot -Recurse -Force -ErrorAction Stop
+        try { Remove-Item -LiteralPath $snapshotRoot -Recurse -Force -ErrorAction Stop } catch { $cleanupErrors.Add("snapshot removal: $($_.Exception.Message)") }
     }
     if (Test-Path -LiteralPath $archivePath) {
-        Remove-Item -LiteralPath $archivePath -Force -ErrorAction Stop
+        try { Remove-Item -LiteralPath $archivePath -Force -ErrorAction Stop } catch { $cleanupErrors.Add("archive removal: $($_.Exception.Message)") }
     }
+}
+
+if ($null -ne $primaryFailure -or $cleanupErrors.Count -gt 0 -or -not $validationSucceeded) {
+    $parts = [Collections.Generic.List[string]]::new()
+    if ($null -ne $primaryFailure) { $parts.Add("primary: $($primaryFailure.Exception.Message)") }
+    if (-not $validationSucceeded -and $null -eq $primaryFailure) { $parts.Add('primary: validation did not reach the success boundary') }
+    foreach ($errorText in $cleanupErrors) { $parts.Add("cleanup: $errorText") }
+    Fail-Nxb ($parts -join ' | ')
 }
 
 Write-Host 'NXB-153 exact-head Windows gates passed inside a pinned write-denied source snapshot.'
