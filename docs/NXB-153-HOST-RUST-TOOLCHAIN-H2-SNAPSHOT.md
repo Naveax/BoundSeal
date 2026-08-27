@@ -16,7 +16,7 @@ H1 provides deterministic Rust-toolchain tree identity. H2 removes the mutable h
 
 The installed Rust 1.97.1 tree is a capture/provisioning source, not the admitted heavy-gate authority.
 
-H2 capture and the H1 pre/post digest are availability-bounded. File, directory and byte budgets must fail closed **during traversal/copy**, rather than after arbitrary metadata or file-byte consumption.
+H2 capture and the H1 pre/post digest are availability-bounded. File, directory, byte and platform-shell enumeration budgets must fail closed **during traversal/copy**, rather than after arbitrary metadata or file-byte consumption.
 
 ## Canonical host-Rust tree authority
 
@@ -34,7 +34,7 @@ Current exact Git blob:
 
 The valid-tree digest format remains v1 and still binds sorted relative path bytes, mode class, exact file size and SHA-256 of stable file bytes. The hardening does not reinterpret historical tree digests.
 
-Traversal now enforces, before unbounded work can accumulate:
+Traversal enforces, before unbounded work can accumulate:
 
 - at most 65,536 regular files;
 - at most 65,536 source directories, including the source root;
@@ -127,16 +127,44 @@ Narrow Linux primitive/helper tests are not the complete current-head Rust 1.97.
 Layering:
 
 ```text
-nxb-153-windows-immutable-source.ps1                    canonical bounded H2 entrypoint
-  -> nxb-153-windows-immutable-source-h2-entry-inner.ps1
-     -> nxb-153-windows-immutable-source-h2-inner.ps1
-        -> nxb-153-windows-immutable-source-h1-inner.ps1
-           -> nxb-153-windows-immutable-source-inner.ps1
+nxb-153-windows-immutable-source.ps1                    canonical enumeration guard
+  -> nxb-153-windows-immutable-source-bounded-inner.ps1 preserved bounded-copy entrypoint
+     -> nxb-153-windows-immutable-source-h2-entry-inner.ps1
+        -> nxb-153-windows-immutable-source-h2-inner.ps1
+           -> nxb-153-windows-immutable-source-h1-inner.ps1
+              -> nxb-153-windows-immutable-source-inner.ps1
 ```
+
+Current exact Git objects at the outer two Windows layers:
+
+- canonical enumeration guard: `b586f5c8557f8a08f56f9616c9580b983be0d16f`;
+- preserved bounded-copy entrypoint: `699ffb90752c23919c83d8ad2193167792b55b40`.
 
 The outer Windows validator pins and exact-Git-object verifies the canonical H2 entrypoint before execution.
 
-The canonical bounded entrypoint then:
+### PowerShell enumeration guard
+
+The canonical H2 entrypoint now prevents PowerShell metadata enumeration from bypassing the Python file/directory availability budgets before those helpers take control.
+
+It:
+
+- pins the `scripts` namespace with a native directory handle that withholds delete sharing;
+- opens and exact-Git-object verifies the preserved bounded-copy entrypoint;
+- installs a scope-visible `Get-ChildItem` proxy before dot-sourcing the preserved wrapper;
+- accepts only the NXB-153 parameter surface used by the current chain: `-LiteralPath`, `-Force`, `-Recurse`, `-Directory`, `-File` plus PowerShell common parameters;
+- delegates enumeration to module-qualified `Microsoft.PowerShell.Management\Get-ChildItem`;
+- streams objects and fails closed if any one invocation emits more than 131,072 `FileSystemInfo` objects;
+- rejects simultaneous `-Directory` and `-File`;
+- removes the proxy in `finally` and treats handle-disposal failure as validation failure;
+- re-hashes the preserved inner wrapper after execution and requires exact-head Git-object equality.
+
+The 131,072 shell-object envelope is the sum of the canonical 65,536-file and 65,536-directory authority ceilings. It prevents a host sysroot, vendor tree or extracted source snapshot from forcing an unbounded PowerShell object collection before the lower-level authority checks reject it.
+
+The guard has a source-staged `-SelfTest` that creates three entries, proves a limit of four admits them, proves a limit of two rejects them, restores the normal limit and fail-closes cleanup. No Windows runtime PASS is claimed because the current environment cannot execute supported PowerShell/NTFS validation.
+
+### Preserved bounded-copy entrypoint
+
+The preserved bounded-copy layer:
 
 - pins and exact-Git-object verifies the H2 entry-inner runner and bounded-copy helper;
 - pins the `scripts` namespace with a native directory handle that withholds delete sharing;
@@ -167,16 +195,29 @@ The H2 deny mask deliberately does **not** deny `ChangePermissions` or `TakeOwne
 
 The self-test is source-staged but has **not** executed in the current environment because no supported PowerShell/Windows runtime is available here.
 
+### Remaining Windows destination-namespace boundary
+
+The current source does **not** claim continuous handle authority for every newly created Windows H2 destination child from the instant the bounded Python copier creates it until the later PowerShell directory/file pinning and ACL phase completes.
+
+The snapshot root and descendants are verified after copy and later pinned, but a strict same-user concurrent pathname attacker model still requires a continuous creation-to-consumption authority story for destination child directories/files. A future admitted implementation must either:
+
+- keep no-delete/no-write native handles for created destination objects continuously across the copy-to-PowerShell handoff; or
+- provide a strength-equivalent kernel-backed namespace/ACL mechanism that excludes transient child replacement during that handoff.
+
+This remaining boundary is intentionally recorded rather than being hidden by the bounded-copy or enumeration milestones. Until it is resolved and exercised on supported Windows/NTFS, H2 remains not admitted.
+
 ## Windows runtime boundary
 
 No Windows H2 syntax/runtime PASS is claimed from the current execution environment.
 
 Real supported Windows/NTFS validation must prove at least:
 
-- PowerShell parsing, function scope and nested invocation for bounded `Copy-Item` interception;
+- PowerShell parsing, function scope and nested invocation for the bounded `Get-ChildItem` and `Copy-Item` interception layers;
+- 131,072-object PowerShell enumeration rejection behavior;
 - whole-sysroot file/directory/byte accounting under the Windows model;
 - H2 primitive self-test behavior;
 - installed Rust 1.97.1 snapshot capture;
+- continuous destination namespace authority from creation through consumption, or a strength-equivalent mechanism;
 - native directory-handle and file-share semantics;
 - ACL mutation/injection denial while process creation and ACL restoration remain functional;
 - snapshot rustc/cargo/rustfmt/Clippy execution;
@@ -194,4 +235,4 @@ A stronger state must be introduced atomically across both platform producers, b
 
 ## Admission acceptance
 
-H2 can be admitted only after the exact same final NXB-153 Git head has real Linux and Windows evidence proving that heavy Rust gates consumed only the verified immutable/pinned, directory-bounded and byte-bounded snapshot, final identity/cleanup succeeded and all other #90-#98 gates remain satisfied.
+H2 can be admitted only after the exact same final NXB-153 Git head has real Linux and Windows evidence proving that heavy Rust gates consumed only the verified immutable/pinned, enumeration-bounded, directory-bounded and byte-bounded snapshot, Windows destination namespace authority is continuous through the copy-to-consumption handoff, final identity/cleanup succeeded and all other #90-#98 gates remain satisfied.
