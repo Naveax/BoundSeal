@@ -1,3 +1,10 @@
+mod activation;
+mod guided_policy;
+mod scope_import;
+
+use activation::activate_value;
+use guided_policy::{compile_guided_policy, GuidedPolicyArtifact};
+use scope_import::load_scope_import;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File},
@@ -27,6 +34,8 @@ const LIST_EXIT_CODE: u8 = 51;
 const SHOW_EXIT_CODE: u8 = 52;
 const DISABLE_EXIT_CODE: u8 = 53;
 const VALIDATE_EXIT_CODE: u8 = 54;
+const SETUP_EXIT_CODE: u8 = 55;
+const ACTIVATE_EXIT_CODE: u8 = 56;
 const MAX_TARGET_PROFILES: usize = 1_024;
 const MAX_PATH_RULES: usize = 64;
 const MAX_PATH_BYTES: usize = 512;
@@ -64,6 +73,18 @@ const VALIDATE_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
     operation: "validate",
     text_prefix: "NXB-TARGET-54",
 };
+const SETUP_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
+    code: "NXB153-TARGET-SETUP-REJECTED",
+    domain: "target",
+    operation: "setup",
+    text_prefix: "NXB-TARGET-55",
+};
+const ACTIVATE_DIAGNOSTIC: DiagnosticSpec = DiagnosticSpec {
+    code: "NXB153-TARGET-ACTIVATE-REJECTED",
+    domain: "target",
+    operation: "activate",
+    text_prefix: "NXB-TARGET-56",
+};
 
 #[derive(Debug, Args)]
 pub(crate) struct TargetArgs {
@@ -73,6 +94,174 @@ pub(crate) struct TargetArgs {
 
 #[derive(Debug, Subcommand)]
 enum TargetCommand {
+    /// Preview one guided authorization-bound target setup without persistent mutation.
+    Setup {
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        origin: String,
+        #[arg(long = "include-path")]
+        include_paths: Vec<String>,
+        #[arg(long = "exclude-path")]
+        exclude_paths: Vec<String>,
+        #[arg(long)]
+        program_name: String,
+        #[arg(long)]
+        program_platform: String,
+        #[arg(long)]
+        program_reference: Option<String>,
+        #[arg(long)]
+        authorization_reference: String,
+        #[arg(long)]
+        authorization_document: PathBuf,
+        #[arg(long)]
+        researcher: String,
+        #[arg(long, value_enum)]
+        authorization_basis: AuthorizationBasis,
+        #[arg(long)]
+        authorization_expires_at: String,
+        #[arg(long)]
+        acknowledge_authorization: String,
+        #[arg(long)]
+        allow_subdomains: bool,
+        #[arg(long, default_value_t = 1.0)]
+        max_requests_per_second: f64,
+        #[arg(long, default_value_t = 1)]
+        max_concurrency: u16,
+        #[arg(long, default_value_t = 10)]
+        max_total_requests: u64,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Preview one bounded operator-provided scope import through the guided compiler.
+    SetupImport {
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        scope_import: PathBuf,
+        #[arg(long)]
+        program_name: String,
+        #[arg(long)]
+        program_platform: String,
+        #[arg(long)]
+        program_reference: Option<String>,
+        #[arg(long)]
+        authorization_reference: String,
+        #[arg(long)]
+        authorization_document: PathBuf,
+        #[arg(long)]
+        researcher: String,
+        #[arg(long, value_enum)]
+        authorization_basis: AuthorizationBasis,
+        #[arg(long)]
+        authorization_expires_at: String,
+        #[arg(long)]
+        acknowledge_authorization: String,
+        #[arg(long, default_value_t = 1.0)]
+        max_requests_per_second: f64,
+        #[arg(long, default_value_t = 1)]
+        max_concurrency: u16,
+        #[arg(long, default_value_t = 10)]
+        max_total_requests: u64,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Activate one exact guided preview using the immutable target profile boundary.
+    Activate {
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        origin: String,
+        #[arg(long = "include-path")]
+        include_paths: Vec<String>,
+        #[arg(long = "exclude-path")]
+        exclude_paths: Vec<String>,
+        #[arg(long)]
+        program_name: String,
+        #[arg(long)]
+        program_platform: String,
+        #[arg(long)]
+        program_reference: Option<String>,
+        #[arg(long)]
+        authorization_reference: String,
+        #[arg(long)]
+        authorization_document: PathBuf,
+        #[arg(long)]
+        researcher: String,
+        #[arg(long, value_enum)]
+        authorization_basis: AuthorizationBasis,
+        #[arg(long)]
+        authorization_expires_at: String,
+        #[arg(long)]
+        acknowledge_authorization: String,
+        #[arg(long)]
+        allow_subdomains: bool,
+        #[arg(long, default_value_t = 1.0)]
+        max_requests_per_second: f64,
+        #[arg(long, default_value_t = 1)]
+        max_concurrency: u16,
+        #[arg(long, default_value_t = 10)]
+        max_total_requests: u64,
+        #[arg(long)]
+        confirm_preview_sha: String,
+        #[arg(long)]
+        acknowledge_activation: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Activate one bounded imported scope after exact preview confirmation.
+    ActivateImport {
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        scope_import: PathBuf,
+        #[arg(long)]
+        program_name: String,
+        #[arg(long)]
+        program_platform: String,
+        #[arg(long)]
+        program_reference: Option<String>,
+        #[arg(long)]
+        authorization_reference: String,
+        #[arg(long)]
+        authorization_document: PathBuf,
+        #[arg(long)]
+        researcher: String,
+        #[arg(long, value_enum)]
+        authorization_basis: AuthorizationBasis,
+        #[arg(long)]
+        authorization_expires_at: String,
+        #[arg(long)]
+        acknowledge_authorization: String,
+        #[arg(long, default_value_t = 1.0)]
+        max_requests_per_second: f64,
+        #[arg(long, default_value_t = 1)]
+        max_concurrency: u16,
+        #[arg(long, default_value_t = 10)]
+        max_total_requests: u64,
+        #[arg(long)]
+        confirm_preview_sha: String,
+        #[arg(long)]
+        acknowledge_activation: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// Create one immutable, authorization-bound, networkless target profile.
     Create {
         #[arg(long)]
@@ -138,6 +327,14 @@ enum TargetCommand {
         #[arg(long)]
         json: bool,
     },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+enum AuthorizationBasis {
+    ProgramPolicy,
+    OwnedAsset,
+    WrittenPermission,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
@@ -237,6 +434,216 @@ struct TargetList {
 
 pub(crate) fn run(args: TargetArgs) -> ExitCode {
     let (failure_code, diagnostic_spec, json_output, result) = match args.command {
+        TargetCommand::Setup {
+            workspace,
+            id,
+            name,
+            origin,
+            include_paths,
+            exclude_paths,
+            program_name,
+            program_platform,
+            program_reference,
+            authorization_reference,
+            authorization_document,
+            researcher,
+            authorization_basis,
+            authorization_expires_at,
+            acknowledge_authorization,
+            allow_subdomains,
+            max_requests_per_second,
+            max_concurrency,
+            max_total_requests,
+            json,
+        } => (
+            SETUP_EXIT_CODE,
+            SETUP_DIAGNOSTIC,
+            json,
+            build_guided_setup(
+                &workspace,
+                &id,
+                &name,
+                &origin,
+                include_paths,
+                exclude_paths,
+                &program_name,
+                &program_platform,
+                program_reference.as_deref(),
+                &authorization_reference,
+                &authorization_document,
+                &researcher,
+                authorization_basis,
+                &authorization_expires_at,
+                &acknowledge_authorization,
+                allow_subdomains,
+                max_requests_per_second,
+                max_concurrency,
+                max_total_requests,
+            )
+            .and_then(|build| emit_setup_preview(&build.preview, json)),
+        ),
+        TargetCommand::SetupImport {
+            workspace,
+            id,
+            name,
+            scope_import,
+            program_name,
+            program_platform,
+            program_reference,
+            authorization_reference,
+            authorization_document,
+            researcher,
+            authorization_basis,
+            authorization_expires_at,
+            acknowledge_authorization,
+            max_requests_per_second,
+            max_concurrency,
+            max_total_requests,
+            json,
+        } => (
+            SETUP_EXIT_CODE,
+            SETUP_DIAGNOSTIC,
+            json,
+            load_scope_import(&scope_import)
+                .and_then(|scope| {
+                    let origin = scope.origin;
+                    let include_paths = scope.include_paths;
+                    let exclude_paths = scope.exclude_paths;
+                    let allow_subdomains = scope.allow_subdomains;
+
+                    build_guided_setup(
+                        &workspace,
+                        &id,
+                        &name,
+                        &origin,
+                        include_paths,
+                        exclude_paths,
+                        &program_name,
+                        &program_platform,
+                        program_reference.as_deref(),
+                        &authorization_reference,
+                        &authorization_document,
+                        &researcher,
+                        authorization_basis,
+                        &authorization_expires_at,
+                        &acknowledge_authorization,
+                        allow_subdomains,
+                        max_requests_per_second,
+                        max_concurrency,
+                        max_total_requests,
+                    )
+                })
+                .and_then(|build| emit_setup_preview(&build.preview, json)),
+        ),
+        TargetCommand::Activate {
+            workspace,
+            id,
+            name,
+            origin,
+            include_paths,
+            exclude_paths,
+            program_name,
+            program_platform,
+            program_reference,
+            authorization_reference,
+            authorization_document,
+            researcher,
+            authorization_basis,
+            authorization_expires_at,
+            acknowledge_authorization,
+            allow_subdomains,
+            max_requests_per_second,
+            max_concurrency,
+            max_total_requests,
+            confirm_preview_sha,
+            acknowledge_activation,
+            json,
+        } => (
+            ACTIVATE_EXIT_CODE,
+            ACTIVATE_DIAGNOSTIC,
+            json,
+            activate_value(
+                &workspace,
+                &id,
+                &name,
+                &origin,
+                include_paths,
+                exclude_paths,
+                &program_name,
+                &program_platform,
+                program_reference.as_deref(),
+                &authorization_reference,
+                &authorization_document,
+                &researcher,
+                authorization_basis,
+                &authorization_expires_at,
+                &acknowledge_authorization,
+                allow_subdomains,
+                max_requests_per_second,
+                max_concurrency,
+                max_total_requests,
+                &confirm_preview_sha,
+                &acknowledge_activation,
+            )
+            .and_then(|value| emit_value(&value, json)),
+        ),
+        TargetCommand::ActivateImport {
+            workspace,
+            id,
+            name,
+            scope_import,
+            program_name,
+            program_platform,
+            program_reference,
+            authorization_reference,
+            authorization_document,
+            researcher,
+            authorization_basis,
+            authorization_expires_at,
+            acknowledge_authorization,
+            max_requests_per_second,
+            max_concurrency,
+            max_total_requests,
+            confirm_preview_sha,
+            acknowledge_activation,
+            json,
+        } => (
+            ACTIVATE_EXIT_CODE,
+            ACTIVATE_DIAGNOSTIC,
+            json,
+            load_scope_import(&scope_import)
+                .and_then(|scope| {
+                    let origin = scope.origin;
+                    let include_paths = scope.include_paths;
+                    let exclude_paths = scope.exclude_paths;
+                    let allow_subdomains = scope.allow_subdomains;
+
+                    activate_value(
+                        &workspace,
+                        &id,
+                        &name,
+                        &origin,
+                        include_paths,
+                        exclude_paths,
+                        &program_name,
+                        &program_platform,
+                        program_reference.as_deref(),
+                        &authorization_reference,
+                        &authorization_document,
+                        &researcher,
+                        authorization_basis,
+                        &authorization_expires_at,
+                        &acknowledge_authorization,
+                        allow_subdomains,
+                        max_requests_per_second,
+                        max_concurrency,
+                        max_total_requests,
+                        &confirm_preview_sha,
+                        &acknowledge_activation,
+                    )
+                })
+                .and_then(|value| emit_value(&value, json)),
+        ),
         TargetCommand::Create {
             workspace,
             id,
@@ -320,6 +727,364 @@ pub(crate) fn run(args: TargetArgs) -> ExitCode {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct SetupProgram {
+    name: String,
+    platform: String,
+    reference: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SetupAuthorization {
+    reference: String,
+    document_sha256: String,
+    researcher: String,
+    basis: AuthorizationBasis,
+    expires_at: String,
+    acknowledged: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SetupAutomation {
+    allowed_methods: Vec<String>,
+    allow_subdomains: bool,
+    active_testing: bool,
+    oob_callbacks: bool,
+    credential_bruteforce: bool,
+    destructive_testing: bool,
+    max_requests_per_second: f64,
+    max_concurrency: u16,
+    max_total_requests: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SetupPolicyBinding {
+    schema_version: u32,
+    policy_snapshot_sha256: String,
+    policy_document_sha256: String,
+    compiled: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SetupPreviewIdentity {
+    schema_version: u32,
+    status: &'static str,
+    target_id: String,
+    name: String,
+    origin: String,
+    include_paths: Vec<String>,
+    exclude_paths: Vec<String>,
+    program: SetupProgram,
+    authorization: SetupAuthorization,
+    automation: SetupAutomation,
+    policy: SetupPolicyBinding,
+    hard_denied_actions: Vec<String>,
+    network_activity: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SetupPreview {
+    #[serde(flatten)]
+    identity: SetupPreviewIdentity,
+    preview_sha256: String,
+}
+
+struct GuidedSetupBuild {
+    preview: SetupPreview,
+    authorization_bytes: Vec<u8>,
+    policy: GuidedPolicyArtifact,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_guided_setup(
+    workspace_path: &Path,
+    id: &str,
+    name: &str,
+    origin: &str,
+    include_paths: Vec<String>,
+    exclude_paths: Vec<String>,
+    program_name: &str,
+    program_platform: &str,
+    program_reference: Option<&str>,
+    authorization_reference: &str,
+    authorization_document: &Path,
+    researcher: &str,
+    authorization_basis: AuthorizationBasis,
+    authorization_expires_at: &str,
+    acknowledge_authorization: &str,
+    allow_subdomains: bool,
+    max_requests_per_second: f64,
+    max_concurrency: u16,
+    max_total_requests: u64,
+) -> Result<GuidedSetupBuild> {
+    let _root = ready_workspace(workspace_path)?;
+
+    validate_target_id(id)?;
+    validate_target_name(name)?;
+
+    let origin = guided_origin(origin)?;
+
+    if include_paths.is_empty() {
+        bail!("guided target setup requires at least one explicit include path");
+    }
+
+    let include_paths = canonical_paths(include_paths, true)?;
+
+    let exclude_paths = canonical_paths(exclude_paths, false)?;
+
+    validate_path_relationships(&include_paths, &exclude_paths)?;
+
+    validate_setup_text(program_name, "program name", 96)?;
+
+    validate_setup_platform(program_platform)?;
+
+    let program_reference = program_reference
+        .map(|value| {
+            validate_safe_reference(value, "program reference")?;
+
+            Ok::<String, anyhow::Error>(value.to_owned())
+        })
+        .transpose()?;
+
+    validate_safe_reference(authorization_reference, "authorization reference")?;
+
+    validate_setup_text(researcher, "authorization researcher", 128)?;
+
+    if acknowledge_authorization != "I_HAVE_EXPLICIT_AUTHORIZATION" {
+        bail!("guided target setup requires the exact explicit authorization acknowledgement");
+    }
+
+    let expires_at = canonical_setup_expiry(authorization_expires_at)?;
+
+    validate_setup_budget(max_requests_per_second, max_concurrency, max_total_requests)?;
+
+    let authorization_bytes = read_bounded_source(
+        authorization_document,
+        "authorization document",
+        MAX_AUTHORIZATION_BYTES,
+    )?;
+
+    let authorization_document_sha256 = workspace::sha256(&authorization_bytes);
+
+    let policy = compile_guided_policy(
+        &origin,
+        program_name,
+        program_platform,
+        program_reference.as_deref(),
+        researcher,
+        &expires_at,
+        allow_subdomains,
+        max_requests_per_second,
+        max_concurrency,
+        max_total_requests,
+    )?;
+
+    let identity = SetupPreviewIdentity {
+        schema_version: 1,
+        status: "preview",
+        target_id: id.to_owned(),
+        name: name.to_owned(),
+        origin,
+        include_paths,
+        exclude_paths,
+        program: SetupProgram {
+            name: program_name.to_owned(),
+            platform: program_platform.to_owned(),
+            reference: program_reference,
+        },
+        authorization: SetupAuthorization {
+            reference: authorization_reference.to_owned(),
+            document_sha256: authorization_document_sha256,
+            researcher: researcher.to_owned(),
+            basis: authorization_basis,
+            expires_at,
+            acknowledged: true,
+        },
+        automation: SetupAutomation {
+            allowed_methods: policy.allowed_methods.clone(),
+            allow_subdomains,
+            active_testing: policy.compiled.active_testing_enabled(),
+            oob_callbacks: policy.compiled.oob_callbacks_enabled(),
+            credential_bruteforce: false,
+            destructive_testing: false,
+            max_requests_per_second: policy.compiled.maximum_requests_per_second(),
+            max_concurrency: policy.compiled.maximum_concurrency(),
+            max_total_requests: policy.compiled.maximum_total_requests(),
+        },
+        policy: SetupPolicyBinding {
+            schema_version: 1,
+            policy_snapshot_sha256: policy.snapshot_sha256.clone(),
+            policy_document_sha256: policy.document_sha256.clone(),
+            compiled: true,
+        },
+        hard_denied_actions: vec![
+            "credential_bruteforce".to_owned(),
+            "destructive_testing".to_owned(),
+            "state_changing_http_methods".to_owned(),
+        ],
+        network_activity: "none",
+    };
+
+    let preview_sha256 = workspace::sha256(&serde_json::to_vec(&identity)?);
+    let preview = SetupPreview {
+        identity,
+        preview_sha256,
+    };
+
+    activation::validate_persistence_envelope(&preview, &policy.document)?;
+
+    Ok(GuidedSetupBuild {
+        preview,
+        authorization_bytes,
+        policy,
+    })
+}
+
+fn guided_origin(input: &str) -> Result<String> {
+    validate_guided_origin_lexical(input)?;
+
+    let parsed = Url::parse(input).context("guided target origin is not a valid URL")?;
+
+    if parsed.port().is_some_and(|port| port != 443) {
+        bail!("guided target setup supports only the exact HTTPS/443 origin boundary");
+    }
+
+    let canonical = canonical_origin(input)?;
+
+    let canonical_url =
+        Url::parse(&canonical).context("canonical guided target origin is invalid")?;
+
+    if canonical_url.port_or_known_default() != Some(443) {
+        bail!("guided target setup supports only the exact HTTPS/443 origin boundary");
+    }
+
+    Ok(canonical)
+}
+
+fn validate_guided_origin_lexical(input: &str) -> Result<()> {
+    if input.trim() != input || input.len() > 512 || input.chars().any(char::is_control) {
+        bail!("guided target origin contains invalid whitespace or control characters");
+    }
+
+    let Some(remainder) = input.strip_prefix("https://") else {
+        bail!("guided target origin must use literal https:// syntax");
+    };
+
+    if remainder.is_empty()
+        || remainder.contains('@')
+        || remainder.contains('?')
+        || remainder.contains('#')
+        || remainder.contains('%')
+        || remainder.contains('\\')
+    {
+        bail!("guided target origin must use a literal HTTPS authority without userinfo, encoded bytes, query or fragment");
+    }
+
+    let authority = if let Some(authority) = remainder.strip_suffix('/') {
+        if authority.contains('/') {
+            bail!("guided target origin must not contain path syntax beyond an optional literal root slash");
+        }
+        authority
+    } else {
+        if remainder.contains('/') {
+            bail!("guided target origin must not contain path syntax beyond an optional literal root slash");
+        }
+        remainder
+    };
+
+    if authority.is_empty() {
+        bail!("guided target origin is missing a literal DNS authority");
+    }
+
+    let host = if let Some((host, port)) = authority.rsplit_once(':') {
+        if host.is_empty() || host.contains(':') || port != "443" {
+            bail!("guided target origin port must be absent or the literal :443 form");
+        }
+        host
+    } else {
+        authority
+    };
+
+    if host.is_empty()
+        || host.contains(':')
+        || !host.is_ascii()
+        || !host
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'))
+    {
+        bail!("guided target origin host must use literal ASCII DNS syntax");
+    }
+
+    Ok(())
+}
+
+fn validate_setup_text(value: &str, field: &str, maximum_bytes: usize) -> Result<()> {
+    if value.is_empty()
+        || value.len() > maximum_bytes
+        || value.trim() != value
+        || value.chars().any(char::is_control)
+    {
+        bail!("{field} must be bounded printable text without edge whitespace");
+    }
+
+    Ok(())
+}
+
+fn validate_setup_platform(value: &str) -> Result<()> {
+    if value.is_empty()
+        || value.len() > 64
+        || !value.is_ascii()
+        || value.to_ascii_lowercase() != value
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        bail!("program platform must be a bounded non-secret identifier");
+    }
+
+    Ok(())
+}
+
+fn canonical_setup_expiry(value: &str) -> Result<String> {
+    let parsed = chrono::DateTime::parse_from_rfc3339(value)
+        .context("authorization expiry is not valid RFC3339")?;
+
+    if parsed.offset().local_minus_utc() != 0 {
+        bail!("authorization expiry must use UTC");
+    }
+
+    let parsed = parsed.with_timezone(&Utc);
+
+    if parsed <= Utc::now() {
+        bail!("authorization expiry must be in the future");
+    }
+
+    Ok(parsed.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+}
+
+fn validate_setup_budget(
+    max_requests_per_second: f64,
+    max_concurrency: u16,
+    max_total_requests: u64,
+) -> Result<()> {
+    if !max_requests_per_second.is_finite()
+        || max_requests_per_second <= 0.0
+        || max_requests_per_second > 5.0
+    {
+        bail!("guided max_requests_per_second must be finite and between 0 and 5");
+    }
+
+    if !(1..=8).contains(&max_concurrency) {
+        bail!("guided max_concurrency must be between 1 and 8");
+    }
+
+    if !(1..=100_000).contains(&max_total_requests) {
+        bail!("guided max_total_requests must be between 1 and 100000");
+    }
+
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn create_value(
     workspace_path: &Path,
@@ -333,24 +1098,82 @@ fn create_value(
     policy_path: &Path,
 ) -> Result<Value> {
     let root = ready_workspace(workspace_path)?;
-    let targets = targets_directory(&root)?;
+    let _targets = targets_directory(&root)?;
+
     validate_target_id(id)?;
     validate_target_name(name)?;
     validate_safe_reference(authorization_reference, "authorization reference")?;
-    let origin = canonical_origin(origin)?;
-    let include_paths = canonical_paths(include_paths, true)?;
-    let exclude_paths = canonical_paths(exclude_paths, false)?;
-    validate_path_relationships(&include_paths, &exclude_paths)?;
+
+    let _ = canonical_origin(origin)?;
+
+    let canonical_includes = canonical_paths(include_paths.clone(), true)?;
+    let canonical_excludes = canonical_paths(exclude_paths.clone(), false)?;
+
+    validate_path_relationships(&canonical_includes, &canonical_excludes)?;
 
     let policy_bytes = read_bounded_source(policy_path, "target policy", MAX_POLICY_BYTES)?;
+
     let authorization_bytes = read_bounded_source(
         authorization_document,
         "authorization document",
         MAX_AUTHORIZATION_BYTES,
     )?;
-    let policy = parse_policy(&policy_bytes)?;
+
+    create_value_from_bytes(
+        workspace_path,
+        id,
+        name,
+        origin,
+        include_paths,
+        exclude_paths,
+        authorization_reference,
+        &authorization_bytes,
+        &policy_bytes,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create_value_from_bytes(
+    workspace_path: &Path,
+    id: &str,
+    name: &str,
+    origin: &str,
+    include_paths: Vec<String>,
+    exclude_paths: Vec<String>,
+    authorization_reference: &str,
+    authorization_bytes: &[u8],
+    policy_bytes: &[u8],
+) -> Result<Value> {
+    if policy_bytes.is_empty() || policy_bytes.len() as u64 > MAX_POLICY_BYTES {
+        bail!("target policy size is invalid");
+    }
+
+    if authorization_bytes.is_empty() || authorization_bytes.len() as u64 > MAX_AUTHORIZATION_BYTES
+    {
+        bail!("authorization document size is invalid");
+    }
+
+    let root = ready_workspace(workspace_path)?;
+    let targets = targets_directory(&root)?;
+
+    validate_target_id(id)?;
+    validate_target_name(name)?;
+
+    validate_safe_reference(authorization_reference, "authorization reference")?;
+
+    let origin = canonical_origin(origin)?;
+
+    let include_paths = canonical_paths(include_paths, true)?;
+
+    let exclude_paths = canonical_paths(exclude_paths, false)?;
+
+    validate_path_relationships(&include_paths, &exclude_paths)?;
+
+    let policy = parse_policy(policy_bytes)?;
     let compiled = policy.clone().compile(Utc::now())?;
+
     let program = program_metadata(&policy)?;
+
     let allowed_methods = validate_policy_binding(&compiled, &origin)?;
 
     let mut profile = TargetProfile {
@@ -364,21 +1187,27 @@ fn create_value(
         program,
         authorization: AuthorizationBinding {
             reference: authorization_reference.to_owned(),
-            document_sha256: workspace::sha256(&authorization_bytes),
+            document_sha256: workspace::sha256(authorization_bytes),
         },
-        policy_sha256: workspace::sha256(&policy_bytes),
+        policy_sha256: workspace::sha256(policy_bytes),
         identity_sha256: String::new(),
         created_at: workspace::now(),
     };
+
     profile.identity_sha256 = profile_identity_sha256(&profile)?;
+
     validate_profile(&profile)?;
 
     let path = profile_path(&targets, id);
+
     if workspace::safe_exists(&disable_path(&targets, id))? {
         bail!("target disable receipt already exists without a creatable profile");
     }
+
     let bytes = canonical_json(&profile)?;
+
     workspace::create_document(&path, &bytes)?;
+
     serde_json::to_value(effective_target(profile, None))
         .context("could not serialize target profile")
 }
@@ -839,7 +1668,7 @@ fn validate_scope_path(path: &str) -> Result<()> {
     if path.is_empty()
         || path.len() > MAX_PATH_BYTES
         || !path.starts_with('/')
-        || path.starts_with("//")
+        || path.contains("//")
         || path.contains('\\')
         || path.contains('?')
         || path.contains('#')
@@ -864,6 +1693,12 @@ fn validate_path_relationships(includes: &[String], excludes: &[String]) -> Resu
     for excluded in excludes {
         if includes.iter().any(|included| included == excluded) {
             bail!("an excluded path must not remove an entire included prefix");
+        }
+        if includes
+            .iter()
+            .any(|included| path_is_within(included, excluded))
+        {
+            bail!("an excluded path must not shadow an explicitly included prefix");
         }
         if !includes
             .iter()
@@ -996,6 +1831,92 @@ fn effective_target(profile: TargetProfile, receipt: Option<DisableReceipt>) -> 
         disabled_at: receipt.map(|value| value.disabled_at),
         network_activity: "none",
     }
+}
+
+fn emit_setup_preview(preview: &SetupPreview, json_output: bool) -> Result<()> {
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(preview)?);
+        return Ok(());
+    }
+
+    let identity = &preview.identity;
+
+    println!("status: {}", identity.status);
+    println!("target_id: {}", identity.target_id);
+    println!("name: {}", identity.name);
+    println!("origin: {}", identity.origin);
+
+    println!("include_paths:");
+    for path in &identity.include_paths {
+        println!("  - {path}");
+    }
+
+    println!("exclude_paths:");
+    if identity.exclude_paths.is_empty() {
+        println!("  - (none)");
+    } else {
+        for path in &identity.exclude_paths {
+            println!("  - {path}");
+        }
+    }
+
+    println!(
+        "allowed_methods: {}",
+        identity.automation.allowed_methods.join(", ")
+    );
+    println!("allow_subdomains: {}", identity.automation.allow_subdomains);
+    println!(
+        "max_requests_per_second: {}",
+        identity.automation.max_requests_per_second
+    );
+    println!("max_concurrency: {}", identity.automation.max_concurrency);
+    println!(
+        "max_total_requests: {}",
+        identity.automation.max_total_requests
+    );
+
+    println!("active_testing: {}", identity.automation.active_testing);
+    println!("oob_callbacks: {}", identity.automation.oob_callbacks);
+    println!(
+        "credential_bruteforce: {}",
+        identity.automation.credential_bruteforce
+    );
+    println!(
+        "destructive_testing: {}",
+        identity.automation.destructive_testing
+    );
+
+    println!(
+        "authorization_reference: {}",
+        identity.authorization.reference
+    );
+    println!(
+        "authorization_sha256: {}",
+        identity.authorization.document_sha256
+    );
+    println!(
+        "authorization_expires_at: {}",
+        identity.authorization.expires_at
+    );
+
+    println!(
+        "policy_snapshot_sha256: {}",
+        identity.policy.policy_snapshot_sha256
+    );
+    println!(
+        "policy_document_sha256: {}",
+        identity.policy.policy_document_sha256
+    );
+
+    println!("hard_denied_actions:");
+    for action in &identity.hard_denied_actions {
+        println!("  - {action}");
+    }
+
+    println!("preview_sha256: {}", preview.preview_sha256);
+    println!("network_activity: {}", identity.network_activity);
+
+    Ok(())
 }
 
 fn emit_value(value: &Value, json_output: bool) -> Result<()> {

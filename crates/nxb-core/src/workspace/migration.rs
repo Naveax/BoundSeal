@@ -360,10 +360,7 @@ fn prepare(paths: &MigrationPaths, plan: &MigrationPlan, source: &[u8]) -> Resul
         target_sha256: plan.target_sha256.clone(),
         prepared_at: now(),
     };
-    if let Err(error) = create_json(&paths.active, &journal) {
-        let _ = remove_regular(&paths.backup);
-        return Err(error);
-    }
+    create_json(&paths.active, &journal)?;
     Ok(())
 }
 
