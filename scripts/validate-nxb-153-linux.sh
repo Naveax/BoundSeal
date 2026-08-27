@@ -6,24 +6,14 @@ rust_toolchain="1.97.1"
 cargo_audit_version="0.22.2"
 cargo_deny_version="0.20.2"
 expected_lock_sha256="f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff"
-focused_tests=(
-    target_setup_cli
-    target_activation_cli
-    target_activation_recovery_cli
-    target_guided_artifact_cli
-    target_import_cli
-    target_import_failclosed_cli
-    target_path_binding_cli
-    target_scope_failclosed_cli
-    target_subdomain_failclosed_cli
-    target_persistence_envelope_cli
-    target_unicode_path_failclosed_cli
-)
 sealed_tool_object=''
+immutable_source_object=''
+repo_fd=''
+validation_fd=''
 
 # The first chdir establishes the repository CWD object inherited by every Git
-# command in this process. Callers may safely pass '.' to preserve an already
-# pinned repository CWD instead of reopening an absolute repository pathname.
+# command in this process. Preparation may pass '.' so this child never reopens a
+# configured absolute repository pathname after the parent has fixed authority.
 cd "$repo_root"
 
 fail() {
@@ -85,10 +75,6 @@ finally:
 PY
 }
 
-cargo_run() {
-    rustup run "$rust_toolchain" cargo "$@"
-}
-
 resolve_committed_blob() {
     local relative_path="$1"
     local label="$2"
@@ -108,9 +94,19 @@ resolve_committed_blob() {
     printf '%s' "$object"
 }
 
+blob_sha256() {
+    local object="$1"
+    git cat-file blob "$object" | sha256sum | awk '{print $1}'
+}
+
 run_sealed_tool() {
     [[ -n "$sealed_tool_object" ]] || fail 'sealed Linux validation-tool helper object is unresolved'
     git cat-file blob "$sealed_tool_object" | python3 - "$@"
+}
+
+run_immutable_source() {
+    [[ -n "$immutable_source_object" ]] || fail 'immutable Linux source runner object is unresolved'
+    git cat-file blob "$immutable_source_object" | bash -s -- "$@"
 }
 
 verify_tooling_receipt_snapshot() {
@@ -251,56 +247,72 @@ cleanup_validation_lock() {
 }
 trap cleanup_validation_lock EXIT
 
-command -v git >/dev/null 2>&1 || fail 'git is unavailable'
-command -v rustup >/dev/null 2>&1 || fail 'rustup is unavailable'
-command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is unavailable'
-command -v python3 >/dev/null 2>&1 || fail 'python3 is unavailable for committed sealed validation-tool execution, tooling-receipt verification and durable evidence publication'
-command -v stat >/dev/null 2>&1 || fail 'stat is unavailable'
-command -v awk >/dev/null 2>&1 || fail 'awk is unavailable'
+for required_command in git rustup sha256sum python3 stat awk bash; do
+    command -v "$required_command" >/dev/null 2>&1 || fail "$required_command is unavailable"
+done
+[[ -d /proc/self/fd ]] || fail '/proc/self/fd is unavailable for repository-object authority'
 
 head_sha="$(git rev-parse HEAD)"
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'exact Git HEAD could not be resolved'
 [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]] || fail 'working tree must be clean'
 
-# Bind the helper implementation to the exact initial Git object graph. Every
-# inspect/run invocation streams the committed blob directly into Python; no
-# mutable scripts pathname is reopened after the authority head is fixed.
-sealed_tool_object="$(resolve_committed_blob 'scripts/nxb-153-sealed-tool.py' 'sealed Linux validation-tool helper')"
-run_sealed_tool self-test >/dev/null ||
-    fail 'committed sealed Linux validation-tool primitive self-test failed before validation'
+# Pin the repository directory object. All mutable validation/tool/evidence paths
+# below are rooted through this descriptor instead of the configured pathname.
+exec {repo_fd}<. || fail 'could not pin repository directory object'
+repo_anchor="/proc/self/fd/$repo_fd"
+[[ -d "$repo_anchor" ]] || fail 'pinned repository descriptor is unavailable'
 
-validation_directory="$repo_root/target/nxb-validation"
-mkdir -p "$validation_directory"
+sealed_tool_object="$(resolve_committed_blob 'scripts/nxb-153-sealed-tool.py' 'sealed Linux validation-tool helper')"
+immutable_source_object="$(resolve_committed_blob 'scripts/nxb-153-linux-immutable-source.sh' 'immutable Linux source runner')"
+lock_object="$(resolve_committed_blob 'Cargo.lock' 'Cargo.lock')"
+sealed_helper_sha256="$(blob_sha256 "$sealed_tool_object")" || fail 'could not hash committed sealed-tool helper bytes'
+lock_sha256="$(blob_sha256 "$lock_object")" || fail 'could not hash exact-head Cargo.lock bytes'
+[[ "$sealed_helper_sha256" =~ ^[0-9a-f]{64}$ ]] || fail 'committed sealed-tool helper SHA-256 is invalid'
+[[ "$lock_sha256" == "$expected_lock_sha256" ]] ||
+    fail "exact-head Cargo.lock SHA-256 mismatch: expected $expected_lock_sha256, found $lock_sha256"
+
+# Pin the exact validation directory object as well. Publication and lock paths
+# remain attached to this object even if a concurrent rename occurs; a final
+# namespace-binding check prevents success if the canonical name was redirected.
+mkdir -p "$repo_anchor/target/nxb-validation"
+exec {validation_fd}<"$repo_anchor/target/nxb-validation" || fail 'could not pin validation evidence directory object'
+validation_directory="/proc/self/fd/$validation_fd"
+validation_identity="$(stat -Lc '%d:%i' "$validation_directory")" || fail 'could not identify pinned validation directory'
+evidence_relative="target/nxb-validation/nxb-153-linux-$head_sha.json"
 evidence_path="$validation_directory/nxb-153-linux-$head_sha.json"
 if [[ -e "$evidence_path" ]]; then
-    fail "exact-head Linux validation evidence already exists; validation gates were not rerun: $evidence_path; use the evidence reviewer or perform explicit recovery"
+    fail "exact-head Linux validation evidence already exists; validation gates were not rerun: $evidence_relative; use the evidence reviewer or perform explicit recovery"
 fi
 
 validation_lock_directory="$validation_directory/.nxb-153-validation-linux-$head_sha.lock"
 if ! mkdir "$validation_lock_directory" 2>/dev/null; then
     if [[ -e "$evidence_path" ]]; then
-        fail "exact-head Linux validation evidence appeared before lock acquisition; validation gates were not rerun: $evidence_path"
+        fail "exact-head Linux validation evidence appeared before lock acquisition; validation gates were not rerun: $evidence_relative"
     fi
-    fail "exact-head Linux validation is already in progress or requires explicit stale-lock recovery: $validation_lock_directory"
+    fail "exact-head Linux validation is already in progress or requires explicit stale-lock recovery: target/nxb-validation/.nxb-153-validation-linux-$head_sha.lock"
 fi
 validation_lock_claimed=true
 fsync_directory "$validation_directory" || fail 'could not sync validation directory after exact-head validation lock claim'
 if [[ -e "$evidence_path" ]]; then
-    fail "exact-head Linux validation evidence appeared while claiming the validation lock; heavy validation was not started: $evidence_path"
+    fail "exact-head Linux validation evidence appeared while claiming the validation lock; heavy validation was not started: $evidence_relative"
 fi
 
+# Primitive requirements are tested only after lock ownership so a duplicate
+# same-platform/head validator does not repeat namespace or sealing probes.
+run_sealed_tool self-test >/dev/null ||
+    fail 'committed sealed Linux validation-tool primitive self-test failed before validation'
+run_immutable_source self-test >/dev/null ||
+    fail 'committed immutable Linux source primitive self-test failed before validation'
+
 tools_relative="target/nxb-tools/linux/$head_sha"
-tools_root="$repo_root/$tools_relative"
+tools_root="$repo_anchor/$tools_relative"
 tools_bin="$tools_root/bin"
 audit_path="$tools_bin/cargo-audit"
 deny_path="$tools_bin/cargo-deny"
-[[ -d "$tools_root" ]] || fail "exact-head Linux tools root is missing: $tools_root; run scripts/prepare-and-validate-nxb-153-linux.sh first"
+[[ -d "$tools_root" ]] || fail "exact-head Linux tools root is missing: $tools_relative; run scripts/prepare-and-validate-nxb-153-linux.sh first"
 [[ -f "$audit_path" && ! -L "$audit_path" ]] || fail 'cargo-audit must be a regular non-symlink exact-head tool file'
 [[ -f "$deny_path" && ! -L "$deny_path" ]] || fail 'cargo-deny must be a regular non-symlink exact-head tool file'
 
-# Inspect current tool bytes through stable O_NOFOLLOW reads and sealed snapshots.
-# Both the inspection algorithm and the resulting version/SHA pair are bound to
-# the exact committed helper object selected from the initial validation head.
 audit_inspection="$(run_sealed_tool inspect "$audit_path" "$cargo_audit_version")" ||
     fail 'cargo-audit committed sealed inspection failed'
 deny_inspection="$(run_sealed_tool inspect "$deny_path" "$cargo_deny_version")" ||
@@ -314,15 +326,13 @@ rustc_version="$(rustup run "$rust_toolchain" rustc --version)" ||
     fail "Rust toolchain $rust_toolchain is unavailable"
 [[ "$rustc_version" == rustc\ 1.97.1\ * ]] ||
     fail "expected rustc 1.97.1, found '$rustc_version'"
-cargo_version="$(cargo_run --version)" || fail 'could not resolve pinned Cargo version'
+cargo_version="$(rustup run "$rust_toolchain" cargo --version)" || fail 'could not resolve pinned Cargo version'
 
+receipt_relative="target/nxb-validation/nxb-153-tooling-linux-$head_sha.json"
 receipt_path="$validation_directory/nxb-153-tooling-linux-$head_sha.json"
 [[ -f "$receipt_path" ]] ||
-    fail "exact-head tooling receipt is missing; run scripts/prepare-and-validate-nxb-153-linux.sh first"
+    fail "exact-head tooling receipt is missing: $receipt_relative; run scripts/prepare-and-validate-nxb-153-linux.sh first"
 
-# Open/read/hash/parse one O_NOFOLLOW receipt object. The SHA embedded in platform
-# evidence is therefore the SHA of the exact receipt bytes that were semantically
-# verified, not a separate pathname opening that could be transiently substituted.
 receipt_sha256="$(verify_tooling_receipt_snapshot \
     "$receipt_path" \
     "$head_sha" \
@@ -334,47 +344,22 @@ receipt_sha256="$(verify_tooling_receipt_snapshot \
     "$tools_relative")" || fail 'exact-head tooling receipt stable-object verification failed'
 [[ "$receipt_sha256" =~ ^[0-9a-f]{64}$ ]] || fail 'tooling receipt snapshot SHA-256 is invalid'
 
-[[ -f Cargo.lock ]] || fail 'Cargo.lock is missing'
-lock_sha256="$(sha256sum Cargo.lock | awk '{print $1}')"
-[[ "$lock_sha256" == "$expected_lock_sha256" ]] ||
-    fail "Cargo.lock SHA-256 mismatch: expected $expected_lock_sha256, found $lock_sha256"
-git diff --exit-code -- Cargo.lock >/dev/null ||
-    fail 'committed Cargo.lock differs before locked validation'
-
-cargo_run metadata --format-version 1 --locked --no-deps >/dev/null
-git diff --exit-code -- Cargo.lock >/dev/null ||
-    fail 'Cargo.lock changed during cargo metadata --locked'
-
-cargo_run fmt --all -- --check
-
-cargo_run check -p nxb-policy --all-targets --locked
-cargo_run clippy -p nxb-policy --all-targets --locked -- -D warnings
-cargo_run test -p nxb-policy --locked -- --test-threads=1
-
-cargo_run check -p nxb-core --all-targets --locked
-cargo_run clippy -p nxb-core --all-targets --locked -- -D warnings
-cargo_run test -p nxb-core --lib --locked -- --test-threads=1
-for test_name in "${focused_tests[@]}"; do
-    cargo_run test -p nxb-core --test "$test_name" --locked -- --test-threads=1
-done
-
-cargo_run check --workspace --all-targets --all-features --locked
-cargo_run clippy --workspace --all-targets --all-features --locked -- -D warnings
-cargo_run test --workspace --all-features --locked -- --test-threads=1
-
-# Immediately before each security gate, re-open the canonical executable with
-# O_NOFOLLOW, require the receipt-admitted SHA, seal those exact bytes and execute
-# the immutable snapshot. The helper implementation itself is the committed blob.
-run_sealed_tool run "$audit_path" "$cargo_audit_version" "$audit_sha256" -- audit ||
-    fail 'RustSec cargo-audit committed sealed gate failed'
-run_sealed_tool run "$deny_path" "$cargo_deny_version" "$deny_sha256" -- check ||
-    fail 'cargo-deny committed sealed gate failed'
-
-final_lock_sha256="$(sha256sum Cargo.lock | awk '{print $1}')"
-[[ "$final_lock_sha256" == "$expected_lock_sha256" ]] ||
-    fail 'Cargo.lock bytes changed during validation'
-git diff --exit-code -- Cargo.lock >/dev/null ||
-    fail 'Cargo.lock Git diff appeared during validation'
+# Heavy validation is executed only against an exact-head Git archive extracted
+# into a namespace-private tmpfs that is remounted read-only. Writable target,
+# temporary and Cargo-home state live on separate private tmpfs mounts. The child
+# receives the pinned repository descriptor only for receipt-hash-checked tool
+# access; it does not compile/test the mutable working tree.
+run_immutable_source validate \
+    "$head_sha" \
+    "$repo_fd" \
+    "$rust_toolchain" \
+    "$cargo_audit_version" \
+    "$cargo_deny_version" \
+    "$audit_sha256" \
+    "$deny_sha256" \
+    "$lock_sha256" \
+    "$sealed_helper_sha256" \
+    "$tools_relative" || fail 'immutable exact-head Linux Cargo/security gate sequence failed'
 
 final_head="$(git rev-parse HEAD)"
 [[ "$final_head" == "$head_sha" ]] || fail 'Git HEAD changed during validation'
@@ -383,10 +368,18 @@ final_head="$(git rev-parse HEAD)"
 
 final_audit_path_sha256="$(sha256sum "$audit_path" | awk '{print $1}')"
 final_deny_path_sha256="$(sha256sum "$deny_path" | awk '{print $1}')"
-[[ "$final_audit_path_sha256" == "$audit_sha256" ]] || fail 'cargo-audit pathname no longer names the validated sealed bytes'
-[[ "$final_deny_path_sha256" == "$deny_sha256" ]] || fail 'cargo-deny pathname no longer names the validated sealed bytes'
+[[ "$final_audit_path_sha256" == "$audit_sha256" ]] || fail 'cargo-audit anchored path no longer names the validated sealed bytes'
+[[ "$final_deny_path_sha256" == "$deny_sha256" ]] || fail 'cargo-deny anchored path no longer names the validated sealed bytes'
 final_receipt_sha256="$(sha256sum "$receipt_path" | awk '{print $1}')"
-[[ "$final_receipt_sha256" == "$receipt_sha256" ]] || fail 'tooling receipt pathname no longer names the semantically verified receipt bytes'
+[[ "$final_receipt_sha256" == "$receipt_sha256" ]] || fail 'tooling receipt path no longer names the semantically verified receipt bytes'
+
+# The canonical repository namespace must still bind target/nxb-validation to the
+# directory object used for lock/evidence publication. A drift failure after a
+# create-only claim leaves the visible artifact for explicit recovery.
+final_validation_identity="$(stat -Lc '%d:%i' "$repo_anchor/target/nxb-validation")" ||
+    fail 'canonical validation directory namespace disappeared during validation'
+[[ "$final_validation_identity" == "$validation_identity" ]] ||
+    fail 'canonical validation directory namespace no longer names the pinned evidence directory object'
 
 validated_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 rustc_json="$(json_escape "$rustc_version")"
@@ -409,7 +402,7 @@ cat > "$evidence_temp" <<JSON
   "cargo_audit_sha256": "$audit_sha256",
   "cargo_deny": "$deny_json",
   "cargo_deny_sha256": "$deny_sha256",
-  "tooling_receipt": "target/nxb-validation/nxb-153-tooling-linux-$head_sha.json",
+  "tooling_receipt": "$receipt_relative",
   "tooling_receipt_sha256": "$receipt_sha256",
   "tooling_receipt_verified": true,
   "cargo_lock_sha256": "$lock_sha256",
@@ -446,19 +439,29 @@ else
     fsync_directory "$validation_directory" || fail 'could not sync validation directory after evidence cleanup attempt'
     [[ -z "$cleanup_error" ]] || fail "$cleanup_error"
     if [[ -e "$evidence_path" ]]; then
-        fail "exact-head Linux validation evidence already exists and will not be overwritten: $evidence_path; review/remove it explicitly before validating again"
+        fail "exact-head Linux validation evidence already exists and will not be overwritten: $evidence_relative; review/remove it explicitly before validating again"
     fi
     fail 'could not create-only claim exact-head Linux validation evidence'
 fi
+
+# Recheck the canonical namespace after publication as well. No PASS output is
+# emitted if the evidence directory was renamed/replaced during finalization.
+final_validation_identity="$(stat -Lc '%d:%i' "$repo_anchor/target/nxb-validation")" ||
+    fail 'canonical validation directory namespace disappeared after evidence publication'
+[[ "$final_validation_identity" == "$validation_identity" ]] ||
+    fail 'canonical validation directory namespace drifted after evidence publication'
 
 rmdir "$validation_lock_directory" || fail 'could not release exact-head Linux validation lock after evidence publication'
 validation_lock_claimed=false
 fsync_directory "$validation_directory" || fail 'could not sync validation directory after exact-head validation lock release'
 trap - EXIT
 
-printf 'NXB-153 Linux validation passed with committed sealed security-tool authority.\n'
+printf 'NXB-153 Linux validation passed from an immutable exact-head private source snapshot.\n'
 printf 'HEAD: %s\n' "$head_sha"
 printf 'Tool root: %s\n' "$tools_relative"
 printf 'Cargo.lock SHA-256: %s\n' "$lock_sha256"
 printf 'Tooling receipt SHA-256: %s\n' "$receipt_sha256"
-printf 'Evidence: %s\n' "$evidence_path"
+printf 'Evidence: %s\n' "$evidence_relative"
+
+exec {validation_fd}<&-
+exec {repo_fd}<&-
