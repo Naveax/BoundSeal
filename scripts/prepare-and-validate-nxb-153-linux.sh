@@ -11,6 +11,9 @@ prep_lock=''
 validation_directory=''
 sealed_tool_object=''
 validator_object=''
+repo_fd=''
+validation_fd=''
+tools_fd=''
 
 fail() {
     printf 'NXB-153 Linux tool preparation failed: %s\n' "$1" >&2
@@ -98,54 +101,68 @@ cleanup() {
 }
 trap cleanup EXIT
 
-command -v git >/dev/null 2>&1 || fail 'git is unavailable'
-command -v rustup >/dev/null 2>&1 ||
-    fail 'rustup is unavailable; install rustup from the official Rust distribution first'
-command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is unavailable'
-command -v python3 >/dev/null 2>&1 || fail 'python3 is unavailable for committed sealed-tool execution and durable tooling-receipt publication'
+for required_command in git rustup sha256sum python3 stat awk bash; do
+    command -v "$required_command" >/dev/null 2>&1 || fail "$required_command is unavailable"
+done
+[[ -d /proc/self/fd ]] || fail '/proc/self/fd is unavailable for repository-object tool preparation'
 
-# The first chdir establishes the repository object used by this process. After
-# this point the parent shell never reopens $repo_root after visiting a temporary
-# installation directory; cargo installation runs in a subshell instead.
+# Establish the repository object once, then pin it with a directory descriptor.
+# All validation/tool roots are resolved relative to this object rather than the
+# configured pathname for the remainder of preparation.
 cd "$repo_root"
 head_sha="$(git rev-parse HEAD)"
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'exact Git HEAD could not be resolved'
 [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]] ||
     fail 'working tree must be clean before tool preparation'
+exec {repo_fd}<. || fail 'could not pin repository directory object'
+repo_anchor="/proc/self/fd/$repo_fd"
+[[ -d "$repo_anchor" ]] || fail 'pinned repository descriptor is unavailable'
 
-# Resolve helper/validator implementations from the immutable exact-head Git
-# object graph. Subsequent helper invocations stream those exact committed bytes
-# directly into Python rather than reopening scripts/nxb-153-sealed-tool.py by
-# pathname. A later repository/scripts pathname replacement cannot redirect the
-# helper implementation used for receipt generation.
 sealed_tool_object="$(resolve_committed_blob 'scripts/nxb-153-sealed-tool.py' 'sealed Linux validation-tool helper')"
 validator_object="$(resolve_committed_blob 'scripts/validate-nxb-153-linux.sh' 'Linux validator')"
-run_sealed_tool self-test >/dev/null ||
-    fail 'committed sealed Linux validation-tool primitive self-test failed before tool preparation'
 
-validation_directory="$repo_root/target/nxb-validation"
-mkdir -p "$validation_directory"
-fsync_directory "$repo_root/target" || fail 'could not sync target directory after validation-directory preparation'
+# Pin validation artifact namespace before lock/receipt operations. A final
+# canonical-binding check prevents a renamed/replaced directory from producing a
+# misleading preparation PASS.
+mkdir -p "$repo_anchor/target/nxb-validation"
+fsync_directory "$repo_anchor/target" || fail 'could not sync target directory after validation-directory preparation'
+exec {validation_fd}<"$repo_anchor/target/nxb-validation" || fail 'could not pin validation evidence directory object'
+validation_directory="/proc/self/fd/$validation_fd"
+validation_identity="$(stat -Lc '%d:%i' "$validation_directory")" || fail 'could not identify pinned validation directory'
+receipt_relative="target/nxb-validation/nxb-153-tooling-linux-$head_sha.json"
 receipt_path="$validation_directory/nxb-153-tooling-linux-$head_sha.json"
 if [[ -e "$receipt_path" ]]; then
-    fail "exact-head tooling receipt already exists; tool bytes were not mutated: $receipt_path; run the validator directly with the existing receipt, or review/remove it explicitly before preparing again"
+    fail "exact-head tooling receipt already exists; tool bytes were not mutated: $receipt_relative; run the validator directly with the existing receipt, or review/remove it explicitly before preparing again"
 fi
 
 prep_lock="$validation_directory/.nxb-153-tool-prep-$head_sha.lock"
 if ! mkdir "$prep_lock" 2>/dev/null; then
-    fail "exact-head tool preparation is already in progress or requires explicit stale-lock recovery: $prep_lock"
+    fail "exact-head tool preparation is already in progress or requires explicit stale-lock recovery: target/nxb-validation/.nxb-153-tool-prep-$head_sha.lock"
 fi
 fsync_directory "$validation_directory" || fail 'could not sync validation directory after preparation-lock claim'
 if [[ -e "$receipt_path" ]]; then
-    fail "exact-head tooling receipt appeared while claiming the preparation lock; tool bytes were not mutated: $receipt_path"
+    fail "exact-head tooling receipt appeared while claiming the preparation lock; tool bytes were not mutated: $receipt_relative"
 fi
 
+run_sealed_tool self-test >/dev/null ||
+    fail 'committed sealed Linux validation-tool primitive self-test failed before tool preparation'
+
 tools_relative="target/nxb-tools/linux/$head_sha"
-tools_root="$repo_root/$tools_relative"
-tools_bin="$tools_root/bin"
-if [[ -e "$tools_root" ]]; then
-    fail "exact-head Linux tools root already exists without an admitted tooling receipt; explicit recovery is required: $tools_root"
+canonical_tools_root="$repo_anchor/$tools_relative"
+if [[ -e "$canonical_tools_root" ]]; then
+    fail "exact-head Linux tools root already exists without an admitted tooling receipt; explicit recovery is required: $tools_relative"
 fi
+
+# Create the exact-head root ourselves and immediately pin that directory object.
+# cargo install therefore receives /proc/self/fd/<tools-fd> rather than a mutable
+# repository pathname. A failed preparation intentionally leaves the orphan root
+# as explicit recovery state, matching the existing no-silent-reuse contract.
+mkdir -p "$repo_anchor/target/nxb-tools/linux"
+mkdir "$canonical_tools_root" || fail 'could not create exact-head Linux tools root'
+exec {tools_fd}<"$canonical_tools_root" || fail 'could not pin exact-head Linux tools directory object'
+tools_root="/proc/self/fd/$tools_fd"
+tools_identity="$(stat -Lc '%d:%i' "$tools_root")" || fail 'could not identify pinned exact-head tools directory'
+tools_bin="$tools_root/bin"
 
 rustup toolchain install "$rust_toolchain" \
     --profile minimal \
@@ -155,6 +172,9 @@ rustup toolchain install "$rust_toolchain" \
 audit_path="$tools_bin/cargo-audit"
 deny_path="$tools_bin/cargo-deny"
 
+# Keep the parent process on the pinned repository CWD. cargo install runs from an
+# isolated temporary working directory but writes only through the pinned tool-root
+# descriptor inherited across rustup/cargo process creation.
 install_root="$(mktemp -d)"
 (
     cd "$install_root"
@@ -174,14 +194,9 @@ install_root="$(mktemp -d)"
         cargo-deny
 )
 
-# Parent CWD never left the initially opened repository object.
 [[ -f "$audit_path" && ! -L "$audit_path" ]] || fail 'fresh cargo-audit must be a regular non-symlink file'
 [[ -f "$deny_path" && ! -L "$deny_path" ]] || fail 'fresh cargo-deny must be a regular non-symlink file'
 
-# Inspect each freshly installed executable through one stable O_NOFOLLOW read,
-# copy those bytes into a sealed memfd, and derive both version and SHA-256 from
-# that immutable snapshot. The Python implementation itself is the exact helper
-# blob resolved from the initial Git head rather than a mutable repository path.
 audit_inspection="$(run_sealed_tool inspect "$audit_path" "$cargo_audit_version")" ||
     fail 'fresh cargo-audit committed sealed inspection failed'
 deny_inspection="$(run_sealed_tool inspect "$deny_path" "$cargo_deny_version")" ||
@@ -199,8 +214,20 @@ final_head="$(git rev-parse HEAD)"
 rustc_version="$(rustup run "$rust_toolchain" rustc --version)"
 audit_path_sha256="$(sha256sum "$audit_path" | awk '{print $1}')"
 deny_path_sha256="$(sha256sum "$deny_path" | awk '{print $1}')"
-[[ "$audit_path_sha256" == "$audit_sha256" ]] || fail 'cargo-audit pathname drifted before tooling receipt publication'
-[[ "$deny_path_sha256" == "$deny_sha256" ]] || fail 'cargo-deny pathname drifted before tooling receipt publication'
+[[ "$audit_path_sha256" == "$audit_sha256" ]] || fail 'cargo-audit pinned tool path drifted before tooling receipt publication'
+[[ "$deny_path_sha256" == "$deny_sha256" ]] || fail 'cargo-deny pinned tool path drifted before tooling receipt publication'
+
+# Both canonical namespaces must still name the pinned objects before receipt
+# publication. This catches repository target/tool/evidence rename substitution.
+final_validation_identity="$(stat -Lc '%d:%i' "$repo_anchor/target/nxb-validation")" ||
+    fail 'canonical validation directory namespace disappeared during preparation'
+[[ "$final_validation_identity" == "$validation_identity" ]] ||
+    fail 'canonical validation directory namespace no longer names the pinned object'
+final_tools_identity="$(stat -Lc '%d:%i' "$repo_anchor/$tools_relative")" ||
+    fail 'canonical exact-head tools namespace disappeared during preparation'
+[[ "$final_tools_identity" == "$tools_identity" ]] ||
+    fail 'canonical exact-head tools namespace no longer names the pinned tools object'
+
 prepared_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 receipt_temp="$(mktemp "$validation_directory/.nxb-153-tooling-linux-$head_sha.XXXXXX.tmp")"
 chmod 600 "$receipt_temp"
@@ -241,25 +268,39 @@ else
     fsync_directory "$validation_directory" || fail 'could not sync validation directory after tooling receipt cleanup attempt'
     [[ -z "$cleanup_error" ]] || fail "$cleanup_error"
     if [[ -e "$receipt_path" ]]; then
-        fail "exact-head tooling receipt was claimed by another process and will not be overwritten: $receipt_path"
+        fail "exact-head tooling receipt was claimed by another process and will not be overwritten: $receipt_relative"
     fi
     fail 'could not create-only claim the exact-head tooling receipt'
 fi
+
+# Recheck namespace bindings after create-only publication before any PASS output.
+final_validation_identity="$(stat -Lc '%d:%i' "$repo_anchor/target/nxb-validation")" ||
+    fail 'canonical validation directory namespace disappeared after receipt publication'
+[[ "$final_validation_identity" == "$validation_identity" ]] ||
+    fail 'canonical validation directory namespace drifted after receipt publication'
+final_tools_identity="$(stat -Lc '%d:%i' "$repo_anchor/$tools_relative")" ||
+    fail 'canonical exact-head tools namespace disappeared after receipt publication'
+[[ "$final_tools_identity" == "$tools_identity" ]] ||
+    fail 'canonical exact-head tools namespace drifted after receipt publication'
 
 rm -rf "$install_root" || fail 'could not remove tool-installation temporary directory'
 install_root=''
 rmdir "$prep_lock" || fail 'could not release exact-head tool-preparation lock'
 prep_lock=''
 fsync_directory "$validation_directory" || fail 'could not sync validation directory after preparation-lock release'
+trap - EXIT
 
-printf 'NXB-153 fresh committed/sealed Linux validation tools are ready.\n'
+printf 'NXB-153 fresh repository-anchored sealed Linux validation tools are ready.\n'
 printf 'HEAD: %s\n' "$head_sha"
 printf 'Tool root: %s\n' "$tools_relative"
-printf 'Tooling receipt: %s\n' "$receipt_path"
+printf 'Tooling receipt: %s\n' "$receipt_relative"
+
+# Release preparation-only authority handles before handing control to the exact
+# committed validator. The child opens its own repository/evidence descriptors.
+exec {tools_fd}<&-
+exec {validation_fd}<&-
+exec {repo_fd}<&-
 
 if [[ "$prepare_only" != "1" ]]; then
-    # Stream the exact validator blob from the same initial Git head. Passing '.'
-    # keeps the child on the inherited repository CWD object instead of reopening
-    # $repo_root through a potentially replaced pathname.
     git cat-file blob "$validator_object" | bash -s -- '.'
 fi
