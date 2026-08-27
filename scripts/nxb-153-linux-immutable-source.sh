@@ -148,7 +148,7 @@ validate_snapshot() {
 
             validate_namespace() {
                 local phase="$1"
-                python3 -c '\''
+                python3 -I -c '\''
 import os
 import sys
 
@@ -233,6 +233,8 @@ if actual_files != expected_files or actual_dirs != expected_dirs:
                 die "immutable snapshot is missing the sealed-tool helper"
             [[ -f "$source_root/scripts/nxb-153-registry-source.py" && ! -L "$source_root/scripts/nxb-153-registry-source.py" ]] ||
                 die "immutable snapshot is missing the registry source authority helper"
+            [[ -f "$source_root/scripts/nxb-153-validation-environment.py" && ! -L "$source_root/scripts/nxb-153-validation-environment.py" ]] ||
+                die "immutable snapshot is missing the validation environment authority helper"
 
             lock_sha256="$(sha256sum "$source_root/Cargo.lock" | awk "{print \$1}")"
             [[ "$lock_sha256" == "$expected_lock_sha256" ]] ||
@@ -241,7 +243,13 @@ if actual_files != expected_files or actual_dirs != expected_dirs:
             [[ "$helper_sha256" == "$sealed_helper_sha256" ]] ||
                 die "immutable snapshot sealed-tool helper differs from the committed authority bytes"
 
-            python3 "$source_root/scripts/nxb-153-registry-source.py" validate-lock "$source_root/Cargo.lock" >/dev/null ||
+            python3 -I "$source_root/scripts/nxb-153-validation-environment.py" self-test >/dev/null ||
+                die "validation environment authority self-test failed"
+            python3 -I "$source_root/scripts/nxb-153-validation-environment.py" audit >/dev/null ||
+                die "ambient Rust/Cargo/Python authority variables are not admitted for immutable validation"
+            python3 -I "$source_root/scripts/nxb-153-registry-source.py" self-test >/dev/null ||
+                die "registry source authority self-test failed"
+            python3 -I "$source_root/scripts/nxb-153-registry-source.py" validate-lock "$source_root/Cargo.lock" >/dev/null ||
                 die "Cargo.lock registry-source contract is unsupported"
 
             for runtime_path in \
@@ -291,13 +299,13 @@ if actual_files != expected_files or actual_dirs != expected_dirs:
             CARGO_HOME="$fetch_home" cargo_raw fetch --locked ||
                 die "cargo fetch --locked failed while preparing checksum-bound dependency sources"
             CARGO_HOME="$fetch_home" cargo_raw metadata --format-version 1 --locked | \
-                python3 scripts/nxb-153-registry-source.py validate-metadata "$source_root" >/dev/null ||
+                python3 -I scripts/nxb-153-registry-source.py validate-metadata "$source_root" >/dev/null ||
                 die "cargo metadata contains an unsupported external/local dependency source"
 
             CARGO_HOME="$fetch_home" CARGO_NET_OFFLINE=true \
                 cargo_raw vendor --locked --versioned-dirs "$vendor_root" >/dev/null ||
                 die "offline cargo vendor failed from the fetched locked dependency cache"
-            vendor_summary="$(python3 scripts/nxb-153-registry-source.py validate-vendor Cargo.lock "$vendor_root")" ||
+            vendor_summary="$(python3 -I scripts/nxb-153-registry-source.py validate-vendor Cargo.lock "$vendor_root")" ||
                 die "vendored dependency snapshot differs from Cargo.lock/checksum authority"
             [[ -n "$vendor_summary" ]] || die "vendored dependency authority summary is empty"
 
@@ -368,10 +376,10 @@ EOF
             [[ -f "$audit_path" && ! -L "$audit_path" ]] || die "anchored cargo-audit path is unavailable"
             [[ -f "$deny_path" && ! -L "$deny_path" ]] || die "anchored cargo-deny path is unavailable"
 
-            python3 scripts/nxb-153-sealed-tool.py run \
+            python3 -I scripts/nxb-153-sealed-tool.py run \
                 "$audit_path" "$cargo_audit_version" "$audit_sha256" -- audit ||
                 die "receipt-hash-checked sealed cargo-audit gate failed inside immutable source snapshot"
-            python3 scripts/nxb-153-sealed-tool.py run \
+            python3 -I scripts/nxb-153-sealed-tool.py run \
                 "$deny_path" "$cargo_deny_version" "$deny_sha256" -- check ||
                 die "receipt-hash-checked sealed cargo-deny gate failed inside immutable source snapshot"
 
@@ -380,7 +388,7 @@ EOF
                 die "immutable snapshot Cargo.lock changed during validation"
             [[ "$(sha256sum "$config_root/config.toml" | awk "{print \$1}")" == "$config_sha256" ]] ||
                 die "gate Cargo source-replacement config changed during validation"
-            python3 scripts/nxb-153-registry-source.py validate-vendor Cargo.lock "$vendor_root" >/dev/null ||
+            python3 -I scripts/nxb-153-registry-source.py validate-vendor Cargo.lock "$vendor_root" >/dev/null ||
                 die "vendored dependency snapshot failed final checksum/namespace verification"
             validate_namespace post
 
