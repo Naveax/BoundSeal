@@ -17,24 +17,24 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Fail-NxbH2EnumerationGuard {
+function Fail-NxbH2GitGuard {
     param([Parameter(Mandatory = $true)][string]$Message)
-    throw "NXB-153 Windows H2 enumeration guard failed: $Message"
+    throw "NXB-153 Windows H2 Git-output guard failed: $Message"
 }
 
-function ConvertTo-NxbH2EnumerationHex {
+function ConvertTo-NxbH2GitGuardHex {
     param([Parameter(Mandatory = $true)][byte[]]$Bytes)
     return (($Bytes | ForEach-Object { $_.ToString('x2') }) -join '')
 }
 
-function Open-NxbH2EnumerationPinnedFile {
+function Open-NxbH2GitGuardPinnedFile {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string]$Label
     )
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
     if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-        Fail-NxbH2EnumerationGuard "$Label must be a regular non-reparse file: $Path"
+        Fail-NxbH2GitGuard "$Label must be a regular non-reparse file: $Path"
     }
     try {
         return [IO.File]::Open(
@@ -45,24 +45,24 @@ function Open-NxbH2EnumerationPinnedFile {
         )
     }
     catch {
-        Fail-NxbH2EnumerationGuard "could not pin $Label with write/delete sharing withheld: $($_.Exception.Message)"
+        Fail-NxbH2GitGuard "could not pin $Label with write/delete sharing withheld: $($_.Exception.Message)"
     }
 }
 
-function Get-NxbH2EnumerationGitBlobOid {
+function Get-NxbH2GitGuardBlobOid {
     param(
         [Parameter(Mandatory = $true)][IO.FileStream]$Stream,
         [Parameter(Mandatory = $true)][string]$Label
     )
     if (-not $Stream.CanRead -or -not $Stream.CanSeek) {
-        Fail-NxbH2EnumerationGuard "$Label stream must be readable and seekable"
+        Fail-NxbH2GitGuard "$Label stream must be readable and seekable"
     }
     $saved = $Stream.Position
     try {
         $Stream.Position = 0
         $length = $Stream.Length
         if ($length -le 0 -or $length -gt 2097152) {
-            Fail-NxbH2EnumerationGuard "$Label size is outside the supported implementation envelope"
+            Fail-NxbH2GitGuard "$Label size is outside the supported implementation envelope"
         }
         $sha1 = [Security.Cryptography.SHA1]::Create()
         try {
@@ -75,10 +75,10 @@ function Get-NxbH2EnumerationGitBlobOid {
                 [void]$sha1.TransformBlock($buffer, 0, $read, $null, 0)
             }
             if ($total -ne $length) {
-                Fail-NxbH2EnumerationGuard "$Label changed size while hashing"
+                Fail-NxbH2GitGuard "$Label changed size while hashing"
             }
             [void]$sha1.TransformFinalBlock([byte[]]::new(0), 0, 0)
-            return (ConvertTo-NxbH2EnumerationHex -Bytes $sha1.Hash)
+            return (ConvertTo-NxbH2GitGuardHex -Bytes $sha1.Hash)
         }
         finally {
             $sha1.Dispose()
@@ -89,35 +89,35 @@ function Get-NxbH2EnumerationGitBlobOid {
     }
 }
 
-function Assert-NxbH2EnumerationCommittedFile {
+function Assert-NxbH2GitGuardCommittedFile {
     param(
         [Parameter(Mandatory = $true)][IO.FileStream]$Stream,
         [Parameter(Mandatory = $true)][string]$RelativePath,
         [Parameter(Mandatory = $true)][string]$Label
     )
-    $expected = (git -C $RepoRoot rev-parse "${HeadSha}:$RelativePath").Trim()
+    $expected = (& $script:NxbH2GitApplication -C $RepoRoot rev-parse "${HeadSha}:$RelativePath" | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $expected -notmatch '^[0-9a-f]{40}$') {
-        Fail-NxbH2EnumerationGuard "exact-head $Label Git object could not be resolved"
+        Fail-NxbH2GitGuard "exact-head $Label Git object could not be resolved"
     }
-    $type = (git -C $RepoRoot cat-file -t $expected).Trim()
+    $type = (& $script:NxbH2GitApplication -C $RepoRoot cat-file -t $expected | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $type -cne 'blob') {
-        Fail-NxbH2EnumerationGuard "exact-head $Label is not a Git blob"
+        Fail-NxbH2GitGuard "exact-head $Label is not a Git blob"
     }
-    $actual = Get-NxbH2EnumerationGitBlobOid -Stream $Stream -Label $Label
+    $actual = Get-NxbH2GitGuardBlobOid -Stream $Stream -Label $Label
     if ($actual -cne $expected) {
-        Fail-NxbH2EnumerationGuard "pinned $Label bytes differ from exact-head Git authority"
+        Fail-NxbH2GitGuard "pinned $Label bytes differ from exact-head Git authority"
     }
     return $expected
 }
 
-if ($null -eq ('Nxb153H2EnumerationNative' -as [type])) {
+if ($null -eq ('Nxb153H2GitGuardNative' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
-public static class Nxb153H2EnumerationNative
+public static class Nxb153H2GitGuardNative
 {
     private const uint GENERIC_READ = 0x80000000;
     private const uint FILE_SHARE_READ = 0x00000001;
@@ -158,124 +158,149 @@ public static class Nxb153H2EnumerationNative
 }
 
 if (-not $IsWindows) {
-    Fail-NxbH2EnumerationGuard 'Windows H2 enumeration guard must run on Windows'
+    Fail-NxbH2GitGuard 'Windows H2 Git-output guard must run on Windows'
 }
 if ($HeadSha -notmatch '^[0-9a-f]{40}$') {
-    Fail-NxbH2EnumerationGuard 'exact head is not canonical 40-hex SHA-1'
+    Fail-NxbH2GitGuard 'exact head is not canonical 40-hex SHA-1'
 }
 
 $RepoRoot = [IO.Path]::GetFullPath($RepoRoot)
 $ValidationDirectory = [IO.Path]::GetFullPath($ValidationDirectory)
 $scriptsRoot = Join-Path $RepoRoot 'scripts'
-$innerRelative = 'scripts/nxb-153-windows-immutable-source-bounded-inner.ps1'
-$innerPath = Join-Path $scriptsRoot 'nxb-153-windows-immutable-source-bounded-inner.ps1'
+$innerRelative = 'scripts/nxb-153-windows-immutable-source-enumeration-inner.ps1'
+$innerPath = Join-Path $scriptsRoot 'nxb-153-windows-immutable-source-enumeration-inner.ps1'
 $innerStream = $null
 $scriptsHandle = $null
 $primaryError = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
-$script:NxbH2EnumerationLimit = 131072
+$script:NxbH2GitLsTreeByteLimit = 67108864
+$script:NxbH2GitLsTreeLineLimit = 4096
 
-function Get-ChildItem {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)][string]$LiteralPath,
-        [switch]$Force,
-        [switch]$Recurse,
-        [switch]$Directory,
-        [switch]$File
-    )
+$gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
+$script:NxbH2GitApplication = $gitCommand.Source
 
-    if ($Directory -and $File) {
-        Fail-NxbH2EnumerationGuard 'bounded Get-ChildItem proxy rejects simultaneous -Directory and -File'
+if (Test-Path Function:\git) {
+    Fail-NxbH2GitGuard 'ambient git function authority is not admitted'
+}
+
+function git {
+    $arguments = @($args | ForEach-Object { [string]$_ })
+    $isLsTree = $false
+    foreach ($argument in $arguments) {
+        if ($argument -ceq 'ls-tree') {
+            $isLsTree = $true
+            break
+        }
     }
 
-    $invoke = @{ LiteralPath = $LiteralPath }
-    if ($Force) { $invoke.Force = $true }
-    if ($Recurse) { $invoke.Recurse = $true }
-    if ($Directory) { $invoke.Directory = $true }
-    if ($File) { $invoke.File = $true }
+    if (-not $isLsTree) {
+        & $script:NxbH2GitApplication @arguments
+        return
+    }
 
-    [Int64]$count = 0
-    Microsoft.PowerShell.Management\Get-ChildItem @invoke | ForEach-Object {
-        $count++
-        if ($count -gt $script:NxbH2EnumerationLimit) {
-            Fail-NxbH2EnumerationGuard "Get-ChildItem enumeration-count bound exceeded for $LiteralPath"
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $script:NxbH2GitApplication
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in $arguments) {
+        [void]$startInfo.ArgumentList.Add($argument)
+    }
+
+    $process = [Diagnostics.Process]::new()
+    $memory = [IO.MemoryStream]::new()
+    try {
+        $process.StartInfo = $startInfo
+        if (-not $process.Start()) {
+            Fail-NxbH2GitGuard 'could not start bounded git ls-tree process'
         }
-        $_
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $buffer = [byte[]]::new(65536)
+        [Int64]$total = 0
+        while (($read = $process.StandardOutput.BaseStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $total += $read
+            if ($total -gt $script:NxbH2GitLsTreeByteLimit) {
+                try { $process.Kill($true) } catch {}
+                Fail-NxbH2GitGuard "git ls-tree output exceeds $($script:NxbH2GitLsTreeByteLimit) bytes"
+            }
+            $memory.Write($buffer, 0, $read)
+        }
+        $process.WaitForExit()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        $global:LASTEXITCODE = $process.ExitCode
+        if ($process.ExitCode -ne 0) {
+            Fail-NxbH2GitGuard "git ls-tree failed with exit $($process.ExitCode): $stderr"
+        }
+
+        $utf8 = [Text.UTF8Encoding]::new($false, $true)
+        try {
+            $text = $utf8.GetString($memory.ToArray())
+        }
+        catch {
+            Fail-NxbH2GitGuard "git ls-tree output is not strict UTF-8: $($_.Exception.Message)"
+        }
+
+        $reader = [IO.StringReader]::new($text)
+        try {
+            [Int64]$lineCount = 0
+            while ($null -ne ($line = $reader.ReadLine())) {
+                $lineCount++
+                if ($lineCount -gt $script:NxbH2GitLsTreeLineLimit) {
+                    Fail-NxbH2GitGuard "git ls-tree record count exceeds $($script:NxbH2GitLsTreeLineLimit)"
+                }
+                $line
+            }
+        }
+        finally {
+            $reader.Dispose()
+        }
+        $global:LASTEXITCODE = 0
+    }
+    finally {
+        $memory.Dispose()
+        $process.Dispose()
     }
 }
 
-function Invoke-NxbH2EnumerationSelfTest {
-    param([Parameter(Mandatory = $true)][string]$Root)
+function Invoke-NxbH2GitGuardSelfTest {
+    $version = (& git --version | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $version -notmatch '^git version ') {
+        Fail-NxbH2GitGuard 'generic git proxy self-test failed'
+    }
 
-    $probeRoot = Join-Path $Root ('.nxb-153-h2-enumeration-' + [Guid]::NewGuid().ToString('N'))
-    $savedLimit = $script:NxbH2EnumerationLimit
-    $primary = $null
-    $cleanup = $null
+    $savedLineLimit = $script:NxbH2GitLsTreeLineLimit
     try {
-        [void][IO.Directory]::CreateDirectory($probeRoot)
-        [IO.File]::WriteAllText((Join-Path $probeRoot 'a'), 'a')
-        [IO.File]::WriteAllText((Join-Path $probeRoot 'b'), 'b')
-        [IO.File]::WriteAllText((Join-Path $probeRoot 'c'), 'c')
-
-        $script:NxbH2EnumerationLimit = 4
-        $normal = @(Get-ChildItem -LiteralPath $probeRoot -Force -ErrorAction Stop)
-        if ($normal.Count -ne 3) {
-            Fail-NxbH2EnumerationGuard 'enumeration self-test normal result count differs'
-        }
-
-        $script:NxbH2EnumerationLimit = 2
+        $script:NxbH2GitLsTreeLineLimit = 1
         $rejected = $false
         try {
-            @(Get-ChildItem -LiteralPath $probeRoot -Force -ErrorAction Stop) | Out-Null
+            @(& git -C $RepoRoot -c core.quotePath=false ls-tree -rl --full-tree $HeadSha) | Out-Null
         }
         catch {
-            if ($_.Exception.Message -notlike '*enumeration-count bound exceeded*') {
+            if ($_.Exception.Message -notlike '*record count exceeds*') {
                 throw
             }
             $rejected = $true
         }
         if (-not $rejected) {
-            Fail-NxbH2EnumerationGuard 'enumeration self-test did not reject an oversized result set'
+            Fail-NxbH2GitGuard 'bounded git ls-tree self-test did not reject the exact-head tree at a one-record limit'
         }
-    }
-    catch {
-        $primary = $_
     }
     finally {
-        $script:NxbH2EnumerationLimit = $savedLimit
-        if (Test-Path -LiteralPath $probeRoot) {
-            try {
-                Microsoft.PowerShell.Management\Remove-Item -LiteralPath $probeRoot -Recurse -Force -ErrorAction Stop
-            }
-            catch {
-                $cleanup = $_
-            }
-        }
-    }
-
-    if ($null -ne $primary) {
-        if ($null -ne $cleanup) {
-            throw "enumeration self-test failed: $($primary.Exception.Message); cleanup: $($cleanup.Exception.Message)"
-        }
-        throw $primary
-    }
-    if ($null -ne $cleanup) {
-        Fail-NxbH2EnumerationGuard "enumeration self-test cleanup failed: $($cleanup.Exception.Message)"
+        $script:NxbH2GitLsTreeLineLimit = $savedLineLimit
     }
 }
 
 try {
     $scriptsItem = Get-Item -LiteralPath $scriptsRoot -Force -ErrorAction Stop
     if (-not $scriptsItem.PSIsContainer -or ($scriptsItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-        Fail-NxbH2EnumerationGuard 'scripts namespace must be a normal non-reparse directory'
+        Fail-NxbH2GitGuard 'scripts namespace must be a normal non-reparse directory'
     }
-    $scriptsHandle = [Nxb153H2EnumerationNative]::OpenDirectoryNoDeleteShare($scriptsRoot)
-    $innerStream = Open-NxbH2EnumerationPinnedFile -Path $innerPath -Label 'bounded Windows H2 inner wrapper'
-    [void](Assert-NxbH2EnumerationCommittedFile -Stream $innerStream -RelativePath $innerRelative -Label 'bounded Windows H2 inner wrapper')
+    $scriptsHandle = [Nxb153H2GitGuardNative]::OpenDirectoryNoDeleteShare($scriptsRoot)
+    $innerStream = Open-NxbH2GitGuardPinnedFile -Path $innerPath -Label 'Windows H2 enumeration-guard inner wrapper'
+    [void](Assert-NxbH2GitGuardCommittedFile -Stream $innerStream -RelativePath $innerRelative -Label 'Windows H2 enumeration-guard inner wrapper')
 
     if ($SelfTest) {
-        Invoke-NxbH2EnumerationSelfTest -Root $ValidationDirectory
+        Invoke-NxbH2GitGuardSelfTest
     }
 
     $innerParameters = @{}
@@ -284,17 +309,17 @@ try {
     }
     . $innerPath @innerParameters
 
-    $finalOid = Get-NxbH2EnumerationGitBlobOid -Stream $innerStream -Label 'bounded Windows H2 inner wrapper final pinned object'
-    $expectedOid = (git -C $RepoRoot rev-parse "${HeadSha}:$innerRelative").Trim()
+    $finalOid = Get-NxbH2GitGuardBlobOid -Stream $innerStream -Label 'Windows H2 enumeration-guard inner final pinned object'
+    $expectedOid = (& $script:NxbH2GitApplication -C $RepoRoot rev-parse "${HeadSha}:$innerRelative" | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $finalOid -cne $expectedOid) {
-        Fail-NxbH2EnumerationGuard 'bounded Windows H2 inner wrapper authority changed during execution'
+        Fail-NxbH2GitGuard 'Windows H2 enumeration-guard inner authority changed during execution'
     }
 }
 catch {
     $primaryError = $_
 }
 finally {
-    Remove-Item Function:\Get-ChildItem -ErrorAction SilentlyContinue
+    Remove-Item Function:\git -ErrorAction SilentlyContinue
     if ($null -ne $innerStream) {
         try { $innerStream.Dispose() }
         catch { $cleanupErrors.Add("inner wrapper handle disposal failed: $($_.Exception.Message)") }
@@ -307,13 +332,13 @@ finally {
 
 if ($null -ne $primaryError) {
     if ($cleanupErrors.Count -gt 0) {
-        throw "NXB-153 Windows H2 enumeration guard failed: $($primaryError.Exception.Message); cleanup: $($cleanupErrors -join ' | ')"
+        throw "NXB-153 Windows H2 Git-output guard failed: $($primaryError.Exception.Message); cleanup: $($cleanupErrors -join ' | ')"
     }
     throw $primaryError
 }
 if ($cleanupErrors.Count -gt 0) {
-    Fail-NxbH2EnumerationGuard ("cleanup failed after otherwise successful validation: " + ($cleanupErrors -join ' | '))
+    Fail-NxbH2GitGuard ("cleanup failed after otherwise successful validation: " + ($cleanupErrors -join ' | '))
 }
 if ($SelfTest) {
-    Write-Host 'NXB-153 Windows H2 bounded enumeration source self-test chain passed; real Windows runtime admission remains required.'
+    Write-Host 'NXB-153 Windows H2 bounded Git-output source self-test chain passed; real Windows runtime admission remains required.'
 }
