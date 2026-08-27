@@ -89,27 +89,6 @@ function Get-NxbH2GitGuardBlobOid {
     }
 }
 
-function Assert-NxbH2GitGuardCommittedFile {
-    param(
-        [Parameter(Mandatory = $true)][IO.FileStream]$Stream,
-        [Parameter(Mandatory = $true)][string]$RelativePath,
-        [Parameter(Mandatory = $true)][string]$Label
-    )
-    $expected = (& $script:NxbH2GitApplication -C $RepoRoot rev-parse "${HeadSha}:$RelativePath" | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $expected -notmatch '^[0-9a-f]{40}$') {
-        Fail-NxbH2GitGuard "exact-head $Label Git object could not be resolved"
-    }
-    $type = (& $script:NxbH2GitApplication -C $RepoRoot cat-file -t $expected | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $type -cne 'blob') {
-        Fail-NxbH2GitGuard "exact-head $Label is not a Git blob"
-    }
-    $actual = Get-NxbH2GitGuardBlobOid -Stream $Stream -Label $Label
-    if ($actual -cne $expected) {
-        Fail-NxbH2GitGuard "pinned $Label bytes differ from exact-head Git authority"
-    }
-    return $expected
-}
-
 if ($null -eq ('Nxb153H2GitGuardNative' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
@@ -173,8 +152,8 @@ $innerStream = $null
 $scriptsHandle = $null
 $primaryError = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
-$script:NxbH2GitLsTreeByteLimit = 67108864
-$script:NxbH2GitLsTreeLineLimit = 4096
+$script:NxbH2GitOutputByteLimit = 67108864
+$script:NxbH2GitOutputLineLimit = 4096
 
 $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
 $script:NxbH2GitApplication = $gitCommand.Source
@@ -185,24 +164,11 @@ if (Test-Path Function:\git) {
 
 function git {
     $arguments = @($args | ForEach-Object { [string]$_ })
-    $isLsTree = $false
-    foreach ($argument in $arguments) {
-        if ($argument -ceq 'ls-tree') {
-            $isLsTree = $true
-            break
-        }
-    }
-
-    if (-not $isLsTree) {
-        & $script:NxbH2GitApplication @arguments
-        return
-    }
-
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $script:NxbH2GitApplication
     $startInfo.UseShellExecute = $false
     $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
+    $startInfo.RedirectStandardError = $false
     foreach ($argument in $arguments) {
         [void]$startInfo.ArgumentList.Add($argument)
     }
@@ -212,32 +178,27 @@ function git {
     try {
         $process.StartInfo = $startInfo
         if (-not $process.Start()) {
-            Fail-NxbH2GitGuard 'could not start bounded git ls-tree process'
+            Fail-NxbH2GitGuard 'could not start bounded Git process'
         }
-        $stderrTask = $process.StandardError.ReadToEndAsync()
         $buffer = [byte[]]::new(65536)
         [Int64]$total = 0
         while (($read = $process.StandardOutput.BaseStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
             $total += $read
-            if ($total -gt $script:NxbH2GitLsTreeByteLimit) {
+            if ($total -gt $script:NxbH2GitOutputByteLimit) {
                 try { $process.Kill($true) } catch {}
-                Fail-NxbH2GitGuard "git ls-tree output exceeds $($script:NxbH2GitLsTreeByteLimit) bytes"
+                Fail-NxbH2GitGuard "Git stdout exceeds $($script:NxbH2GitOutputByteLimit) bytes"
             }
             $memory.Write($buffer, 0, $read)
         }
         $process.WaitForExit()
-        $stderr = $stderrTask.GetAwaiter().GetResult()
         $global:LASTEXITCODE = $process.ExitCode
-        if ($process.ExitCode -ne 0) {
-            Fail-NxbH2GitGuard "git ls-tree failed with exit $($process.ExitCode): $stderr"
-        }
 
         $utf8 = [Text.UTF8Encoding]::new($false, $true)
         try {
             $text = $utf8.GetString($memory.ToArray())
         }
         catch {
-            Fail-NxbH2GitGuard "git ls-tree output is not strict UTF-8: $($_.Exception.Message)"
+            Fail-NxbH2GitGuard "Git stdout is not strict UTF-8: $($_.Exception.Message)"
         }
 
         $reader = [IO.StringReader]::new($text)
@@ -245,8 +206,8 @@ function git {
             [Int64]$lineCount = 0
             while ($null -ne ($line = $reader.ReadLine())) {
                 $lineCount++
-                if ($lineCount -gt $script:NxbH2GitLsTreeLineLimit) {
-                    Fail-NxbH2GitGuard "git ls-tree record count exceeds $($script:NxbH2GitLsTreeLineLimit)"
+                if ($lineCount -gt $script:NxbH2GitOutputLineLimit) {
+                    Fail-NxbH2GitGuard "Git stdout record count exceeds $($script:NxbH2GitOutputLineLimit)"
                 }
                 $line
             }
@@ -254,7 +215,6 @@ function git {
         finally {
             $reader.Dispose()
         }
-        $global:LASTEXITCODE = 0
     }
     finally {
         $memory.Dispose()
@@ -262,15 +222,37 @@ function git {
     }
 }
 
+function Assert-NxbH2GitGuardCommittedFile {
+    param(
+        [Parameter(Mandatory = $true)][IO.FileStream]$Stream,
+        [Parameter(Mandatory = $true)][string]$RelativePath,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    $expected = (& $script:NxbH2GitApplication -C $RepoRoot rev-parse "${HeadSha}:$RelativePath" | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $expected -notmatch '^[0-9a-f]{40}$') {
+        Fail-NxbH2GitGuard "exact-head $Label Git object could not be resolved"
+    }
+    $type = (& $script:NxbH2GitApplication -C $RepoRoot cat-file -t $expected | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $type -cne 'blob') {
+        Fail-NxbH2GitGuard "exact-head $Label is not a Git blob"
+    }
+    $actual = Get-NxbH2GitGuardBlobOid -Stream $Stream -Label $Label
+    if ($actual -cne $expected) {
+        Fail-NxbH2GitGuard "pinned $Label bytes differ from exact-head Git authority"
+    }
+    return $expected
+}
+
 function Invoke-NxbH2GitGuardSelfTest {
     $version = (& git --version | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $version -notmatch '^git version ') {
-        Fail-NxbH2GitGuard 'generic git proxy self-test failed'
+        Fail-NxbH2GitGuard 'generic bounded Git proxy self-test failed'
     }
 
-    $savedLineLimit = $script:NxbH2GitLsTreeLineLimit
+    $savedLineLimit = $script:NxbH2GitOutputLineLimit
+    $savedByteLimit = $script:NxbH2GitOutputByteLimit
     try {
-        $script:NxbH2GitLsTreeLineLimit = 1
+        $script:NxbH2GitOutputLineLimit = 1
         $rejected = $false
         try {
             @(& git -C $RepoRoot -c core.quotePath=false ls-tree -rl --full-tree $HeadSha) | Out-Null
@@ -282,11 +264,29 @@ function Invoke-NxbH2GitGuardSelfTest {
             $rejected = $true
         }
         if (-not $rejected) {
-            Fail-NxbH2GitGuard 'bounded git ls-tree self-test did not reject the exact-head tree at a one-record limit'
+            Fail-NxbH2GitGuard 'bounded Git self-test did not reject exact-head ls-tree at a one-record limit'
+        }
+
+        $script:NxbH2GitOutputLineLimit = $savedLineLimit
+        $script:NxbH2GitOutputByteLimit = 4
+        $rejected = $false
+        try {
+            @(& git --version) | Out-Null
+        }
+        catch {
+            if ($_.Exception.Message -notlike '*stdout exceeds*') {
+                throw
+            }
+            $rejected = $true
+        }
+        if (-not $rejected) {
+            Fail-NxbH2GitGuard 'bounded Git self-test did not reject stdout at a four-byte limit'
         }
     }
     finally {
-        $script:NxbH2GitLsTreeLineLimit = $savedLineLimit
+        $script:NxbH2GitOutputLineLimit = $savedLineLimit
+        $script:NxbH2GitOutputByteLimit = $savedByteLimit
+        $global:LASTEXITCODE = 0
     }
 }
 
