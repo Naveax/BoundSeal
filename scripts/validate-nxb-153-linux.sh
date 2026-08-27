@@ -77,8 +77,16 @@ tool_version() {
         fail "$label is unavailable at $path; run scripts/prepare-and-validate-nxb-153-linux.sh first"
     local value
     value="$($path --version)" || fail "$label version could not be resolved"
-    printf '%s\n' "$value" | grep -Eq "(^|[[:space:]])${expected}($|[[:space:]])" ||
-        fail "$label version mismatch: expected $expected, found '$value'"
+    printf '%s\n' "$value" | awk -v expected="$expected" '
+        {
+            for (index = 1; index <= NF; index++) {
+                if ($index == expected) {
+                    found = 1
+                }
+            }
+        }
+        END { exit(found ? 0 : 1) }
+    ' || fail "$label version mismatch: expected exact token $expected, found '$value'"
     printf '%s' "$value"
 }
 
@@ -96,6 +104,7 @@ command -v rustup >/dev/null 2>&1 || fail 'rustup is unavailable'
 command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is unavailable'
 command -v python3 >/dev/null 2>&1 || fail 'python3 is unavailable for tooling-receipt verification and durable evidence publication'
 command -v stat >/dev/null 2>&1 || fail 'stat is unavailable'
+command -v awk >/dev/null 2>&1 || fail 'awk is unavailable for exact validation-tool version matching'
 
 head_sha="$(git rev-parse HEAD)"
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'exact Git HEAD could not be resolved'
