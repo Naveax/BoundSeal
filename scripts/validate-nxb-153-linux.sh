@@ -8,6 +8,7 @@ cargo_deny_version="0.20.2"
 expected_lock_sha256="f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff"
 sealed_tool_object=''
 immutable_source_object=''
+environment_object=''
 repo_fd=''
 validation_fd=''
 
@@ -34,7 +35,7 @@ json_escape() {
 json_field() {
     local payload="$1"
     local field="$2"
-    python3 - "$payload" "$field" <<'PY'
+    python3 -I - "$payload" "$field" <<'PY'
 import json
 import sys
 
@@ -48,7 +49,7 @@ PY
 }
 
 fsync_file() {
-    python3 - "$1" <<'PY'
+    python3 -I - "$1" <<'PY'
 import os
 import sys
 
@@ -62,7 +63,7 @@ PY
 }
 
 fsync_directory() {
-    python3 - "$1" <<'PY'
+    python3 -I - "$1" <<'PY'
 import os
 import sys
 
@@ -101,7 +102,12 @@ blob_sha256() {
 
 run_sealed_tool() {
     [[ -n "$sealed_tool_object" ]] || fail 'sealed Linux validation-tool helper object is unresolved'
-    git cat-file blob "$sealed_tool_object" | python3 - "$@"
+    git cat-file blob "$sealed_tool_object" | python3 -I - "$@"
+}
+
+run_environment_authority() {
+    [[ -n "$environment_object" ]] || fail 'validation environment authority helper object is unresolved'
+    git cat-file blob "$environment_object" | python3 -I - "$@"
 }
 
 run_immutable_source() {
@@ -119,7 +125,7 @@ verify_tooling_receipt_snapshot() {
     local deny_sha256="$7"
     local expected_tools_root="$8"
 
-    python3 - \
+    python3 -I - \
         "$path" \
         "$expected_head" \
         "$rustc_version" \
@@ -264,12 +270,20 @@ repo_anchor="/proc/self/fd/$repo_fd"
 
 sealed_tool_object="$(resolve_committed_blob 'scripts/nxb-153-sealed-tool.py' 'sealed Linux validation-tool helper')"
 immutable_source_object="$(resolve_committed_blob 'scripts/nxb-153-linux-immutable-source.sh' 'immutable Linux source runner')"
+environment_object="$(resolve_committed_blob 'scripts/nxb-153-validation-environment.py' 'validation environment authority helper')"
 lock_object="$(resolve_committed_blob 'Cargo.lock' 'Cargo.lock')"
 sealed_helper_sha256="$(blob_sha256 "$sealed_tool_object")" || fail 'could not hash committed sealed-tool helper bytes'
 lock_sha256="$(blob_sha256 "$lock_object")" || fail 'could not hash exact-head Cargo.lock bytes'
 [[ "$sealed_helper_sha256" =~ ^[0-9a-f]{64}$ ]] || fail 'committed sealed-tool helper SHA-256 is invalid'
 [[ "$lock_sha256" == "$expected_lock_sha256" ]] ||
     fail "exact-head Cargo.lock SHA-256 mismatch: expected $expected_lock_sha256, found $lock_sha256"
+
+# Reject ambient compiler/Cargo/Python authority before any later Python helper,
+# rustup probe, dependency operation or validation artifact publication.
+run_environment_authority self-test >/dev/null ||
+    fail 'committed validation environment authority self-test failed before outer validation'
+run_environment_authority audit >/dev/null ||
+    fail 'ambient compiler/Cargo/Python authority variables are not admitted for outer validation'
 
 # Pin the exact validation directory object as well. Publication and lock paths
 # remain attached to this object even if a concurrent rename occurs; a final
