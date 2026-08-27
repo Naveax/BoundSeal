@@ -19,6 +19,7 @@ MAX_METADATA_BYTES = 32 * 1024 * 1024
 MAX_CHECKSUM_BYTES = 16 * 1024 * 1024
 MAX_VENDOR_FILES = 200_000
 MAX_VENDOR_BYTES = 4 * 1024 * 1024 * 1024
+WORKSPACE_CARGO_CONFIGS = (".cargo/config", ".cargo/config.toml")
 
 
 class AuthorityError(RuntimeError):
@@ -150,6 +151,21 @@ def sha256_file(path: Path, label: str) -> str:
     return digest.hexdigest()
 
 
+def reject_workspace_cargo_config(source_root: Path) -> None:
+    for relative in WORKSPACE_CARGO_CONFIGS:
+        candidate = source_root / relative
+        try:
+            candidate.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            fail(f"could not classify workspace Cargo config {relative}: {error}")
+        fail(
+            f"workspace-local Cargo config is not admitted because it can override the "
+            f"dependency source authority: {relative}"
+        )
+
+
 def validate_lock(lock_path: Path) -> None:
     registry = parse_lock(lock_path)
     print(json.dumps({"registry_packages": len(registry)}, sort_keys=True))
@@ -162,6 +178,7 @@ def validate_metadata(source_root: Path) -> None:
         fail(f"could not stat immutable source root: {error}")
     if not stat.S_ISDIR(source_stat.st_mode) or stat.S_ISLNK(source_stat.st_mode):
         fail("immutable source root must be a real directory")
+    reject_workspace_cargo_config(source_root)
     source_abs = os.path.abspath(os.fspath(source_root))
 
     raw = sys.stdin.buffer.read(MAX_METADATA_BYTES + 1)
@@ -425,6 +442,21 @@ def self_test() -> None:
             rejected = True
         if not rejected:
             fail("self-test accepted mutated vendored dependency bytes")
+
+        workspace_root = root / "workspace"
+        cargo_config_dir = workspace_root / ".cargo"
+        cargo_config_dir.mkdir(parents=True)
+        (cargo_config_dir / "config.toml").write_text(
+            "[source.crates-io]\nreplace-with = \"untrusted\"\n",
+            encoding="utf-8",
+        )
+        config_rejected = False
+        try:
+            reject_workspace_cargo_config(workspace_root)
+        except AuthorityError:
+            config_rejected = True
+        if not config_rejected:
+            fail("self-test accepted workspace-local Cargo source configuration")
 
     print("NXB-153 registry source authority self-test passed.")
 
