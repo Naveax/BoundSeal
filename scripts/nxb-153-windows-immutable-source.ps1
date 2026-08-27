@@ -405,8 +405,10 @@ function Invoke-NxbSelfTest {
         }
     }
     finally {
-        try { Set-Acl -LiteralPath $root -AclObject $originalAcl } catch {}
-        Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $root) {
+            Set-Acl -LiteralPath $root -AclObject $originalAcl -ErrorAction Stop
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop
+        }
     }
     Write-Host 'NXB-153 immutable Windows source ACL primitive self-test passed.'
 }
@@ -624,7 +626,7 @@ try {
 }
 finally {
     if ($null -ne $originalRootAcl -and (Test-Path -LiteralPath $snapshotRoot)) {
-        try { Set-Acl -LiteralPath $snapshotRoot -AclObject $originalRootAcl } catch {}
+        Set-Acl -LiteralPath $snapshotRoot -AclObject $originalRootAcl -ErrorAction Stop
     }
     for ($index = $fileStreams.Count - 1; $index -ge 0; $index--) {
         $fileStreams[$index].Dispose()
@@ -639,9 +641,9 @@ finally {
         $validationRootHandle.Dispose()
     }
     if (Test-Path -LiteralPath $snapshotRoot) {
-        Remove-Item -LiteralPath $snapshotRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $snapshotRoot -Recurse -Force -ErrorAction Stop
     }
     if (Test-Path -LiteralPath $archivePath) {
-        Remove-Item -LiteralPath $archivePath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $archivePath -Force -ErrorAction Stop
     }
 }
