@@ -11,8 +11,6 @@ $rustToolchain = '1.97.1'
 $cargoAuditVersion = '0.22.2'
 $cargoDenyVersion = '0.20.2'
 $maximumEvidenceBytes = 65536
-$toolsRoot = Join-Path $RepoRoot 'target\nxb-tools'
-$toolsBin = Join-Path $toolsRoot 'bin'
 
 function Invoke-NativeChecked {
     param(
@@ -128,6 +126,13 @@ try {
         throw "Exact-head tooling receipt appeared while claiming the preparation lock; tool bytes were not mutated: $receiptPath"
     }
 
+    $toolsRelative = "target/nxb-tools/windows/$headSha"
+    $toolsRoot = Join-Path $RepoRoot ($toolsRelative -replace '/', [IO.Path]::DirectorySeparatorChar)
+    $toolsBin = Join-Path $toolsRoot 'bin'
+    if (Test-Path -LiteralPath $toolsRoot) {
+        throw "Exact-head Windows tools root already exists without an admitted tooling receipt; explicit recovery is required: $toolsRoot"
+    }
+
     Invoke-NativeChecked -FilePath 'rustup' -Label 'Rust 1.97.1 toolchain installation' -Arguments @(
         'toolchain', 'install', $rustToolchain,
         '--profile', 'minimal',
@@ -135,7 +140,6 @@ try {
         '--component', 'clippy'
     )
 
-    New-Item -ItemType Directory -Path $toolsRoot -Force | Out-Null
     $auditPath = Join-Path $toolsBin 'cargo-audit.exe'
     $denyPath = Join-Path $toolsBin 'cargo-deny.exe'
 
@@ -191,7 +195,7 @@ try {
         cargo_audit_sha256 = (Get-FileHash -LiteralPath $auditPath -Algorithm SHA256).Hash.ToLowerInvariant()
         cargo_deny = $denyVersion
         cargo_deny_sha256 = (Get-FileHash -LiteralPath $denyPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        tools_root = 'target/nxb-tools'
+        tools_root = $toolsRelative
         network_activity = 'rustup_and_crates_io_tool_installation_only'
         prepared_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
     }
@@ -233,6 +237,7 @@ try {
 
     Write-Host 'NXB-153 fresh pinned Windows validation tools are ready.'
     Write-Host "HEAD: $headSha"
+    Write-Host "Tool root: $toolsRelative"
     Write-Host "Tooling receipt: $receiptPath"
 
     if (-not $PrepareOnly) {
