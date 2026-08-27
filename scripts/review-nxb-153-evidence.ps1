@@ -10,12 +10,18 @@ $ErrorActionPreference = 'Stop'
 $expectedLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
 $expectedAuditVersion = '0.22.2'
 $expectedDenyVersion = '0.20.2'
+$expectedEnvironmentPolicy = 'nxb-153-compiler-cargo-python-authority-v2'
+$expectedHostRustIdentity = 'version_pinned_object_identity_pending'
 $maximumEvidenceBytes = 65536
 $expectedEvidenceFields = @(
     'schema_version', 'milestone', 'gate', 'platform', 'head_sha', 'rustc', 'cargo',
     'cargo_audit', 'cargo_audit_sha256', 'cargo_deny', 'cargo_deny_sha256',
     'tooling_receipt', 'tooling_receipt_sha256', 'tooling_receipt_verified',
     'cargo_lock_sha256', 'cargo_lock_expected_sha256', 'lockfile_pinned_and_unchanged',
+    'validation_environment_policy', 'validation_environment_authority',
+    'python_isolated_helper_authority', 'workspace_namespace_authority',
+    'workspace_git_object_authority', 'dependency_source_authority',
+    'security_tool_object_authority', 'host_rust_toolchain_identity',
     'fmt', 'nxb_policy_check_clippy_tests', 'nxb_core_check_clippy_unit_tests',
     'focused_target_tests', 'workspace_check_clippy_tests_all_features',
     'rustsec', 'cargo_deny_checks', 'test_threads', 'network_activity', 'validated_at'
@@ -178,7 +184,7 @@ function Read-Evidence {
     Assert-ExactFields -Value $evidence -Expected $expectedEvidenceFields -Label "$ExpectedPlatform validation evidence"
 
     if (
-        $evidence.schema_version -ne 1 -or
+        $evidence.schema_version -ne 2 -or
         $evidence.milestone -cne 'NXB-153' -or
         $evidence.gate -cne 'guided_target_authorization_setup' -or
         $evidence.platform -cne $ExpectedPlatform -or
@@ -208,6 +214,14 @@ function Read-Evidence {
         $evidence.cargo_lock_expected_sha256 -cne $expectedLockSha256 -or
         $evidence.tooling_receipt_verified -ne $true -or
         $evidence.lockfile_pinned_and_unchanged -ne $true -or
+        $evidence.validation_environment_policy -cne $expectedEnvironmentPolicy -or
+        $evidence.validation_environment_authority -cne 'passed' -or
+        $evidence.python_isolated_helper_authority -cne 'passed' -or
+        $evidence.workspace_namespace_authority -cne 'passed' -or
+        $evidence.workspace_git_object_authority -cne 'passed' -or
+        $evidence.dependency_source_authority -cne 'passed' -or
+        $evidence.security_tool_object_authority -cne 'passed' -or
+        $evidence.host_rust_toolchain_identity -cne $expectedHostRustIdentity -or
         $evidence.fmt -cne 'passed' -or
         $evidence.nxb_policy_check_clippy_tests -cne 'passed' -or
         $evidence.nxb_core_check_clippy_unit_tests -cne 'passed' -or
@@ -245,6 +259,14 @@ function Read-Evidence {
         cargo_deny_sha256 = [string]$evidence.cargo_deny_sha256
         tooling_receipt_sha256 = [string]$evidence.tooling_receipt_sha256
         cargo_lock_sha256 = [string]$evidence.cargo_lock_sha256
+        validation_environment_policy = [string]$evidence.validation_environment_policy
+        validation_environment_authority = [string]$evidence.validation_environment_authority
+        python_isolated_helper_authority = [string]$evidence.python_isolated_helper_authority
+        workspace_namespace_authority = [string]$evidence.workspace_namespace_authority
+        workspace_git_object_authority = [string]$evidence.workspace_git_object_authority
+        dependency_source_authority = [string]$evidence.dependency_source_authority
+        security_tool_object_authority = [string]$evidence.security_tool_object_authority
+        host_rust_toolchain_identity = [string]$evidence.host_rust_toolchain_identity
     }
 }
 
@@ -290,14 +312,17 @@ try {
     $windows = Read-Evidence -Path $windowsPath -ExpectedPlatform 'windows' -ExpectedHead $headSha
     $linux = Read-Evidence -Path $linuxPath -ExpectedPlatform 'linux' -ExpectedHead $headSha
 
-    foreach ($field in @('rustc', 'cargo', 'cargo_audit', 'cargo_deny', 'cargo_lock_sha256')) {
+    foreach ($field in @(
+        'rustc', 'cargo', 'cargo_audit', 'cargo_deny', 'cargo_lock_sha256',
+        'validation_environment_policy', 'host_rust_toolchain_identity'
+    )) {
         if ($windows[$field] -cne $linux[$field]) {
             throw "Linux and Windows evidence disagree on '$field'."
         }
     }
 
     $closure = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         milestone = 'NXB-153'
         gate = 'dual_platform_evidence_closure'
         status = 'dual_platform_validation_passed'
@@ -308,16 +333,25 @@ try {
         cargo = $windows['cargo']
         cargo_audit = $windows['cargo_audit']
         cargo_deny = $windows['cargo_deny']
+        validation_environment_policy = $windows['validation_environment_policy']
+        host_rust_toolchain_identity = $windows['host_rust_toolchain_identity']
         platforms = @('linux', 'windows')
         evidence = @($linux, $windows)
         requirements = [ordered]@{
             same_exact_head = 'passed'
             canonical_lockfile = 'passed'
             fresh_tool_bootstrap_receipts = 'passed'
+            validation_environment_authority = 'passed'
+            python_isolated_helper_authority = 'passed'
+            workspace_namespace_authority = 'passed'
+            workspace_git_object_authority = 'passed'
+            dependency_source_authority = 'passed'
+            security_tool_object_authority = 'passed'
             package_and_workspace_gates = 'passed'
             focused_nxb153_tests = 'passed'
             rustsec = 'passed'
             cargo_deny = 'passed'
+            host_rust_toolchain_identity = 'blocker_pending'
         }
         network_activity = 'none'
     }
