@@ -105,6 +105,7 @@ command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is unavailable'
 command -v python3 >/dev/null 2>&1 || fail 'python3 is unavailable for tooling-receipt verification and durable evidence publication'
 command -v stat >/dev/null 2>&1 || fail 'stat is unavailable'
 command -v awk >/dev/null 2>&1 || fail 'awk is unavailable for exact validation-tool version matching'
+[[ -d /proc/self/fd ]] || fail '/proc/self/fd is unavailable for pinned validation-tool execution'
 
 head_sha="$(git rev-parse HEAD)"
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'exact Git HEAD could not be resolved'
@@ -135,16 +136,28 @@ tools_bin="$tools_root/bin"
 audit_path="$tools_bin/cargo-audit"
 deny_path="$tools_bin/cargo-deny"
 [[ -d "$tools_root" ]] || fail "exact-head Linux tools root is missing: $tools_root; run scripts/prepare-and-validate-nxb-153-linux.sh first"
+[[ -f "$audit_path" && ! -L "$audit_path" ]] || fail 'cargo-audit must be a regular non-symlink exact-head tool file'
+[[ -f "$deny_path" && ! -L "$deny_path" ]] || fail 'cargo-deny must be a regular non-symlink exact-head tool file'
+
+# Keep the exact tool file objects open for the complete validation lifetime.
+# Executing through /proc/self/fd/N prevents a later pathname rename/substitution
+# from changing which cargo-audit/cargo-deny object actually runs.
+exec 8<"$audit_path" || fail 'could not pin cargo-audit file object'
+exec 9<"$deny_path" || fail 'could not pin cargo-deny file object'
+audit_exec='/proc/self/fd/8'
+deny_exec='/proc/self/fd/9'
+[[ -x "$audit_exec" ]] || fail 'pinned cargo-audit object is not executable'
+[[ -x "$deny_exec" ]] || fail 'pinned cargo-deny object is not executable'
 
 rustc_version="$(rustup run "$rust_toolchain" rustc --version)" ||
     fail "Rust toolchain $rust_toolchain is unavailable"
 [[ "$rustc_version" == rustc\ 1.97.1\ * ]] ||
     fail "expected rustc 1.97.1, found '$rustc_version'"
 cargo_version="$(cargo_run --version)" || fail 'could not resolve pinned Cargo version'
-audit_version="$(tool_version "$audit_path" "$cargo_audit_version" 'cargo-audit')"
-deny_version="$(tool_version "$deny_path" "$cargo_deny_version" 'cargo-deny')"
-audit_sha256="$(sha256sum "$audit_path" | awk '{print $1}')"
-deny_sha256="$(sha256sum "$deny_path" | awk '{print $1}')"
+audit_version="$(tool_version "$audit_exec" "$cargo_audit_version" 'cargo-audit')"
+deny_version="$(tool_version "$deny_exec" "$cargo_deny_version" 'cargo-deny')"
+audit_sha256="$(sha256sum "$audit_exec" | awk '{print $1}')"
+deny_sha256="$(sha256sum "$deny_exec" | awk '{print $1}')"
 
 receipt_path="$validation_directory/nxb-153-tooling-linux-$head_sha.json"
 [[ -f "$receipt_path" ]] ||
@@ -265,8 +278,8 @@ cargo_run check --workspace --all-targets --all-features --locked
 cargo_run clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo_run test --workspace --all-features --locked -- --test-threads=1
 
-"$audit_path" audit
-"$deny_path" check
+"$audit_exec" audit
+"$deny_exec" check
 
 final_lock_sha256="$(sha256sum Cargo.lock | awk '{print $1}')"
 [[ "$final_lock_sha256" == "$expected_lock_sha256" ]] ||
@@ -279,10 +292,14 @@ final_head="$(git rev-parse HEAD)"
 [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]] ||
     fail 'working tree changed during validation'
 
-final_audit_sha256="$(sha256sum "$audit_path" | awk '{print $1}')"
-final_deny_sha256="$(sha256sum "$deny_path" | awk '{print $1}')"
-[[ "$final_audit_sha256" == "$audit_sha256" ]] || fail 'cargo-audit bytes changed during validation'
-[[ "$final_deny_sha256" == "$deny_sha256" ]] || fail 'cargo-deny bytes changed during validation'
+final_audit_sha256="$(sha256sum "$audit_exec" | awk '{print $1}')"
+final_deny_sha256="$(sha256sum "$deny_exec" | awk '{print $1}')"
+[[ "$final_audit_sha256" == "$audit_sha256" ]] || fail 'pinned cargo-audit bytes changed during validation'
+[[ "$final_deny_sha256" == "$deny_sha256" ]] || fail 'pinned cargo-deny bytes changed during validation'
+final_audit_path_sha256="$(sha256sum "$audit_path" | awk '{print $1}')"
+final_deny_path_sha256="$(sha256sum "$deny_path" | awk '{print $1}')"
+[[ "$final_audit_path_sha256" == "$audit_sha256" ]] || fail 'cargo-audit pathname no longer names the validated pinned bytes'
+[[ "$final_deny_path_sha256" == "$deny_sha256" ]] || fail 'cargo-deny pathname no longer names the validated pinned bytes'
 final_receipt_sha256="$(sha256sum "$receipt_path" | awk '{print $1}')"
 [[ "$final_receipt_sha256" == "$receipt_sha256" ]] || fail 'tooling receipt changed during validation'
 
