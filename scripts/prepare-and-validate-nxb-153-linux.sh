@@ -61,6 +61,7 @@ command -v rustup >/dev/null 2>&1 ||
     fail 'rustup is unavailable; install rustup from the official Rust distribution first'
 command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is unavailable'
 command -v python3 >/dev/null 2>&1 || fail 'python3 is unavailable for durable tooling-receipt publication'
+command -v awk >/dev/null 2>&1 || fail 'awk is unavailable for exact validation-tool version matching'
 
 cd "$repo_root"
 head_sha="$(git rev-parse HEAD)"
@@ -104,7 +105,16 @@ tool_has_version() {
     local path="$1"
     local expected="$2"
     [[ -x "$path" ]] || return 1
-    "$path" --version 2>/dev/null | grep -Eq "(^|[[:space:]])${expected}($|[[:space:]])"
+    "$path" --version 2>/dev/null | awk -v expected="$expected" '
+        {
+            for (index = 1; index <= NF; index++) {
+                if ($index == expected) {
+                    found = 1
+                }
+            }
+        }
+        END { exit(found ? 0 : 1) }
+    '
 }
 
 install_root="$(mktemp -d)"
