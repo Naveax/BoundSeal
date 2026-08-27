@@ -6,9 +6,11 @@ import hashlib
 import json
 import os
 import pathlib
+import resource
 import stat
 import subprocess
 import sys
+import tempfile
 from typing import Any
 
 EXPECTED_LOCK_SHA256 = "f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff"
@@ -17,6 +19,8 @@ EXPECTED_DENY_VERSION = "0.20.2"
 EXPECTED_ENVIRONMENT_POLICY = "nxb-153-compiler-cargo-python-authority-v2"
 EXPECTED_HOST_RUST_IDENTITY = "version_pinned_object_identity_pending"
 MAXIMUM_BYTES = 65536
+MAXIMUM_GIT_OUTPUT_BYTES = 64 * 1024 * 1024
+MAXIMUM_GIT_OUTPUT_RECORDS = 4096
 EXPECTED_EVIDENCE_FIELDS = {
     "schema_version",
     "milestone",
@@ -75,23 +79,59 @@ def fail(message: str) -> "NoReturn":
     raise SystemExit(f"NXB-153 evidence closure failed: {message}")
 
 
-def run_git(repo_root: pathlib.Path, *arguments: str) -> str:
+def _limit_git_output_file_size() -> None:
+    _, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
+    soft = (
+        MAXIMUM_GIT_OUTPUT_BYTES
+        if hard == resource.RLIM_INFINITY
+        else min(MAXIMUM_GIT_OUTPUT_BYTES, hard)
+    )
+    resource.setrlimit(resource.RLIMIT_FSIZE, (soft, hard))
+
+
+def _read_bounded_git_output(handle, label: str) -> str:
+    handle.flush()
+    size = handle.tell()
+    if size > MAXIMUM_GIT_OUTPUT_BYTES:
+        fail(f"{label} exceeds {MAXIMUM_GIT_OUTPUT_BYTES} bytes")
+    handle.seek(0)
+    raw = handle.read(MAXIMUM_GIT_OUTPUT_BYTES + 1)
+    if len(raw) > MAXIMUM_GIT_OUTPUT_BYTES:
+        fail(f"{label} exceeds {MAXIMUM_GIT_OUTPUT_BYTES} bytes")
     try:
-        process = subprocess.run(
-            ["git", *arguments],
-            cwd=repo_root,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
+        text = raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as error:
+        fail(f"{label} is not strict UTF-8: {error}")
+    records = text.count("\n")
+    if text and not text.endswith("\n"):
+        records += 1
+    if records > MAXIMUM_GIT_OUTPUT_RECORDS:
+        fail(
+            f"{label} exceeds {MAXIMUM_GIT_OUTPUT_RECORDS} decoded records"
         )
-    except FileNotFoundError:
-        fail("git is unavailable")
+    return text
+
+
+def run_git(repo_root: pathlib.Path, *arguments: str) -> str:
+    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        try:
+            process = subprocess.run(
+                ["git", *arguments],
+                cwd=repo_root,
+                check=False,
+                stdin=subprocess.DEVNULL,
+                stdout=stdout_file,
+                stderr=stderr_file,
+                preexec_fn=_limit_git_output_file_size,
+            )
+        except (FileNotFoundError, OSError, subprocess.SubprocessError) as error:
+            fail(f"could not execute git: {error}")
+        stdout = _read_bounded_git_output(stdout_file, "Git stdout")
+        stderr = _read_bounded_git_output(stderr_file, "Git stderr")
     if process.returncode != 0:
-        detail = process.stderr.strip() or process.stdout.strip()
+        detail = stderr.strip() or stdout.strip()
         fail(f"git {' '.join(arguments)} failed: {detail}")
-    return process.stdout.strip()
+    return stdout.strip()
 
 
 def sha256_bytes(value: bytes) -> str:
