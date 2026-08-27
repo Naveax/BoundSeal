@@ -9,6 +9,7 @@ $ErrorActionPreference = 'Stop'
 $rustToolchain = '1.97.1'
 $cargoAuditVersion = '0.22.2'
 $cargoDenyVersion = '0.20.2'
+$maximumEvidenceBytes = 65536
 $expectedCargoLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
 $toolsBin = Join-Path $RepoRoot 'target\nxb-tools\bin'
 $auditPath = Join-Path $toolsBin 'cargo-audit.exe'
@@ -80,6 +81,31 @@ function Assert-LowerSha256 {
     }
 }
 
+function Assert-ExactStreamBytes {
+    param(
+        [Parameter(Mandatory = $true)][IO.FileStream]$Stream,
+        [Parameter(Mandatory = $true)][byte[]]$Expected,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $Stream.Position = 0
+    $persisted = [byte[]]::new($Expected.Length)
+    $offset = 0
+    while ($offset -lt $persisted.Length) {
+        $read = $Stream.Read($persisted, $offset, $persisted.Length - $offset)
+        if ($read -le 0) {
+            throw "$Label could not be read back completely from its create-new handle."
+        }
+        $offset += $read
+    }
+    if ($Stream.ReadByte() -ne -1) {
+        throw "$Label contains trailing bytes beyond the deterministic representation."
+    }
+    if ([Convert]::ToBase64String($persisted) -cne [Convert]::ToBase64String($Expected)) {
+        throw "$Label read-back bytes differ from the deterministic representation."
+    }
+}
+
 function Assert-ToolingReceipt {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -98,7 +124,7 @@ function Assert-ToolingReceipt {
     if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw 'Tooling receipt must not be a reparse point.'
     }
-    if ($item.Length -le 0 -or $item.Length -gt 65536) {
+    if ($item.Length -le 0 -or $item.Length -gt $maximumEvidenceBytes) {
         throw 'Tooling receipt size is invalid.'
     }
 
@@ -216,6 +242,7 @@ try {
     $validationLockBytes = [Text.UTF8Encoding]::new($false).GetBytes("$headSha`n")
     $validationLockStream.Write($validationLockBytes, 0, $validationLockBytes.Length)
     $validationLockStream.Flush($true)
+    Assert-ExactStreamBytes -Stream $validationLockStream -Expected $validationLockBytes -Label 'Validation lock'
 
     if (Test-Path -LiteralPath $evidencePath) {
         throw "Exact-head Windows validation evidence appeared while claiming the validation lock; heavy validation was not started: $evidencePath"
@@ -394,13 +421,17 @@ try {
     }
     $evidenceText = (($evidence | ConvertTo-Json -Depth 8) + [Environment]::NewLine)
     $evidenceBytes = [Text.UTF8Encoding]::new($false).GetBytes($evidenceText)
+    if ($evidenceBytes.Length -le 0 -or $evidenceBytes.Length -gt $maximumEvidenceBytes) {
+        throw 'Windows validation evidence size is invalid.'
+    }
+
     $evidenceStream = $null
     try {
         try {
             $evidenceStream = [IO.File]::Open(
                 $evidencePath,
                 [IO.FileMode]::CreateNew,
-                [IO.FileAccess]::Write,
+                [IO.FileAccess]::ReadWrite,
                 [IO.FileShare]::None
             )
         }
@@ -413,6 +444,7 @@ try {
 
         $evidenceStream.Write($evidenceBytes, 0, $evidenceBytes.Length)
         $evidenceStream.Flush($true)
+        Assert-ExactStreamBytes -Stream $evidenceStream -Expected $evidenceBytes -Label 'Windows validation evidence'
     }
     finally {
         if ($null -ne $evidenceStream) {
