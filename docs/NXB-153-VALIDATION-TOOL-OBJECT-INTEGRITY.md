@@ -2,7 +2,7 @@
 
 ## Status
 
-This document records the source-staged object-identity contract for the NXB-153 validation security tools. It does **not** claim current-head Linux or Windows admission.
+This document records the source-staged object-identity and implementation-authority contract for the NXB-153 validation security tools. It does **not** claim current-head Linux or Windows admission.
 
 The relevant tools are the exact pinned versions of `cargo-audit` and `cargo-deny` installed for one platform and one exact Git head.
 
@@ -19,9 +19,11 @@ A weaker validator could:
 
 A concurrent rename/substitution could replace the pathname only for step 3 and restore the original object before step 4. A plain Linux read descriptor also does not prevent in-place writes to the same inode, so even descriptor-pinned execution can observe mutable executable bytes unless the execution image itself becomes immutable.
 
+A second-order Linux problem exists if the helper that performs the sealing is itself reopened by repository pathname. A correct immutable-executable primitive is not an authority boundary if an attacker can redirect `scripts/nxb-153-sealed-tool.py` to different Python bytes immediately before one invocation.
+
 Windows has an additional namespace case: pinning only `cargo-audit.exe` does not prove that a later pathname execution cannot be redirected if an ancestor such as `bin`, the exact-head root, or another tool-root directory is renamed/replaced.
 
-NXB-153 therefore separates **tool pathname identity**, **tool object bytes** and **tool namespace authority**.
+NXB-153 therefore separates **tool pathname identity**, **tool object bytes**, **tool namespace authority** and **validation-helper implementation authority**.
 
 ## Exact-head roots
 
@@ -32,9 +34,40 @@ Canonical roots remain:
 
 Tooling receipts bind that exact logical root plus the security-tool versions and SHA-256 values.
 
+## Linux committed implementation authority
+
+Linux preparation and validation no longer execute `scripts/nxb-153-sealed-tool.py` by reopening its working-tree pathname after the validation head is fixed.
+
+The source-staged chain is:
+
+1. perform one initial `chdir` to the requested repository root;
+2. resolve the exact 40-hex Git `HEAD` from that inherited repository CWD object;
+3. require a clean working tree;
+4. resolve `scripts/nxb-153-sealed-tool.py` as a Git blob from that **exact head**;
+5. require the resolved Git object to be a non-empty blob inside a bounded 1 MiB implementation envelope;
+6. stream the exact committed blob with `git cat-file blob <object>` directly into `python3 - ...` for every helper invocation;
+7. never reopen the helper through `$repo_root/scripts/...` after the authority head is fixed.
+
+Preparation additionally resolves `scripts/validate-nxb-153-linux.sh` from the same exact-head Git object graph. If preparation proceeds directly into validation, it streams that exact validator blob into `bash -s -- '.'`. Passing `.` keeps the child on the inherited repository CWD object instead of reopening the configured repository pathname.
+
+The tool-installation working directory is also isolated in a subshell. The parent preparation shell therefore never leaves the initially opened repository CWD object and no longer performs a pathname-based `cd "$repo_root"` after installation.
+
+This closes the source-level helper-path substitution window and the preparation-to-validation script-handoff window.
+
+A networkless primitive test exercised the same model:
+
+- a trusted Git repository was opened as the current CWD;
+- the repository directory was renamed;
+- a replacement tree containing a substituted helper was created at the old pathname;
+- the original committed helper blob was streamed through `git cat-file` from the still-open CWD object;
+- trusted helper execution remained authoritative;
+- the committed validator blob also executed correctly from the same object graph.
+
+This is a narrow Git/CWD/blob primitive PASS, not exact-head NXB-153 platform admission evidence.
+
 ## Linux sealed-tool primitive
 
-The canonical Linux helper is:
+The canonical committed Linux helper is:
 
 `scripts/nxb-153-sealed-tool.py`
 
@@ -67,33 +100,54 @@ These are narrow primitive results only, not exact-head NXB-153 platform admissi
 
 After the pinned `cargo install --locked --force --version ... --root <exact-head-root>` operations complete, Linux preparation:
 
-1. requires `cargo-audit` and `cargo-deny` to be regular non-symlink files;
-2. invokes the sealed-tool helper separately for each freshly installed executable;
-3. derives both the exact version string and SHA-256 from the **same immutable sealed snapshot**;
-4. therefore cannot combine a version probe from one transient same-inode byte state with a hash from another state;
-5. separately hashes the canonical tool pathnames and requires equality with the sealed-snapshot hashes before receipt publication;
-6. publishes the bounded tooling receipt create-only with file and directory durability checks.
+1. retains the initial repository CWD object while cargo installation runs only inside a temporary-directory subshell;
+2. executes the sealed-tool implementation from the exact-head committed Git blob;
+3. requires `cargo-audit` and `cargo-deny` to be regular non-symlink files;
+4. invokes the committed sealed-tool helper separately for each freshly installed executable;
+5. derives both the exact version string and SHA-256 from the **same immutable sealed snapshot**;
+6. therefore cannot combine a version probe from one transient same-inode byte state with a hash from another state;
+7. separately hashes the canonical tool pathnames and requires equality with the sealed-snapshot hashes before receipt publication;
+8. publishes the bounded tooling receipt create-only with file and directory durability checks;
+9. when validation is requested immediately, streams the exact-head committed validator blob to Bash rather than reopening the validator pathname.
 
 The version test uses exact whitespace-token equality. A token such as `0x22y2` cannot satisfy expected version `0.22.2` merely because `.` would otherwise be a regular-expression wildcard.
 
-Linux preparation now requires the sealed-tool primitive; unsupported kernels/Python environments fail closed before tool preparation proceeds.
+Linux preparation now requires both the committed-helper authority chain and the sealed-tool primitive; unsupported Git object state, kernels or Python environments fail closed before receipt admission.
 
 ## Linux validation
 
 Before expensive validation starts, the Linux validator:
 
-1. requires the exact-head security-tool files to be regular and non-symlink;
-2. performs a stable sealed inspection of each canonical executable;
-3. derives initial version and SHA-256 from one immutable byte image per tool;
-4. requires those values to match the exact-head tooling receipt;
-5. runs fmt/check/Clippy/tests;
-6. immediately before RustSec, reopens canonical `cargo-audit` with `O_NOFOLLOW`, stable-reads it, requires the receipt-admitted SHA-256, seals those exact bytes and executes `audit` from that immutable snapshot;
-7. immediately before cargo-deny, performs the same receipt-hash check + sealed snapshot and executes `check` from that immutable snapshot;
-8. finally re-hashes the canonical paths and requires them still to name the admitted bytes before evidence publication.
+1. fixes the exact initial Git head from the repository CWD object and requires a clean worktree;
+2. resolves the sealed-tool implementation from that exact head and executes all helper operations from the committed blob bytes;
+3. requires the exact-head security-tool files to be regular and non-symlink;
+4. performs a stable sealed inspection of each canonical executable;
+5. derives initial version and SHA-256 from one immutable byte image per tool;
+6. requires those values to match one stable tooling-receipt object snapshot;
+7. runs fmt/check/Clippy/tests;
+8. immediately before RustSec, reopens canonical `cargo-audit` with `O_NOFOLLOW`, stable-reads it, requires the receipt-admitted SHA-256, seals those exact bytes and executes `audit` from that immutable snapshot;
+9. immediately before cargo-deny, performs the same receipt-hash check + sealed snapshot and executes `check` from that immutable snapshot;
+10. finally re-hashes the canonical paths and requires them still to name the admitted bytes before evidence publication.
 
-The gate execution image is therefore immutable after its admitted SHA-256 is checked. A pathname swap to different bytes fails the receipt-hash check; an in-place write to the source inode after snapshot creation cannot alter the already sealed execution image.
+The gate execution image is therefore immutable after its admitted SHA-256 is checked. A pathname swap to different bytes fails the receipt-hash check; an in-place write to the source inode after snapshot creation cannot alter the already sealed execution image. A repository/scripts pathname substitution cannot redirect the helper implementation after the exact Git blob authority has been resolved.
 
-This is stronger than the earlier persistent-read-descriptor model, which defeated pathname replacement but could not prohibit same-inode write mutation.
+This is stronger than the earlier persistent-read-descriptor model, which defeated pathname replacement but could not prohibit same-inode write mutation, and stronger than the first sealed-helper model, which still reopened the helper implementation by repository pathname.
+
+## Linux tooling-receipt object verification
+
+Linux validation no longer performs receipt hashing and semantic parsing through separate pathname opens.
+
+The current source:
+
+1. opens the canonical exact-head tooling receipt once with `O_RDONLY | O_NOFOLLOW`;
+2. requires a regular file within the 1..65,536-byte envelope;
+3. reads that exact opened object while checking device/inode/size/mtime/ctime stability;
+4. strictly decodes and parses those exact bytes as JSON;
+5. validates the complete exact field set, platform/head/tool versions/tool hashes/tool root/network contract and canonical `prepared_at` rules;
+6. computes the evidence `tooling_receipt_sha256` from the **same exact bytes that passed semantic verification**;
+7. finally requires the canonical receipt pathname to hash to those admitted bytes before evidence publication.
+
+A transient path substitution can therefore no longer make the validator semantically verify one receipt object while embedding the SHA-256 of another object into platform evidence.
 
 ## Windows namespace and file-object pinning
 
@@ -167,9 +221,9 @@ If any supported filesystem permits pathname execution to escape this source-sta
 
 ## Relationship to validation evidence
 
-The tooling receipt answers **which exact tool bytes were prepared**. Platform validation evidence answers **which admitted bytes were used under the platform's immutable/pinned execution model**. The dual-platform reviewer verifies the receipt/evidence cryptographic linkage and exact platform/head tool root.
+The tooling receipt answers **which exact tool bytes were prepared**. Platform validation evidence answers **which admitted bytes were used under the platform's immutable/pinned execution model**. On Linux, the receipt SHA stored in platform evidence is now derived from the exact stable receipt bytes that passed semantic verification. The dual-platform reviewer verifies the receipt/evidence cryptographic linkage and exact platform/head tool root.
 
-None of these files is self-authenticating against a malicious host administrator. The contract is instead designed to remove avoidable local pathname races, same-inode gate mutation, accidental cross-head mutation, duplicate validation and ambiguous recovery states inside the supported validation workflow.
+None of these files is self-authenticating against a malicious host administrator. The contract is instead designed to remove avoidable local pathname races, helper-implementation redirection, same-inode gate mutation, accidental cross-head mutation, duplicate validation and ambiguous recovery states inside the supported validation workflow.
 
 ## Admission boundary
 
@@ -177,9 +231,11 @@ Current source hardening is insufficient by itself to close #90 or #98.
 
 The exact final NXB-153 head still requires real Rust 1.97.1 Linux + Windows execution proving:
 
+- Linux committed-helper Git-object authority and repository-CWD behavior;
 - Linux sealed-tool primitive availability and self-test;
 - preparation tool-byte binding;
 - exact token version checks;
+- stable tooling-receipt object verification;
 - validator tool-byte binding;
 - Linux security-tool execution from receipt-hash-checked sealed snapshots;
 - Windows security-tool execution under pinned file + ancestor namespace authority;
