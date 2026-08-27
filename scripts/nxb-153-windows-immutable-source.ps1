@@ -152,6 +152,16 @@ function Assert-NxbSafeTrackedPath {
     }
 }
 
+function Test-NxbRuntimeRelativePath {
+    param([Parameter(Mandatory = $true)][string]$RelativePath)
+    foreach ($runtimeRoot in @('target', '.nxb-153-tmp', '.nxb-153-cargo-home')) {
+        if ($RelativePath -ieq $runtimeRoot -or $RelativePath.StartsWith("$runtimeRoot/", [StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+    return $false
+}
+
 function Get-NxbTreeManifest {
     param(
         [Parameter(Mandatory = $true)][string]$RepositoryRoot,
@@ -567,6 +577,55 @@ function Assert-NxbRuntimeWritable {
     }
 }
 
+function Assert-NxbSnapshotNamespace {
+    param(
+        [Parameter(Mandatory = $true)][string]$SnapshotRoot,
+        [Parameter(Mandatory = $true)][Collections.Generic.Dictionary[string,string]]$ExpectedFiles,
+        [Parameter(Mandatory = $true)][Collections.Generic.Dictionary[string,bool]]$ExpectedDirectories,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $seenFiles = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($item in Get-ChildItem -LiteralPath $SnapshotRoot -File -Force -Recurse) {
+        $relative = [IO.Path]::GetRelativePath($SnapshotRoot, $item.FullName).Replace([IO.Path]::DirectorySeparatorChar, '/')
+        if (Test-NxbRuntimeRelativePath -RelativePath $relative) {
+            continue
+        }
+        Assert-NxbSafeTrackedPath -RelativePath $relative
+        if (-not $ExpectedFiles.ContainsKey($relative) -or -not $seenFiles.Add($relative)) {
+            Fail-Nxb "$Label observed an unexpected or duplicate source file: $relative"
+        }
+    }
+    if ($seenFiles.Count -ne $ExpectedFiles.Count) {
+        Fail-Nxb "$Label source file namespace count differs from the exact-head manifest"
+    }
+    foreach ($expectedPath in $ExpectedFiles.Keys) {
+        if (-not $seenFiles.Contains($expectedPath)) {
+            Fail-Nxb "$Label is missing expected source file: $expectedPath"
+        }
+    }
+
+    $seenDirectories = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($item in Get-ChildItem -LiteralPath $SnapshotRoot -Directory -Force -Recurse) {
+        $relative = [IO.Path]::GetRelativePath($SnapshotRoot, $item.FullName).Replace([IO.Path]::DirectorySeparatorChar, '/')
+        if (Test-NxbRuntimeRelativePath -RelativePath $relative) {
+            continue
+        }
+        Assert-NxbSafeTrackedPath -RelativePath $relative
+        if (-not $ExpectedDirectories.ContainsKey($relative) -or -not $seenDirectories.Add($relative)) {
+            Fail-Nxb "$Label observed an unexpected or duplicate source directory: $relative"
+        }
+    }
+    if ($seenDirectories.Count -ne $ExpectedDirectories.Count) {
+        Fail-Nxb "$Label source directory namespace count differs from the exact-head manifest"
+    }
+    foreach ($expectedPath in $ExpectedDirectories.Keys) {
+        if (-not $seenDirectories.Contains($expectedPath)) {
+            Fail-Nxb "$Label is missing expected source directory: $expectedPath"
+        }
+    }
+}
+
 function Invoke-NxbSelfTest {
     if (-not $IsWindows) {
         Fail-Nxb 'self-test requires Windows'
@@ -661,6 +720,17 @@ try {
     $validationRootHandle = Open-NxbPinnedDirectory -Path $validationRoot -Label 'validation evidence directory'
     $manifest = @(Get-NxbTreeManifest -RepositoryRoot $repoRootFull -CommitSha $HeadSha)
 
+    $expectedSourceDirectories = [Collections.Generic.Dictionary[string,bool]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($entry in $manifest) {
+        $parent = $entry.Path
+        while (($slash = $parent.LastIndexOf('/')) -gt 0) {
+            $parent = $parent.Substring(0, $slash)
+            if (-not $expectedSourceDirectories.ContainsKey($parent)) {
+                $expectedSourceDirectories.Add($parent, $true)
+            }
+        }
+    }
+
     New-Item -ItemType Directory -Path $snapshotRoot | Out-Null
     $directoryHandles.Add((Open-NxbPinnedDirectory -Path $snapshotRoot -Label 'immutable source snapshot root'))
     $sourceDirectories.Add($snapshotRoot)
@@ -675,9 +745,18 @@ try {
         Fail-Nxb "exact-head snapshot unexpectedly contains a reparse point: $($reparse.FullName)"
     }
 
+    $observedSourceDirectories = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($directory in @(Get-ChildItem -LiteralPath $snapshotRoot -Directory -Force -Recurse | Sort-Object { $_.FullName.Length } | ForEach-Object { $_.FullName })) {
+        $relativeDirectory = [IO.Path]::GetRelativePath($snapshotRoot, $directory).Replace([IO.Path]::DirectorySeparatorChar, '/')
+        Assert-NxbSafeTrackedPath -RelativePath $relativeDirectory
+        if (-not $expectedSourceDirectories.ContainsKey($relativeDirectory) -or -not $observedSourceDirectories.Add($relativeDirectory)) {
+            Fail-Nxb "snapshot contains unexpected or duplicate source directory: $relativeDirectory"
+        }
         $sourceDirectories.Add($directory)
         $directoryHandles.Add((Open-NxbPinnedDirectory -Path $directory -Label 'immutable source directory'))
+    }
+    if ($observedSourceDirectories.Count -ne $expectedSourceDirectories.Count) {
+        Fail-Nxb 'snapshot source directory count differs from the exact-head manifest'
     }
 
     $actualFiles = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -750,6 +829,7 @@ try {
     Assert-NxbRuntimeWritable -Path $runtimeTarget -Label 'Cargo target directory'
     Assert-NxbRuntimeWritable -Path $runtimeTmp -Label 'temporary directory'
     Assert-NxbRuntimeWritable -Path $runtimeCargoHome -Label 'Cargo home directory'
+    Assert-NxbSnapshotNamespace -SnapshotRoot $snapshotRoot -ExpectedFiles $actualFiles -ExpectedDirectories $expectedSourceDirectories -Label 'pre-gate namespace check'
 
     $previousTarget = $env:CARGO_TARGET_DIR
     $previousCargoHome = $env:CARGO_HOME
@@ -811,6 +891,7 @@ try {
                 Fail-Nxb "tracked source pathname/object metadata changed during validation: $($entry.Path)"
             }
         }
+        Assert-NxbSnapshotNamespace -SnapshotRoot $snapshotRoot -ExpectedFiles $actualFiles -ExpectedDirectories $expectedSourceDirectories -Label 'post-gate namespace check'
         $finalAuditPathSha = (Get-FileHash -LiteralPath $AuditPath -Algorithm SHA256).Hash.ToLowerInvariant()
         $finalDenyPathSha = (Get-FileHash -LiteralPath $DenyPath -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($finalAuditPathSha -cne $AuditSha256 -or $finalDenyPathSha -cne $DenySha256) {
