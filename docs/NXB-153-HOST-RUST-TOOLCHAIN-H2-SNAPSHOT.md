@@ -112,7 +112,7 @@ nxb-153-windows-immutable-source.ps1
 
 Current outer availability/object layers:
 
-- canonical bounded string-capture guard: `scripts/nxb-153-windows-immutable-source.ps1` → `d3b34e3c15ee9e15972f60b338bc9c4f9df342f5`;
+- canonical bounded string-capture guard: `scripts/nxb-153-windows-immutable-source.ps1` → `f768e3b8a7899b7f63555f380e5a96ae3c8c6ac2`;
 - preserved bounded Git-output guard: `scripts/nxb-153-windows-immutable-source-git-output-inner.ps1` → `7ffbaadb69ecffec8fcc9961c585fcb3644df422`;
 - preserved PowerShell enumeration guard: `scripts/nxb-153-windows-immutable-source-enumeration-inner.ps1` → `b586f5c8557f8a08f56f9616c9580b983be0d16f`;
 - preserved bounded-copy entrypoint: `scripts/nxb-153-windows-immutable-source-bounded-inner.ps1` → `699ffb90752c23919c83d8ad2193167792b55b40`.
@@ -123,19 +123,22 @@ Each outer layer pins the `scripts` namespace, exact-Git-object verifies the nex
 
 The canonical outer layer installs a scope-visible `Out-String` proxy for the NXB-153 H2 chain.
 
-It:
+The current contract deliberately preserves pipeline-level formatting rather than formatting each input object separately:
 
-- delegates formatting to module-qualified `Microsoft.PowerShell.Utility\Out-String`;
-- supports the current NXB-153 default pipeline-input surface only;
-- counts strict UTF-8 output bytes while constructing the capture;
-- rejects any one capture above 64 MiB;
-- removes the proxy in `finally`;
-- has a source-staged normal-content test and forced four-byte rejection test;
-- exact-object verifies the preserved Git-output wrapper before and after delegation.
+- accepted pipeline objects are limited to `String`, `InformationRecord` and `ErrorRecord`, matching the current NXB-153 capture surface;
+- future arbitrary PowerShell objects fail closed instead of silently receiving different formatting semantics;
+- at most 4,096 pipeline objects are admitted per capture;
+- strict UTF-8 input probe bytes are limited to 64 MiB before buffering;
+- the complete admitted object sequence is passed **once** to module-qualified `Microsoft.PowerShell.Utility\Out-String`, preserving grouping/order semantics of the real cmdlet;
+- the final formatted string is independently limited to 64 MiB strict UTF-8;
+- the proxy is removed in `finally`;
+- exact-Git-object authority for the preserved Git-output wrapper is checked before and after delegation.
 
-This bounds large captures such as `cargo metadata --locked | Out-String`, helper JSON capture, version/sysroot capture and review-output aggregation before PowerShell can build an arbitrarily large string.
+Static call-surface review found native/helper strings everywhere except the Windows closure-review path, where `Write-Host` output redirected with `6>&1` can enter the success stream as `InformationRecord`. The source-staged self-test therefore compares the bounded proxy **byte-for-byte** with module-qualified real `Out-String` for both a multi-string pipeline and a mixed string + redirected `InformationRecord` pipeline. It also forces byte-limit rejection, object-count rejection and unsupported-object rejection.
 
-No Windows parser/runtime PASS is claimed for this proxy.
+This bounds captures such as `cargo metadata --locked | Out-String`, helper JSON capture, version/sysroot capture and review-output aggregation without changing the documented pipeline-format contract.
+
+No Windows parser/runtime PASS is claimed for this proxy; the semantic self-test still must execute on supported PowerShell/Windows.
 
 ### Bounded Git stdout
 
@@ -202,7 +205,8 @@ No supported Windows/NTFS PowerShell H2 PASS is claimed from the current executi
 Real Windows validation must prove at least:
 
 - parser/function-scope behavior for the `Out-String`, `git`, `Get-ChildItem`, `Copy-Item` and `rustup` interception layers;
-- 64 MiB string-capture rejection;
+- exact formatting equivalence of the bounded `Out-String` proxy for its admitted string/information/error record surface;
+- 64 MiB input/output and 4,096-object string-capture rejection;
 - 64 MiB / 4,096-record Git-output rejection;
 - 131,072-object filesystem-enumeration rejection;
 - whole-sysroot file/directory/byte accounting;
@@ -224,4 +228,4 @@ A stronger state must be introduced atomically across both platform producers, b
 
 ## Admission acceptance
 
-H2 can be admitted only after the exact same final NXB-153 Git head has real Linux and Windows evidence proving that heavy Rust gates consumed only the verified immutable/pinned and availability-bounded snapshot, Windows destination namespace authority is continuous through creation-to-consumption, direct process-capture behavior is acceptable, final identity/cleanup succeeds and every other #90-#98 gate remains satisfied.
+H2 can be admitted only after the exact same final NXB-153 Git head has real Linux and Windows evidence proving that heavy Rust gates consumed only the verified immutable/pinned and availability-bounded snapshot, the bounded string layer preserves admitted pipeline semantics, Windows destination namespace authority is continuous through creation-to-consumption, direct process-capture behavior is acceptable, final identity/cleanup succeeds and every other #90-#98 gate remains satisfied.
