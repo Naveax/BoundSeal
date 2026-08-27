@@ -113,7 +113,7 @@ function Get-NxbGitBlobOidFromStream {
             while (($read = $Stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
                 $incremental.AppendData($buffer, 0, $read)
             }
-            return ConvertTo-NxbHex -Bytes $incremental.GetHashAndReset()
+            return (ConvertTo-NxbHex -Bytes ($incremental.GetHashAndReset()))
         }
         finally {
             $incremental.Dispose()
@@ -464,9 +464,6 @@ try {
         throw 'Committed Cargo.lock differs before locked validation.'
     }
 
-    # Pin the implementation used to build and validate the immutable Windows
-    # source snapshot. The scripts directory handle blocks ancestor rename/delete;
-    # the file stream blocks helper mutation/replacement while the child runs.
     $scriptsDirectory = Join-Path $RepoRoot 'scripts'
     $scriptsHandle = Open-NxbPinnedDirectory -Path $scriptsDirectory -Label 'scripts directory'
     $namespaceHandles.Add($scriptsHandle)
@@ -488,9 +485,6 @@ try {
         throw 'Pinned immutable Windows source runner bytes differ from the exact-head committed Git object.'
     }
 
-    # Source-write ACL semantics are a hard prerequisite. This is deliberately
-    # executed only after exact-head validation-lock ownership, so a duplicate
-    # same-platform/head validator does not repeat even the primitive probe.
     & $immutableSourcePath `
         -RepoRoot $RepoRoot `
         -ValidationDirectory $validationDirectory `
@@ -505,10 +499,6 @@ try {
         -DenyPath $denyPath `
         -SelfTest
 
-    # All fmt/check/Clippy/tests/RustSec/cargo-deny gates now run inside the exact
-    # committed Git archive snapshot. Tracked files and directories are pinned,
-    # source creation/mutation/deletion is denied by inherited ACLs, and writable
-    # build/temp/CARGO_HOME state lives in protected runtime subdirectories.
     & $immutableSourcePath `
         -RepoRoot $RepoRoot `
         -ValidationDirectory $validationDirectory `
