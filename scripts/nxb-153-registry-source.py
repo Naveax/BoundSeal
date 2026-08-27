@@ -9,6 +9,7 @@ import os
 from pathlib import Path, PurePosixPath
 import stat
 import sys
+import tempfile
 import tomllib
 from typing import NoReturn
 
@@ -213,7 +214,7 @@ def validate_metadata(source_root: Path) -> None:
     )
 
 
-def validate_vendor(lock_path: Path, vendor_root: Path) -> None:
+def validate_vendor(lock_path: Path, vendor_root: Path) -> dict[str, object]:
     registry = parse_lock(lock_path)
     try:
         vendor_stat = vendor_root.lstat()
@@ -279,6 +280,7 @@ def validate_vendor(lock_path: Path, vendor_root: Path) -> None:
             fail(f"vendored file checksum map is invalid for {directory_name}")
 
         expected_files: dict[str, str] = {}
+        expected_dirs: set[str] = set()
         for relative, digest in files.items():
             if not is_lower_sha256(digest):
                 fail(f"invalid vendored file SHA-256 for {directory_name}/{relative}")
@@ -289,8 +291,12 @@ def validate_vendor(lock_path: Path, vendor_root: Path) -> None:
             if canonical in expected_files:
                 fail(f"duplicate vendored checksum path: {directory_name}/{canonical}")
             expected_files[canonical] = digest
+            parts = canonical.split("/")
+            for index in range(1, len(parts)):
+                expected_dirs.add("/".join(parts[:index]))
 
         actual_files: dict[str, Path] = {}
+        actual_dirs: set[str] = set()
         for current_root, dirnames, filenames in os.walk(
             package_root,
             topdown=True,
@@ -299,12 +305,15 @@ def validate_vendor(lock_path: Path, vendor_root: Path) -> None:
             current = Path(current_root)
             for dirname in list(dirnames):
                 candidate = current / dirname
+                relative_dir = candidate.relative_to(package_root).as_posix()
+                safe_relative(relative_dir, f"vendor directory {directory_name}/{relative_dir}")
                 try:
                     metadata = candidate.lstat()
                 except OSError as error:
                     fail(f"could not stat vendor directory {candidate}: {error}")
                 if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
                     fail(f"vendor package contains unsupported directory object: {candidate}")
+                actual_dirs.add(relative_dir)
             for filename in filenames:
                 candidate = current / filename
                 relative = candidate.relative_to(package_root).as_posix()
@@ -332,6 +341,13 @@ def validate_vendor(lock_path: Path, vendor_root: Path) -> None:
                 f"vendored file set differs from Cargo checksum map for {directory_name}: "
                 f"unexpected={unexpected!r} missing={missing!r}"
             )
+        if actual_dirs != expected_dirs:
+            unexpected = sorted(actual_dirs - expected_dirs)[:8]
+            missing = sorted(expected_dirs - actual_dirs)[:8]
+            fail(
+                f"vendored directory set differs from checksum-derived namespace for {directory_name}: "
+                f"unexpected={unexpected!r} missing={missing!r}"
+            )
 
         manifest_digest.update(directory_name.encode("utf-8"))
         manifest_digest.update(b"\0")
@@ -352,24 +368,76 @@ def validate_vendor(lock_path: Path, vendor_root: Path) -> None:
             manifest_digest.update(digest.encode("ascii"))
             manifest_digest.update(b"\0")
 
-    print(
-        json.dumps(
-            {
-                "registry_packages": len(registry),
-                "vendor_bytes": total_bytes,
-                "vendor_files": total_files,
-                "vendor_manifest_sha256": manifest_digest.hexdigest(),
-            },
-            sort_keys=True,
+    result: dict[str, object] = {
+        "registry_packages": len(registry),
+        "vendor_bytes": total_bytes,
+        "vendor_files": total_files,
+        "vendor_manifest_sha256": manifest_digest.hexdigest(),
+    }
+    print(json.dumps(result, sort_keys=True))
+    return result
+
+
+def self_test() -> None:
+    package_checksum = "a" * 64
+    trusted = b"trusted dependency bytes\n"
+    trusted_sha = hashlib.sha256(trusted).hexdigest()
+
+    with tempfile.TemporaryDirectory(prefix="nxb-153-registry-source-") as temporary:
+        root = Path(temporary)
+        lock_path = root / "Cargo.lock"
+        vendor_root = root / "vendor"
+        package_root = vendor_root / "fixture-1.2.3"
+        nested = package_root / "src"
+        nested.mkdir(parents=True)
+        source_path = nested / "lib.rs"
+        source_path.write_bytes(trusted)
+        checksum_path = package_root / ".cargo-checksum.json"
+        checksum_path.write_text(
+            json.dumps(
+                {
+                    "files": {"src/lib.rs": trusted_sha},
+                    "package": package_checksum,
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+            encoding="utf-8",
         )
-    )
+        lock_path.write_text(
+            "version = 4\n\n"
+            "[[package]]\n"
+            'name = "fixture"\n'
+            'version = "1.2.3"\n'
+            f'source = "{CRATES_IO_SOURCE}"\n'
+            f'checksum = "{package_checksum}"\n',
+            encoding="utf-8",
+        )
+
+        validate_lock(lock_path)
+        validate_vendor(lock_path, vendor_root)
+
+        source_path.write_bytes(b"mutated dependency bytes\n")
+        rejected = False
+        try:
+            validate_vendor(lock_path, vendor_root)
+        except AuthorityError:
+            rejected = True
+        if not rejected:
+            fail("self-test accepted mutated vendored dependency bytes")
+
+    print("NXB-153 registry source authority self-test passed.")
 
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
         fail("mode is required")
     mode = argv[1]
-    if mode == "validate-lock":
+    if mode == "self-test":
+        if len(argv) != 2:
+            fail("self-test takes no arguments")
+        self_test()
+    elif mode == "validate-lock":
         if len(argv) != 3:
             fail("validate-lock requires Cargo.lock path")
         validate_lock(Path(argv[2]))
