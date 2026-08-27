@@ -80,6 +80,7 @@ printf changed > "$host/lib/core.rlib"
 [[ "$(cat "$snapshot/lib/core.rlib")" == trusted ]]
 mount -o remount,ro,nosuid,nodev "$snapshot"
 if touch "$snapshot/.write-probe" 2>/dev/null; then exit 73; fi
+if unshare --user --map-root-user --mount --pid --fork bash -c 'mount -o remount,rw "$1" 2>/dev/null' bash "$snapshot"; then exit 77; fi
 [[ "$("$snapshot/bin/rustc" --print sysroot)" == "$snapshot" ]]
 mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs "$shim"
 cat > "$shim/rustup" <<'SHIM'
@@ -115,7 +116,7 @@ CHILD
     rm -rf "$root"
 }
 
-[[ "$#" -ge 1 ]] || fail 'mode is required'
+[[ "$#" -ge  1 ]] || fail 'mode is required'
 mode="$1"
 
 for required_command in git bash python3 unshare mount cp mktemp; do
@@ -184,6 +185,9 @@ for component in cargo rustc rustdoc rustfmt cargo-fmt cargo-clippy clippy-drive
 done
 mount -o remount,ro,nosuid,nodev "$snapshot"
 if touch "$snapshot/.nxb-h2-write-probe" 2>/dev/null; then echo 'H2 Rust snapshot remained writable' >&2; exit 82; fi
+if unshare --user --map-root-user --mount --pid --fork bash -c 'mount -o remount,rw "$1" 2>/dev/null' bash "$snapshot"; then
+    echo 'nested validation namespace could remount parent H2 Rust snapshot writable' >&2; exit 88
+fi
 snapshot_sysroot="$("$snapshot/bin/rustc" --print sysroot)"
 [[ "$snapshot_sysroot" == "$snapshot" ]] || { echo "relocated rustc sysroot escaped H2 snapshot: $snapshot_sysroot" >&2; exit 83; }
 [[ "$("$snapshot/bin/rustc" --version)" == rustc\ 1.97.1\ * ]] || { echo 'snapshot rustc version mismatch' >&2; exit 84; }
@@ -213,7 +217,7 @@ export NXB_RUST_SNAPSHOT_ROOT="$snapshot"
 export NXB_RUST_TOOLCHAIN="$rust_toolchain"
 export NXB_H2_HOST_PATH="$PATH"
 export PATH="$shim:$snapshot/bin:$PATH"
-[[ "$(rustup run "$rust_toolchain" rustc --print sysroot)" == "$snapshot" ]] || { echo 'H2 rustup shim did not resolve snapshot rustc' >&2; exit 86; }
+[[ "$(rustup run "$rust_toolchain" rustc --print sysroot)" == "$snapshot" ]] || { echo 'H2 hard rustup shim did not resolve snapshot rustc' >&2; exit 86; }
 git -C "$repo_anchor" cat-file blob "$h1_object" | bash -s -- "${inner_args[@]}"
 git -C "$repo_anchor" cat-file blob "$authority_object" | python3 -I - verify "$snapshot" "$expected_sha" --platform-model linux >/dev/null
 if touch "$snapshot/.nxb-h2-final-write-probe" 2>/dev/null; then echo 'H2 Rust snapshot became writable after gates' >&2; exit 87; fi
