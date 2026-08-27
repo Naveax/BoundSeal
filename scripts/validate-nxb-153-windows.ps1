@@ -352,6 +352,7 @@ function Assert-ToolingReceipt {
 $validationLockStream = $null
 $auditToolStream = $null
 $denyToolStream = $null
+$receiptStream = $null
 $namespaceHandles = [Collections.Generic.List[IDisposable]]::new()
 
 Push-Location $RepoRoot
@@ -473,6 +474,13 @@ try {
     Assert-LowerSha256 -Value $denySha256 -Label 'cargo-deny SHA-256'
 
     $receiptPath = Join-Path $validationDirectory "nxb-153-tooling-windows-$headSha.json"
+
+    # Pin the exact tooling-receipt object before semantic parsing. FileShare.Read
+    # keeps normal read-only parser/hash access available while withholding write
+    # and delete sharing through the complete heavy-validation/evidence lifecycle.
+    # Assert-ToolingReceipt may reopen the pathname for read, but once this stream
+    # is open the receipt object cannot be replaced or mutated underneath it.
+    $receiptStream = Open-NxbPinnedToolStream -Path $receiptPath -Label 'tooling receipt'
     Assert-ToolingReceipt `
         -Path $receiptPath `
         -HeadSha $headSha `
@@ -482,7 +490,7 @@ try {
         -AuditSha256 $auditSha256 `
         -DenyVersion $denyVersion `
         -DenySha256 $denySha256
-    $receiptSha256 = (Get-FileHash -LiteralPath $receiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $receiptSha256 = Get-NxbStreamSha256 -Stream $receiptStream -Label 'tooling receipt'
     Assert-LowerSha256 -Value $receiptSha256 -Label 'Tooling receipt SHA-256'
 
     $lockPath = Join-Path $RepoRoot 'Cargo.lock'
@@ -599,9 +607,13 @@ try {
         throw 'cargo-deny pathname no longer names the validated pinned bytes.'
     }
 
-    $finalReceiptSha256 = (Get-FileHash -LiteralPath $receiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($finalReceiptSha256 -cne $receiptSha256) {
-        throw 'Tooling receipt changed during validation.'
+    $finalPinnedReceiptSha256 = Get-NxbStreamSha256 -Stream $receiptStream -Label 'tooling receipt final pinned object'
+    if ($finalPinnedReceiptSha256 -cne $receiptSha256) {
+        throw 'Pinned tooling receipt bytes changed during validation.'
+    }
+    $finalReceiptPathSha256 = (Get-FileHash -LiteralPath $receiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($finalReceiptPathSha256 -cne $receiptSha256) {
+        throw 'Tooling receipt pathname no longer names the semantically verified pinned bytes.'
     }
 
     $evidence = [ordered]@{
@@ -666,7 +678,7 @@ try {
         }
     }
 
-    Write-Host 'NXB-153 Windows validation passed.'
+    Write-Host 'NXB-153 Windows validation passed with pinned tooling receipt authority.'
     Write-Host "HEAD: $headSha"
     Write-Host "Tool root: $toolsRelative"
     Write-Host "Cargo.lock SHA-256: $lockSha256"
@@ -674,6 +686,9 @@ try {
     Write-Host "Evidence: $evidencePath"
 }
 finally {
+    if ($null -ne $receiptStream) {
+        $receiptStream.Dispose()
+    }
     if ($null -ne $denyToolStream) {
         $denyToolStream.Dispose()
     }
