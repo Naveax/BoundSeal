@@ -10,6 +10,8 @@ from typing import Mapping, NoReturn
 
 FORBIDDEN_EXACT = frozenset(
     {
+        "AR",
+        "BINDGEN_EXTRA_CLANG_ARGS",
         "CARGO",
         "CARGO_ENCODED_RUSTFLAGS",
         "CARGO_ENCODED_RUSTDOCFLAGS",
@@ -17,10 +19,23 @@ FORBIDDEN_EXACT = frozenset(
         "CARGO_INCREMENTAL",
         "CARGO_NET_OFFLINE",
         "CARGO_TARGET_DIR",
+        "CC",
+        "CC_ENABLE_DEBUG_OUTPUT",
+        "CFLAGS",
+        "CL",
+        "CPP",
+        "CPPFLAGS",
+        "CRATE_CC_NO_DEFAULTS",
+        "CXX",
+        "CXXFLAGS",
+        "LD",
+        "LDFLAGS",
         "PYTHONHOME",
         "PYTHONINSPECT",
         "PYTHONPATH",
         "PYTHONSTARTUP",
+        "RANLIB",
+        "RANLIBFLAGS",
         "RUSTC",
         "RUSTC_BOOTSTRAP",
         "RUSTC_WORKSPACE_WRAPPER",
@@ -28,13 +43,16 @@ FORBIDDEN_EXACT = frozenset(
         "RUSTDOC",
         "RUSTDOCFLAGS",
         "RUSTFLAGS",
+        "_CL_",
     }
 )
 
 # These families map directly to Cargo/rustup configuration or can substitute
-# compiler/runner/profile/source behavior. The audit runs before NXB-153 stages
-# its own controlled CARGO_HOME/TARGET_DIR/offline values.
+# compiler/runner/profile/source/native-build behavior. The audit runs before
+# NXB-153 stages its own controlled CARGO_HOME/TARGET_DIR/offline values.
 FORBIDDEN_PREFIXES = (
+    "AR_",
+    "BINDGEN_EXTRA_CLANG_ARGS_",
     "CARGO_ALIAS_",
     "CARGO_BUILD_",
     "CARGO_NET_",
@@ -43,6 +61,14 @@ FORBIDDEN_PREFIXES = (
     "CARGO_REGISTRY_",
     "CARGO_SOURCE_",
     "CARGO_TARGET_",
+    "CC_",
+    "CFLAGS_",
+    "CPPFLAGS_",
+    "CXX_",
+    "CXXFLAGS_",
+    "LD_",
+    "LDFLAGS_",
+    "RANLIB_",
     "RUSTC_",
     "RUSTDOC_",
     "RUSTUP_",
@@ -73,13 +99,13 @@ def audit_environment(environment: Mapping[str, str]) -> dict[str, object]:
         # Values are intentionally never printed: registry tokens or other
         # sensitive data must not leak merely because a variable name is banned.
         fail(
-            "ambient Rust/Cargo/Python authority variables are not admitted: "
+            "ambient compiler/Cargo/Python authority variables are not admitted: "
             + ", ".join(collisions)
         )
     return {
         "ambient_variables_checked": len(environment),
         "authority_variables_present": 0,
-        "policy": "nxb-153-rust-cargo-python-authority-v1",
+        "policy": "nxb-153-compiler-cargo-python-authority-v2",
     }
 
 
@@ -90,6 +116,11 @@ def self_test() -> None:
         "HTTPS_PROXY": "http://proxy.invalid:8080",
         "PYTHONUTF8": "1",
         "SYSTEMROOT": r"C:\Windows",
+        # Visual Studio/SDK discovery remains host authority rather than an
+        # operator-selectable compiler override in this contract.
+        "INCLUDE": r"C:\sdk\include",
+        "LIB": r"C:\sdk\lib",
+        "LIBPATH": r"C:\sdk\libpath",
     }
     result = audit_environment(allowed)
     if result["authority_variables_present"] != 0:
@@ -110,6 +141,16 @@ def self_test() -> None:
         "CARGO_NET_OFFLINE",
         "PYTHONPATH",
         "PYTHONHOME",
+        "CC",
+        "CC_X86_64_UNKNOWN_LINUX_GNU",
+        "CFLAGS",
+        "CFLAGS_X86_64_UNKNOWN_LINUX_GNU",
+        "AR",
+        "AR_X86_64_UNKNOWN_LINUX_GNU",
+        "CL",
+        "_CL_",
+        "CRATE_CC_NO_DEFAULTS",
+        "BINDGEN_EXTRA_CLANG_ARGS",
     )
     for name in rejected_names:
         try:
@@ -121,7 +162,7 @@ def self_test() -> None:
     # Matching is deliberately case-insensitive so the same policy applies on
     # Windows and does not acquire platform-specific spelling loopholes.
     try:
-        audit_environment({"rustflags": "-C opt-level=0"})
+        audit_environment({"cflags_x86_64_pc_windows_msvc": "/DUNTRUSTED"})
     except EnvironmentAuthorityError:
         pass
     else:
