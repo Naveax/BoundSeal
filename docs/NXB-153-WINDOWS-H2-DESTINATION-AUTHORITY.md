@@ -17,7 +17,8 @@ The supported threat model includes a concurrent process running as the same ord
 - modify a destination file during or after creator-handle transition;
 - inject a transient file or directory after the initial copy and remove it before final tree verification;
 - alter the source-tree DACL after the PowerShell deny rule is staged and use the resulting interval for transient namespace mutation;
-- race the snapshot-root pathname while validation is preparing the copied Rust toolchain.
+- race the snapshot-root pathname while validation is preparing the copied Rust toolchain;
+- force the broker-control transport to retain an oversized or unterminated response before the parent can apply its protocol limit.
 
 As elsewhere in NXB-153, this contract does not attempt to survive kernel compromise, a malicious administrator with privileges outside the ordinary validation identity, hostile filesystem drivers or simultaneous replacement of trusted operating-system primitives.
 
@@ -49,7 +50,7 @@ Windows bounded H2 outer entrypoint:
 
 Current source-staged bounded entrypoint Git blob:
 
-`6d103dd7711d52e679a675cac9cf2b9d4f52e5fe`
+`357f074092436140fb5b7ee4960386bed915efb7`
 
 The outer entrypoint pins the scripts namespace and exact-Git-object verifies both the broker wrapper and broker implementation before use and again before success.
 
@@ -110,7 +111,7 @@ The reopened guard permits ordinary reads and does not itself need to remain the
 
 This transition exists because Windows sharing modes cannot be strengthened or relaxed on one already-open handle. The recursive kernel watcher converts the unavoidable close/reopen transition into a fail-closed observed interval rather than an unobserved pathname interval.
 
-## Broker lifetime
+## Broker lifetime and bounded control protocol
 
 The broker is long-lived. It remains alive after the copy completes and continues holding:
 
@@ -119,7 +120,13 @@ The broker is long-lived. It remains alive after the copy completes and continue
 - read guards for all copied destination files;
 - the recursive snapshot-root change watcher.
 
-A bounded stdin/stdout protocol exposes only `CHECK` and `STOP`. Commands are ASCII and bounded; responses are one bounded strict-UTF-8 JSON line. The PowerShell parent requires the exact policy name, exact snapshot root and bounded file/directory/byte summary.
+A bounded stdin/stdout protocol exposes only `CHECK` and `STOP`. Commands are ASCII and bounded. Broker responses are strict single-line JSON followed by LF; the Python emitter rejects embedded CR/LF and flushes every record.
+
+The PowerShell parent no longer uses `ReadLineAsync()` followed by a post-hoc size check. `Read-NxbH2BrokerLine` reads `StandardOutput.BaseStream` incrementally, retains at most **65,537 raw bytes** so a 64 KiB payload may optionally carry one CR before LF, requires LF termination, strips only that optional terminator CR, and rejects payload length above **65,536 bytes** before strict UTF-8 decode. It then requires the exact policy name, exact snapshot root and bounded file/directory/byte summary.
+
+Timeout, EOF before newline, oversized framing and invalid UTF-8 attempt recursive broker-process termination and bounded reap before failing. `ReadLineAsync` and `ReadToEndAsync` are forbidden in this control reader.
+
+This distinction matters because checking the size only after a line-oriented reader has already accumulated the entire response is not a memory bound. The current source stages the ceiling before decode and before arbitrary no-newline growth can occur.
 
 An unexpected broker exit, protocol close, malformed response, mutation notification or watcher failure is fatal.
 
@@ -169,7 +176,7 @@ If the nested H2 sequence fails before normal cleanup, the wrapper and bounded o
 
 Therefore the broker lifetime covers destination creation, creator-handle transition, PowerShell authority acquisition, heavy Rust execution, post-gate verification, ACL restoration and the beginning of final snapshot cleanup.
 
-## Broker primitive self-test
+## Broker and control-reader primitive probes
 
 The broker has a Windows-only self-test that source-stages the expected native behavior:
 
@@ -183,7 +190,16 @@ The broker has a Windows-only self-test that source-stages the expected native b
 
 The bounded Windows H2 entrypoint executes this self-test before real broker use.
 
-The current non-Windows development environment cannot execute the native self-test. The Python source has passed local compilation, but that is not a substitute for the required NTFS/Win32 behavior proof.
+The separate exact-head Windows process-lifecycle probe also AST-extracts the production `Read-NxbH2BrokerLine` implementation and executes that exact function against synthetic child output. The staged dynamic controls require:
+
+- strict-UTF-8 JSON terminated by CRLF to round-trip without the terminator;
+- EOF before newline to fail closed;
+- invalid UTF-8 to fail closed;
+- stalled output to time out and trigger cleanup.
+
+Its source/AST contract separately requires the 64 KiB pre-decode ceiling and forbids `ReadLineAsync`/`ReadToEndAsync` regression.
+
+The current non-Windows development environment cannot execute the native broker or PowerShell probes. Source staging and static diff review are not substitutes for the required NTFS/Win32 behavior proof.
 
 ## PowerShell support boundary
 
@@ -206,6 +222,7 @@ Destination lifetime authority is now **source-staged**, but #98 must remain ope
 - recursive `ReadDirectoryChangesW` mutation detection, including create/delete/rename/content mutation and transient restore attempts;
 - watcher overflow/failure fail-closed behavior;
 - cancellation and broker-process cleanup;
+- real broker-control 64 KiB framing boundary, newline/CRLF handling, malformed UTF-8, protocol EOF and stalled-output cleanup;
 - PowerShell `New-Item`, `Test-Path`, `Remove-Item` interception/delegation semantics;
 - successful overlap with existing H2 file/directory/ACL authority;
 - ordinary relocated rustc/cargo/rustfmt/Clippy/DLL/sysroot loading while broker guards are held;
@@ -226,7 +243,9 @@ Current source no longer contains the three previously identified `.NET ReadToEn
 - `git archive` redirects only binary stdout, which is streamed incrementally into the pinned create-new archive under the existing 1 GiB cap; stderr inherits the validation host;
 - tar extraction redirects only stdin from the bounded pinned archive; stdout/stderr inherit the validation host.
 
-The parent process uses exit status for these paths rather than retaining arbitrarily large child-output strings. This removes the source-level unbounded output-retention surface. Supported Windows execution must still verify inherited-output, failure, cancellation and cleanup behavior, so this is **source-staged hardening**, not an admission PASS.
+The broker control channel is separately bounded before decode, so the destination authority no longer relies on line-oriented post-hoc length checking either.
+
+The parent process uses exit status for the direct child paths rather than retaining arbitrarily large child-output strings. This removes the source-level unbounded output-retention surface. Supported Windows execution must still verify inherited-output, failure, cancellation, broker framing and cleanup behavior, so this is **source-staged hardening**, not an admission PASS.
 
 ## Admission boundary
 
