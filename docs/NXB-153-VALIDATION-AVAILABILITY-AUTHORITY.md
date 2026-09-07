@@ -4,13 +4,13 @@
 
 This document records the current **source-staged, not admitted** availability contract for NXB-153 validation.
 
-Availability is part of validation authority: an exact-head gate is not allowed to consume attacker-expandable stdout, filesystem enumeration, source manifests or toolchain trees without a fail-closed envelope. The limits below constrain resource consumption; they do not replace exact-object, namespace, checksum, immutability or platform-runtime proof.
+Availability is part of validation authority: an exact-head gate is not allowed to consume attacker-expandable stdout, filesystem enumeration, source manifests, toolchain trees or redirected child pipes without a fail-closed envelope. These limits do not replace exact-object, namespace, checksum, immutability or platform-runtime proof.
 
 Historical Pass A-D evidence does not validate this current Pass E availability delta.
 
 ## Common admission boundary
 
-The final NXB-153 head still requires real supported Linux and Windows execution. Source-level self-tests and local primitives in this document are not platform admission.
+The final NXB-153 head still requires real supported Linux and Windows execution. Source-level self-tests and static/source primitives in this document are not platform admission.
 
 Current schema-v2 evidence therefore remains:
 
@@ -123,13 +123,13 @@ These are implementation primitives only and do not claim current-head Rust 1.97
 
 ## Linux remaining bounded-capture observations
 
-Repo-wide review of the NXB-153 delta leaves two raw `sys.stdin.buffer.read()` calls in the immutable-source inner runner. Both consume exact-head `ls-tree` manifests only after the new source-envelope preflight, so their upstream source volume is now explicitly bounded.
+Repo-wide review of the NXB-153 delta leaves two raw `sys.stdin.buffer.read()` calls in the immutable-source inner runner. Both consume exact-head `ls-tree` manifests only after the new source-envelope preflight, so their upstream source volume is explicitly bounded.
 
 Other relevant readers already have direct caps, including Cargo metadata in `nxb-153-registry-source.py`.
 
 Remaining `subprocess.PIPE` uses visible in the NXB-153 Linux delta are restricted to sealed-tool version/self-test output and a fixed marker primitive. They are not current high-volume attacker-controlled capture surfaces.
 
-The evidence-review shell also buffers the descriptor-guard self-test/review success output, but the semantic reviewer emits only a fixed small closure summary and bounded path material; dependency vendor summary output is a fixed four-field JSON record. No new high-volume capture blocker was identified there.
+The evidence-review shell also buffers descriptor-guard self-test/review success output, but the semantic reviewer emits only a fixed small closure summary and bounded path material; dependency vendor summary output is a fixed four-field JSON record. No new high-volume capture blocker was identified there.
 
 ## Windows H2 availability authority
 
@@ -148,10 +148,17 @@ scripts/nxb-153-windows-immutable-source.ps1
 Current availability boundaries include:
 
 - `Out-String`: at most **4,096 pipeline objects**, **64 MiB** strict UTF-8 input probe bytes and **64 MiB** final formatted output;
-- bare Git stdout: **64 MiB / 4,096 decoded records**;
+- H2 bare Git stdout: **64 MiB / 4,096 decoded records**, **5 minute read inactivity**, **30 second post-stdout exit**;
 - `Get-ChildItem`: **131,072 emitted filesystem objects** per admitted invocation;
 - host Rust tree / snapshot copy: **65,536 files / 65,536 directories / 512 MiB per file / 4 GiB total**;
-- exact-head Git archive streamed to a pinned create-new file: at most **1 GiB**.
+- exact-head Git archive: **1 GiB** plus bounded child stdout progress/exit;
+- direct child pipe inactivity: **300,000 ms / 5 minutes**;
+- direct child post-I/O exit: **30,000 ms / 30 seconds**.
+
+Current exact child-lifecycle source blobs:
+
+- `scripts/nxb-153-windows-dependency-source.ps1` -> `76734e3f5ab9adbf2c9e509ff4be08427da57aa3`;
+- `scripts/nxb-153-windows-immutable-source-inner.ps1` -> `664930b3b62f54b57345ff387fabce7a8171f45f`.
 
 The `Out-String` proxy admits only the currently reviewed `String`, `InformationRecord` and `ErrorRecord` surface and applies module-qualified real `Out-String` once to the complete admitted sequence so pipeline-format semantics are preserved.
 
@@ -165,19 +172,20 @@ The broker creates destination children through retained native relative-handle 
 
 No supported Windows/NTFS PowerShell runtime PASS is claimed.
 
-## Windows process-output capture hardening
+## Windows process-output and child-lifecycle hardening
 
-The three previously identified direct `.NET ReadToEndAsync()` capture paths are no longer present in current source.
+The three previously identified direct `.NET ReadToEndAsync()` capture paths are no longer present in current source, and the known pipe/lifecycle gap is now source-bounded.
 
 Current source-staged behavior is:
 
-- isolated registry metadata verification redirects **stdin only**; verifier stdout/stderr inherit the validation host and the parent retains no child output string;
-- `git archive` redirects only its binary stdout, which is streamed incrementally into the pinned create-new archive and rejected above **1 GiB**; stderr inherits the validation host;
-- tar extraction redirects only stdin from the already bounded pinned archive; stdout/stderr inherit the validation host and are not retained by the parent process.
+- isolated registry metadata verification redirects **stdin only**; verifier stdout/stderr inherit the validation host and the parent retains no child output string; stdin uses bounded `WriteAsync` / `FlushAsync` and bounded post-stdin exit;
+- `git archive` redirects only its binary stdout, consumes it with bounded `ReadAsync`, rejects above **1 GiB**, inherits stderr and bounds post-stdout exit;
+- tar extraction redirects only stdin from the already bounded pinned archive, delivers chunks with bounded `WriteAsync` / `FlushAsync`, inherits stdout/stderr and bounds post-stdin exit;
+- timeout/failure cleanup attempts recursive `Kill(true)` and bounded reap before process disposal.
 
-The parent now uses child exit status for these three paths instead of retaining arbitrarily large stdout/stderr strings. This removes the source-level unbounded `ReadToEndAsync()` memory-capture surface and its associated redirected-pipe retention risk.
+Static exact-head review confirms the former synchronous `StandardInput.Write(...)`, child-pipe `CopyTo(...)` and parameterless `WaitForExit()` forms are absent from these targeted source-hardened paths.
 
-Real supported Windows execution is still required to prove the exact process-launch, inherited-output, pipe, cancellation and cleanup behavior under the documented environment. Source staging is not admission.
+This closes the known direct-child **source-level** availability finding. Real supported Windows execution is still required to prove actual .NET/PowerShell timing, inherited-output, nonzero-exit, cancellation, process-tree termination and cleanup behavior under the documented environment.
 
 ## Explicit remaining Windows admission blockers
 
@@ -185,9 +193,17 @@ Real supported Windows execution is still required to prove the exact process-la
 
 The destination lifetime broker is source-staged but still requires supported Windows/NTFS execution proving native relative creation, create-new collision behavior, reparse rejection, handle/share-mode semantics, watcher mutation detection and overflow/failure handling, PowerShell interception/delegation, overlap with ACL authority, relocated Rust/DLL/sysroot loading and cleanup/recovery.
 
-### Process-output runtime proof
+### Process lifecycle runtime proof
 
-The direct in-memory captures are source-removed, but supported Windows execution must still verify that inherited stdout/stderr behavior is compatible with the validation host and that failure/cancellation paths terminate and clean up without hanging or weakening exact-head authority.
+The known source paths are bounded, but supported Windows execution must still prove:
+
+- canonical entry/H2 Git read-inactivity and post-output exit timeout behavior;
+- registry-verifier stalled-stdin and post-stdin exit behavior;
+- Git-archive stalled-stdout, 1 GiB rejection and post-stdout exit behavior;
+- tar-extraction stalled-stdin and post-stdin exit behavior;
+- recursive child termination on timeout/failure;
+- inherited stdout/stderr compatibility;
+- nonzero-exit, failure/cancellation and cleanup paths without weakening exact-head authority.
 
 ## Final admission requirements
 
@@ -195,9 +211,9 @@ The final same exact Git head must still demonstrate:
 
 - full Linux Rust 1.97.1 H2 execution under exact-head immutable workspace/dependency/toolchain authority;
 - full supported Windows NTFS/PowerShell H2 execution;
-- bounded-capture and source-envelope primitive behavior on the real platform runs;
+- bounded-capture and source-envelope behavior on real platform runs;
 - destination-broker lifetime and mutation/adversarial behavior on supported Windows;
-- process-output inheritance, failure and cleanup behavior on supported Windows;
+- direct-child timeout, inherited-output, failure/cancellation and cleanup behavior on supported Windows;
 - lock contention and mutation/injection probes;
 - create-only schema-v2 evidence publication;
 - object-anchored evidence review;
