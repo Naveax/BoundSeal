@@ -238,6 +238,9 @@ if ($headSha -notmatch '^[0-9a-f]{40}$') {
 
 $namespaceHandles = [Collections.Generic.List[IDisposable]]::new()
 $sourceAuthorities = [Collections.Generic.List[object]]::new()
+$cleanupErrors = [Collections.Generic.List[string]]::new()
+$primaryFailure = $null
+$evidencePath = $null
 try {
     $scriptsDirectory = Join-Path $RepoRoot 'scripts'
     $targetDirectory = Join-Path $RepoRoot 'target'
@@ -386,15 +389,33 @@ try {
             Fail-NxbProcessEvidence "exact-head source authority changed during evidence recording: $($authority.Path)"
         }
     }
-
-    Write-Host "NXB-153 Windows process-lifecycle evidence recorded for HEAD $headSha."
-    Write-Host "Evidence: $evidencePath"
+}
+catch {
+    $primaryFailure = $_
 }
 finally {
     for ($index = $sourceAuthorities.Count - 1; $index -ge 0; $index--) {
-        try { $sourceAuthorities[$index].Stream.Dispose() } catch {}
+        try { $sourceAuthorities[$index].Stream.Dispose() }
+        catch { $cleanupErrors.Add("source authority handle disposal failed: $($sourceAuthorities[$index].Path): $($_.Exception.Message)") }
     }
     for ($index = $namespaceHandles.Count - 1; $index -ge 0; $index--) {
-        try { $namespaceHandles[$index].Dispose() } catch {}
+        try { $namespaceHandles[$index].Dispose() }
+        catch { $cleanupErrors.Add("namespace handle disposal failed at index $index: $($_.Exception.Message)") }
     }
 }
+
+if ($null -ne $primaryFailure) {
+    if ($cleanupErrors.Count -gt 0) {
+        throw "NXB-153 Windows process lifecycle evidence failed: $($primaryFailure.Exception.Message); cleanup: $($cleanupErrors -join ' | ')"
+    }
+    throw $primaryFailure
+}
+if ($cleanupErrors.Count -gt 0) {
+    Fail-NxbProcessEvidence ("cleanup failed after otherwise successful evidence recording: " + ($cleanupErrors -join ' | '))
+}
+if ([string]::IsNullOrWhiteSpace($evidencePath)) {
+    Fail-NxbProcessEvidence 'evidence path was not established after otherwise successful recording'
+}
+
+Write-Host "NXB-153 Windows process-lifecycle evidence recorded for HEAD $headSha."
+Write-Host "Evidence: $evidencePath"
