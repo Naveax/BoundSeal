@@ -1,10 +1,12 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S bash -p
 set -euo pipefail
 
 fail() {
-    printf 'NXB-153 Linux preparation authority wrapper failed: %s\n' "$1" >&2
-    exit 1
+    builtin printf 'NXB-153 Linux preparation authority wrapper failed: %s\n' "$1" >&2
+    builtin exit 1
 }
+
+[[ "$-" == *p* ]] || fail 'canonical Linux preparation requires privileged Bash mode (-p)'
 
 read_blob_text_exact() {
     local object="$1" label="$2" output_name="$3"
@@ -12,16 +14,16 @@ read_blob_text_exact() {
     [[ "$output_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || fail "$label output variable name is invalid"
     payload="$({
         "$git_application" cat-file blob "$object" || exit $?
-        printf '%s' "$sentinel"
+        builtin printf '%s' "$sentinel"
     })" || fail "could not load exact-head $label bytes"
     [[ "${payload: -1}" == "$sentinel" ]] || fail "$label capture sentinel is missing"
     payload="${payload%$sentinel}"
     [[ -n "$payload" ]] || fail "$label source is empty"
-    captured_object="$(printf '%s' "$payload" | "$git_application" hash-object --stdin)" ||
+    captured_object="$(builtin printf '%s' "$payload" | "$git_application" hash-object --stdin)" ||
         fail "could not hash captured exact-head $label bytes"
     [[ "$captured_object" == "$object" ]] ||
         fail "$label captured bytes differ from the selected exact-head Git blob"
-    printf -v "$output_name" '%s' "$payload"
+    builtin printf -v "$output_name" '%s' "$payload"
 }
 
 repo_root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -32,6 +34,7 @@ for required_command in git bash python3; do
 done
 
 git_application="$(type -P git)"
+bash_application="$(type -P bash)" || fail 'bash executable could not be resolved'
 head_sha="$("$git_application" rev-parse HEAD)" || fail 'exact Git HEAD could not be resolved'
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'exact Git HEAD is not canonical SHA-1'
 inner_relative='scripts/prepare-and-validate-nxb-153-linux-inner.sh'
@@ -104,14 +107,14 @@ if dirty:
 ' "$byte_limit" "$record_limit"
 }
 
-[[ -z "$(printf '' | nxb_filter_git_status)" ]] ||
+[[ -z "$(builtin printf '' | nxb_filter_git_status)" ]] ||
     fail 'bounded Git status filter changed clean-output semantics'
-[[ "$(printf '?? probe\n' | nxb_filter_git_status)" == '__NXB153_DIRTY__' ]] ||
+[[ "$(builtin printf '?? probe\n' | nxb_filter_git_status)" == '__NXB153_DIRTY__' ]] ||
     fail 'bounded Git status filter changed dirty-output semantics'
-if printf 'abcde' | nxb_filter_git_status 4 4096 >/dev/null 2>&1; then
+if builtin printf 'abcde' | nxb_filter_git_status 4 4096 >/dev/null 2>&1; then
     fail 'bounded Git status filter did not reject oversized byte output'
 fi
-if printf 'a\nb\n' | nxb_filter_git_status 67108864 1 >/dev/null 2>&1; then
+if builtin printf 'a\nb\n' | nxb_filter_git_status 67108864 1 >/dev/null 2>&1; then
     fail 'bounded Git status filter did not reject excess records'
 fi
 
@@ -120,18 +123,26 @@ git() {
         if "$git_application" "$@" | nxb_filter_git_status; then
             return 0
         fi
-        printf '__NXB153_GIT_STATUS_INVALID__\n'
+        builtin printf '__NXB153_GIT_STATUS_INVALID__\n'
         return 0
     fi
     "$git_application" "$@"
 }
 
-# Execute only the complete, size-bounded exact-head inner bytes captured above.
-# The process-substitution producer is now the shell builtin printf over an already
-# verified in-memory value rather than git cat-file, so a Git producer failure cannot
-# turn into a successfully sourced partial implementation.
-source <(printf '%s' "$inner_source") '.'
-unset inner_source
+# Any Bash child launched by the preserved preparation implementation is forced
+# into privileged mode. In particular, the exact-head validator handoff cannot
+# consume BASH_ENV or import exported shell functions.
+bash() {
+    "$bash_application" -p "$@"
+}
+
+# Execute the exact captured/OID-verified inner source directly from the same
+# in-memory string. This removes the second asynchronous process-substitution
+# producer entirely while preserving sourced-script same-shell behavior.
+set -- '.'
+builtin eval "$inner_source"
+builtin unset inner_source
+builtin unset -f bash
 
 final_object="$("$git_application" rev-parse "$head_sha:$inner_relative")" ||
     fail 'could not re-resolve Linux preparation inner authority after preparation'
