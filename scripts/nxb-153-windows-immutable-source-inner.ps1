@@ -20,6 +20,8 @@ $ErrorActionPreference = 'Stop'
 $maximumTrackedFiles = 4096
 $maximumTrackedBytes = 536870912
 $maximumArchiveBytes = 1073741824
+$childIoInactivityTimeoutMilliseconds = 300000
+$childExitTimeoutMilliseconds = 30000
 
 function Fail-Nxb {
     param([Parameter(Mandatory = $true)][string]$Message)
@@ -382,15 +384,31 @@ function New-NxbPinnedGitArchive {
         }
         $buffer = [byte[]]::new(1048576)
         [Int64]$total = 0
-        while (($read = $process.StandardOutput.BaseStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+        while ($true) {
+            $readTask = $process.StandardOutput.BaseStream.ReadAsync($buffer, 0, $buffer.Length)
+            $readCompleted = $false
+            try {
+                $readCompleted = $readTask.Wait($childIoInactivityTimeoutMilliseconds)
+            }
+            catch {
+                Fail-Nxb "git archive stdout read failed: $($_.Exception.Message)"
+            }
+            if (-not $readCompleted) {
+                Fail-Nxb "git archive stdout made no progress for $childIoInactivityTimeoutMilliseconds ms"
+            }
+            $read = $readTask.Result
+            if ($read -le 0) {
+                break
+            }
             $total += $read
             if ($total -gt $maximumArchiveBytes) {
-                try { $process.Kill($true) } catch {}
                 Fail-Nxb "exact-head Git archive exceeds $maximumArchiveBytes bytes"
             }
             $stream.Write($buffer, 0, $read)
         }
-        $process.WaitForExit()
+        if (-not $process.WaitForExit($childExitTimeoutMilliseconds)) {
+            Fail-Nxb "git archive did not exit within $childExitTimeoutMilliseconds ms after stdout closed"
+        }
         if ($process.ExitCode -ne 0) {
             Fail-Nxb "git archive failed for exact-head Windows source snapshot with exit code $($process.ExitCode)"
         }
@@ -412,6 +430,13 @@ function New-NxbPinnedGitArchive {
     }
     finally {
         if ($null -ne $process) {
+            try {
+                if (-not $process.HasExited) {
+                    $process.Kill($true)
+                    [void]$process.WaitForExit($childExitTimeoutMilliseconds)
+                }
+            }
+            catch {}
             $process.Dispose()
         }
     }
@@ -448,10 +473,38 @@ function Expand-NxbPinnedTarArchive {
         if (-not $process.Start()) {
             Fail-Nxb 'could not start tar extraction process'
         }
-        $Stream.CopyTo($process.StandardInput.BaseStream)
-        $process.StandardInput.BaseStream.Flush()
+
+        $buffer = [byte[]]::new(1048576)
+        while (($read = $Stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $writeTask = $process.StandardInput.BaseStream.WriteAsync($buffer, 0, $read)
+            $writeCompleted = $false
+            try {
+                $writeCompleted = $writeTask.Wait($childIoInactivityTimeoutMilliseconds)
+            }
+            catch {
+                Fail-Nxb "tar extraction stdin write failed: $($_.Exception.Message)"
+            }
+            if (-not $writeCompleted) {
+                Fail-Nxb "tar extraction stdin made no progress for $childIoInactivityTimeoutMilliseconds ms"
+            }
+        }
+
+        $flushTask = $process.StandardInput.BaseStream.FlushAsync()
+        $flushCompleted = $false
+        try {
+            $flushCompleted = $flushTask.Wait($childIoInactivityTimeoutMilliseconds)
+        }
+        catch {
+            Fail-Nxb "tar extraction stdin flush failed: $($_.Exception.Message)"
+        }
+        if (-not $flushCompleted) {
+            Fail-Nxb "tar extraction stdin flush made no progress for $childIoInactivityTimeoutMilliseconds ms"
+        }
         $process.StandardInput.Close()
-        $process.WaitForExit()
+
+        if (-not $process.WaitForExit($childExitTimeoutMilliseconds)) {
+            Fail-Nxb "tar extraction did not exit within $childExitTimeoutMilliseconds ms after stdin closed"
+        }
         if ($process.ExitCode -ne 0) {
             Fail-Nxb "tar extraction failed for exact-head Windows source snapshot with exit code $($process.ExitCode)"
         }
@@ -459,7 +512,10 @@ function Expand-NxbPinnedTarArchive {
     catch {
         if ($null -ne $process) {
             try {
-                if (-not $process.HasExited) { $process.Kill($true) }
+                if (-not $process.HasExited) {
+                    $process.Kill($true)
+                    [void]$process.WaitForExit($childExitTimeoutMilliseconds)
+                }
             }
             catch {}
         }
