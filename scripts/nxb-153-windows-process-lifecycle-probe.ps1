@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
-    [ValidateRange(50, 10000)][int]$ProbeIoTimeoutMilliseconds = 250,
-    [ValidateRange(50, 10000)][int]$ProbeExitTimeoutMilliseconds = 500,
+    [ValidateRange(50, 10000)][int]$ProbeIoTimeoutMilliseconds = 1000,
+    [ValidateRange(50, 10000)][int]$ProbeExitTimeoutMilliseconds = 1500,
     [switch]$Json
 )
 
