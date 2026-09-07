@@ -106,6 +106,9 @@ if (-not $IsWindows) {
 if ($PSVersionTable.PSEdition -cne 'Core') {
     Fail-NxbProcessEvidence 'evidence recording requires PowerShell Core'
 }
+if ($ProbeIoTimeoutMilliseconds -ne 1000 -or $ProbeExitTimeoutMilliseconds -ne 1500) {
+    Fail-NxbProcessEvidence 'admission evidence requires canonical probe deadlines: 1000 ms I/O and 1500 ms exit'
+}
 
 $RepoRoot = [IO.Path]::GetFullPath($RepoRoot)
 $git = Get-Command git -CommandType Application -ErrorAction Stop
