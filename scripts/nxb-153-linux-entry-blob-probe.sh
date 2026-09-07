@@ -156,9 +156,43 @@ for relative in "${wrappers[@]}"; do
     unset source_text
 done
 
+immutable_relative='scripts/nxb-153-linux-immutable-source.sh'
+immutable_object="$("$git_application" rev-parse "$head_sha:$immutable_relative")" ||
+    fail 'canonical Linux immutable-source runner is not committed at exact head'
+[[ "$immutable_object" =~ ^[0-9a-f]{40}$ ]] || fail 'immutable-source runner object is not canonical SHA-1'
+[[ "$("$git_application" cat-file -t "$immutable_object")" == blob ]] || fail 'immutable-source runner exact-head object is not a blob'
+immutable_size="$("$git_application" cat-file -s "$immutable_object")" || fail 'could not resolve immutable-source runner size'
+[[ "$immutable_size" =~ ^[0-9]+$ && "$immutable_size" -gt 0 && "$immutable_size" -le 1048576 ]] ||
+    fail 'immutable-source runner size is outside the admitted envelope'
+immutable_actual="$("$git_application" hash-object -- "$repo_root/$immutable_relative")" ||
+    fail 'could not hash immutable-source runner working bytes'
+[[ "$immutable_actual" == "$immutable_object" ]] ||
+    fail 'immutable-source runner working bytes differ from exact-head authority'
+immutable_source=''
+capture_blob_exact "$git_application" "$immutable_object" immutable_source ||
+    fail 'immutable-source runner exact-head bytes failed capture integrity'
+"$bash_application" -p -n <<<"$immutable_source" ||
+    fail 'immutable-source runner exact-head bytes failed privileged Bash syntax validation'
+[[ "$immutable_source" == '#!/usr/bin/env -S bash -p'$'\n'* ]] ||
+    fail 'immutable-source runner does not request privileged Bash in its direct-exec shebang'
+[[ "$immutable_source" == *'[[ "$-" == *p* ]]'* ]] ||
+    fail 'immutable-source runner does not require privileged Bash mode at runtime'
+[[ "$immutable_source" == *'hash-object --stdin'* ]] ||
+    fail 'immutable-source runner is missing captured-byte Git object verification'
+[[ "$immutable_source" == *"'scripts/nxb-153-validation-environment.py'"* ]] ||
+    fail 'immutable-source runner does not resolve the exact-head environment authority helper'
+[[ "$immutable_source" == *"python3 -I - audit"* ]] ||
+    fail 'immutable-source runner does not re-audit ambient environment authority'
+[[ "$immutable_source" == *'export -f cp'* ]] ||
+    fail 'immutable-source runner lost the intentional trusted cp export'
+[[ "$immutable_source" == *'| "$bash_application" -s -- "$@"'* ]] ||
+    fail 'immutable-source runner no longer has the canonical post-audit trusted-function child handoff'
+unset immutable_source
+
 final_head="$("$git_application" rev-parse HEAD)" || fail 'could not re-resolve final Git HEAD'
 [[ "$final_head" == "$head_sha" ]] || fail 'Git HEAD changed during Linux entry blob authority probe'
 
 builtin printf 'NXB-153 Linux entry blob authority probe passed.\n'
 builtin printf 'HEAD: %s\n' "$head_sha"
 builtin printf 'Wrappers: %s\n' "${#wrappers[@]}"
+builtin printf 'Immutable runners: 1\n'
