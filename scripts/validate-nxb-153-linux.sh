@@ -1,10 +1,12 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S bash -p
 set -euo pipefail
 
 fail() {
-    printf 'NXB-153 Linux validation status guard failed: %s\n' "$1" >&2
-    exit 1
+    builtin printf 'NXB-153 Linux validation status guard failed: %s\n' "$1" >&2
+    builtin exit 1
 }
+
+[[ "$-" == *p* ]] || fail 'canonical Linux validation requires privileged Bash mode (-p)'
 
 read_blob_text_exact() {
     local object="$1" label="$2" output_name="$3"
@@ -12,16 +14,16 @@ read_blob_text_exact() {
     [[ "$output_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || fail "$label output variable name is invalid"
     payload="$({
         "$nxb_guard_git_application" cat-file blob "$object" || exit $?
-        printf '%s' "$sentinel"
+        builtin printf '%s' "$sentinel"
     })" || fail "could not load exact-head $label bytes"
     [[ "${payload: -1}" == "$sentinel" ]] || fail "$label capture sentinel is missing"
     payload="${payload%$sentinel}"
     [[ -n "$payload" ]] || fail "$label source is empty"
-    captured_object="$(printf '%s' "$payload" | "$nxb_guard_git_application" hash-object --stdin)" ||
+    captured_object="$(builtin printf '%s' "$payload" | "$nxb_guard_git_application" hash-object --stdin)" ||
         fail "could not hash captured exact-head $label bytes"
     [[ "$captured_object" == "$object" ]] ||
         fail "$label captured bytes differ from the selected exact-head Git blob"
-    printf -v "$output_name" '%s' "$payload"
+    builtin printf -v "$output_name" '%s' "$payload"
 }
 
 repo_root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -32,6 +34,7 @@ for required_command in git bash python3; do
 done
 
 nxb_guard_git_application="$(type -P git)"
+nxb_guard_bash_application="$(type -P bash)" || fail 'bash executable could not be resolved'
 nxb_guard_head_sha="$("$nxb_guard_git_application" rev-parse HEAD)" ||
     fail 'exact Git HEAD could not be resolved'
 [[ "$nxb_guard_head_sha" =~ ^[0-9a-f]{40}$ ]] ||
@@ -49,12 +52,10 @@ nxb_guard_probe_size="$("$nxb_guard_git_application" cat-file -s "$nxb_guard_pro
 [[ "$nxb_guard_probe_size" =~ ^[0-9]+$ && "$nxb_guard_probe_size" -gt 0 && "$nxb_guard_probe_size" -le 1048576 ]] ||
     fail 'Linux entry blob authority probe size is outside the supported envelope'
 
-# Execute the exact committed probe through a pipefail-protected producer/consumer
-# pipeline before any preserved inner validator bytes are sourced. The probe checks
-# normal capture, producer failure, successful truncation, NUL-bearing representation
-# drift, wrapper working-tree object identity and Bash syntax/delegation structure.
+# The exact-head probe is itself run under privileged Bash so BASH_ENV and exported
+# shell functions cannot influence its producer/truncation/representation controls.
 "$nxb_guard_git_application" cat-file blob "$nxb_guard_probe_object" |
-    bash -s -- "$repo_root" >/dev/null ||
+    "$nxb_guard_bash_application" -p -s -- "$repo_root" >/dev/null ||
     fail 'exact-head Linux entry blob authority probe failed before validation'
 
 nxb_guard_inner_relative='scripts/validate-nxb-153-linux-inner.sh'
@@ -131,14 +132,14 @@ if dirty:
 ' "$byte_limit" "$record_limit"
 }
 
-[[ -z "$(printf '' | nxb_filter_git_status)" ]] ||
+[[ -z "$(builtin printf '' | nxb_filter_git_status)" ]] ||
     fail 'bounded Git status filter changed clean-output semantics'
-[[ "$(printf '?? probe\n' | nxb_filter_git_status)" == '__NXB153_DIRTY__' ]] ||
+[[ "$(builtin printf '?? probe\n' | nxb_filter_git_status)" == '__NXB153_DIRTY__' ]] ||
     fail 'bounded Git status filter changed dirty-output semantics'
-if printf 'abcde' | nxb_filter_git_status 4 4096 >/dev/null 2>&1; then
+if builtin printf 'abcde' | nxb_filter_git_status 4 4096 >/dev/null 2>&1; then
     fail 'bounded Git status filter did not reject oversized byte output'
 fi
-if printf 'a\nb\n' | nxb_filter_git_status 67108864 1 >/dev/null 2>&1; then
+if builtin printf 'a\nb\n' | nxb_filter_git_status 67108864 1 >/dev/null 2>&1; then
     fail 'bounded Git status filter did not reject excess records'
 fi
 
@@ -147,17 +148,25 @@ git() {
         if "$nxb_guard_git_application" "$@" | nxb_filter_git_status; then
             return 0
         fi
-        printf '__NXB153_GIT_STATUS_INVALID__\n'
+        builtin printf '__NXB153_GIT_STATUS_INVALID__\n'
         return 0
     fi
     "$nxb_guard_git_application" "$@"
 }
 
-# Source only the complete, size-bounded exact-head validator bytes captured above.
-# Git cat-file is no longer the asynchronous process-substitution producer, so a
-# producer failure cannot degrade into a successfully sourced partial validator.
-source <(printf '%s' "$nxb_guard_inner_source") '.'
-unset nxb_guard_inner_source
+# Deeper Bash children launched by the preserved validator are forced through the
+# already-resolved Bash executable in privileged mode. The inner environment audit
+# independently rejects Bash startup/function authority before heavy child gates.
+bash() {
+    "$nxb_guard_bash_application" -p "$@"
+}
+
+# Execute the captured/OID-verified validator bytes directly from the same shell
+# string instead of creating another asynchronous process-substitution producer.
+set -- '.'
+builtin eval "$nxb_guard_inner_source"
+builtin unset nxb_guard_inner_source
+builtin unset -f bash
 
 nxb_guard_final_object="$("$nxb_guard_git_application" rev-parse "$nxb_guard_head_sha:$nxb_guard_inner_relative")" ||
     fail 'could not re-resolve Linux validator inner authority after validation'
