@@ -23,22 +23,24 @@ capture_blob_exact() {
 }
 
 primitive_self_test() {
-    local root real_git fake_git normal_object nul_object captured
+    local root previous_pwd real_git fake_git normal_object nul_object captured
+    previous_pwd="$PWD"
     root="$(mktemp -d)" || fail 'could not create primitive self-test root'
-    trap 'rm -rf "$root"' RETURN
+    trap 'cd "$previous_pwd" >/dev/null 2>&1 || true; rm -rf "$root"' RETURN
 
     real_git="$(type -P git)" || fail 'git executable is unavailable'
-    git -C "$root" init -q
+    "$real_git" -C "$root" init -q
+    cd "$root"
 
-    normal_object="$(printf '#!/usr/bin/env bash\nprintf trusted\\n\n' | "$real_git" -C "$root" hash-object -w --stdin)" ||
+    normal_object="$(printf '#!/usr/bin/env bash\nprintf trusted\\n\n' | "$real_git" hash-object -w --stdin)" ||
         fail 'could not create normal synthetic Git blob'
     captured=''
     capture_blob_exact "$real_git" "$normal_object" captured ||
         fail 'normal synthetic blob did not survive exact capture'
-    [[ "$(printf '%s' "$captured" | "$real_git" -C "$root" hash-object --stdin)" == "$normal_object" ]] ||
+    [[ "$(printf '%s' "$captured" | "$real_git" hash-object --stdin)" == "$normal_object" ]] ||
         fail 'normal synthetic captured bytes lost Git object identity'
 
-    nul_object="$(printf 'before\0after\n' | "$real_git" -C "$root" hash-object -w --stdin)" ||
+    nul_object="$(printf 'before\0after\n' | "$real_git" hash-object -w --stdin)" ||
         fail 'could not create NUL-bearing synthetic Git blob'
     captured=''
     if capture_blob_exact "$real_git" "$nul_object" captured 2>/dev/null; then
@@ -82,6 +84,7 @@ SH
     fi
 
     unset NXB_FAKE_GIT_MODE NXB_REAL_GIT
+    cd "$previous_pwd"
     rm -rf "$root"
     trap - RETURN
 }
