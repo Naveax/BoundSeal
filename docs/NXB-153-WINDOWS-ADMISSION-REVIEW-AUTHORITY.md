@@ -20,7 +20,8 @@ The wrapper requires, on the same exact Git head:
 2. successful canonical Windows schema-v2 / dual-platform evidence review;
 3. exact-head reviewer-object continuity before, between and after both review phases;
 4. unchanged Git HEAD through the complete admission-review sequence;
-5. fail-closed cleanup of pinned reviewer handles.
+5. fail-closed cleanup of pinned reviewer handles;
+6. no subordinate PASS output is released before the complete admission-review sequence succeeds.
 
 The former direct entrypoint:
 
@@ -93,7 +94,34 @@ After process-evidence review and again after the schema-v2 Windows reviewer, th
 - requires Git HEAD to remain the initial exact head;
 - fails closed if reviewer-handle cleanup reports an error.
 
+### Guarded subordinate output
+
+Subordinate reviewer success output is not emitted directly to the operator.
+
+The admission wrapper streams each subordinate reviewer's information/success output into a private in-memory record list while applying both:
+
+- maximum **65,536 UTF-8 bytes** per reviewer;
+- maximum **4,096 output records** per reviewer.
+
+The process-evidence reviewer output remains withheld while reviewer-object and HEAD continuity are checked and while the schema-v2 closure reviewer executes. The schema-v2 reviewer output is likewise withheld through the final reviewer-object, HEAD and handle-cleanup checks.
+
+If any later gate or cleanup step fails, buffered subordinate PASS output is discarded rather than printed. Only after the complete wrapper succeeds are both bounded subordinate summaries released, followed by the canonical Windows admission-review PASS line.
+
+This prevents a process-evidence or schema-v2 PASS message from becoming misleading evidence when a later authority check fails.
+
 The subordinate Windows schema-v2 reviewer retains its existing native handle-pinning, semantic-review rerun, closure-object pinning and final repository/Cargo.lock/worktree authority contract.
+
+## Fixed-output Git control-plane calls
+
+The new process-evidence/admission helpers use small `Get-NxbGitValue` helpers only for exact control-plane values:
+
+- `git rev-parse HEAD`;
+- `git rev-parse <head>:<path>`;
+- `git hash-object -- <path>`.
+
+All current call sites require one non-empty result no longer than 256 characters and then require the relevant object/head result to be canonical 40-hex Git identity where applicable. These are not repository-volume commands such as `status`, `ls-tree` or `log`; no attacker-expandable repository listing is consumed through these helpers.
+
+The existing bounded Git-output authority remains mandatory for the broader Windows entry/H2 command surfaces.
 
 ## Canonical supported-Windows sequence
 
@@ -125,6 +153,7 @@ This avoids weakening the older reviewer's native handle and Git-output protecti
 Source staging still does not prove supported Windows behavior. Same-head admission still requires real Windows/NTFS/PowerShell Core execution proving at least:
 
 - process-lifecycle evidence creation and review;
+- admission-wrapper bounded output withholding/release behavior under success and late-failure cases;
 - registry-verifier stalled stdin, inherited output, nonzero exit and cleanup behavior;
 - Git-archive stalled stdout, archive limit, nonzero exit and cleanup behavior;
 - tar stalled stdin, inherited output, nonzero exit and cleanup behavior;
