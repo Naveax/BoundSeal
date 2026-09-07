@@ -173,6 +173,7 @@ if ($headSha -notmatch '^[0-9a-f]{40}$') {
 }
 
 $authorities = [Collections.Generic.List[object]]::new()
+$toolVersionProbeOutput = @()
 $processReviewOutput = @()
 $mainReviewOutput = @()
 $primaryFailure = $null
@@ -181,13 +182,29 @@ try {
     foreach ($relative in @(
         'scripts/review-nxb-153-windows-admission.ps1',
         'scripts/review-nxb-153-windows-process-lifecycle-evidence.ps1',
-        'scripts/review-nxb-153-evidence-windows.ps1'
+        'scripts/review-nxb-153-evidence-windows.ps1',
+        'scripts/nxb-153-windows-tool-version-output-probe.ps1',
+        'scripts/prepare-and-validate-nxb-153-windows-inner.ps1'
     )) {
         $authorities.Add((Open-NxbPinnedExactHeadScript -GitPath $gitPath -HeadSha $headSha -RelativePath $relative))
     }
 
     $processReviewer = $authorities[1]
     $mainReviewer = $authorities[2]
+    $toolVersionProbe = $authorities[3]
+
+    # Tool-version output behavior is a mandatory canonical admission layer, not
+    # an optional side probe. The probe itself exact-head binds and AST-loads the
+    # production helper, while this wrapper keeps both probe and production
+    # tool-preparation source pinned against write/delete for the whole review.
+    $toolVersionProbeOutput = @(Invoke-NxbBufferedReviewer -Path ([string]$toolVersionProbe.Path) -Label 'tool-version output regression probe')
+    foreach ($authority in $authorities) {
+        Assert-NxbPinnedAuthority -GitPath $gitPath -Authority $authority
+    }
+    $postToolVersionHead = Get-NxbGitValue -GitPath $gitPath -Arguments @('-C', $RepoRoot, 'rev-parse', 'HEAD') -Label 'post-tool-version-probe Git HEAD'
+    if ($postToolVersionHead -cne $headSha) {
+        Fail-NxbWindowsAdmission 'Git HEAD changed after tool-version output regression probe'
+    }
 
     $processReviewOutput = @(Invoke-NxbBufferedReviewer -Path ([string]$processReviewer.Path) -Label 'process-lifecycle evidence reviewer')
     foreach ($authority in $authorities) {
@@ -227,6 +244,9 @@ if ($cleanupErrors.Count -gt 0) {
     Fail-NxbWindowsAdmission ("cleanup failed after otherwise successful admission review: " + ($cleanupErrors -join ' | '))
 }
 
+foreach ($line in $toolVersionProbeOutput) {
+    Write-Host $line
+}
 foreach ($line in $processReviewOutput) {
     Write-Host $line
 }
