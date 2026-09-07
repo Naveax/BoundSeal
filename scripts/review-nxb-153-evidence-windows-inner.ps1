@@ -8,6 +8,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $expectedLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
+$maximumBufferedReviewBytes = 65536
+$maximumBufferedReviewRecords = 4096
 
 if ($null -eq ('Nxb153NativeEvidence' -as [type])) {
     Add-Type -TypeDefinition @'
@@ -142,6 +144,46 @@ function Open-NxbPinnedPath {
     }
 }
 
+function Invoke-NxbBoundedSemanticReview {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [switch]$Capture
+    )
+
+    $records = [Collections.Generic.List[string]]::new()
+    $encoding = [Text.UTF8Encoding]::new($false, $true)
+    [Int64]$totalBytes = 0
+    [Int64]$recordCount = 0
+
+    & $Path `
+        -RepoRoot $RepoRoot `
+        -EvidenceDirectory $EvidenceDirectory `
+        6>&1 | ForEach-Object {
+            $text = [string]$_
+            try {
+                $recordBytes = $encoding.GetByteCount($text) + 1
+            }
+            catch {
+                throw "Semantic evidence reviewer emitted text that is not valid strict UTF-8: $($_.Exception.Message)"
+            }
+            $recordCount++
+            $totalBytes += $recordBytes
+            if ($recordCount -gt $maximumBufferedReviewRecords) {
+                throw "Semantic evidence reviewer emitted more than $maximumBufferedReviewRecords records."
+            }
+            if ($totalBytes -gt $maximumBufferedReviewBytes) {
+                throw "Semantic evidence reviewer emitted more than $maximumBufferedReviewBytes UTF-8 bytes."
+            }
+            if ($Capture) {
+                $records.Add($text)
+            }
+        }
+
+    if ($Capture) {
+        return @($records)
+    }
+}
+
 if ($null -eq (Get-Command git -ErrorAction SilentlyContinue)) {
     throw 'git is unavailable.'
 }
@@ -202,10 +244,8 @@ try {
         $pinnedHandles.Add($closureHandle)
     }
 
-    $reviewOutput = (& $reviewScript `
-        -RepoRoot $RepoRoot `
-        -EvidenceDirectory $EvidenceDirectory `
-        6>&1 | Out-String)
+    $reviewRecords = @(Invoke-NxbBoundedSemanticReview -Path $reviewScript -Capture)
+    $reviewOutput = $reviewRecords -join [Environment]::NewLine
 
     if ($null -eq $closureHandle) {
         $closureHandle = Open-NxbPinnedPath -Path $closurePath -Label 'published closure evidence'
@@ -215,10 +255,7 @@ try {
     # Re-run the inexpensive semantic closure review while the canonical closure is pinned.
     # If another process substituted the path between inner publication and this open, this
     # pass validates the exact object that remains locked through the final authority checks.
-    $null = (& $reviewScript `
-        -RepoRoot $RepoRoot `
-        -EvidenceDirectory $EvidenceDirectory `
-        6>&1 | Out-String)
+    [void](Invoke-NxbBoundedSemanticReview -Path $reviewScript)
 
     $finalHead = (git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0 -or $finalHead -cne $initialHead) {
