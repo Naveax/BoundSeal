@@ -37,6 +37,26 @@ nxb_guard_head_sha="$("$nxb_guard_git_application" rev-parse HEAD)" ||
 [[ "$nxb_guard_head_sha" =~ ^[0-9a-f]{40}$ ]] ||
     fail 'exact Git HEAD is not canonical SHA-1'
 
+nxb_guard_probe_relative='scripts/nxb-153-linux-entry-blob-probe.sh'
+nxb_guard_probe_object="$("$nxb_guard_git_application" rev-parse "$nxb_guard_head_sha:$nxb_guard_probe_relative")" ||
+    fail 'committed Linux entry blob authority probe is missing'
+[[ "$nxb_guard_probe_object" =~ ^[0-9a-f]{40}$ ]] ||
+    fail 'Linux entry blob authority probe object is not canonical SHA-1'
+[[ "$("$nxb_guard_git_application" cat-file -t "$nxb_guard_probe_object")" == blob ]] ||
+    fail 'Linux entry blob authority probe is not a Git blob'
+nxb_guard_probe_size="$("$nxb_guard_git_application" cat-file -s "$nxb_guard_probe_object")" ||
+    fail 'could not resolve Linux entry blob authority probe size'
+[[ "$nxb_guard_probe_size" =~ ^[0-9]+$ && "$nxb_guard_probe_size" -gt 0 && "$nxb_guard_probe_size" -le 1048576 ]] ||
+    fail 'Linux entry blob authority probe size is outside the supported envelope'
+
+# Execute the exact committed probe through a pipefail-protected producer/consumer
+# pipeline before any preserved inner validator bytes are sourced. The probe checks
+# normal capture, producer failure, successful truncation, NUL-bearing representation
+# drift, wrapper working-tree object identity and Bash syntax/delegation structure.
+"$nxb_guard_git_application" cat-file blob "$nxb_guard_probe_object" |
+    bash -s -- "$repo_root" >/dev/null ||
+    fail 'exact-head Linux entry blob authority probe failed before validation'
+
 nxb_guard_inner_relative='scripts/validate-nxb-153-linux-inner.sh'
 nxb_guard_inner_object="$("$nxb_guard_git_application" rev-parse "$nxb_guard_head_sha:$nxb_guard_inner_relative")" ||
     fail 'committed Linux validator inner implementation is missing'
@@ -143,3 +163,7 @@ nxb_guard_final_object="$("$nxb_guard_git_application" rev-parse "$nxb_guard_hea
     fail 'could not re-resolve Linux validator inner authority after validation'
 [[ "$nxb_guard_final_object" == "$nxb_guard_inner_object" ]] ||
     fail 'Linux validator inner Git authority changed during validation'
+nxb_guard_probe_final_object="$("$nxb_guard_git_application" rev-parse "$nxb_guard_head_sha:$nxb_guard_probe_relative")" ||
+    fail 'could not re-resolve Linux entry blob probe authority after validation'
+[[ "$nxb_guard_probe_final_object" == "$nxb_guard_probe_object" ]] ||
+    fail 'Linux entry blob probe Git authority changed during validation'
