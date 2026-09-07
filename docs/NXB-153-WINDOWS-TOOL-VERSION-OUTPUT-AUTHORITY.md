@@ -29,7 +29,7 @@ Source hardening commits:
 - `43e97db07a0f9241dd382a4ff865f0d32c412ad2` — introduced bounded fixed-output version capture;
 - `638126fcf7fc13621d5aa57f5e6e105c5259add2` — restored the pre-existing `RUSTC_WRAPPER` ambient-authority rejection that was accidentally omitted during the complete-file replacement and restored the trailing newline.
 
-The net change from the previous admitted source-stage head preserves the ambient compiler/Cargo/Python authority deny-list.
+The net change from the previous source-stage head preserves the ambient compiler/Cargo/Python authority deny-list.
 
 ## Fixed-output process contract
 
@@ -56,6 +56,44 @@ The helper requires:
 
 `Get-ToolVersion` retains its exact-version-token check after bounded capture.
 
+## Exact-head regression probe authority
+
+The fixed-output helper now has a dedicated supported-Windows regression probe:
+
+`scripts/nxb-153-windows-tool-version-output-probe.ps1`
+
+Current exact Git blob:
+
+`fc21d291203bce8d0e53de8f2dbf8992043c1fef`
+
+Probe source commits:
+
+- `a54d2754a552514c8b4390f0f3c45cf738025973` — introduced the exact-head production-helper probe;
+- `90b24664b8728afa31a74cb59f7c0febf5229b0b` — fixed the StrictMode literal source-pattern check and widened the probe-only nested-process timeout defaults to reduce false negatives.
+
+The probe does not reimplement the production helper. It:
+
+1. resolves exact `HEAD` through bounded Git stdout;
+2. verifies the working-tree bytes of both the tool-preparation inner and the probe itself against their exact-head Git objects;
+3. parses the tool-preparation inner with the PowerShell AST;
+4. requires the production `4096 / 30000 / 30000` constants, `RUSTC_WRAPPER` rejection and the absence of `Out-String` in that preparation source;
+5. extracts exactly one `Invoke-NxbBoundedFixedOutput` function body from the exact-head AST;
+6. requires incremental `ReadAsync`, raw-byte ceiling, strict UTF-8, bounded exit, <=256-character semantic result and recursive `Kill(true)` cleanup patterns, while rejecting `ReadToEndAsync`, `ReadLineAsync` and parameterless `WaitForExit()`;
+7. requires both `Get-ToolVersion` and the tooling-receipt Rust version call to route through the bounded helper;
+8. loads only that exact production helper body for dynamic primitive testing.
+
+Dynamic probe-only timeout constants are intentionally shorter than production timing. Static source assertions separately require the production 30-second values. The dynamic tests exercise:
+
+- normal bounded fixed-output success;
+- output above 4 KiB rejection;
+- invalid UTF-8 rejection;
+- nonzero exit propagation;
+- stalled stdout timeout;
+- output-then-stall timeout;
+- recursive descendant-process cleanup after timeout.
+
+A successful probe can emit bounded JSON containing the exact head, tool-preparation object, probe object, production/probe limits, PowerShell version and ordered test results. That output is evidence of these primitives only; it is not by itself NXB-153 admission.
+
 ## Existing identity and receipt controls retained
 
 This change does not relax the existing preparation authority:
@@ -76,12 +114,13 @@ This change does not relax the existing preparation authority:
 
 Other `Out-String` occurrences in the Windows H1/H2 validation chain were reviewed separately. Those captures execute beneath the existing bounded H2 `Out-String` proxy, which applies byte/object limits before delegating admitted bounded objects to the module-qualified real formatter and self-tests formatting equivalence.
 
-The preparation-tool version calls documented here occur outside that H2 string-guard boundary, which is why they required an independent native-process fixed-output helper.
+The preparation-tool version calls documented here occur outside that H2 string-guard boundary, which is why they require an independent native-process fixed-output helper and the dedicated exact-head probe above.
 
 ## Remaining runtime proof
 
 Supported exact-head Windows execution must still demonstrate at least:
 
+- successful execution of `scripts/nxb-153-windows-tool-version-output-probe.ps1` against the exact final head;
 - normal cargo-audit/cargo-deny/rustc version capture;
 - stalled stdout timeout;
 - output above 4 KiB rejection before unbounded retention;
