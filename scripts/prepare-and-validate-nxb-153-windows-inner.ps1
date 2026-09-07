@@ -11,6 +11,9 @@ $rustToolchain = '1.97.1'
 $cargoAuditVersion = '0.22.2'
 $cargoDenyVersion = '0.20.2'
 $maximumEvidenceBytes = 65536
+$fixedOutputByteLimit = 4096
+$fixedOutputReadTimeoutMilliseconds = 30000
+$fixedOutputExitTimeoutMilliseconds = 30000
 
 function Invoke-NativeChecked {
     param(
@@ -25,6 +28,79 @@ function Invoke-NativeChecked {
     }
 }
 
+function Invoke-NxbBoundedFixedOutput {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = $FilePath
+    $start.UseShellExecute = $false
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $false
+    $start.CreateNoWindow = $true
+    foreach ($argument in $Arguments) {
+        [void]$start.ArgumentList.Add([string]$argument)
+    }
+
+    $process = [Diagnostics.Process]::new()
+    $memory = [IO.MemoryStream]::new()
+    try {
+        $process.StartInfo = $start
+        if (-not $process.Start()) {
+            throw "$Label process could not be started."
+        }
+
+        $buffer = [byte[]]::new(1024)
+        [Int64]$total = 0
+        while ($true) {
+            $readTask = $process.StandardOutput.BaseStream.ReadAsync($buffer, 0, $buffer.Length)
+            if (-not $readTask.Wait($fixedOutputReadTimeoutMilliseconds)) {
+                throw "$Label stdout made no progress for $fixedOutputReadTimeoutMilliseconds ms."
+            }
+            $read = $readTask.Result
+            if ($read -le 0) { break }
+            $total += $read
+            if ($total -gt $fixedOutputByteLimit) {
+                throw "$Label stdout exceeds the $fixedOutputByteLimit-byte fixed-output envelope."
+            }
+            $memory.Write($buffer, 0, $read)
+        }
+
+        if (-not $process.WaitForExit($fixedOutputExitTimeoutMilliseconds)) {
+            throw "$Label process did not exit within $fixedOutputExitTimeoutMilliseconds ms after stdout closed."
+        }
+        if ($process.ExitCode -ne 0) {
+            throw "$Label failed with exit code $($process.ExitCode)."
+        }
+
+        $strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
+        try {
+            $value = $strictUtf8.GetString($memory.ToArray()).Trim()
+        }
+        catch {
+            throw "$Label stdout is not strict UTF-8: $($_.Exception.Message)"
+        }
+        if ([string]::IsNullOrWhiteSpace($value) -or $value.Length -gt 256) {
+            throw "$Label did not return one bounded fixed-output value."
+        }
+        return $value
+    }
+    finally {
+        try {
+            if (-not $process.HasExited) {
+                $process.Kill($true)
+                [void]$process.WaitForExit($fixedOutputExitTimeoutMilliseconds)
+            }
+        }
+        catch {}
+        $memory.Dispose()
+        $process.Dispose()
+    }
+}
+
 function Get-ToolVersion {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -34,8 +110,8 @@ function Get-ToolVersion {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         return $null
     }
-    $value = (& $Path --version | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $value -notmatch ('(^|\s)' + [regex]::Escape($ExpectedVersion) + '($|\s)')) {
+    $value = Invoke-NxbBoundedFixedOutput -FilePath $Path -Arguments @('--version') -Label "$Path version"
+    if ($value -notmatch ('(^|\s)' + [regex]::Escape($ExpectedVersion) + '($|\s)')) {
         return $null
     }
     return $value
@@ -269,7 +345,6 @@ function Assert-NxbAmbientEnvironment {
         'RUSTC',
         'RUSTC_BOOTSTRAP',
         'RUSTC_WORKSPACE_WRAPPER',
-        'RUSTC_WRAPPER',
         'RUSTDOC',
         'RUSTDOCFLAGS',
         'RUSTFLAGS',
@@ -486,13 +561,19 @@ try {
         throw 'Working tree changed during tool preparation.'
     }
 
+    $rustupApplication = (Get-Command rustup -CommandType Application -ErrorAction Stop).Source
+    $rustVersion = Invoke-NxbBoundedFixedOutput `
+        -FilePath $rustupApplication `
+        -Arguments @('run', $rustToolchain, 'rustc', '--version') `
+        -Label 'Rust 1.97.1 receipt version'
+
     $receipt = [ordered]@{
         schema_version = 1
         milestone = 'NXB-153'
         gate = 'validation_tool_bootstrap'
         platform = 'windows'
         head_sha = $headSha
-        rust_toolchain = (& rustup run $rustToolchain rustc --version | Out-String).Trim()
+        rust_toolchain = $rustVersion
         cargo_audit = $auditVersion
         cargo_audit_sha256 = $auditSha256
         cargo_deny = $denyVersion
