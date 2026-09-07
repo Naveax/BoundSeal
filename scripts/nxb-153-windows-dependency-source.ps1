@@ -202,8 +202,8 @@ function Invoke-NxbRegistryVerifierWithInput {
         $startInfo.FileName = $PythonPath
         $startInfo.UseShellExecute = $false
         $startInfo.RedirectStandardInput = $true
-        $startInfo.RedirectStandardOutput = $true
-        $startInfo.RedirectStandardError = $true
+        $startInfo.RedirectStandardOutput = $false
+        $startInfo.RedirectStandardError = $false
         [void]$startInfo.ArgumentList.Add('-I')
         [void]$startInfo.ArgumentList.Add($HelperPath)
         foreach ($argument in $Arguments) {
@@ -215,17 +215,13 @@ function Invoke-NxbRegistryVerifierWithInput {
         if (-not $process.Start()) {
             Fail-NxbDependency "could not start isolated registry verifier for $Label"
         }
-        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-        $stderrTask = $process.StandardError.ReadToEndAsync()
         $process.StandardInput.Write($InputText)
         $process.StandardInput.Close()
         $process.WaitForExit()
-        $stdout = $stdoutTask.GetAwaiter().GetResult()
-        $stderr = $stderrTask.GetAwaiter().GetResult()
         if ($process.ExitCode -ne 0) {
-            Fail-NxbDependency "$Label failed: $stderr"
+            Fail-NxbDependency "$Label failed with exit code $($process.ExitCode)"
         }
-        return $stdout.Trim()
+        return ''
     }
     finally {
         if ($null -ne $process) { $process.Dispose() }
