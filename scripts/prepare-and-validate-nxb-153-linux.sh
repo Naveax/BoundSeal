@@ -8,7 +8,7 @@ fail() {
 
 read_blob_text_exact() {
     local object="$1" label="$2" output_name="$3"
-    local payload sentinel=$'\036'
+    local payload sentinel=$'\036' captured_object
     [[ "$output_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || fail "$label output variable name is invalid"
     payload="$({
         "$git_application" cat-file blob "$object" || exit $?
@@ -17,6 +17,10 @@ read_blob_text_exact() {
     [[ "${payload: -1}" == "$sentinel" ]] || fail "$label capture sentinel is missing"
     payload="${payload%$sentinel}"
     [[ -n "$payload" ]] || fail "$label source is empty"
+    captured_object="$(printf '%s' "$payload" | "$git_application" hash-object --stdin)" ||
+        fail "could not hash captured exact-head $label bytes"
+    [[ "$captured_object" == "$object" ]] ||
+        fail "$label captured bytes differ from the selected exact-head Git blob"
     printf -v "$output_name" '%s' "$payload"
 }
 
