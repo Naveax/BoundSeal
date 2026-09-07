@@ -16,7 +16,7 @@ Historical Pass A-D evidence does not validate this current Pass E authority del
 
 H1 gives a deterministic identity to the installed Rust 1.97.1 tree. H2 prevents that mutable host/rustup tree from remaining heavy-gate authority by copying it into a private verified snapshot and consuming the snapshot instead.
 
-Availability controls are part of authority. File bytes, directory traversal, PowerShell object enumeration, Git stdout and PowerShell string capture must fail closed before unbounded work can accumulate.
+Availability controls are part of authority. File bytes, directory traversal, PowerShell object enumeration, Git stdout and process-output handling must fail closed before attacker-expandable work can accumulate.
 
 ## Canonical Rust tree authority
 
@@ -64,7 +64,7 @@ Policy:
 
 The copier applies the same 65,536-file, 65,536-directory, 512 MiB/file and 4 GiB total-byte envelope. It requires an empty non-indirection destination, rejects source indirection/special files, uses create-new destination objects, checks stable source object metadata and rejects source growth.
 
-Linux additionally uses descriptor-relative `O_DIRECTORY` / `O_NOFOLLOW`. The Windows model rejects case-insensitive collisions, Win32 reserved device stems and paths outside the deliberately narrow ASCII component grammar.
+Linux additionally uses descriptor-relative `O_DIRECTORY` / `O_NOFOLLOW`. The Windows model rejects case-insensitive collisions, Win32 reserved device stems and paths outside the deliberately narrow ASCII component grammar. Windows H2 now adds a long-lived native destination broker around the copy-to-consumption lifetime as described below.
 
 ## Linux H2
 
@@ -104,20 +104,23 @@ nxb-153-windows-immutable-source.ps1
   -> nxb-153-windows-immutable-source-git-output-inner.ps1
      -> nxb-153-windows-immutable-source-enumeration-inner.ps1
         -> nxb-153-windows-immutable-source-bounded-inner.ps1
-           -> nxb-153-windows-immutable-source-h2-entry-inner.ps1
-              -> nxb-153-windows-immutable-source-h2-inner.ps1
-                 -> nxb-153-windows-immutable-source-h1-inner.ps1
-                    -> nxb-153-windows-immutable-source-inner.ps1
+           -> nxb-153-windows-immutable-source-h2-broker-entry.ps1
+              -> nxb-153-windows-immutable-source-h2-entry-inner.ps1
+                 -> nxb-153-windows-immutable-source-h2-inner.ps1
+                    -> nxb-153-windows-immutable-source-h1-inner.ps1
+                       -> nxb-153-windows-immutable-source-inner.ps1
 ```
 
 Current outer availability/object layers:
 
-- canonical bounded string-capture guard: `scripts/nxb-153-windows-immutable-source.ps1` → `f768e3b8a7899b7f63555f380e5a96ae3c8c6ac2`;
-- preserved bounded Git-output guard: `scripts/nxb-153-windows-immutable-source-git-output-inner.ps1` → `7ffbaadb69ecffec8fcc9961c585fcb3644df422`;
-- preserved PowerShell enumeration guard: `scripts/nxb-153-windows-immutable-source-enumeration-inner.ps1` → `b586f5c8557f8a08f56f9616c9580b983be0d16f`;
-- preserved bounded-copy entrypoint: `scripts/nxb-153-windows-immutable-source-bounded-inner.ps1` → `699ffb90752c23919c83d8ad2193167792b55b40`.
+- canonical bounded string-capture guard: `scripts/nxb-153-windows-immutable-source.ps1` -> `f768e3b8a7899b7f63555f380e5a96ae3c8c6ac2`;
+- preserved bounded Git-output guard: `scripts/nxb-153-windows-immutable-source-git-output-inner.ps1` -> `7ffbaadb69ecffec8fcc9961c585fcb3644df422`;
+- preserved PowerShell enumeration guard: `scripts/nxb-153-windows-immutable-source-enumeration-inner.ps1` -> `b586f5c8557f8a08f56f9616c9580b983be0d16f`;
+- current bounded-copy/broker supervisor: `scripts/nxb-153-windows-immutable-source-bounded-inner.ps1` -> `6d103dd7711d52e679a675cac9cf2b9d4f52e5fe`;
+- H2 broker-entry wrapper: `scripts/nxb-153-windows-immutable-source-h2-broker-entry.ps1` -> `1afaeb0656201fae952a7d877cbc01d5ce7d1fee`;
+- native destination broker: `scripts/nxb-153-windows-h2-destination-broker.py` -> `c8520395f24d3fe3f29149b152892fac6cd7872c`.
 
-Each outer layer pins the `scripts` namespace, exact-Git-object verifies the next inner layer, delegates through a deliberately narrow temporary proxy and re-verifies the pinned inner object before success. Cleanup failures fail closed.
+Each outer layer pins the `scripts` namespace, exact-Git-object verifies the next admitted implementation object, delegates through a deliberately narrow proxy/supervision surface and re-verifies pinned implementation authority before success. Cleanup failures fail closed.
 
 ### Bounded PowerShell string capture
 
@@ -163,11 +166,28 @@ It supports only the current NXB-153 parameter surface (`-LiteralPath`, `-Force`
 
 The limit is the combined 65,536-file + 65,536-directory authority ceiling. The self-test verifies normal enumeration and forced low-limit rejection.
 
-### Bounded whole-sysroot copy
+### Bounded whole-sysroot copy and destination lifetime
 
-The preserved bounded-copy layer exact-object verifies the Python snapshot-copy helper and H2 entry runner, then maps the legacy top-level `Copy-Item` capture flow onto one global bounded whole-sysroot copy.
+The current bounded layer exact-object verifies the H2 broker-entry wrapper and native destination broker, retains the whole-sysroot global 65,536-file / 65,536-directory / 512 MiB-per-file / 4 GiB-total budget and intercepts only the expected top-level capture flow.
 
-It rejects unexpected call shape, duplicate invocation, second source roots/destinations and incomplete source-loop consumption. The helper's global file/directory/byte limits therefore apply to the whole Windows sysroot rather than separately to every top-level directory.
+The broker-entry defers creation of the exact H2 snapshot root. The long-lived native broker then creates the snapshot root and descendants using relative `NtCreateFile` create-new semantics from retained parent handles. Destination directory handles are retained from creation. File creator handles withhold write/delete sharing while bytes are populated.
+
+Before writer handles are relaxed, the broker arms a recursive `ReadDirectoryChangesW` watcher. Each file then transitions from creator write authority to a read guard while identity continuity is checked and any watcher-visible mutation is fatal.
+
+The broker remains alive across:
+
+1. destination creation and copy;
+2. writer-to-read-guard transition;
+3. deterministic snapshot verification;
+4. PowerShell file/directory handle acquisition;
+5. write/create/delete deny ACL staging and injection probes;
+6. relocated Rust heavy gates;
+7. post-gate identity checks and ACL restoration;
+8. the beginning of final snapshot cleanup.
+
+At the first required `snapshotRoot\bin\rustc.exe` probe, the broker-entry requires a healthy broker `CHECK` after the existing H2 PowerShell object/ACL authority has already been staged. At final snapshot removal it requires another healthy observation, a controlled `STOP`, healthy stopped record and zero broker exit status before deletion proceeds.
+
+This closes the previously identified **source-level** pathname-only Python-to-PowerShell handoff gap. Supported Windows execution is still mandatory before the lifetime mechanism is admitted.
 
 ### Snapshot consumption authority
 
@@ -175,48 +195,42 @@ After capture, the Windows H2 chain verifies deterministic snapshot identity, en
 
 The deny mask intentionally does not deny `ChangePermissions` or `TakeOwnership`; ACL restoration remains possible while write/create/delete mutation is denied. Restoration, handle disposal and snapshot deletion are part of success.
 
-### Direct .NET capture observations
+### Direct process-output capture hardening
 
-Three direct `ReadToEndAsync()` paths remain in current source:
+The three previously identified direct `.NET ReadToEndAsync()` capture paths have been removed from current source.
 
-- isolated registry-verifier stdout/stderr;
-- `git archive` stderr;
-- tar-extraction stdout/stderr.
+Current source-staged behavior is:
 
-They bypass the `Out-String` proxy, so they remain explicit runtime-review points. Their upstream work is nevertheless source-bounded: Cargo metadata input is capped by the 64 MiB string layer, the registry helper is exact-head code, the Git archive itself is byte-bounded, and the exact-head source manifest is limited to 4,096 tracked files / its documented byte envelope. Real Windows tests must still demonstrate that these process-capture paths do not create an unacceptable availability failure mode.
+- isolated registry metadata verification redirects stdin only; stdout/stderr inherit the validation host and the parent retains no child-output string;
+- `git archive` redirects only binary stdout, streaming it to the pinned create-new archive with the existing 1 GiB cap; stderr inherits the validation host;
+- tar extraction redirects only stdin from the bounded pinned archive; stdout/stderr inherit the validation host.
 
-## Explicit remaining Windows destination-namespace blocker
+The registry helper itself admits at most 32 MiB of Cargo metadata and emits only its bounded validation summary on the successful metadata path. The parent uses child exit status rather than retaining child-output strings.
 
-Current source still does **not** establish continuous native no-delete/no-write authority for every newly created Windows H2 destination child from the instant the Python copier creates it until the later PowerShell directory/file pinning and ACL phase acquires authority.
+This removes the source-level unbounded direct process-retention surface. Real Windows tests must still demonstrate correct inherited-output, failure, cancellation and cleanup behavior.
 
-Post-copy reparse rejection, deterministic identity verification and later file/directory pinning are present, but post-copy equality is not lifetime authority under a strict same-user concurrent pathname attacker model.
+## Explicit remaining Windows runtime blockers
 
-Admission requires either:
-
-- copier-created destination handles retained continuously across the Python-to-PowerShell handoff; or
-- a strength-equivalent kernel-backed namespace/ACL mechanism that prevents transient child replacement during the handoff.
-
-This remains an explicit #98 blocker.
-
-## Windows runtime boundary
-
-No supported Windows/NTFS PowerShell H2 PASS is claimed from the current execution environment.
+The source-level destination handoff and direct `ReadToEndAsync()` findings are now hardened, but no supported Windows/NTFS PowerShell H2 PASS is claimed from the current execution environment.
 
 Real Windows validation must prove at least:
 
-- parser/function-scope behavior for the `Out-String`, `git`, `Get-ChildItem`, `Copy-Item` and `rustup` interception layers;
+- parser/function-scope behavior for the `Out-String`, `git`, `Get-ChildItem`, `Copy-Item`, broker-entry and `rustup` interception/supervision layers;
 - exact formatting equivalence of the bounded `Out-String` proxy for its admitted string/information/error record surface;
 - 64 MiB input/output and 4,096-object string-capture rejection;
 - 64 MiB / 4,096-record Git-output rejection;
 - 131,072-object filesystem-enumeration rejection;
 - whole-sysroot file/directory/byte accounting;
-- H2 primitive self-tests;
-- continuous destination namespace authority or a strength-equivalent mechanism;
-- native file-share/directory-handle behavior;
+- Python `ctypes` and relative `NtCreateFile` destination creation;
+- create-new collision and reparse rejection;
+- directory/file share-mode behavior and writer-to-read-guard identity continuity;
+- recursive watcher create/delete/rename/content/attribute mutation detection, transient restore detection and overflow/failure fail-closed behavior;
+- successful creator-broker to PowerShell handle/ACL overlap;
 - ACL mutation/injection denial while execution and ACL restoration remain functional;
-- Rust 1.97.1 rustc/cargo/rustfmt/Clippy, DLL/sysroot/library loading from the copied snapshot;
-- bounded behavior of the remaining direct .NET process captures;
-- cleanup/recovery behavior on success and failure.
+- Rust 1.97.1 rustc/cargo/rustfmt/Clippy, DLL/sysroot/library loading from the copied snapshot while broker guards remain live;
+- inherited stdout/stderr behavior for the source-hardened process paths;
+- deliberate mutation during heavy gates causing final failure;
+- broker CHECK/STOP and cleanup/recovery behavior on success and failure.
 
 ## Evidence boundary
 
@@ -228,4 +242,4 @@ A stronger state must be introduced atomically across both platform producers, b
 
 ## Admission acceptance
 
-H2 can be admitted only after the exact same final NXB-153 Git head has real Linux and Windows evidence proving that heavy Rust gates consumed only the verified immutable/pinned and availability-bounded snapshot, the bounded string layer preserves admitted pipeline semantics, Windows destination namespace authority is continuous through creation-to-consumption, direct process-capture behavior is acceptable, final identity/cleanup succeeds and every other #90-#98 gate remains satisfied.
+H2 can be admitted only after the exact same final NXB-153 Git head has real Linux and Windows evidence proving that heavy Rust gates consumed only the verified immutable/pinned and availability-bounded snapshot, the bounded string layer preserves admitted pipeline semantics, Windows destination lifetime authority survives creation-to-consumption, the source-hardened process-output paths behave correctly, final identity/cleanup succeeds and every other #90-#98 gate remains satisfied.
