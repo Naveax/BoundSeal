@@ -5,6 +5,8 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$maximumBufferedReviewerBytes = 65536
+$maximumBufferedReviewerRecords = 4096
 
 function Fail-NxbWindowsAdmission {
     param([Parameter(Mandatory = $true)][string]$Message)
@@ -67,6 +69,29 @@ function Assert-NxbPinnedAuthority {
     }
 }
 
+function Invoke-NxbBufferedReviewer {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $records = [Collections.Generic.List[string]]::new()
+    [Int64]$totalBytes = 0
+    & $Path -RepoRoot $RepoRoot 6>&1 | ForEach-Object {
+        $text = [string]$_
+        $bytes = [Text.UTF8Encoding]::new($false, $true).GetByteCount($text) + 1
+        $totalBytes += $bytes
+        if ($records.Count -ge $maximumBufferedReviewerRecords) {
+            Fail-NxbWindowsAdmission "$Label emitted more than $maximumBufferedReviewerRecords buffered records"
+        }
+        if ($totalBytes -gt $maximumBufferedReviewerBytes) {
+            Fail-NxbWindowsAdmission "$Label emitted more than $maximumBufferedReviewerBytes buffered UTF-8 bytes"
+        }
+        $records.Add($text)
+    }
+    return @($records)
+}
+
 if (-not $IsWindows) {
     Fail-NxbWindowsAdmission 'canonical Windows admission review must run on Windows'
 }
@@ -88,6 +113,8 @@ if ($headSha -notmatch '^[0-9a-f]{40}$') {
 }
 
 $authorities = [Collections.Generic.List[object]]::new()
+$processReviewOutput = @()
+$mainReviewOutput = @()
 $primaryFailure = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
 try {
@@ -102,7 +129,7 @@ try {
     $processReviewer = $authorities[1]
     $mainReviewer = $authorities[2]
 
-    & ([string]$processReviewer.Path) -RepoRoot $RepoRoot
+    $processReviewOutput = @(Invoke-NxbBufferedReviewer -Path ([string]$processReviewer.Path) -Label 'process-lifecycle evidence reviewer')
     foreach ($authority in $authorities) {
         Assert-NxbPinnedAuthority -GitPath $gitPath -Authority $authority
     }
@@ -111,7 +138,7 @@ try {
         Fail-NxbWindowsAdmission 'Git HEAD changed after process-lifecycle evidence review'
     }
 
-    & ([string]$mainReviewer.Path) -RepoRoot $RepoRoot
+    $mainReviewOutput = @(Invoke-NxbBufferedReviewer -Path ([string]$mainReviewer.Path) -Label 'Windows schema-v2 closure reviewer')
     foreach ($authority in $authorities) {
         Assert-NxbPinnedAuthority -GitPath $gitPath -Authority $authority
     }
@@ -140,4 +167,10 @@ if ($cleanupErrors.Count -gt 0) {
     Fail-NxbWindowsAdmission ("cleanup failed after otherwise successful admission review: " + ($cleanupErrors -join ' | '))
 }
 
+foreach ($line in $processReviewOutput) {
+    Write-Host $line
+}
+foreach ($line in $mainReviewOutput) {
+    Write-Host $line
+}
 Write-Host "NXB-153 canonical Windows admission review passed for HEAD $headSha."
