@@ -67,7 +67,7 @@ Canonical tool-version probe:
 
 Current exact Git blob:
 
-`fc21d291203bce8d0e53de8f2dbf8992043c1fef`
+`381529e260f2a9c9b0f20bff3f29a8b2c6ef6e84`
 
 Production tool-preparation source:
 
@@ -88,7 +88,9 @@ The probe independently:
 - requires strict UTF-8, <=256-character semantic output and recursive `Kill(true)` cleanup patterns;
 - rejects reintroduced `Out-String`, `ReadToEndAsync`, `ReadLineAsync` and parameterless `WaitForExit()` in the reviewed fixed-output paths;
 - requires `Get-ToolVersion` and the tooling-receipt `rustc --version` call to route through that helper;
-- dynamically loads the exact production helper body and stages normal, oversize, invalid-UTF8, nonzero-exit, stalled-output, output-then-stall and recursive descendant-cleanup primitives with shorter probe-only deadlines.
+- dynamically loads the exact production helper body and stages normal, oversize, invalid-UTF8, nonzero-exit, stalled-output, output-then-stall read-inactivity, explicit stdout-close followed by post-stdout exit timeout, and recursive descendant-cleanup primitives with shorter probe-only deadlines.
+
+The distinct post-stdout fixture explicitly closes the redirected Windows standard-output handle and then remains alive, so the production helper must leave its read loop on EOF and exercise its separate bounded `WaitForExit` path.
 
 The probe is a required runtime gate inside canonical admission, not a replacement for the full Windows validator or for process/schema-v2 evidence.
 
@@ -248,7 +250,7 @@ This avoids weakening the older reviewer's native handle and Git-output protecti
 Source staging still does not prove supported Windows behavior. Same-head admission still requires real Windows/NTFS/PowerShell Core execution proving at least:
 
 - exact-head tool-version output probe success as part of canonical admission;
-- tool-version fixed-output normal, oversize, invalid-UTF8, nonzero-exit, stall and recursive-cleanup behavior;
+- tool-version fixed-output normal, oversize, invalid-UTF8, nonzero-exit, read-inactivity, **post-stdout exit** and recursive-cleanup behavior;
 - native process-evidence writer namespace/source handle pinning and no-delete-share behavior;
 - process-evidence create-only publication and cleanup-failure handling;
 - process-lifecycle evidence creation and review;
