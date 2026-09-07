@@ -173,11 +173,13 @@ Existing canonical evidence prevents the heavy validation gates from being repea
 
 Both preparation and validation resolve tools only from `target/nxb-tools/windows/<exact-head>`, and the tooling receipt must bind that same logical root.
 
-### Handle-pinned evidence review — #98
+### Handle-pinned schema-v2 closure sublayer — #98
 
-The canonical Windows closure entrypoint is:
+The required Windows schema-v2 closure sublayer is:
 
 `scripts/review-nxb-153-evidence-windows.ps1`
+
+Direct invocation of this sublayer alone is **not sufficient for current final Windows admission**. The complete canonical Windows admission-review entrypoint is `scripts/review-nxb-153-windows-admission.ps1`, with ordering and precedence defined by `docs/NXB-153-WINDOWS-ADMISSION-REVIEW-AUTHORITY.md`.
 
 Before invoking the semantic closure implementation, the wrapper uses native Win32 handles through `CreateFileW` and `GetFinalPathNameByHandleW`.
 
