@@ -4,20 +4,25 @@
 
 This document records a **source-staged, not admitted** NXB-153 Linux entrypoint authority rule.
 
-Canonical Linux preparation, validation and evidence-review entry wrappers must not execute an exact-head inner shell implementation through `source <(git cat-file blob ...)` directly.
+Canonical Linux preparation, validation and evidence-review entry wrappers must not execute an exact-head inner shell implementation through a pathname-reopened script or an asynchronous `source <(...)` producer after object authority has been established.
 
-Bash process substitution does not make the producer's exit status the `source` command's exit status. A failing producer can therefore be a weaker authority boundary than a pipeline protected by `set -o pipefail`.
+The rule addresses two distinct shell boundaries:
 
-## Source-staged contract
+1. producer/representation integrity for exact-head Git blob bytes; and
+2. ambient Bash startup/function authority before the later environment audit runs.
 
-The three canonical wrappers resolve and size-check their exact-head inner Git blob, capture the blob through a sentinel-checked command substitution, independently recompute the Git blob identity of the captured in-memory bytes, and only then source that complete bounded value through shell-builtin `printf`.
+Source staging is not runtime PASS.
 
-Current wrapper blobs at the source head preceding this documentation-only authority update:
+## Current source-staged contract
 
-- `scripts/prepare-and-validate-nxb-153-linux.sh` -> `a6f9aa7caf90e89ae369808eedf67c093535adfd`;
-- `scripts/validate-nxb-153-linux.sh` -> `a631ad07efb7fc1db3db4cccc31235bab283442f`;
-- `scripts/review-nxb-153-evidence-linux.sh` -> `1fb240ba83b487cee0847f2a5aadb9b634c5d132`;
-- `scripts/nxb-153-linux-entry-blob-probe.sh` -> `64fd8fe8094a1b0a66f6a0c88085a2a3d35f8244`.
+The three canonical wrappers resolve and size-check their exact-head inner Git blob, capture it through a sentinel-checked command substitution, independently recompute the Git blob identity of the captured in-memory bytes, and execute only that same verified string through Bash builtin `eval`.
+
+Current wrapper/probe blobs:
+
+- `scripts/prepare-and-validate-nxb-153-linux.sh` -> `e78a4d7626977fd511d9acae562519da56c49f27`;
+- `scripts/validate-nxb-153-linux.sh` -> `6b343e0cd2cc42888db4276c4e2cb6b035c5ccea`;
+- `scripts/review-nxb-153-evidence-linux.sh` -> `77e62d7c79791eb7678c1a81b7272af15eaa5ebf`;
+- `scripts/nxb-153-linux-entry-blob-probe.sh` -> `3128cceb3b6892368660620b6c0dd4d9e3b023d4`.
 
 Each wrapper requires its selected inner implementation to be a Git blob whose reported size is greater than zero and no larger than **1 MiB** before capture.
 
@@ -32,7 +37,23 @@ The wrapper therefore fails if:
 - the recomputed captured-byte Git object ID differs from the selected exact-head object;
 - the committed inner object cannot be re-resolved consistently after successful delegation.
 
-The final process substitution is therefore no longer a Git producer. It is shell-builtin `printf` over an already captured value whose Git object identity has been re-established after Bash representation.
+After this check there is **no second process-substitution source producer**. The exact verified in-memory string is executed directly through `builtin eval`, preserving the intended same-shell sourced-script behavior while removing the earlier asynchronous delegation boundary.
+
+## Privileged Bash startup authority
+
+All three canonical wrappers and the adversarial probe request privileged Bash in their direct-exec shebang and fail unless `$-` contains `p`.
+
+Canonical invocations are expected to use Bash `-p`. In privileged mode Bash does not consume `BASH_ENV` startup code and does not import exported shell functions from the environment before the script's own authority checks can run.
+
+Preparation and validation wrappers resolve the Bash executable and install a same-shell `bash()` shim that invokes that exact executable with `-p`. This covers Bash children launched by the preserved inner implementation without rewriting the historical inner scripts merely to change their handoff spelling.
+
+The canonical validator also executes the exact-head entry-blob probe through a `set -o pipefail` protected:
+
+`git cat-file blob <probe-object> | <resolved-bash> -p -s ...`
+
+pipeline **before** evaluating the preserved validator inner bytes.
+
+The committed ambient environment guard separately rejects Bash startup/function authority variables together with the existing compiler/Cargo/Python/native-build authority set. Privileged Bash is still required because an environment audit that runs after shell startup cannot retroactively undo startup code that already executed.
 
 ## Mandatory adversarial probe
 
@@ -45,37 +66,46 @@ Its primitive self-test creates a temporary Git repository and requires:
 - a producer that exits zero after emitting only a truncated prefix to be rejected by captured-byte Git object mismatch;
 - a NUL-bearing Git blob to be rejected after Bash command-substitution representation rather than executed as altered bytes.
 
-The repository-aware probe additionally requires the probe itself and each canonical wrapper working file to equal their exact-head Git blob, validates each wrapper under `bash -n`, requires exactly one admitted `source <(printf ...)` delegation and requires the captured-byte `hash-object --stdin` integrity check.
+The repository-aware probe additionally requires:
 
-The canonical `scripts/validate-nxb-153-linux.sh` wrapper resolves the exact-head probe blob, requires it to fit the same **1 MiB** implementation envelope and executes it through a `set -o pipefail` protected `git cat-file blob | bash` pipeline **before** sourcing the preserved validator inner bytes. The probe object is re-resolved after validation alongside the inner validator object.
+- the probe itself and each canonical wrapper working file to equal their exact-head Git blob;
+- each wrapper to parse under privileged `bash -p -n`;
+- each wrapper to request and require privileged Bash mode;
+- no wrapper to retain `source <(` delegation;
+- captured-byte `hash-object --stdin` verification to remain present;
+- exactly one `builtin eval` in-memory delegation per wrapper.
 
-This makes the producer-failure/truncation/representation checks a mandatory source-staged Linux validation gate rather than an optional diagnostic script.
+The validator re-resolves the probe object after validation alongside the preserved inner validator object. The probe is therefore a mandatory exact-head gate rather than an optional diagnostic script.
 
 ## Other exact-blob execution paths
 
-The Linux immutable-source/H1/H2 paths that stream an exact Git blob directly into `bash` or `python3` use pipelines under `set -euo pipefail`. Their producer failure therefore participates in the pipeline status and is a separate, already fail-closed execution shape.
+The Linux immutable-source/H1/H2 paths that intentionally stream exact Git blobs into `bash` or `python3` use pipelines under `set -euo pipefail`, so producer failure participates in pipeline failure.
+
+Bash child creation from the canonical validator/preparation shell is forced through the privileged-Bash shim. The supported-host runtime proof must still demonstrate that the complete H1/H2 nested Bash chain preserves the intended behavior under this authority.
 
 `scripts/nxb-153-linux-immutable-source.sh` also uses a sentinel-checked bounded blob capture for source text that must be held in a shell variable. Its separately constrained source-envelope helper remains part of the H2 validation chain.
 
 ## Why this matters
 
-Exact object identity before execution is not sufficient if the bytes actually consumed by the shell can be a successful prefix of a failed producer stream or can be transformed by the shell's in-memory representation. NXB-153 treats the executed implementation bytes, not merely the earlier object lookup, as part of validation authority.
+Exact object identity before execution is not sufficient if the bytes actually consumed by the shell can be a successful prefix of a failed producer stream, can be transformed by Bash representation, or can be affected by startup/function authority before validation begins.
 
-The captured-byte `hash-object` check adds an explicit representation-integrity gate on top of producer-success/sentinel checks. The mandatory exact-head probe independently exercises the same failure classes before the canonical Linux validator delegates into its preserved inner implementation.
-
-This hardening removes the known canonical Linux direct-Git process-substitution gap without changing the preserved inner preparation, validator or evidence-review implementations.
+NXB-153 therefore binds the actual in-memory implementation bytes back to the selected Git object, removes the second process-substitution delegation, and establishes privileged Bash before any nested shell authority is accepted.
 
 ## Required runtime proof
 
-Source staging is not Linux PASS. Exact-final-head Linux validation must still prove:
+Exact-final-head Linux validation must still prove:
 
-- all three wrappers parse and execute correctly under the supported Bash host;
+- all three wrappers parse and execute correctly under the supported Bash host in privileged mode;
+- invocation without privileged mode fails closed;
+- ambient `BASH_ENV` and exported-function injection cannot influence the canonical wrapper/probe flow;
 - the mandatory exact-head entry-blob probe executes successfully through the canonical validator;
 - clean and dirty Git-status semantics remain unchanged;
 - the Python isolated-mode shim remains effective where applicable;
 - exact captured-byte Git-object equality succeeds on normal execution;
-- the deliberate producer-failure/truncation and NUL-bearing synthetic controls fail closed in the supported Linux environment;
+- deliberate producer-failure/truncation and NUL-bearing synthetic controls fail closed;
+- `builtin eval` preserves the intended positional-argument/same-shell semantics of the preserved inner implementations;
 - exact inner/probe object re-verification succeeds after normal delegation;
+- nested H1/H2 Bash execution remains compatible with the privileged-child authority;
 - full Rust 1.97.1 H2 validation and schema-v2 evidence review remain green on the same exact head.
 
 No GitHub Actions workflow is required or implied by this document. PR #89 remains draft/not admitted until the real Linux + Windows same-head closure completes.
