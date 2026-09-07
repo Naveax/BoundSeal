@@ -25,11 +25,71 @@ function Get-NxbSmallCommandOutput {
         [Parameter(Mandatory = $true)][string[]]$Arguments,
         [Parameter(Mandatory = $true)][string]$Label
     )
-    $value = (& $Executable @Arguments | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($value) -or $value.Length -gt 256) {
-        Fail-NxbProcessProbe "$Label did not return one bounded value"
+
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = $Executable
+    $start.UseShellExecute = $false
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $false
+    $start.CreateNoWindow = $true
+    foreach ($argument in $Arguments) {
+        [void]$start.ArgumentList.Add([string]$argument)
     }
-    return $value
+
+    $process = [Diagnostics.Process]::new()
+    $memory = [IO.MemoryStream]::new()
+    try {
+        $process.StartInfo = $start
+        if (-not $process.Start()) {
+            Fail-NxbProcessProbe "$Label process could not be started"
+        }
+
+        $buffer = [byte[]]::new(1024)
+        [Int64]$total = 0
+        while ($true) {
+            $readTask = $process.StandardOutput.BaseStream.ReadAsync($buffer, 0, $buffer.Length)
+            if (-not $readTask.Wait(30000)) {
+                Fail-NxbProcessProbe "$Label stdout made no progress for 30000 ms"
+            }
+            $read = $readTask.Result
+            if ($read -le 0) { break }
+            $total += $read
+            if ($total -gt 4096) {
+                Fail-NxbProcessProbe "$Label stdout exceeds the 4096-byte control-plane envelope"
+            }
+            $memory.Write($buffer, 0, $read)
+        }
+
+        if (-not $process.WaitForExit(30000)) {
+            Fail-NxbProcessProbe "$Label process did not exit after stdout closed"
+        }
+        if ($process.ExitCode -ne 0) {
+            Fail-NxbProcessProbe "$Label failed with exit code $($process.ExitCode)"
+        }
+
+        $utf8 = [Text.UTF8Encoding]::new($false, $true)
+        try {
+            $value = $utf8.GetString($memory.ToArray()).Trim()
+        }
+        catch {
+            Fail-NxbProcessProbe "$Label stdout is not strict UTF-8: $($_.Exception.Message)"
+        }
+        if ([string]::IsNullOrWhiteSpace($value) -or $value.Length -gt 256) {
+            Fail-NxbProcessProbe "$Label did not return one bounded value"
+        }
+        return $value
+    }
+    finally {
+        try {
+            if (-not $process.HasExited) {
+                $process.Kill($true)
+                [void]$process.WaitForExit(30000)
+            }
+        }
+        catch {}
+        $memory.Dispose()
+        $process.Dispose()
+    }
 }
 
 function Assert-NxbExactHeadFile {
