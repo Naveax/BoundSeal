@@ -38,6 +38,11 @@ pub(super) fn load_scope_import(path: &Path) -> Result<ImportedScope> {
     if imported.include_paths.is_empty() {
         bail!("guided scope import requires at least one explicit include path");
     }
+    if imported.allow_subdomains {
+        bail!(
+            "guided subdomain expansion is disabled until the registrable-domain boundary can be verified"
+        );
+    }
 
     let origin = guided_origin(&imported.origin)?;
     let include_paths = canonical_paths(imported.include_paths, true)?;
