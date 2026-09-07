@@ -6,6 +6,20 @@ fail() {
     exit 1
 }
 
+read_blob_text_exact() {
+    local object="$1" label="$2" output_name="$3"
+    local payload sentinel=$'\036'
+    [[ "$output_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || fail "$label output variable name is invalid"
+    payload="$({
+        "$git_application" cat-file blob "$object" || exit $?
+        printf '%s' "$sentinel"
+    })" || fail "could not load exact-head $label bytes"
+    [[ "${payload: -1}" == "$sentinel" ]] || fail "$label capture sentinel is missing"
+    payload="${payload%$sentinel}"
+    [[ -n "$payload" ]] || fail "$label source is empty"
+    printf -v "$output_name" '%s' "$payload"
+}
+
 repo_root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 cd "$repo_root"
 
@@ -16,12 +30,16 @@ done
 git_application="$(type -P git)"
 head_sha="$("$git_application" rev-parse HEAD)" || fail 'exact Git HEAD could not be resolved'
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'exact Git HEAD is not canonical SHA-1'
-inner_object="$("$git_application" rev-parse "$head_sha:scripts/prepare-and-validate-nxb-153-linux-inner.sh")" ||
+inner_relative='scripts/prepare-and-validate-nxb-153-linux-inner.sh'
+inner_object="$("$git_application" rev-parse "$head_sha:$inner_relative")" ||
     fail 'committed Linux preparation inner implementation is missing'
 [[ "$("$git_application" cat-file -t "$inner_object")" == blob ]] || fail 'Linux preparation inner implementation is not a Git blob'
 inner_size="$("$git_application" cat-file -s "$inner_object")" || fail 'could not resolve Linux preparation inner implementation size'
 [[ "$inner_size" =~ ^[0-9]+$ && "$inner_size" -gt 0 && "$inner_size" -le 1048576 ]] ||
     fail 'Linux preparation inner implementation size is outside the supported envelope'
+
+inner_source=''
+read_blob_text_exact "$inner_object" 'Linux preparation inner implementation' inner_source
 
 python3() {
     command python3 -I "$@"
@@ -104,7 +122,14 @@ git() {
     "$git_application" "$@"
 }
 
-# Source the exact committed implementation in this shell so every Python bootstrap,
-# including legacy fsync/json helpers, is forced through the isolated-mode shim and
-# both exact Git-status cleanliness checks are reduced to a bounded sentinel stream.
-source <("$git_application" cat-file blob "$inner_object") '.'
+# Execute only the complete, size-bounded exact-head inner bytes captured above.
+# The process-substitution producer is now the shell builtin printf over an already
+# verified in-memory value rather than git cat-file, so a Git producer failure cannot
+# turn into a successfully sourced partial implementation.
+source <(printf '%s' "$inner_source") '.'
+unset inner_source
+
+final_object="$("$git_application" rev-parse "$head_sha:$inner_relative")" ||
+    fail 'could not re-resolve Linux preparation inner authority after preparation'
+[[ "$final_object" == "$inner_object" ]] ||
+    fail 'Linux preparation inner Git authority changed during preparation'
