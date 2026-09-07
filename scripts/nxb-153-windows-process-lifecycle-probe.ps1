@@ -96,7 +96,8 @@ function Assert-NxbAbsent {
 function Assert-NxbProductionSourceContract {
     param(
         [Parameter(Mandatory = $true)][string]$DependencyPath,
-        [Parameter(Mandatory = $true)][string]$ImmutablePath
+        [Parameter(Mandatory = $true)][string]$ImmutablePath,
+        [Parameter(Mandatory = $true)][string]$BoundedPath
     )
     $strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
     $dependencyText = [IO.File]::ReadAllText($DependencyPath, $strictUtf8)
@@ -142,6 +143,18 @@ function Assert-NxbProductionSourceContract {
     Assert-NxbContains -Text $tar -Needle 'Kill($true)' -Label 'tar extraction'
     Assert-NxbAbsent -Text $tar -Needle 'CopyTo(' -Label 'tar extraction'
     Assert-NxbAbsent -Text $tar -Needle 'WaitForExit()' -Label 'tar extraction'
+
+    $brokerReader = Get-NxbFunctionText -Path $BoundedPath -Name 'Read-NxbH2BrokerLine'
+    Assert-NxbContains -Text $brokerReader -Needle 'StandardOutput.BaseStream' -Label 'broker control reader'
+    Assert-NxbContains -Text $brokerReader -Needle 'ReadAsync(' -Label 'broker control reader'
+    Assert-NxbContains -Text $brokerReader -Needle '$memory.Length -ge 65537' -Label 'broker control reader'
+    Assert-NxbContains -Text $brokerReader -Needle '$length -gt 65536' -Label 'broker control reader'
+    Assert-NxbContains -Text $brokerReader -Needle 'Kill($true)' -Label 'broker control reader'
+    Assert-NxbContains -Text $brokerReader -Needle 'WaitForExit(30000)' -Label 'broker control reader'
+    Assert-NxbContains -Text $brokerReader -Needle 'GetString($raw, 0, $length)' -Label 'broker control reader'
+    Assert-NxbAbsent -Text $brokerReader -Needle 'ReadLineAsync(' -Label 'broker control reader'
+    Assert-NxbAbsent -Text $brokerReader -Needle 'ReadToEndAsync(' -Label 'broker control reader'
+    return $brokerReader
 }
 
 function New-NxbProbeProcess {
@@ -316,6 +329,25 @@ function Invoke-NxbOutputProbe {
     }
 }
 
+function Invoke-NxbBrokerReaderProbe {
+    param([Parameter(Mandatory = $true)][string]$Mode)
+    $process = $null
+    try {
+        $process = New-NxbProbeProcess -Mode $Mode -RedirectOutput
+        $line = Read-NxbH2BrokerLine -Process $process -Label "broker reader $Mode" -TimeoutMilliseconds $ProbeIoTimeoutMilliseconds
+        if (-not $process.WaitForExit($ProbeExitTimeoutMilliseconds)) {
+            throw 'probe-broker-exit-timeout'
+        }
+        if ($process.ExitCode -ne 0) {
+            throw "probe-broker-exit-code:$($process.ExitCode)"
+        }
+        return $line
+    }
+    finally {
+        Stop-NxbProbeProcess -Process $process
+    }
+}
+
 function Invoke-NxbExitTimeoutProbe {
     $process = $null
     try {
@@ -388,8 +420,15 @@ if ($headSha -notmatch '^[0-9a-f]{40}$') {
 
 $dependency = Assert-NxbExactHeadFile -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/nxb-153-windows-dependency-source.ps1'
 $immutable = Assert-NxbExactHeadFile -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/nxb-153-windows-immutable-source-inner.ps1'
+$bounded = Assert-NxbExactHeadFile -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/nxb-153-windows-immutable-source-bounded-inner.ps1'
 [void](Assert-NxbExactHeadFile -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/nxb-153-windows-process-lifecycle-probe.ps1')
-Assert-NxbProductionSourceContract -DependencyPath $dependency.Path -ImmutablePath $immutable.Path
+$brokerReaderText = Assert-NxbProductionSourceContract -DependencyPath $dependency.Path -ImmutablePath $immutable.Path -BoundedPath $bounded.Path
+
+function Fail-NxbH2CopyEntry {
+    param([Parameter(Mandatory = $true)][string]$Message)
+    throw "broker-reader:$Message"
+}
+. ([scriptblock]::Create($brokerReaderText))
 
 $script:Results = [Collections.Generic.List[string]]::new()
 $script:Results.Add('exact-head source/AST contract')
@@ -435,6 +474,27 @@ switch -CaseSensitive ($Mode) {
         $stream.Write($bytes, 0, $bytes.Length)
         $stream.Flush()
         exit 17
+    }
+    'write-broker-line' {
+        $bytes = [Text.Encoding]::UTF8.GetBytes("{`"status`":`"healthy`"}`r`n")
+        $stream = [Console]::OpenStandardOutput()
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush()
+        exit 0
+    }
+    'write-broker-no-newline' {
+        $bytes = [Text.Encoding]::UTF8.GetBytes("{`"status`":`"healthy`"}")
+        $stream = [Console]::OpenStandardOutput()
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush()
+        exit 0
+    }
+    'write-broker-invalid-utf8' {
+        $bytes = [byte[]](123, 255, 125, 10)
+        $stream = [Console]::OpenStandardOutput()
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush()
+        exit 0
     }
     'stall-no-output' {
         Start-Sleep -Seconds 30
@@ -495,6 +555,21 @@ try {
         Invoke-NxbOutputProbe -Mode 'write-stdout-nonzero'
     }
 
+    $brokerLine = Invoke-NxbBrokerReaderProbe -Mode 'write-broker-line'
+    if ($brokerLine -cne '{"status":"healthy"}') {
+        Fail-NxbProcessProbe "broker control reader changed CRLF payload: $brokerLine"
+    }
+    $script:Results.Add('broker-control bounded CRLF success primitive')
+    Assert-NxbExpectedFailure -Label 'broker-control missing-newline rejection primitive' -ExpectedFragment 'control stream closed before newline' -Action {
+        Invoke-NxbBrokerReaderProbe -Mode 'write-broker-no-newline'
+    }
+    Assert-NxbExpectedFailure -Label 'broker-control invalid-UTF8 rejection primitive' -ExpectedFragment 'response is not strict UTF-8' -Action {
+        Invoke-NxbBrokerReaderProbe -Mode 'write-broker-invalid-utf8'
+    }
+    Assert-NxbExpectedFailure -Label 'broker-control stalled-output timeout primitive' -ExpectedFragment 'timed out' -Action {
+        Invoke-NxbBrokerReaderProbe -Mode 'stall-no-output'
+    }
+
     Invoke-NxbExitTimeoutProbe
     Invoke-NxbRecursiveKillProbe
 
@@ -506,6 +581,7 @@ try {
         head_sha = $headSha
         dependency_source_object = $dependency.ObjectId
         immutable_source_object = $immutable.ObjectId
+        bounded_source_object = $bounded.ObjectId
         production_io_timeout_milliseconds = $productionIoTimeoutMilliseconds
         production_exit_timeout_milliseconds = $productionExitTimeoutMilliseconds
         probe_io_timeout_milliseconds = $ProbeIoTimeoutMilliseconds
@@ -522,10 +598,13 @@ try {
         Write-Host "NXB-153 Windows process lifecycle probe passed for HEAD $headSha."
         Write-Host "Dependency source object: $($dependency.ObjectId)"
         Write-Host "Immutable source object: $($immutable.ObjectId)"
+        Write-Host "Bounded H2 source object: $($bounded.ObjectId)"
         Write-Host "Probe tests: $($script:Results.Count)"
     }
 }
 finally {
+    Remove-Item Function:\Read-NxbH2BrokerLine -ErrorAction SilentlyContinue
+    Remove-Item Function:\Fail-NxbH2CopyEntry -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $script:TemporaryRoot) {
         Remove-Item -LiteralPath $script:TemporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
