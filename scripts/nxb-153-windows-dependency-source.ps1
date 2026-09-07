@@ -18,6 +18,8 @@ $ErrorActionPreference = 'Stop'
 
 $maximumVendorFiles = 200000
 $maximumVendorBytes = [Int64]4294967296
+$childIoInactivityTimeoutMilliseconds = 300000
+$childExitTimeoutMilliseconds = 30000
 
 function Fail-NxbDependency {
     param([Parameter(Mandatory = $true)][string]$Message)
@@ -215,16 +217,51 @@ function Invoke-NxbRegistryVerifierWithInput {
         if (-not $process.Start()) {
             Fail-NxbDependency "could not start isolated registry verifier for $Label"
         }
-        $process.StandardInput.Write($InputText)
+
+        $writeTask = $process.StandardInput.WriteAsync($InputText)
+        $writeCompleted = $false
+        try {
+            $writeCompleted = $writeTask.Wait($childIoInactivityTimeoutMilliseconds)
+        }
+        catch {
+            Fail-NxbDependency "$Label stdin write failed: $($_.Exception.Message)"
+        }
+        if (-not $writeCompleted) {
+            Fail-NxbDependency "$Label stdin made no progress for $childIoInactivityTimeoutMilliseconds ms"
+        }
+
+        $flushTask = $process.StandardInput.FlushAsync()
+        $flushCompleted = $false
+        try {
+            $flushCompleted = $flushTask.Wait($childIoInactivityTimeoutMilliseconds)
+        }
+        catch {
+            Fail-NxbDependency "$Label stdin flush failed: $($_.Exception.Message)"
+        }
+        if (-not $flushCompleted) {
+            Fail-NxbDependency "$Label stdin flush made no progress for $childIoInactivityTimeoutMilliseconds ms"
+        }
         $process.StandardInput.Close()
-        $process.WaitForExit()
+
+        if (-not $process.WaitForExit($childExitTimeoutMilliseconds)) {
+            Fail-NxbDependency "$Label did not exit within $childExitTimeoutMilliseconds ms after stdin closed"
+        }
         if ($process.ExitCode -ne 0) {
             Fail-NxbDependency "$Label failed with exit code $($process.ExitCode)"
         }
         return ''
     }
     finally {
-        if ($null -ne $process) { $process.Dispose() }
+        if ($null -ne $process) {
+            try {
+                if (-not $process.HasExited) {
+                    $process.Kill($true)
+                    [void]$process.WaitForExit($childExitTimeoutMilliseconds)
+                }
+            }
+            catch {}
+            $process.Dispose()
+        }
     }
 }
 
