@@ -142,7 +142,7 @@ scripts/nxb-153-windows-immutable-source.ps1
   -> nxb-153-windows-immutable-source-git-output-inner.ps1
      -> nxb-153-windows-immutable-source-enumeration-inner.ps1
         -> nxb-153-windows-immutable-source-bounded-inner.ps1
-           -> H2/H1/immutable-source inner chain
+           -> H2 destination broker / H1 / immutable-source inner chain
 ```
 
 Current availability boundaries include:
@@ -150,29 +150,44 @@ Current availability boundaries include:
 - `Out-String`: at most **4,096 pipeline objects**, **64 MiB** strict UTF-8 input probe bytes and **64 MiB** final formatted output;
 - bare Git stdout: **64 MiB / 4,096 decoded records**;
 - `Get-ChildItem`: **131,072 emitted filesystem objects** per admitted invocation;
-- host Rust tree / snapshot copy: **65,536 files / 65,536 directories / 512 MiB per file / 4 GiB total**.
+- host Rust tree / snapshot copy: **65,536 files / 65,536 directories / 512 MiB per file / 4 GiB total**;
+- exact-head Git archive streamed to a pinned create-new file: at most **1 GiB**.
 
 The `Out-String` proxy admits only the currently reviewed `String`, `InformationRecord` and `ErrorRecord` surface and applies module-qualified real `Out-String` once to the complete admitted sequence so pipeline-format semantics are preserved.
 
+The source-staged destination lifetime authority is implemented by:
+
+- `scripts/nxb-153-windows-h2-destination-broker.py`;
+- `scripts/nxb-153-windows-immutable-source-h2-broker-entry.ps1`;
+- the bounded H2 outer entrypoint that exact-object verifies and supervises them.
+
+The broker creates destination children through retained native relative-handle authority, transitions file writers under a recursive change watcher, overlaps with the existing PowerShell file/directory/ACL authority and remains active through the relocated Rust heavy-gate lifetime. This closes the previously identified **source-level** pathname-only handoff gap; it does not create a Windows runtime PASS by documentation.
+
 No supported Windows/NTFS PowerShell runtime PASS is claimed.
 
-## Explicit remaining Windows blockers
+## Windows process-output capture hardening
 
-### Destination namespace continuity
+The three previously identified direct `.NET ReadToEndAsync()` capture paths are no longer present in current source.
 
-Current source still does not prove continuous native no-delete/no-write authority for every newly created H2 destination child from creation by the Python copier until later PowerShell file/directory pinning and ACL authority is established.
+Current source-staged behavior is:
 
-Post-copy equality, reparse rejection and later handles are not equivalent to lifetime authority under the strict same-user concurrent pathname-attacker model. Admission requires continuous creator-held object authority across the handoff or a strength-equivalent kernel-backed mechanism.
+- isolated registry metadata verification redirects **stdin only**; verifier stdout/stderr inherit the validation host and the parent retains no child output string;
+- `git archive` redirects only its binary stdout, which is streamed incrementally into the pinned create-new archive and rejected above **1 GiB**; stderr inherits the validation host;
+- tar extraction redirects only stdin from the already bounded pinned archive; stdout/stderr inherit the validation host and are not retained by the parent process.
 
-### Direct .NET process captures
+The parent now uses child exit status for these three paths instead of retaining arbitrarily large stdout/stderr strings. This removes the source-level unbounded `ReadToEndAsync()` memory-capture surface and its associated redirected-pipe retention risk.
 
-Three direct `ReadToEndAsync()` paths remain outside the PowerShell string proxy:
+Real supported Windows execution is still required to prove the exact process-launch, inherited-output, pipe, cancellation and cleanup behavior under the documented environment. Source staging is not admission.
 
-- isolated registry-verifier stdout/stderr;
-- `git archive` stderr;
-- tar-extraction stdout/stderr.
+## Explicit remaining Windows admission blockers
 
-Their upstream work is source-bounded, but real supported Windows execution must still demonstrate acceptable availability behavior.
+### Destination lifetime runtime proof
+
+The destination lifetime broker is source-staged but still requires supported Windows/NTFS execution proving native relative creation, create-new collision behavior, reparse rejection, handle/share-mode semantics, watcher mutation detection and overflow/failure handling, PowerShell interception/delegation, overlap with ACL authority, relocated Rust/DLL/sysroot loading and cleanup/recovery.
+
+### Process-output runtime proof
+
+The direct in-memory captures are source-removed, but supported Windows execution must still verify that inherited stdout/stderr behavior is compatible with the validation host and that failure/cancellation paths terminate and clean up without hanging or weakening exact-head authority.
 
 ## Final admission requirements
 
@@ -181,6 +196,8 @@ The final same exact Git head must still demonstrate:
 - full Linux Rust 1.97.1 H2 execution under exact-head immutable workspace/dependency/toolchain authority;
 - full supported Windows NTFS/PowerShell H2 execution;
 - bounded-capture and source-envelope primitive behavior on the real platform runs;
+- destination-broker lifetime and mutation/adversarial behavior on supported Windows;
+- process-output inheritance, failure and cleanup behavior on supported Windows;
 - lock contention and mutation/injection probes;
 - create-only schema-v2 evidence publication;
 - object-anchored evidence review;
