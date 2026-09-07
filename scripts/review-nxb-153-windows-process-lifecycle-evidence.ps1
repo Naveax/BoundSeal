@@ -21,6 +21,10 @@ $expectedTests = @(
     'Git-archive-style stdout success primitive',
     'Git-archive-style stalled stdout timeout primitive',
     'Git-archive-style nonzero exit primitive',
+    'broker-control bounded CRLF success primitive',
+    'broker-control missing-newline rejection primitive',
+    'broker-control invalid-UTF8 rejection primitive',
+    'broker-control stalled-output timeout primitive',
     'post-I/O exit timeout primitive',
     'recursive process-tree termination primitive'
 )
@@ -216,6 +220,7 @@ $writer = Get-NxbExactHeadObject -GitPath $gitPath -HeadSha $headSha -RelativePa
 $reviewer = Get-NxbExactHeadObject -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/review-nxb-153-windows-process-lifecycle-evidence.ps1'
 $dependency = Get-NxbExactHeadObject -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/nxb-153-windows-dependency-source.ps1'
 $immutable = Get-NxbExactHeadObject -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/nxb-153-windows-immutable-source-inner.ps1'
+$bounded = Get-NxbExactHeadObject -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/nxb-153-windows-immutable-source-bounded-inner.ps1'
 
 if ([string]::IsNullOrWhiteSpace($EvidencePath)) {
     $EvidencePath = Join-Path $RepoRoot "target\nxb-validation\nxb-153-windows-process-lifecycle-$headSha.json"
@@ -240,7 +245,7 @@ try {
     $expectedFields = @(
         'schema_version', 'policy', 'milestone', 'platform', 'head_sha',
         'probe_policy', 'probe_script_object', 'evidence_writer_object',
-        'dependency_source_object', 'immutable_source_object',
+        'dependency_source_object', 'immutable_source_object', 'bounded_source_object',
         'production_io_timeout_milliseconds', 'production_exit_timeout_milliseconds',
         'probe_io_timeout_milliseconds', 'probe_exit_timeout_milliseconds',
         'powershell_version', 'tests', 'status', 'probed_at', 'recorded_at'
@@ -262,6 +267,7 @@ try {
         [string]$record.evidence_writer_object -cne $writer.ObjectId -or
         [string]$record.dependency_source_object -cne $dependency.ObjectId -or
         [string]$record.immutable_source_object -cne $immutable.ObjectId -or
+        [string]$record.bounded_source_object -cne $bounded.ObjectId -or
         [int]$record.production_io_timeout_milliseconds -ne 300000 -or
         [int]$record.production_exit_timeout_milliseconds -ne 30000 -or
         [int]$record.probe_io_timeout_milliseconds -ne 1000 -or
@@ -293,7 +299,7 @@ try {
     if ($finalHead -cne $headSha) {
         Fail-NxbProcessReview 'Git HEAD changed during process-lifecycle evidence review'
     }
-    foreach ($authority in @($probe, $writer, $reviewer, $dependency, $immutable)) {
+    foreach ($authority in @($probe, $writer, $reviewer, $dependency, $immutable, $bounded)) {
         $actual = Get-NxbGitValue -GitPath $gitPath -Arguments @('-C', $RepoRoot, 'hash-object', '--', $authority.Path) -Label "final object for $($authority.Path)"
         if ($actual -cne $authority.ObjectId) {
             Fail-NxbProcessReview "exact-head authority bytes changed during review: $($authority.Path)"
