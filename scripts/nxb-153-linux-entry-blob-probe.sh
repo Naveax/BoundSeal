@@ -181,34 +181,57 @@ capture_blob_exact "$git_application" "$immutable_object" immutable_source ||
     fail 'immutable-source runner is missing captured-byte Git object verification'
 [[ "$immutable_source" == *"'scripts/nxb-153-validation-environment.py'"* ]] ||
     fail 'immutable-source runner does not resolve the exact-head environment authority helper'
-[[ "$immutable_source" == *"python3 -I - audit"* ]] ||
-    fail 'immutable-source runner does not re-audit ambient environment authority'
-[[ "$immutable_source" == *'unset -f cp'* ]] ||
-    fail 'immutable-source runner trusted cp shim does not remove itself after use'
-[[ "$immutable_source" == *'export -f cp'* ]] ||
-    fail 'immutable-source runner lost the intentional trusted cp export'
-[[ "$immutable_source" == *'| "$bash_application" -s -- "$@"'* ]] ||
-    fail 'immutable-source runner no longer has the canonical post-audit trusted-function child handoff'
 
 immutable_line_number=0
+immutable_cp_function_line=0
+immutable_cp_function_count=0
 immutable_audit_line=0
+immutable_audit_count=0
+immutable_unset_line=0
+immutable_unset_count=0
 immutable_export_line=0
+immutable_export_count=0
 immutable_handoff_line=0
+immutable_handoff_count=0
 while IFS= read -r line; do
     immutable_line_number=$((immutable_line_number + 1))
-    if [[ "$immutable_audit_line" -eq 0 && "$line" == *"python3 -I - audit"* ]]; then
+    if [[ "$line" == 'cp() {' ]]; then
+        immutable_cp_function_count=$((immutable_cp_function_count + 1))
+        immutable_cp_function_line="$immutable_line_number"
+    fi
+    if [[ "$line" == 'git -C "$repo_anchor" cat-file blob "$environment_object" | python3 -I - audit >/dev/null ||' ]]; then
+        immutable_audit_count=$((immutable_audit_count + 1))
         immutable_audit_line="$immutable_line_number"
     fi
-    if [[ "$immutable_export_line" -eq 0 && "$line" == 'export -f cp' ]]; then
+    if [[ "$line" == '    unset -f cp' ]]; then
+        immutable_unset_count=$((immutable_unset_count + 1))
+        immutable_unset_line="$immutable_line_number"
+    fi
+    if [[ "$line" == 'export -f cp' ]]; then
+        immutable_export_count=$((immutable_export_count + 1))
         immutable_export_line="$immutable_line_number"
     fi
-    if [[ "$immutable_handoff_line" -eq 0 && "$line" == *'| "$bash_application" -s -- "$@"'* ]]; then
+    if [[ "$line" == 'git -C "$repo_anchor" cat-file blob "$inner_object" | "$bash_application" -s -- "$@" ||' ]]; then
+        immutable_handoff_count=$((immutable_handoff_count + 1))
         immutable_handoff_line="$immutable_line_number"
     fi
 done <<< "$immutable_source"
-[[ "$immutable_audit_line" -gt 0 ]] || fail 'immutable-source runner environment audit line was not found'
-[[ "$immutable_export_line" -gt "$immutable_audit_line" ]] ||
-    fail 'immutable-source runner trusted cp export does not occur after environment audit'
+[[ "$immutable_cp_function_count" -eq 1 ]] ||
+    fail 'immutable-source runner must define exactly one trusted cp shim'
+[[ "$immutable_audit_count" -eq 1 ]] ||
+    fail 'immutable-source runner must contain exactly one canonical environment audit handoff'
+[[ "$immutable_unset_count" -eq 1 ]] ||
+    fail 'immutable-source runner trusted cp shim must contain exactly one self-removal'
+[[ "$immutable_export_count" -eq 1 ]] ||
+    fail 'immutable-source runner must contain exactly one trusted cp export'
+[[ "$immutable_handoff_count" -eq 1 ]] ||
+    fail 'immutable-source runner must contain exactly one canonical non-privileged child handoff'
+[[ "$immutable_cp_function_line" -gt "$immutable_audit_line" ]] ||
+    fail 'immutable-source runner trusted cp function is defined before environment audit'
+[[ "$immutable_unset_line" -gt "$immutable_cp_function_line" ]] ||
+    fail 'immutable-source runner trusted cp self-removal does not follow its function definition'
+[[ "$immutable_export_line" -gt "$immutable_unset_line" ]] ||
+    fail 'immutable-source runner trusted cp export does not follow the self-removing function body'
 [[ "$immutable_handoff_line" -gt "$immutable_export_line" ]] ||
     fail 'immutable-source runner non-privileged child handoff does not occur after trusted cp export'
 unset immutable_source
