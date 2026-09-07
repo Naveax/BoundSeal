@@ -31,6 +31,116 @@ function Fail-NxbProcessEvidence {
     throw "NXB-153 Windows process lifecycle evidence failed: $Message"
 }
 
+if ($null -eq ('Nxb153ProcessEvidenceWriterNative' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
+
+public static class Nxb153ProcessEvidenceWriterNative
+{
+    private const uint GENERIC_READ = 0x80000000;
+    private const uint FILE_SHARE_READ = 0x00000001;
+    private const uint FILE_SHARE_WRITE = 0x00000002;
+    private const uint OPEN_EXISTING = 3;
+    private const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeFileHandle CreateFileW(
+        string lpFileName,
+        uint dwDesiredAccess,
+        uint dwShareMode,
+        IntPtr lpSecurityAttributes,
+        uint dwCreationDisposition,
+        uint dwFlagsAndAttributes,
+        IntPtr hTemplateFile);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetFinalPathNameByHandleW(
+        SafeFileHandle hFile,
+        StringBuilder lpszFilePath,
+        uint cchFilePath,
+        uint dwFlags);
+
+    public static SafeFileHandle OpenDirectoryNoDeleteShare(string path)
+    {
+        SafeFileHandle handle = CreateFileW(
+            path,
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            IntPtr.Zero,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            int error = Marshal.GetLastWin32Error();
+            handle.Dispose();
+            throw new Win32Exception(error, "CreateFileW failed for " + path);
+        }
+        return handle;
+    }
+
+    public static string GetFinalPath(SafeFileHandle handle)
+    {
+        var builder = new StringBuilder(32768);
+        uint result = GetFinalPathNameByHandleW(handle, builder, (uint)builder.Capacity, 0);
+        if (result == 0)
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        if (result >= builder.Capacity)
+            throw new InvalidOperationException("Resolved path exceeds supported buffer.");
+        return builder.ToString();
+    }
+}
+'@
+}
+
+function ConvertFrom-NxbFinalPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $value = $Path
+    if ($value.StartsWith('\\?\UNC\', [StringComparison]::OrdinalIgnoreCase)) {
+        $value = '\\' + $value.Substring(8)
+    }
+    elseif ($value.StartsWith('\\?\', [StringComparison]::OrdinalIgnoreCase)) {
+        $value = $value.Substring(4)
+    }
+    $full = [IO.Path]::GetFullPath($value)
+    $root = [IO.Path]::GetPathRoot($full)
+    if ($full.Length -gt $root.Length) {
+        $full = $full.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    }
+    return $full
+}
+
+function Open-NxbPinnedDirectory {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    $expected = ConvertFrom-NxbFinalPath -Path ([IO.Path]::GetFullPath($Path))
+    if (-not (Test-Path -LiteralPath $expected -PathType Container)) {
+        Fail-NxbProcessEvidence "$Label is missing: $expected"
+    }
+    $item = Get-Item -LiteralPath $expected -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        Fail-NxbProcessEvidence "$Label must not be a reparse point"
+    }
+    $handle = [Nxb153ProcessEvidenceWriterNative]::OpenDirectoryNoDeleteShare($expected)
+    try {
+        $resolved = ConvertFrom-NxbFinalPath -Path ([Nxb153ProcessEvidenceWriterNative]::GetFinalPath($handle))
+        if (-not [string]::Equals($resolved, $expected, [StringComparison]::OrdinalIgnoreCase)) {
+            Fail-NxbProcessEvidence "$Label resolved through redirected authority: expected '$expected', resolved '$resolved'"
+        }
+        return $handle
+    }
+    catch {
+        $handle.Dispose()
+        throw
+    }
+}
+
 function Get-NxbGitValue {
     param(
         [Parameter(Mandatory = $true)][string]$GitPath,
@@ -58,12 +168,20 @@ function Get-NxbExactHeadObject {
     if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
         Fail-NxbProcessEvidence "required exact-head file is a reparse point: $RelativePath"
     }
-    $expected = Get-NxbGitValue -GitPath $GitPath -Arguments @('-C', $RepoRoot, 'rev-parse', "${HeadSha}:$RelativePath") -Label "Git object for $RelativePath"
-    $actual = Get-NxbGitValue -GitPath $GitPath -Arguments @('-C', $RepoRoot, 'hash-object', '--', $full) -Label "working-tree object for $RelativePath"
-    if ($expected -notmatch '^[0-9a-f]{40}$' -or $actual -cne $expected) {
-        Fail-NxbProcessEvidence "working-tree bytes differ from exact-head Git authority: $RelativePath"
+    $stream = $null
+    try {
+        $stream = [IO.File]::Open($full, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        $expected = Get-NxbGitValue -GitPath $GitPath -Arguments @('-C', $RepoRoot, 'rev-parse', "${HeadSha}:$RelativePath") -Label "Git object for $RelativePath"
+        $actual = Get-NxbGitValue -GitPath $GitPath -Arguments @('-C', $RepoRoot, 'hash-object', '--', $full) -Label "working-tree object for $RelativePath"
+        if ($expected -notmatch '^[0-9a-f]{40}$' -or $actual -cne $expected) {
+            Fail-NxbProcessEvidence "working-tree bytes differ from exact-head Git authority: $RelativePath"
+        }
+        return [pscustomobject]@{ Path = $full; ObjectId = $expected; Stream = $stream }
     }
-    return [pscustomobject]@{ Path = $full; ObjectId = $expected }
+    catch {
+        if ($null -ne $stream) { $stream.Dispose() }
+        throw
+    }
 }
 
 function Assert-NxbCanonicalUtc {
@@ -118,132 +236,165 @@ if ($headSha -notmatch '^[0-9a-f]{40}$') {
     Fail-NxbProcessEvidence 'exact Git HEAD is not canonical 40-hex SHA-1'
 }
 
-$probe = Get-NxbExactHeadObject -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/nxb-153-windows-process-lifecycle-probe.ps1'
-$writer = Get-NxbExactHeadObject -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/record-nxb-153-windows-process-lifecycle-evidence.ps1'
-$dependency = Get-NxbExactHeadObject -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/nxb-153-windows-dependency-source.ps1'
-$immutable = Get-NxbExactHeadObject -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/nxb-153-windows-immutable-source-inner.ps1'
-
-$probeOutput = (& $probe.Path `
-    -RepoRoot $RepoRoot `
-    -ProbeIoTimeoutMilliseconds $ProbeIoTimeoutMilliseconds `
-    -ProbeExitTimeoutMilliseconds $ProbeExitTimeoutMilliseconds `
-    -Json | Out-String)
-$probeBytes = [Text.UTF8Encoding]::new($false, $true).GetBytes($probeOutput)
-if ($probeBytes.Length -le 0 -or $probeBytes.Length -gt $maximumEvidenceBytes) {
-    Fail-NxbProcessEvidence 'probe JSON output is outside the supported evidence envelope'
-}
+$namespaceHandles = [Collections.Generic.List[IDisposable]]::new()
+$sourceAuthorities = [Collections.Generic.List[object]]::new()
 try {
-    $probeRecord = $probeOutput | ConvertFrom-Json -ErrorAction Stop
-}
-catch {
-    Fail-NxbProcessEvidence "probe output is invalid JSON: $($_.Exception.Message)"
-}
+    $scriptsDirectory = Join-Path $RepoRoot 'scripts'
+    $targetDirectory = Join-Path $RepoRoot 'target'
+    $validationDirectory = Join-Path $targetDirectory 'nxb-validation'
 
-$expectedProbeFields = @(
-    'schema_version', 'policy', 'milestone', 'platform', 'head_sha',
-    'dependency_source_object', 'immutable_source_object',
-    'production_io_timeout_milliseconds', 'production_exit_timeout_milliseconds',
-    'probe_io_timeout_milliseconds', 'probe_exit_timeout_milliseconds',
-    'powershell_version', 'tests', 'status', 'probed_at'
-)
-$actualProbeFields = @($probeRecord.PSObject.Properties.Name | Sort-Object)
-$sortedExpectedProbeFields = @($expectedProbeFields | Sort-Object)
-if (($actualProbeFields -join "`n") -cne ($sortedExpectedProbeFields -join "`n")) {
-    Fail-NxbProcessEvidence 'probe JSON fields do not match the canonical contract'
-}
+    foreach ($entry in @(
+        [pscustomobject]@{ Path = $RepoRoot; Label = 'repository root' },
+        [pscustomobject]@{ Path = $scriptsDirectory; Label = 'scripts directory' },
+        [pscustomobject]@{ Path = $targetDirectory; Label = 'target directory' },
+        [pscustomobject]@{ Path = $validationDirectory; Label = 'validation evidence directory' }
+    )) {
+        $namespaceHandles.Add((Open-NxbPinnedDirectory -Path $entry.Path -Label $entry.Label))
+    }
 
-if (
-    [int]$probeRecord.schema_version -ne 1 -or
-    [string]$probeRecord.policy -cne $probePolicy -or
-    [string]$probeRecord.milestone -cne 'NXB-153' -or
-    [string]$probeRecord.platform -cne 'windows' -or
-    [string]$probeRecord.head_sha -cne $headSha -or
-    [string]$probeRecord.dependency_source_object -cne $dependency.ObjectId -or
-    [string]$probeRecord.immutable_source_object -cne $immutable.ObjectId -or
-    [int]$probeRecord.production_io_timeout_milliseconds -ne 300000 -or
-    [int]$probeRecord.production_exit_timeout_milliseconds -ne 30000 -or
-    [int]$probeRecord.probe_io_timeout_milliseconds -ne $ProbeIoTimeoutMilliseconds -or
-    [int]$probeRecord.probe_exit_timeout_milliseconds -ne $ProbeExitTimeoutMilliseconds -or
-    [string]$probeRecord.status -cne 'passed'
-) {
-    Fail-NxbProcessEvidence 'probe JSON does not match exact-head process-lifecycle authority'
-}
-if ([string]::IsNullOrWhiteSpace([string]$probeRecord.powershell_version) -or ([string]$probeRecord.powershell_version).Length -gt 64) {
-    Fail-NxbProcessEvidence 'probe PowerShell version is outside the supported envelope'
-}
-Assert-NxbCanonicalUtc -Value ([string]$probeRecord.probed_at) -Label 'probe probed_at'
-$tests = @(Assert-NxbExactTests -Actual $probeRecord.tests)
+    $probe = Get-NxbExactHeadObject -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/nxb-153-windows-process-lifecycle-probe.ps1'
+    $sourceAuthorities.Add($probe)
+    $writer = Get-NxbExactHeadObject -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/record-nxb-153-windows-process-lifecycle-evidence.ps1'
+    $sourceAuthorities.Add($writer)
+    $dependency = Get-NxbExactHeadObject -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/nxb-153-windows-dependency-source.ps1'
+    $sourceAuthorities.Add($dependency)
+    $immutable = Get-NxbExactHeadObject -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/nxb-153-windows-immutable-source-inner.ps1'
+    $sourceAuthorities.Add($immutable)
 
-$validationDirectory = Join-Path $RepoRoot 'target\nxb-validation'
-New-Item -ItemType Directory -Path $validationDirectory -Force | Out-Null
-$validationItem = Get-Item -LiteralPath $validationDirectory -Force
-if (-not $validationItem.PSIsContainer -or ($validationItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-    Fail-NxbProcessEvidence 'validation evidence directory must be a normal non-reparse directory'
-}
-
-$evidencePath = Join-Path $validationDirectory "nxb-153-windows-process-lifecycle-$headSha.json"
-$record = [ordered]@{
-    schema_version = 1
-    policy = $policy
-    milestone = 'NXB-153'
-    platform = 'windows'
-    head_sha = $headSha
-    probe_policy = $probePolicy
-    probe_script_object = $probe.ObjectId
-    evidence_writer_object = $writer.ObjectId
-    dependency_source_object = $dependency.ObjectId
-    immutable_source_object = $immutable.ObjectId
-    production_io_timeout_milliseconds = 300000
-    production_exit_timeout_milliseconds = 30000
-    probe_io_timeout_milliseconds = $ProbeIoTimeoutMilliseconds
-    probe_exit_timeout_milliseconds = $ProbeExitTimeoutMilliseconds
-    powershell_version = [string]$probeRecord.powershell_version
-    tests = $tests
-    status = 'passed'
-    probed_at = [string]$probeRecord.probed_at
-    recorded_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
-}
-$evidenceText = (($record | ConvertTo-Json -Depth 5) + [Environment]::NewLine)
-$evidenceBytes = [Text.UTF8Encoding]::new($false).GetBytes($evidenceText)
-if ($evidenceBytes.Length -le 0 -or $evidenceBytes.Length -gt $maximumEvidenceBytes) {
-    Fail-NxbProcessEvidence 'process-lifecycle evidence is outside the supported evidence envelope'
-}
-
-$stream = $null
-try {
+    $probeOutput = (& $probe.Path `
+        -RepoRoot $RepoRoot `
+        -ProbeIoTimeoutMilliseconds $ProbeIoTimeoutMilliseconds `
+        -ProbeExitTimeoutMilliseconds $ProbeExitTimeoutMilliseconds `
+        -Json | Out-String)
+    $probeBytes = [Text.UTF8Encoding]::new($false, $true).GetBytes($probeOutput)
+    if ($probeBytes.Length -le 0 -or $probeBytes.Length -gt $maximumEvidenceBytes) {
+        Fail-NxbProcessEvidence 'probe JSON output is outside the supported evidence envelope'
+    }
     try {
-        $stream = [IO.File]::Open(
-            $evidencePath,
-            [IO.FileMode]::CreateNew,
-            [IO.FileAccess]::ReadWrite,
-            [IO.FileShare]::None
-        )
+        $probeRecord = $probeOutput | ConvertFrom-Json -ErrorAction Stop
     }
-    catch [IO.IOException] {
-        if (Test-Path -LiteralPath $evidencePath) {
-            Fail-NxbProcessEvidence "exact-head process-lifecycle evidence already exists and will not be overwritten: $evidencePath"
+    catch {
+        Fail-NxbProcessEvidence "probe output is invalid JSON: $($_.Exception.Message)"
+    }
+
+    $expectedProbeFields = @(
+        'schema_version', 'policy', 'milestone', 'platform', 'head_sha',
+        'dependency_source_object', 'immutable_source_object',
+        'production_io_timeout_milliseconds', 'production_exit_timeout_milliseconds',
+        'probe_io_timeout_milliseconds', 'probe_exit_timeout_milliseconds',
+        'powershell_version', 'tests', 'status', 'probed_at'
+    )
+    $actualProbeFields = @($probeRecord.PSObject.Properties.Name | Sort-Object)
+    $sortedExpectedProbeFields = @($expectedProbeFields | Sort-Object)
+    if (($actualProbeFields -join "`n") -cne ($sortedExpectedProbeFields -join "`n")) {
+        Fail-NxbProcessEvidence 'probe JSON fields do not match the canonical contract'
+    }
+
+    if (
+        [int]$probeRecord.schema_version -ne 1 -or
+        [string]$probeRecord.policy -cne $probePolicy -or
+        [string]$probeRecord.milestone -cne 'NXB-153' -or
+        [string]$probeRecord.platform -cne 'windows' -or
+        [string]$probeRecord.head_sha -cne $headSha -or
+        [string]$probeRecord.dependency_source_object -cne $dependency.ObjectId -or
+        [string]$probeRecord.immutable_source_object -cne $immutable.ObjectId -or
+        [int]$probeRecord.production_io_timeout_milliseconds -ne 300000 -or
+        [int]$probeRecord.production_exit_timeout_milliseconds -ne 30000 -or
+        [int]$probeRecord.probe_io_timeout_milliseconds -ne $ProbeIoTimeoutMilliseconds -or
+        [int]$probeRecord.probe_exit_timeout_milliseconds -ne $ProbeExitTimeoutMilliseconds -or
+        [string]$probeRecord.status -cne 'passed'
+    ) {
+        Fail-NxbProcessEvidence 'probe JSON does not match exact-head process-lifecycle authority'
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$probeRecord.powershell_version) -or ([string]$probeRecord.powershell_version).Length -gt 64) {
+        Fail-NxbProcessEvidence 'probe PowerShell version is outside the supported envelope'
+    }
+    Assert-NxbCanonicalUtc -Value ([string]$probeRecord.probed_at) -Label 'probe probed_at'
+    $tests = @(Assert-NxbExactTests -Actual $probeRecord.tests)
+
+    $evidencePath = Join-Path $validationDirectory "nxb-153-windows-process-lifecycle-$headSha.json"
+    $record = [ordered]@{
+        schema_version = 1
+        policy = $policy
+        milestone = 'NXB-153'
+        platform = 'windows'
+        head_sha = $headSha
+        probe_policy = $probePolicy
+        probe_script_object = $probe.ObjectId
+        evidence_writer_object = $writer.ObjectId
+        dependency_source_object = $dependency.ObjectId
+        immutable_source_object = $immutable.ObjectId
+        production_io_timeout_milliseconds = 300000
+        production_exit_timeout_milliseconds = 30000
+        probe_io_timeout_milliseconds = $ProbeIoTimeoutMilliseconds
+        probe_exit_timeout_milliseconds = $ProbeExitTimeoutMilliseconds
+        powershell_version = [string]$probeRecord.powershell_version
+        tests = $tests
+        status = 'passed'
+        probed_at = [string]$probeRecord.probed_at
+        recorded_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+    }
+    $evidenceText = (($record | ConvertTo-Json -Depth 5) + [Environment]::NewLine)
+    $evidenceBytes = [Text.UTF8Encoding]::new($false).GetBytes($evidenceText)
+    if ($evidenceBytes.Length -le 0 -or $evidenceBytes.Length -gt $maximumEvidenceBytes) {
+        Fail-NxbProcessEvidence 'process-lifecycle evidence is outside the supported evidence envelope'
+    }
+
+    $stream = $null
+    try {
+        try {
+            $stream = [IO.File]::Open(
+                $evidencePath,
+                [IO.FileMode]::CreateNew,
+                [IO.FileAccess]::ReadWrite,
+                [IO.FileShare]::None
+            )
         }
-        throw
-    }
-    $stream.Write($evidenceBytes, 0, $evidenceBytes.Length)
-    $stream.Flush($true)
-    $stream.Position = 0
-    $persisted = [byte[]]::new($evidenceBytes.Length)
-    $offset = 0
-    while ($offset -lt $persisted.Length) {
-        $read = $stream.Read($persisted, $offset, $persisted.Length - $offset)
-        if ($read -le 0) {
-            Fail-NxbProcessEvidence 'process-lifecycle evidence could not be read back completely'
+        catch [IO.IOException] {
+            if (Test-Path -LiteralPath $evidencePath) {
+                Fail-NxbProcessEvidence "exact-head process-lifecycle evidence already exists and will not be overwritten: $evidencePath"
+            }
+            throw
         }
-        $offset += $read
+        $stream.Write($evidenceBytes, 0, $evidenceBytes.Length)
+        $stream.Flush($true)
+        $stream.Position = 0
+        $persisted = [byte[]]::new($evidenceBytes.Length)
+        $offset = 0
+        while ($offset -lt $persisted.Length) {
+            $read = $stream.Read($persisted, $offset, $persisted.Length - $offset)
+            if ($read -le 0) {
+                Fail-NxbProcessEvidence 'process-lifecycle evidence could not be read back completely'
+            }
+            $offset += $read
+        }
+        if ($stream.ReadByte() -ne -1 -or [Convert]::ToBase64String($persisted) -cne [Convert]::ToBase64String($evidenceBytes)) {
+            Fail-NxbProcessEvidence 'process-lifecycle evidence read-back bytes differ from the deterministic record'
+        }
     }
-    if ($stream.ReadByte() -ne -1 -or [Convert]::ToBase64String($persisted) -cne [Convert]::ToBase64String($evidenceBytes)) {
-        Fail-NxbProcessEvidence 'process-lifecycle evidence read-back bytes differ from the deterministic record'
+    finally {
+        if ($null -ne $stream) { $stream.Dispose() }
     }
+
+    $finalHead = Get-NxbGitValue -GitPath $gitPath -Arguments @('-C', $RepoRoot, 'rev-parse', 'HEAD') -Label 'final exact Git HEAD'
+    if ($finalHead -cne $headSha) {
+        Fail-NxbProcessEvidence 'Git HEAD changed during process-lifecycle evidence recording'
+    }
+    foreach ($authority in $sourceAuthorities) {
+        $actual = Get-NxbGitValue -GitPath $gitPath -Arguments @('-C', $RepoRoot, 'hash-object', '--', $authority.Path) -Label "final object for $($authority.Path)"
+        if ($actual -cne $authority.ObjectId) {
+            Fail-NxbProcessEvidence "exact-head source authority changed during evidence recording: $($authority.Path)"
+        }
+    }
+
+    Write-Host "NXB-153 Windows process-lifecycle evidence recorded for HEAD $headSha."
+    Write-Host "Evidence: $evidencePath"
 }
 finally {
-    if ($null -ne $stream) { $stream.Dispose() }
+    for ($index = $sourceAuthorities.Count - 1; $index -ge 0; $index--) {
+        try { $sourceAuthorities[$index].Stream.Dispose() } catch {}
+    }
+    for ($index = $namespaceHandles.Count - 1; $index -ge 0; $index--) {
+        try { $namespaceHandles[$index].Dispose() } catch {}
+    }
 }
-
-Write-Host "NXB-153 Windows process-lifecycle evidence recorded for HEAD $headSha."
-Write-Host "Evidence: $evidencePath"
