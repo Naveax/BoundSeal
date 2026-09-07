@@ -4,7 +4,7 @@
 
 This document records the current **source-staged, not admitted** Windows process-lifecycle runtime gate for NXB-153.
 
-The gate does not replace the canonical Windows validator, H2 destination-broker tests, main schema-v2 validation evidence or guarded Linux + Windows closure. It proves one narrower property: the exact-head direct-child hardening is still present in source and the supported Windows PowerShell/.NET host honors the async pipe, timed-exit and recursive process-tree termination primitives on which that hardening depends.
+The gate does not replace the canonical Windows validator, H2 destination-broker tests, main schema-v2 validation evidence or guarded Linux + Windows closure. It proves one narrower property: the exact-head direct-child and broker-control hardening is still present in source and the supported Windows PowerShell/.NET host honors the async pipe, bounded framing, timed-exit and recursive process-tree termination primitives on which that hardening depends.
 
 A terminal-only probe PASS is not admission evidence. Canonical admission uses a four-stage chain:
 
@@ -47,17 +47,25 @@ It parses the production PowerShell sources with the PowerShell AST and requires
   - synchronous child stdout `BaseStream.Read(...)` and parameterless `WaitForExit()` are absent;
   - `Expand-NxbPinnedTarArchive` uses chunked `WriteAsync`, `FlushAsync`, bounded post-input exit and recursive termination cleanup;
   - child-pipe `CopyTo(...)` and parameterless `WaitForExit()` are absent.
+- `scripts/nxb-153-windows-immutable-source-bounded-inner.ps1`
+  - `Read-NxbH2BrokerLine` reads the broker control channel from `StandardOutput.BaseStream` with incremental `ReadAsync` rather than `ReadLineAsync`;
+  - retained control payload is bounded before decode to **64 KiB**, with at most one trailing CR admitted before the required LF terminator;
+  - strict UTF-8 decode occurs only after the byte ceiling succeeds;
+  - timeout, malformed framing, oversized framing and invalid UTF-8 attempt recursive broker termination plus bounded reap;
+  - `ReadLineAsync` and `ReadToEndAsync` are forbidden in the broker-control reader.
 
-Both production sources must retain:
+The dependency and immutable-source child paths must retain:
 
 - child I/O inactivity timeout: **300,000 ms / 5 minutes**;
 - post-I/O exit timeout: **30,000 ms / 30 seconds**.
 
-The immutable source must retain the exact-head Git archive ceiling of **1 GiB**. A reintroduced direct `ReadToEndAsync()` retention path fails before dynamic execution.
+The immutable source must retain the exact-head Git archive ceiling of **1 GiB**. The broker-control reader must retain its explicit pre-decode **64 KiB** framing ceiling. A reintroduced direct `ReadToEndAsync()` retention path or post-hoc `ReadLineAsync()` broker limit fails before dynamic execution.
 
 ## Dynamic Windows primitives
 
 The probe creates only a private temporary helper script and temporary PID record outside the repository. It launches the currently executing PowerShell Core binary with `UseShellExecute = false` and deliberately exercises the same .NET process primitives used by production source.
+
+For broker-control tests, the probe does **not** use a copied reader implementation. It AST-extracts the exact-head production `Read-NxbH2BrokerLine` function from `scripts/nxb-153-windows-immutable-source-bounded-inner.ps1`, installs only the narrow failure shim it requires, and executes that exact function against synthetic child stdout.
 
 The dynamic suite covers:
 
@@ -70,10 +78,18 @@ The dynamic suite covers:
 7. Git-archive-style stdout success through `BaseStream.ReadAsync`;
 8. Git-archive-style child that never emits stdout, requiring read-inactivity timeout;
 9. Git-archive-style nonzero child exit propagation;
-10. direct timed `WaitForExit(...)` behavior against a sleeping child;
-11. recursive `Process.Kill(true)` behavior against a child that has spawned a live descendant.
+10. production broker-control reader accepting one strict-UTF-8 JSON payload terminated by CRLF without retaining the terminator;
+11. production broker-control reader rejecting EOF before LF termination;
+12. production broker-control reader rejecting invalid UTF-8 before JSON parsing;
+13. production broker-control reader timing out and cleaning up a child that stalls without output;
+14. direct timed `WaitForExit(...)` behavior against a sleeping child;
+15. recursive `Process.Kill(true)` behavior against a child that has spawned a live descendant.
+
+The exact evidence `tests` array contains **16 records** because `exact-head source/AST contract` is itself the first required record before those 15 dynamic primitives.
 
 The stall helpers sleep for 30 seconds. A correct probe does not wait for those sleeps to finish; the parent must fail, kill and reap inside the bounded probe envelope.
+
+The current dynamic suite deliberately leaves the full 64 KiB + terminator boundary as an exact source/AST invariant instead of spending tens of thousands of one-byte asynchronous reads in every admission probe. Supported Windows H2 runtime acceptance still has to exercise the real broker protocol and boundary behavior.
 
 ## Probe-only invocation
 
@@ -86,7 +102,7 @@ pwsh -NoLogo -NoProfile -File .\scripts\nxb-153-windows-process-lifecycle-probe.
   -Json
 ```
 
-The 1,000 ms I/O and 1,500 ms exit values are **probe-only** deadlines. They do not alter production 300,000 ms / 30,000 ms authority.
+The 1,000 ms I/O and 1,500 ms exit values are **probe-only** deadlines. They do not alter production 300,000 ms / 30,000 ms authority or the broker-control framing ceiling.
 
 A direct JSON PASS is useful diagnostics but is not the canonical persistent admission artifact.
 
@@ -102,7 +118,7 @@ The writer:
 
 - requires Windows PowerShell Core;
 - requires the canonical **1,000 ms I/O / 1,500 ms exit** probe deadlines and rejects custom admission deadlines before the probe starts;
-- exact-head verifies the probe, writer, dependency-source and immutable-source script bytes;
+- exact-head verifies the probe, writer, dependency-source, immutable-source and bounded H2 source bytes;
 - invokes the exact-head probe in JSON mode;
 - limits captured probe JSON to **64 KiB**;
 - requires the exact probe field set, policies, same `head_sha`, production source object IDs, timeout values, PASS status and exact ordered test list;
@@ -121,10 +137,10 @@ The evidence record binds:
 - exact Git head;
 - probe policy and probe script object;
 - evidence-writer object;
-- dependency and immutable-source objects;
+- dependency, immutable-source and bounded-H2-source objects;
 - production and probe timeout values;
 - PowerShell version;
-- exact ordered test list;
+- exact ordered **16-record** test list;
 - PASS status;
 - probe and evidence timestamps.
 
@@ -138,17 +154,17 @@ It may be invoked directly for narrow diagnostics, but final Windows admission m
 
 The process-evidence reviewer:
 
-- exact-head verifies the probe, evidence writer, reviewer and both inspected production scripts;
+- exact-head verifies the probe, evidence writer, reviewer and all three inspected production sources;
 - requires the canonical exact-head evidence pathname;
 - rejects reparse evidence;
 - opens the evidence with read-only access while withholding write/delete sharing;
 - resolves the native final path from the file handle and requires it to equal the canonical pathname, rejecting redirected parent authority;
 - bounds the pinned evidence object to **64 KiB** and requires strict UTF-8;
 - requires the exact field set and exact values for head, script objects, policies, timeouts, platform and PASS status;
-- requires the exact ordered 12-record test result list;
+- requires the exact ordered **16-record** test result list;
 - requires canonical UTC times with `recorded_at` no earlier than `probed_at` and no more than five minutes later;
 - computes the pinned evidence SHA-256;
-- re-verifies Git HEAD and all exact-head authority objects before success.
+- re-verifies Git HEAD and all exact-head authority objects, including the bounded H2 source, before success.
 
 The reviewer emits only a fixed small success summary containing HEAD, evidence SHA-256 and reviewer object ID. It does not rewrite the evidence.
 
@@ -181,10 +197,12 @@ This makes `scripts/review-nxb-153-evidence-windows.ps1` a required subordinate 
 Any of the following is fatal:
 
 - inspected source bytes do not match exact-head Git authority;
-- production timeout constants or 1 GiB archive ceiling drift;
+- production timeout constants, 1 GiB archive ceiling or 64 KiB broker framing ceiling drift;
 - required async/timed/recursive-kill patterns disappear;
 - forbidden synchronous/unbounded source patterns reappear;
+- `ReadLineAsync` or `ReadToEndAsync` reappears in the broker-control reader;
 - PowerShell AST parsing fails;
+- broker control closes before LF, contains invalid UTF-8 or stalls beyond the admitted probe timeout;
 - a stalled input/output operation does not time out;
 - a sleeping child does not trigger timed exit failure;
 - nonzero child exit is not surfaced;
@@ -206,6 +224,7 @@ A reviewed PASS from this process-lifecycle chain is supporting platform evidenc
 - the real registry helper's complete metadata-validation semantics;
 - real `git archive` behavior against the repository or the actual 1 GiB rejection boundary;
 - real tar extraction into the immutable source snapshot;
+- the real broker's complete 64 KiB response-boundary behavior under adversarial or corrupted output;
 - inherited stdout/stderr compatibility across every production child;
 - canonical entry/H2 Git proxy nesting/restoration;
 - H2 destination-broker native handle/share/watcher semantics;
