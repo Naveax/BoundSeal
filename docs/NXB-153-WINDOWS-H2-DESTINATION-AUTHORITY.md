@@ -216,9 +216,17 @@ Destination lifetime authority is now **source-staged**, but #98 must remain ope
 
 No Windows runtime PASS is claimed until those tests execute.
 
-## Separate remaining availability work
+## Process-output capture hardening
 
-This destination lifetime contract does not automatically close the separate direct process-capture review. Current Windows source still contains direct `.NET ReadToEndAsync()` capture paths for Git-archive stderr, tar-extraction stdout/stderr and the isolated registry verifier. Those paths remain availability-hardening/runtime-review work and must not be silently treated as solved by the destination broker.
+The separate direct process-capture source blocker has now been hardened without weakening the destination broker contract.
+
+Current source no longer contains the three previously identified `.NET ReadToEndAsync()` captures:
+
+- isolated registry metadata verification redirects stdin only; stdout/stderr inherit the validation host and the parent retains no child-output string;
+- `git archive` redirects only binary stdout, which is streamed incrementally into the pinned create-new archive under the existing 1 GiB cap; stderr inherits the validation host;
+- tar extraction redirects only stdin from the bounded pinned archive; stdout/stderr inherit the validation host.
+
+The parent process uses exit status for these paths rather than retaining arbitrarily large child-output strings. This removes the source-level unbounded output-retention surface. Supported Windows execution must still verify inherited-output, failure, cancellation and cleanup behavior, so this is **source-staged hardening**, not an admission PASS.
 
 ## Admission boundary
 
