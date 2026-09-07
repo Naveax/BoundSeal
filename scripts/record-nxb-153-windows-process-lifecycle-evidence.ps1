@@ -171,6 +171,11 @@ function Get-NxbExactHeadObject {
     $stream = $null
     try {
         $stream = [IO.File]::Open($full, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        $expectedPath = ConvertFrom-NxbFinalPath -Path ([IO.Path]::GetFullPath($full))
+        $resolvedPath = ConvertFrom-NxbFinalPath -Path ([Nxb153ProcessEvidenceWriterNative]::GetFinalPath($stream.SafeFileHandle))
+        if (-not [string]::Equals($resolvedPath, $expectedPath, [StringComparison]::OrdinalIgnoreCase)) {
+            Fail-NxbProcessEvidence "required exact-head file resolved through redirected authority: expected '$expectedPath', resolved '$resolvedPath'"
+        }
         $expected = Get-NxbGitValue -GitPath $GitPath -Arguments @('-C', $RepoRoot, 'rev-parse', "${HeadSha}:$RelativePath") -Label "Git object for $RelativePath"
         $actual = Get-NxbGitValue -GitPath $GitPath -Arguments @('-C', $RepoRoot, 'hash-object', '--', $full) -Label "working-tree object for $RelativePath"
         if ($expected -notmatch '^[0-9a-f]{40}$' -or $actual -cne $expected) {
