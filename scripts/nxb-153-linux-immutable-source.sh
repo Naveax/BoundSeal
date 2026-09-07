@@ -1,10 +1,12 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S bash -p
 set -euo pipefail
 
 fail() {
-    printf 'NXB-153 bounded Linux H2 entrypoint failed: %s\n' "$1" >&2
-    exit 1
+    builtin printf 'NXB-153 bounded Linux H2 entrypoint failed: %s\n' "$1" >&2
+    builtin exit 1
 }
+
+[[ "$-" == *p* ]] || fail 'Linux immutable-source entrypoint requires privileged Bash mode (-p)'
 
 resolve_blob() {
     local repo_anchor="$1" head_sha="$2" relative_path="$3" label="$4"
@@ -18,21 +20,25 @@ resolve_blob() {
         fail "could not resolve committed $label object size"
     [[ "$object_size" =~ ^[0-9]+$ && "$object_size" -gt 0 && "$object_size" -le 2097152 ]] ||
         fail "committed $label size is outside the supported implementation envelope"
-    printf '%s' "$object"
+    builtin printf '%s' "$object"
 }
 
 read_blob_text_exact() {
     local repo_anchor="$1" object="$2" label="$3" output_name="$4"
-    local payload sentinel=$'\036'
+    local payload sentinel=$'\036' captured_object
     [[ "$output_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || fail "$label output variable name is invalid"
     payload="$({
         git -C "$repo_anchor" cat-file blob "$object" || exit $?
-        printf '%s' "$sentinel"
+        builtin printf '%s' "$sentinel"
     })" || fail "could not load exact-head $label bytes"
     [[ "${payload: -1}" == "$sentinel" ]] || fail "$label capture sentinel is missing"
     payload="${payload%$sentinel}"
     [[ -n "$payload" ]] || fail "$label source is empty"
-    printf -v "$output_name" '%s' "$payload"
+    captured_object="$(builtin printf '%s' "$payload" | git -C "$repo_anchor" hash-object --stdin)" ||
+        fail "could not hash captured exact-head $label bytes"
+    [[ "$captured_object" == "$object" ]] ||
+        fail "$label captured bytes differ from the selected exact-head Git blob"
+    builtin printf -v "$output_name" '%s' "$payload"
 }
 
 [[ "$#" -ge 1 ]] || fail 'mode is required'
@@ -41,6 +47,7 @@ mode="$1"
 for required_command in git python3 bash; do
     command -v "$required_command" >/dev/null 2>&1 || fail "$required_command is unavailable"
 done
+bash_application="$(type -P bash)" || fail 'bash executable could not be resolved'
 
 if [[ "$mode" == self-test ]]; then
     [[ "$#" -eq 1 ]] || fail 'self-test mode takes no arguments'
@@ -60,9 +67,20 @@ fi
 
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'exact head is not canonical 40-hex SHA-1'
 
+environment_object="$(resolve_blob "$repo_anchor" "$head_sha" 'scripts/nxb-153-validation-environment.py' 'validation environment authority helper')"
 envelope_object="$(resolve_blob "$repo_anchor" "$head_sha" 'scripts/nxb-153-linux-source-envelope.py' 'Linux source-envelope helper')"
 inner_object="$(resolve_blob "$repo_anchor" "$head_sha" 'scripts/nxb-153-linux-immutable-source-h2-copy-inner.sh' 'Linux H2 inner runner')"
 copy_object="$(resolve_blob "$repo_anchor" "$head_sha" 'scripts/nxb-153-rust-toolchain-snapshot-copy.py' 'bounded Rust snapshot-copy helper')"
+
+# This runner is a canonical entrypoint in its own right. Re-audit the exact-head
+# environment policy before any later non-privileged Bash child is allowed to import
+# the intentionally exported trusted cp shim. In the normal validator path this is a
+# redundant fail-closed check after the parent audit; for direct invocation it prevents
+# BASH_ENV/exported-function startup authority from being deferred to the inner child.
+git -C "$repo_anchor" cat-file blob "$environment_object" | python3 -I - self-test >/dev/null ||
+    fail 'validation environment authority self-test failed at immutable-source entry'
+git -C "$repo_anchor" cat-file blob "$environment_object" | python3 -I - audit >/dev/null ||
+    fail 'ambient validation environment is not admitted at immutable-source entry'
 
 envelope_code=''
 read_blob_text_exact "$repo_anchor" "$envelope_object" 'Linux source-envelope helper' envelope_code
@@ -86,7 +104,7 @@ export NXB_H2_COPY_OBJECT="$copy_object"
 
 cp() {
     if [[ "$#" -ne 4 || "$1" != '-a' || "$2" != '--no-preserve=ownership' ]]; then
-        printf 'NXB-153 bounded Linux H2 copy shim rejected unexpected cp invocation\n' >&2
+        builtin printf 'NXB-153 bounded Linux H2 copy shim rejected unexpected cp invocation\n' >&2
         return 91
     fi
     local source="$3"
@@ -99,5 +117,9 @@ cp() {
 }
 export -f cp
 
-git -C "$repo_anchor" cat-file blob "$inner_object" | bash -s -- "$@" ||
+# This child is intentionally non-privileged so it imports the exact trusted cp shim
+# created above. Ambient Bash startup/function authority was rejected immediately
+# before the shim was created, so the only admitted exported function is the one this
+# exact-head runner intentionally supplies.
+git -C "$repo_anchor" cat-file blob "$inner_object" | "$bash_application" -s -- "$@" ||
     fail 'bounded Linux H2 inner gate sequence failed'
