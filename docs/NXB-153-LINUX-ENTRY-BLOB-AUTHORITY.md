@@ -24,7 +24,7 @@ Current source blobs at the source head preceding this documentation-only update
 - `scripts/validate-nxb-153-linux.sh` -> `6b343e0cd2cc42888db4276c4e2cb6b035c5ccea`;
 - `scripts/review-nxb-153-evidence-linux.sh` -> `77e62d7c79791eb7678c1a81b7272af15eaa5ebf`;
 - `scripts/nxb-153-linux-immutable-source.sh` -> `57e99472b09a291479f84c8e73fd1c56b1309837`;
-- `scripts/nxb-153-linux-entry-blob-probe.sh` -> `5c92c4e1b1e32aa0e40ef38edfe128c427476bf1`;
+- `scripts/nxb-153-linux-entry-blob-probe.sh` -> `511e7160a0221b4889f3b46b8267894a6b4e195d`;
 - `scripts/nxb-153-validation-environment.py` -> `8b1766915b6ad3a2350a3368fb666b8dbff240b5`.
 
 Each outer wrapper requires its selected inner implementation to be a Git blob whose reported size is greater than zero and no larger than **1 MiB** before capture.
@@ -71,9 +71,9 @@ The runner now independently:
 - captures that Python helper through the same producer-success sentinel shape;
 - recomputes `git hash-object --stdin` over the captured Bash representation and requires equality with the selected exact-head source-envelope blob before `python3 -I -c` consumes it.
 
-After the audit, the runner deliberately creates and exports one trusted `cp` function. That shim delegates copying to the exact-head bounded Rust snapshot-copy helper. The final H2 inner Bash child is intentionally **non-privileged** so it can import this exact runner-created function.
+After the audit, the runner deliberately creates and exports one trusted `cp` function. That shim delegates copying to the exact-head bounded Rust snapshot-copy helper and removes itself with `unset -f cp` after its admitted copy invocation. The final H2 inner Bash child is intentionally **non-privileged** so it can import this exact runner-created function.
 
-This non-privileged child is not an ambient-authority exception. Ambient `BASH_ENV` and pre-existing exported-function authority must already have been rejected immediately before the trusted shim is created. Runtime acceptance must demonstrate that the intended `cp` shim is the only function authority admitted across that transition and that hostile startup/function state cannot survive to the child.
+This non-privileged child is not an ambient-authority exception. Ambient `BASH_ENV` and pre-existing exported-function authority must already have been rejected before the trusted shim is defined or exported. Runtime acceptance must demonstrate that the intended `cp` shim is the only function authority admitted across that transition and that hostile startup/function state cannot survive to the child.
 
 ## Authority precedence
 
@@ -109,9 +109,14 @@ For the canonical immutable-source runner, the probe additionally requires:
 - privileged syntax/direct-entry/runtime requirements;
 - captured-byte Git object verification;
 - exact-head validation environment helper resolution;
-- isolated environment audit invocation;
-- the intentional `export -f cp` contract;
-- the expected post-audit resolved-Bash non-privileged child handoff.
+- exactly one canonical environment-audit handoff;
+- exactly one trusted `cp()` definition;
+- exactly one `unset -f cp` self-removal in the admitted source shape;
+- exactly one `export -f cp`;
+- exactly one canonical resolved-Bash non-privileged H2 child handoff;
+- exact source-line ordering `environment audit < cp definition < cp self-removal < cp export < child handoff`.
+
+Those immutable-runner checks use exact line signatures and exact occurrence counts rather than loose substring existence. Moving a trusted export ahead of the audit, duplicating a handoff, or satisfying a check only through a comment must therefore fail the mandatory probe.
 
 The validator re-resolves the probe object after validation alongside the preserved inner validator object. The probe is therefore a mandatory exact-head gate rather than an optional diagnostic script.
 
@@ -140,7 +145,8 @@ Exact-final-head Linux validation must still prove:
 - exact captured-byte Git-object equality succeeds on normal outer-wrapper and source-envelope execution;
 - deliberate producer-failure/truncation and NUL-bearing synthetic controls fail closed;
 - `builtin eval` preserves the intended positional-argument/same-shell semantics of the preserved outer inner implementations;
-- the immutable runner's post-audit non-privileged H2 child imports the intended trusted `cp` shim while hostile startup/function authority remains absent;
+- the immutable runner's post-audit non-privileged H2 child imports the intended self-removing trusted `cp` shim while hostile startup/function authority remains absent;
+- the exact audit/function/self-removal/export/handoff order asserted by the mandatory probe matches supported-host execution;
 - exact inner/probe/runner object authority remains stable through normal delegation;
 - the complete nested H1/H2 Bash chain preserves the intended authority boundaries;
 - full Rust 1.97.1 H2 validation and schema-v2 evidence review remain green on the same exact head.
