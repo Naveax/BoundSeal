@@ -6,11 +6,12 @@ This document records the current **source-staged, not admitted** Windows proces
 
 The gate does not replace the canonical Windows validator, H2 destination-broker tests, main schema-v2 validation evidence or guarded Linux + Windows closure. It proves one narrower property: the exact-head direct-child hardening is still present in source and the supported Windows PowerShell/.NET host honors the async pipe, timed-exit and recursive process-tree termination primitives on which that hardening depends.
 
-A terminal-only probe PASS is not admission evidence. Canonical admission uses a three-stage chain:
+A terminal-only probe PASS is not admission evidence. Canonical admission uses a four-stage chain:
 
 1. exact-head process primitive probe;
 2. create-only exact-head process-lifecycle evidence publication;
-3. native-pinned semantic evidence review.
+3. native-pinned process-lifecycle semantic evidence review;
+4. canonical Windows admission wrapper, which requires the process review before the existing Windows schema-v2 / dual-platform closure reviewer.
 
 Policies:
 
@@ -21,7 +22,14 @@ Canonical scripts:
 
 - `scripts/nxb-153-windows-process-lifecycle-probe.ps1`;
 - `scripts/record-nxb-153-windows-process-lifecycle-evidence.ps1`;
-- `scripts/review-nxb-153-windows-process-lifecycle-evidence.ps1`.
+- `scripts/review-nxb-153-windows-process-lifecycle-evidence.ps1`;
+- `scripts/review-nxb-153-windows-admission.ps1`.
+
+Canonical complete admission-review authority is defined by:
+
+`docs/NXB-153-WINDOWS-ADMISSION-REVIEW-AUTHORITY.md`.
+
+Where older NXB-153 material calls `scripts/review-nxb-153-evidence-windows.ps1` the canonical Windows closure entrypoint, that statement now describes the schema-v2 closure **sublayer only**. Direct invocation of that script alone is not sufficient for current NXB-153 Windows admission.
 
 ## Production source contract checked by the probe
 
@@ -120,15 +128,15 @@ The evidence record binds:
 - PASS status;
 - probe and evidence timestamps.
 
-## Canonical semantic evidence review
+## Native-pinned process evidence review
 
-After create-only publication, run:
+The process-evidence reviewer is:
 
-```powershell
-pwsh -NoLogo -NoProfile -File .\scripts\review-nxb-153-windows-process-lifecycle-evidence.ps1
-```
+`scripts/review-nxb-153-windows-process-lifecycle-evidence.ps1`.
 
-The reviewer:
+It may be invoked directly for narrow diagnostics, but final Windows admission must route through `scripts/review-nxb-153-windows-admission.ps1` so this review cannot be bypassed before the schema-v2 closure sublayer.
+
+The process-evidence reviewer:
 
 - exact-head verifies the probe, evidence writer, reviewer and both inspected production scripts;
 - requires the canonical exact-head evidence pathname;
@@ -143,6 +151,30 @@ The reviewer:
 - re-verifies Git HEAD and all exact-head authority objects before success.
 
 The reviewer emits only a fixed small success summary containing HEAD, evidence SHA-256 and reviewer object ID. It does not rewrite the evidence.
+
+## Canonical complete Windows admission review
+
+After the process evidence has been recorded and the normal exact-head Linux + Windows platform validation evidence required by the existing closure layer exists, final Windows-side review must use:
+
+```powershell
+pwsh -NoLogo -NoProfile -File .\scripts\review-nxb-153-windows-admission.ps1
+```
+
+The admission wrapper exact-head verifies and pins read-only handles for:
+
+- itself;
+- `scripts/review-nxb-153-windows-process-lifecycle-evidence.ps1`;
+- `scripts/review-nxb-153-evidence-windows.ps1`.
+
+It then:
+
+1. runs the process-lifecycle evidence review first;
+2. rechecks all pinned reviewer Git objects and exact Git HEAD;
+3. only then runs the existing Windows schema-v2 / dual-platform closure reviewer;
+4. rechecks all pinned reviewer Git objects and exact Git HEAD again;
+5. fails closed if pinned-reviewer handle cleanup fails.
+
+This makes `scripts/review-nxb-153-evidence-windows.ps1` a required subordinate closure layer rather than a bypassable complete admission entrypoint.
 
 ## Failure behavior
 
@@ -162,7 +194,10 @@ Any of the following is fatal:
 - evidence already exists at the exact-head pathname;
 - evidence path resolves through redirected/reparse authority;
 - evidence fields/object IDs/test sequence/timestamps differ;
-- Git HEAD or authority objects drift during review.
+- Git HEAD or authority objects drift during review;
+- process evidence review fails before schema-v2 review;
+- any pinned admission reviewer object changes between review phases;
+- admission-wrapper handle cleanup fails.
 
 ## What this does not prove
 
@@ -184,13 +219,14 @@ Those remain mandatory through the canonical full validation/evidence path.
 
 ## Admission boundary
 
-For the exact final NXB-153 head, supported Windows admission requires all three process-lifecycle stages to succeed on the same checkout:
+For the exact final NXB-153 head, supported Windows admission requires:
 
-1. probe semantics;
-2. create-only process-lifecycle evidence publication;
-3. native-pinned semantic review.
+1. create-only process-lifecycle evidence publication, which dynamically executes the probe;
+2. native-pinned process-lifecycle evidence review;
+3. canonical Windows admission wrapper completion, including the existing schema-v2 / dual-platform closure reviewer;
+4. complete full Windows NXB-153 validation evidence on the same exact Git head.
 
-The canonical full Windows NXB-153 validation/evidence chain must then pass on the **same exact Git head**. Linux H2 validation, object-anchored main evidence review and guarded dual-platform closure remain independently required.
+Linux H2 validation, object-anchored main evidence review and guarded dual-platform closure remain independently required.
 
 Until all gates close, schema-v2 evidence remains:
 
