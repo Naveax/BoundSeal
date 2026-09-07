@@ -145,14 +145,92 @@ function Open-NxbPinnedDirectory {
     }
 }
 
+function Invoke-NxbBoundedProcessOutput {
+    param(
+        [Parameter(Mandatory = $true)][string]$Executable,
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 1048576)][int]$MaximumBytes,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 600000)][int]$ReadTimeoutMilliseconds,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 600000)][int]$ExitTimeoutMilliseconds
+    )
+
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = $Executable
+    $start.UseShellExecute = $false
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $false
+    $start.CreateNoWindow = $true
+    foreach ($argument in $Arguments) {
+        [void]$start.ArgumentList.Add([string]$argument)
+    }
+
+    $process = [Diagnostics.Process]::new()
+    $memory = [IO.MemoryStream]::new()
+    try {
+        $process.StartInfo = $start
+        if (-not $process.Start()) {
+            Fail-NxbProcessEvidence "$Label process could not be started"
+        }
+
+        $buffer = [byte[]]::new(4096)
+        [Int64]$total = 0
+        while ($true) {
+            $readTask = $process.StandardOutput.BaseStream.ReadAsync($buffer, 0, $buffer.Length)
+            if (-not $readTask.Wait($ReadTimeoutMilliseconds)) {
+                Fail-NxbProcessEvidence "$Label stdout made no progress for $ReadTimeoutMilliseconds ms"
+            }
+            $read = $readTask.Result
+            if ($read -le 0) { break }
+            $total += $read
+            if ($total -gt $MaximumBytes) {
+                Fail-NxbProcessEvidence "$Label stdout exceeds the $MaximumBytes-byte envelope"
+            }
+            $memory.Write($buffer, 0, $read)
+        }
+
+        if (-not $process.WaitForExit($ExitTimeoutMilliseconds)) {
+            Fail-NxbProcessEvidence "$Label process did not exit after stdout closed"
+        }
+        if ($process.ExitCode -ne 0) {
+            Fail-NxbProcessEvidence "$Label failed with exit code $($process.ExitCode)"
+        }
+
+        $utf8 = [Text.UTF8Encoding]::new($false, $true)
+        try {
+            return $utf8.GetString($memory.ToArray())
+        }
+        catch {
+            Fail-NxbProcessEvidence "$Label stdout is not strict UTF-8: $($_.Exception.Message)"
+        }
+    }
+    finally {
+        try {
+            if (-not $process.HasExited) {
+                $process.Kill($true)
+                [void]$process.WaitForExit($ExitTimeoutMilliseconds)
+            }
+        }
+        catch {}
+        $memory.Dispose()
+        $process.Dispose()
+    }
+}
+
 function Get-NxbGitValue {
     param(
         [Parameter(Mandatory = $true)][string]$GitPath,
         [Parameter(Mandatory = $true)][string[]]$Arguments,
         [Parameter(Mandatory = $true)][string]$Label
     )
-    $value = (& $GitPath @Arguments | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($value) -or $value.Length -gt 256) {
+    $value = (Invoke-NxbBoundedProcessOutput `
+        -Executable $GitPath `
+        -Arguments $Arguments `
+        -Label $Label `
+        -MaximumBytes 4096 `
+        -ReadTimeoutMilliseconds 30000 `
+        -ExitTimeoutMilliseconds 30000).Trim()
+    if ([string]::IsNullOrWhiteSpace($value) -or $value.Length -gt 256) {
         Fail-NxbProcessEvidence "$Label did not return one bounded value"
     }
     return $value
@@ -275,11 +353,24 @@ try {
     $bounded = Get-NxbExactHeadObject -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/nxb-153-windows-immutable-source-bounded-inner.ps1'
     $sourceAuthorities.Add($bounded)
 
-    $probeOutput = (& $probe.Path `
-        -RepoRoot $RepoRoot `
-        -ProbeIoTimeoutMilliseconds $ProbeIoTimeoutMilliseconds `
-        -ProbeExitTimeoutMilliseconds $ProbeExitTimeoutMilliseconds `
-        -Json | Out-String)
+    $shellPath = (Get-Process -Id $PID -ErrorAction Stop).Path
+    if ([string]::IsNullOrWhiteSpace($shellPath) -or -not (Test-Path -LiteralPath $shellPath -PathType Leaf)) {
+        Fail-NxbProcessEvidence 'current PowerShell executable path is unavailable for probe execution'
+    }
+    $probeOutput = Invoke-NxbBoundedProcessOutput `
+        -Executable $shellPath `
+        -Arguments @(
+            '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+            '-File', $probe.Path,
+            '-RepoRoot', $RepoRoot,
+            '-ProbeIoTimeoutMilliseconds', [string]$ProbeIoTimeoutMilliseconds,
+            '-ProbeExitTimeoutMilliseconds', [string]$ProbeExitTimeoutMilliseconds,
+            '-Json'
+        ) `
+        -Label 'process lifecycle probe' `
+        -MaximumBytes $maximumEvidenceBytes `
+        -ReadTimeoutMilliseconds 300000 `
+        -ExitTimeoutMilliseconds 30000
     $probeBytes = [Text.UTF8Encoding]::new($false, $true).GetBytes($probeOutput)
     if ($probeBytes.Length -le 0 -or $probeBytes.Length -gt $maximumEvidenceBytes) {
         Fail-NxbProcessEvidence 'probe JSON output is outside the supported evidence envelope'
