@@ -22,6 +22,10 @@ $expectedTests = @(
     'Git-archive-style stdout success primitive',
     'Git-archive-style stalled stdout timeout primitive',
     'Git-archive-style nonzero exit primitive',
+    'broker-control bounded CRLF success primitive',
+    'broker-control missing-newline rejection primitive',
+    'broker-control invalid-UTF8 rejection primitive',
+    'broker-control stalled-output timeout primitive',
     'post-I/O exit timeout primitive',
     'recursive process-tree termination primitive'
 )
@@ -268,6 +272,8 @@ try {
     $sourceAuthorities.Add($dependency)
     $immutable = Get-NxbExactHeadObject -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/nxb-153-windows-immutable-source-inner.ps1'
     $sourceAuthorities.Add($immutable)
+    $bounded = Get-NxbExactHeadObject -GitPath $gitPath -HeadSha $headSha -RelativePath 'scripts/nxb-153-windows-immutable-source-bounded-inner.ps1'
+    $sourceAuthorities.Add($bounded)
 
     $probeOutput = (& $probe.Path `
         -RepoRoot $RepoRoot `
@@ -287,7 +293,7 @@ try {
 
     $expectedProbeFields = @(
         'schema_version', 'policy', 'milestone', 'platform', 'head_sha',
-        'dependency_source_object', 'immutable_source_object',
+        'dependency_source_object', 'immutable_source_object', 'bounded_source_object',
         'production_io_timeout_milliseconds', 'production_exit_timeout_milliseconds',
         'probe_io_timeout_milliseconds', 'probe_exit_timeout_milliseconds',
         'powershell_version', 'tests', 'status', 'probed_at'
@@ -306,6 +312,7 @@ try {
         [string]$probeRecord.head_sha -cne $headSha -or
         [string]$probeRecord.dependency_source_object -cne $dependency.ObjectId -or
         [string]$probeRecord.immutable_source_object -cne $immutable.ObjectId -or
+        [string]$probeRecord.bounded_source_object -cne $bounded.ObjectId -or
         [int]$probeRecord.production_io_timeout_milliseconds -ne 300000 -or
         [int]$probeRecord.production_exit_timeout_milliseconds -ne 30000 -or
         [int]$probeRecord.probe_io_timeout_milliseconds -ne $ProbeIoTimeoutMilliseconds -or
@@ -332,6 +339,7 @@ try {
         evidence_writer_object = $writer.ObjectId
         dependency_source_object = $dependency.ObjectId
         immutable_source_object = $immutable.ObjectId
+        bounded_source_object = $bounded.ObjectId
         production_io_timeout_milliseconds = 300000
         production_exit_timeout_milliseconds = 30000
         probe_io_timeout_milliseconds = $ProbeIoTimeoutMilliseconds
