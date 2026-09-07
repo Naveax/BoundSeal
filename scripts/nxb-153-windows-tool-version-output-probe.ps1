@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
-    [ValidateRange(50, 10000)][int]$ProbeReadTimeoutMilliseconds = 750,
-    [ValidateRange(50, 10000)][int]$ProbeExitTimeoutMilliseconds = 1000,
+    [ValidateRange(50, 10000)][int]$ProbeReadTimeoutMilliseconds = 1500,
+    [ValidateRange(50, 10000)][int]$ProbeExitTimeoutMilliseconds = 2000,
     [switch]$Json
 )
 
@@ -192,7 +192,7 @@ function Assert-NxbToolPreparationSourceContract {
     Assert-NxbContains -Text $toolVersion -Needle "@('--version')" -Label 'Get-ToolVersion'
     Assert-NxbAbsent -Text $toolVersion -Needle 'Out-String' -Label 'Get-ToolVersion'
 
-    Assert-NxbContains -Text $text -Needle "@('run', $rustToolchain, 'rustc', '--version')" -Label 'tooling receipt rustc version'
+    Assert-NxbContains -Text $text -Needle "@('run', `$rustToolchain, 'rustc', '--version')" -Label 'tooling receipt rustc version'
     Assert-NxbContains -Text $text -Needle "-Label 'Rust 1.97.1 receipt version'" -Label 'tooling receipt rustc version'
     return $bounded
 }
