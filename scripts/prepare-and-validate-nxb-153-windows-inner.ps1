@@ -345,6 +345,7 @@ function Assert-NxbAmbientEnvironment {
         'RUSTC',
         'RUSTC_BOOTSTRAP',
         'RUSTC_WORKSPACE_WRAPPER',
+        'RUSTC_WRAPPER',
         'RUSTDOC',
         'RUSTDOCFLAGS',
         'RUSTFLAGS',
