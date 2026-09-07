@@ -154,18 +154,17 @@ $primaryError = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
 $script:NxbH2GitOutputByteLimit = 67108864
 $script:NxbH2GitOutputLineLimit = 4096
+$script:NxbH2GitReadInactivityTimeoutMilliseconds = 300000
+$script:NxbH2GitExitTimeoutMilliseconds = 30000
 
 $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
 $script:NxbH2GitApplication = $gitCommand.Source
-
-if (Test-Path Function:\git) {
-    Fail-NxbH2GitGuard 'ambient git function authority is not admitted'
-}
 
 function git {
     $arguments = @($args | ForEach-Object { [string]$_ })
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $script:NxbH2GitApplication
+    $startInfo.WorkingDirectory = $RepoRoot
     $startInfo.UseShellExecute = $false
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $false
@@ -182,15 +181,30 @@ function git {
         }
         $buffer = [byte[]]::new(65536)
         [Int64]$total = 0
-        while (($read = $process.StandardOutput.BaseStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+        while ($true) {
+            $readTask = $process.StandardOutput.BaseStream.ReadAsync($buffer, 0, $buffer.Length)
+            if (-not $readTask.Wait($script:NxbH2GitReadInactivityTimeoutMilliseconds)) {
+                try { $process.Kill($true) } catch {}
+                try { [void]$process.WaitForExit($script:NxbH2GitExitTimeoutMilliseconds) } catch {}
+                Fail-NxbH2GitGuard "Git stdout made no progress for $($script:NxbH2GitReadInactivityTimeoutMilliseconds) ms"
+            }
+            $read = $readTask.Result
+            if ($read -le 0) {
+                break
+            }
             $total += $read
             if ($total -gt $script:NxbH2GitOutputByteLimit) {
                 try { $process.Kill($true) } catch {}
+                try { [void]$process.WaitForExit($script:NxbH2GitExitTimeoutMilliseconds) } catch {}
                 Fail-NxbH2GitGuard "Git stdout exceeds $($script:NxbH2GitOutputByteLimit) bytes"
             }
             $memory.Write($buffer, 0, $read)
         }
-        $process.WaitForExit()
+        if (-not $process.WaitForExit($script:NxbH2GitExitTimeoutMilliseconds)) {
+            try { $process.Kill($true) } catch {}
+            try { [void]$process.WaitForExit($script:NxbH2GitExitTimeoutMilliseconds) } catch {}
+            Fail-NxbH2GitGuard 'Git process did not exit after stdout closed'
+        }
         $global:LASTEXITCODE = $process.ExitCode
 
         $utf8 = [Text.UTF8Encoding]::new($false, $true)
