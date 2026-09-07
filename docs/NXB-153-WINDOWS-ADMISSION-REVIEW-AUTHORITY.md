@@ -34,9 +34,11 @@ is therefore **subordinate / non-canonical when invoked by itself** for final NX
 Current source-staged order is:
 
 ```text
-scripts/record-nxb-153-windows-process-lifecycle-evidence.ps1
-  -> scripts/nxb-153-windows-process-lifecycle-probe.ps1
-  -> create-only target/nxb-validation/nxb-153-windows-process-lifecycle-<head>.json
+canonical Windows preparation / validation namespace
+  -> existing target/nxb-validation directory
+  -> scripts/record-nxb-153-windows-process-lifecycle-evidence.ps1
+     -> scripts/nxb-153-windows-process-lifecycle-probe.ps1
+     -> create-only target/nxb-validation/nxb-153-windows-process-lifecycle-<head>.json
 
 scripts/review-nxb-153-windows-admission.ps1
   -> scripts/review-nxb-153-windows-process-lifecycle-evidence.ps1
@@ -53,16 +55,49 @@ Canonical process-lifecycle evidence policy:
 
 `nxb-153-windows-process-lifecycle-evidence-v1`
 
+### Namespace and source lifetime
+
+The evidence writer no longer creates `target/nxb-validation` with a pathname-only `New-Item -Force` operation. It requires the canonical validation namespace to already exist through the normal NXB-153 preparation/validation path.
+
+Before the probe runs, the writer opens and retains native directory handles for:
+
+- repository root;
+- `scripts`;
+- `target`;
+- `target/nxb-validation`.
+
+Each directory:
+
+- must already exist as a normal non-reparse directory;
+- is opened with native `CreateFileW` directory semantics;
+- withholds delete sharing while the writer remains active;
+- is resolved through `GetFinalPathNameByHandleW` and must match the expected canonical absolute path.
+
+The writer also opens and retains read-only file handles, with write/delete sharing withheld, for:
+
+- `scripts/nxb-153-windows-process-lifecycle-probe.ps1`;
+- `scripts/record-nxb-153-windows-process-lifecycle-evidence.ps1`;
+- `scripts/nxb-153-windows-dependency-source.ps1`;
+- `scripts/nxb-153-windows-immutable-source-inner.ps1`.
+
+Only after those handles are open does it compare each pathname's Git object to the exact-head committed object. The handles remain live through probe execution, evidence publication and final HEAD/object continuity checks, preventing those source pathnames from being rewritten or deleted during the evidence run.
+
+### Evidence publication
+
 The evidence writer:
 
-- exact-head verifies its own source, the process probe and the production dependency/archive/tar implementations;
 - runs the process probe with canonical **1,000 ms I/O / 1,500 ms exit** probe-only deadlines;
 - requires production **300,000 ms I/O / 30,000 ms exit** authority to remain unchanged;
 - validates the exact probe field set and exact ordered test set;
 - bounds probe JSON and published evidence to **65,536 bytes**;
-- publishes the canonical evidence path with `.NET FileMode.CreateNew`;
+- publishes the canonical evidence path with `.NET FileMode.CreateNew` and `FileShare.None`;
 - performs durable `Flush(true)` and exact same-handle read-back;
-- refuses to overwrite an existing exact-head evidence object.
+- refuses to overwrite an existing exact-head evidence object;
+- rechecks exact Git HEAD and every pinned source object's Git identity after publication.
+
+Source-file and namespace-handle cleanup is part of successful evidence publication. Disposal failures are accumulated and fail closed. The writer does not print its evidence-recorded PASS summary until source and namespace handles have been released successfully.
+
+If evidence bytes were already published and a later authority or cleanup check fails, the run remains failed and the create-only evidence requires explicit recovery rather than being silently treated as admitted.
 
 The evidence reviewer:
 
@@ -125,16 +160,27 @@ The existing bounded Git-output authority remains mandatory for the broader Wind
 
 ## Canonical supported-Windows sequence
 
-From one exact clean final NXB-153 checkout, canonical source-staged ordering is:
+The process evidence writer requires the existing canonical `target/nxb-validation` namespace. Therefore the Windows preparation/validation path must establish that namespace before process evidence is recorded.
+
+From one exact clean final NXB-153 checkout, the relevant source-staged ordering is:
+
+1. run the canonical Windows preparation/full validation path for the exact head so its normal validation namespace and platform artifacts exist;
+2. independently produce the required exact-head Linux validation evidence;
+3. record Windows process-lifecycle evidence:
 
 ```powershell
 pwsh -NoLogo -NoProfile -File .\scripts\record-nxb-153-windows-process-lifecycle-evidence.ps1
+```
+
+4. after all required same-head platform artifacts exist, run the complete Windows admission review:
+
+```powershell
 pwsh -NoLogo -NoProfile -File .\scripts\review-nxb-153-windows-admission.ps1
 ```
 
-The first command dynamically runs the process probe and publishes its create-only exact-head evidence. The second command requires that evidence to pass native-pinned semantic review before it permits the existing Windows schema-v2 / dual-platform closure reviewer to run.
+The process writer dynamically runs the probe and publishes its create-only exact-head evidence. The admission wrapper requires that evidence to pass native-pinned semantic review before it permits the existing Windows schema-v2 / dual-platform closure reviewer to run.
 
-This sequence does not replace the required full Windows validator. The canonical full Windows validation/evidence artifacts must already exist for the same exact head before the admission wrapper can complete its subordinate schema-v2 closure review.
+This sequence does not replace the required full Windows validator or Linux H2 validation.
 
 ## Compatibility and precedence
 
@@ -152,6 +198,8 @@ This avoids weakening the older reviewer's native handle and Git-output protecti
 
 Source staging still does not prove supported Windows behavior. Same-head admission still requires real Windows/NTFS/PowerShell Core execution proving at least:
 
+- native process-evidence writer namespace/source handle pinning and no-delete-share behavior;
+- process-evidence create-only publication and cleanup-failure handling;
 - process-lifecycle evidence creation and review;
 - admission-wrapper bounded output withholding/release behavior under success and late-failure cases;
 - registry-verifier stalled stdin, inherited output, nonzero exit and cleanup behavior;
