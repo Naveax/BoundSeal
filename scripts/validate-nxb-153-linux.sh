@@ -6,6 +6,20 @@ fail() {
     exit 1
 }
 
+read_blob_text_exact() {
+    local object="$1" label="$2" output_name="$3"
+    local payload sentinel=$'\036'
+    [[ "$output_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || fail "$label output variable name is invalid"
+    payload="$({
+        "$nxb_guard_git_application" cat-file blob "$object" || exit $?
+        printf '%s' "$sentinel"
+    })" || fail "could not load exact-head $label bytes"
+    [[ "${payload: -1}" == "$sentinel" ]] || fail "$label capture sentinel is missing"
+    payload="${payload%$sentinel}"
+    [[ -n "$payload" ]] || fail "$label source is empty"
+    printf -v "$output_name" '%s' "$payload"
+}
+
 repo_root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 cd "$repo_root"
 
@@ -30,6 +44,9 @@ nxb_guard_inner_size="$("$nxb_guard_git_application" cat-file -s "$nxb_guard_inn
     fail 'could not resolve Linux validator inner implementation size'
 [[ "$nxb_guard_inner_size" =~ ^[0-9]+$ && "$nxb_guard_inner_size" -gt 0 && "$nxb_guard_inner_size" -le 1048576 ]] ||
     fail 'Linux validator inner implementation size is outside the supported envelope'
+
+nxb_guard_inner_source=''
+read_blob_text_exact "$nxb_guard_inner_object" 'Linux validator inner implementation' nxb_guard_inner_source
 
 python3() {
     command python3 -I "$@"
@@ -112,10 +129,11 @@ git() {
     "$nxb_guard_git_application" "$@"
 }
 
-# Source the exact committed validator in this shell so both repository-cleanliness
-# checks are reduced to bounded sentinel output before command substitution can
-# retain arbitrary Git status output in memory.
-source <("$nxb_guard_git_application" cat-file blob "$nxb_guard_inner_object") '.'
+# Source only the complete, size-bounded exact-head validator bytes captured above.
+# Git cat-file is no longer the asynchronous process-substitution producer, so a
+# producer failure cannot degrade into a successfully sourced partial validator.
+source <(printf '%s' "$nxb_guard_inner_source") '.'
+unset nxb_guard_inner_source
 
 nxb_guard_final_object="$("$nxb_guard_git_application" rev-parse "$nxb_guard_head_sha:$nxb_guard_inner_relative")" ||
     fail 'could not re-resolve Linux validator inner authority after validation'
