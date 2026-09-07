@@ -58,18 +58,19 @@ The helper requires:
 
 ## Exact-head regression probe authority
 
-The fixed-output helper now has a dedicated supported-Windows regression probe:
+The fixed-output helper has a dedicated supported-Windows regression probe:
 
 `scripts/nxb-153-windows-tool-version-output-probe.ps1`
 
 Current exact Git blob:
 
-`fc21d291203bce8d0e53de8f2dbf8992043c1fef`
+`381529e260f2a9c9b0f20bff3f29a8b2c6ef6e84`
 
 Probe source commits:
 
 - `a54d2754a552514c8b4390f0f3c45cf738025973` — introduced the exact-head production-helper probe;
-- `90b24664b8728afa31a74cb59f7c0febf5229b0b` — fixed the StrictMode literal source-pattern check and widened the probe-only nested-process timeout defaults to reduce false negatives.
+- `90b24664b8728afa31a74cb59f7c0febf5229b0b` — fixed the StrictMode literal source-pattern check and widened the probe-only nested-process timeout defaults to reduce false negatives;
+- `5f83a9d9ef6957b4d560a3fa1784341632dfc6c5` — added a distinct post-stdout-exit timeout primitive by explicitly closing the redirected Windows stdout handle while the fixture process remains alive.
 
 The probe does not reimplement the production helper. It:
 
@@ -88,11 +89,14 @@ Dynamic probe-only timeout constants are intentionally shorter than production t
 - output above 4 KiB rejection;
 - invalid UTF-8 rejection;
 - nonzero exit propagation;
-- stalled stdout timeout;
-- output-then-stall timeout;
+- stalled stdout read-inactivity timeout;
+- output-then-stall read-inactivity timeout after some valid output;
+- **post-stdout exit timeout after the child explicitly closes its redirected stdout handle but remains alive**;
 - recursive descendant-process cleanup after timeout.
 
-A successful probe can emit bounded JSON containing the exact head, tool-preparation object, probe object, production/probe limits, PowerShell version and ordered test results. That output is evidence of these primitives only; it is not by itself NXB-153 admission.
+The post-stdout fixture uses the redirected `STD_OUTPUT_HANDLE` obtained through the Windows standard-handle API and closes that process handle before sleeping. This distinguishes EOF-followed-by-live-process behavior from ordinary no-progress reads.
+
+A successful probe can emit bounded JSON containing the exact head, tool-preparation object, probe object, production/probe limits, PowerShell version and ordered test results. That output is evidence of these primitives only; canonical admission still requires the complete Windows admission wrapper and the rest of the NXB-153 evidence chain.
 
 ## Existing identity and receipt controls retained
 
@@ -116,17 +120,25 @@ Other `Out-String` occurrences in the Windows H1/H2 validation chain were review
 
 The preparation-tool version calls documented here occur outside that H2 string-guard boundary, which is why they require an independent native-process fixed-output helper and the dedicated exact-head probe above.
 
+## Canonical admission integration
+
+`scripts/review-nxb-153-windows-admission.ps1` now executes the exact-head tool-version probe as its first mandatory runtime phase before process-lifecycle evidence review and schema-v2 closure review.
+
+The admission wrapper pins both the probe and production tool-preparation source with write/delete sharing withheld for the complete admission review, rechecks their Git objects and HEAD after the probe, and withholds probe output through all later authority/cleanup checks.
+
+A direct standalone probe run remains useful diagnostically but is not a substitute for the canonical admission wrapper.
+
 ## Remaining runtime proof
 
 Supported exact-head Windows execution must still demonstrate at least:
 
-- successful execution of `scripts/nxb-153-windows-tool-version-output-probe.ps1` against the exact final head;
+- successful execution of the tool-version probe as part of `scripts/review-nxb-153-windows-admission.ps1` against the exact final head;
 - normal cargo-audit/cargo-deny/rustc version capture;
 - stalled stdout timeout;
 - output above 4 KiB rejection before unbounded retention;
 - invalid UTF-8 rejection;
 - nonzero exit propagation;
-- post-stdout exit timeout;
+- actual post-stdout exit timeout behavior of the close-handle fixture;
 - recursive process-tree cleanup on failure;
 - preservation of tool-path pinning while the version child executes;
 - correct create-only tooling receipt publication and later exact-object validation.
