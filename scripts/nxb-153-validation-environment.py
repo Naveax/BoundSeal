@@ -11,6 +11,9 @@ from typing import Mapping, NoReturn
 FORBIDDEN_EXACT = frozenset(
     {
         "AR",
+        "BASH_ENV",
+        "BASHOPTS",
+        "BASH_COMPAT",
         "BINDGEN_EXTRA_CLANG_ARGS",
         "CARGO",
         "CARGO_ENCODED_RUSTFLAGS",
@@ -30,6 +33,7 @@ FORBIDDEN_EXACT = frozenset(
         "CXXFLAGS",
         "LD",
         "LDFLAGS",
+        "POSIXLY_CORRECT",
         "PYTHONHOME",
         "PYTHONINSPECT",
         "PYTHONPATH",
@@ -43,15 +47,18 @@ FORBIDDEN_EXACT = frozenset(
         "RUSTDOC",
         "RUSTDOCFLAGS",
         "RUSTFLAGS",
+        "SHELLOPTS",
         "_CL_",
     }
 )
 
-# These families map directly to Cargo/rustup configuration or can substitute
-# compiler/runner/profile/source/native-build behavior. The audit runs before
-# NXB-153 stages its own controlled CARGO_HOME/TARGET_DIR/offline values.
+# These families map directly to Cargo/rustup configuration, Bash function/startup
+# authority, or can substitute compiler/runner/profile/source/native-build behavior.
+# The audit runs before NXB-153 stages controlled Cargo/build values or launches
+# deeper noninteractive Bash children.
 FORBIDDEN_PREFIXES = (
     "AR_",
+    "BASH_FUNC_",
     "BINDGEN_EXTRA_CLANG_ARGS_",
     "CARGO_ALIAS_",
     "CARGO_BUILD_",
@@ -99,7 +106,7 @@ def audit_environment(environment: Mapping[str, str]) -> dict[str, object]:
         # Values are intentionally never printed: registry tokens or other
         # sensitive data must not leak merely because a variable name is banned.
         fail(
-            "ambient compiler/Cargo/Python authority variables are not admitted: "
+            "ambient compiler/Cargo/Python/Bash authority variables are not admitted: "
             + ", ".join(collisions)
         )
     return {
@@ -151,6 +158,12 @@ def self_test() -> None:
         "_CL_",
         "CRATE_CC_NO_DEFAULTS",
         "BINDGEN_EXTRA_CLANG_ARGS",
+        "BASH_ENV",
+        "BASHOPTS",
+        "BASH_COMPAT",
+        "BASH_FUNC_untrusted%%",
+        "POSIXLY_CORRECT",
+        "SHELLOPTS",
     )
     for name in rejected_names:
         try:
@@ -167,6 +180,13 @@ def self_test() -> None:
         pass
     else:
         fail("self-test accepted case-variant forbidden authority variable")
+
+    try:
+        audit_environment({"bash_func_printf%%": "() { :; }"})
+    except EnvironmentAuthorityError:
+        pass
+    else:
+        fail("self-test accepted case-variant exported Bash function authority")
 
     print("NXB-153 validation environment authority self-test passed.")
 
