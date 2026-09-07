@@ -1,10 +1,12 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S bash -p
 set -euo pipefail
 
 nxb_guard_fail() {
-    printf 'NXB-153 Linux evidence-review status guard failed: %s\n' "$1" >&2
-    exit 1
+    builtin printf 'NXB-153 Linux evidence-review status guard failed: %s\n' "$1" >&2
+    builtin exit 1
 }
+
+[[ "$-" == *p* ]] || nxb_guard_fail 'canonical Linux evidence review requires privileged Bash mode (-p)'
 
 read_blob_text_exact() {
     local object="$1" label="$2" output_name="$3"
@@ -12,16 +14,16 @@ read_blob_text_exact() {
     [[ "$output_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || nxb_guard_fail "$label output variable name is invalid"
     payload="$({
         "$nxb_guard_git_application" cat-file blob "$object" || exit $?
-        printf '%s' "$sentinel"
+        builtin printf '%s' "$sentinel"
     })" || nxb_guard_fail "could not load exact-head $label bytes"
     [[ "${payload: -1}" == "$sentinel" ]] || nxb_guard_fail "$label capture sentinel is missing"
     payload="${payload%$sentinel}"
     [[ -n "$payload" ]] || nxb_guard_fail "$label source is empty"
-    captured_object="$(printf '%s' "$payload" | "$nxb_guard_git_application" hash-object --stdin)" ||
+    captured_object="$(builtin printf '%s' "$payload" | "$nxb_guard_git_application" hash-object --stdin)" ||
         nxb_guard_fail "could not hash captured exact-head $label bytes"
     [[ "$captured_object" == "$object" ]] ||
         nxb_guard_fail "$label captured bytes differ from the selected exact-head Git blob"
-    printf -v "$output_name" '%s' "$payload"
+    builtin printf -v "$output_name" '%s' "$payload"
 }
 
 repo_root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -107,14 +109,14 @@ if dirty:
 ' "$byte_limit" "$record_limit"
 }
 
-[[ -z "$(printf '' | nxb_filter_git_status)" ]] ||
+[[ -z "$(builtin printf '' | nxb_filter_git_status)" ]] ||
     nxb_guard_fail 'bounded Git status filter changed clean-output semantics'
-[[ "$(printf '?? probe\n' | nxb_filter_git_status)" == '__NXB153_DIRTY__' ]] ||
+[[ "$(builtin printf '?? probe\n' | nxb_filter_git_status)" == '__NXB153_DIRTY__' ]] ||
     nxb_guard_fail 'bounded Git status filter changed dirty-output semantics'
-if printf 'abcde' | nxb_filter_git_status 4 4096 >/dev/null 2>&1; then
+if builtin printf 'abcde' | nxb_filter_git_status 4 4096 >/dev/null 2>&1; then
     nxb_guard_fail 'bounded Git status filter did not reject oversized byte output'
 fi
-if printf 'a\nb\n' | nxb_filter_git_status 67108864 1 >/dev/null 2>&1; then
+if builtin printf 'a\nb\n' | nxb_filter_git_status 67108864 1 >/dev/null 2>&1; then
     nxb_guard_fail 'bounded Git status filter did not reject excess records'
 fi
 
@@ -123,17 +125,18 @@ git() {
         if "$nxb_guard_git_application" "$@" | nxb_filter_git_status; then
             return 0
         fi
-        printf '__NXB153_GIT_STATUS_INVALID__\n'
+        builtin printf '__NXB153_GIT_STATUS_INVALID__\n'
         return 0
     fi
     "$nxb_guard_git_application" "$@"
 }
 
-# Source only the complete, size-bounded exact-head review bytes captured above.
-# Git cat-file is no longer the asynchronous process-substitution producer, so a
-# producer failure cannot degrade into a successfully sourced partial reviewer.
-source <(printf '%s' "$nxb_guard_inner_source") "$repo_root" "$evidence_directory"
-unset nxb_guard_inner_source
+# Execute the exact captured/OID-verified review implementation from the same
+# in-memory string. Positional arguments reproduce the former source-with-args
+# contract without creating another asynchronous producer.
+set -- "$repo_root" "$evidence_directory"
+builtin eval "$nxb_guard_inner_source"
+builtin unset nxb_guard_inner_source
 
 nxb_guard_final_object="$("$nxb_guard_git_application" rev-parse "$nxb_guard_head_sha:$nxb_guard_inner_relative")" ||
     nxb_guard_fail 'could not re-resolve Linux evidence-review inner authority after review'
