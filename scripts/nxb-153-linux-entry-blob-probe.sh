@@ -26,7 +26,6 @@ primitive_self_test() {
     local root previous_pwd real_git fake_git normal_object nul_object captured
     previous_pwd="$PWD"
     root="$(mktemp -d)" || fail 'could not create primitive self-test root'
-    trap 'cd "$previous_pwd" >/dev/null 2>&1 || true; rm -rf "$root"' RETURN
 
     real_git="$(type -P git)" || fail 'git executable is unavailable'
     "$real_git" -C "$root" init -q
@@ -86,7 +85,6 @@ SH
     unset NXB_FAKE_GIT_MODE NXB_REAL_GIT
     cd "$previous_pwd"
     rm -rf "$root"
-    trap - RETURN
 }
 
 for required_command in git bash mktemp chmod; do
