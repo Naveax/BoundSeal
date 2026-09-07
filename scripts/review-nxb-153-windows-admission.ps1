@@ -102,7 +102,7 @@ try {
     $processReviewer = $authorities[1]
     $mainReviewer = $authorities[2]
 
-    & $processReviewer.Path -RepoRoot $RepoRoot
+    & ([string]$processReviewer.Path) -RepoRoot $RepoRoot
     foreach ($authority in $authorities) {
         Assert-NxbPinnedAuthority -GitPath $gitPath -Authority $authority
     }
@@ -111,7 +111,7 @@ try {
         Fail-NxbWindowsAdmission 'Git HEAD changed after process-lifecycle evidence review'
     }
 
-    & $mainReviewer.Path -RepoRoot $RepoRoot
+    & ([string]$mainReviewer.Path) -RepoRoot $RepoRoot
     foreach ($authority in $authorities) {
         Assert-NxbPinnedAuthority -GitPath $gitPath -Authority $authority
     }
