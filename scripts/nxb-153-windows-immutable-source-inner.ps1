@@ -368,7 +368,7 @@ function New-NxbPinnedGitArchive {
         $startInfo.FileName = $gitCommand.Source
         $startInfo.UseShellExecute = $false
         $startInfo.RedirectStandardOutput = $true
-        $startInfo.RedirectStandardError = $true
+        $startInfo.RedirectStandardError = $false
         [void]$startInfo.ArgumentList.Add('-C')
         [void]$startInfo.ArgumentList.Add($RepositoryRoot)
         [void]$startInfo.ArgumentList.Add('archive')
@@ -380,7 +380,6 @@ function New-NxbPinnedGitArchive {
         if (-not $process.Start()) {
             Fail-Nxb 'could not start git archive process'
         }
-        $stderrTask = $process.StandardError.ReadToEndAsync()
         $buffer = [byte[]]::new(1048576)
         [Int64]$total = 0
         while (($read = $process.StandardOutput.BaseStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
@@ -392,9 +391,8 @@ function New-NxbPinnedGitArchive {
             $stream.Write($buffer, 0, $read)
         }
         $process.WaitForExit()
-        $stderr = $stderrTask.GetAwaiter().GetResult()
         if ($process.ExitCode -ne 0) {
-            Fail-Nxb "git archive failed for exact-head Windows source snapshot: $stderr"
+            Fail-Nxb "git archive failed for exact-head Windows source snapshot with exit code $($process.ExitCode)"
         }
         if ($total -le 0) {
             Fail-Nxb 'exact-head Git archive is empty'
@@ -437,8 +435,8 @@ function Expand-NxbPinnedTarArchive {
         $startInfo.FileName = $tarCommand.Source
         $startInfo.UseShellExecute = $false
         $startInfo.RedirectStandardInput = $true
-        $startInfo.RedirectStandardOutput = $true
-        $startInfo.RedirectStandardError = $true
+        $startInfo.RedirectStandardOutput = $false
+        $startInfo.RedirectStandardError = $false
         [void]$startInfo.ArgumentList.Add('-x')
         [void]$startInfo.ArgumentList.Add('-f')
         [void]$startInfo.ArgumentList.Add('-')
@@ -450,16 +448,12 @@ function Expand-NxbPinnedTarArchive {
         if (-not $process.Start()) {
             Fail-Nxb 'could not start tar extraction process'
         }
-        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-        $stderrTask = $process.StandardError.ReadToEndAsync()
         $Stream.CopyTo($process.StandardInput.BaseStream)
         $process.StandardInput.BaseStream.Flush()
         $process.StandardInput.Close()
         $process.WaitForExit()
-        [void]$stdoutTask.GetAwaiter().GetResult()
-        $stderr = $stderrTask.GetAwaiter().GetResult()
         if ($process.ExitCode -ne 0) {
-            Fail-Nxb "tar extraction failed for exact-head Windows source snapshot: $stderr"
+            Fail-Nxb "tar extraction failed for exact-head Windows source snapshot with exit code $($process.ExitCode)"
         }
     }
     catch {
