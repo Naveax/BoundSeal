@@ -21,6 +21,8 @@ Relevant race and transformation classes include:
 - introducing a new untracked source file/directory into the snapshot while Cargo/build scripts execute;
 - replacing an archive pathname after exact-head archive generation but before extraction;
 - allowing Git archive transformations such as `export-subst` to preserve the expected pathname set while changing extracted tracked-file bytes;
+- allowing a shell-variable representation to alter exact-head helper bytes before repeated execution;
+- allowing ambient Bash startup/function authority to influence a canonical immutable-source entry or its later trusted-function handoff;
 - allowing cleanup/finalization failure while still emitting a successful platform-gate message.
 
 ## Common exact-head rule
@@ -39,21 +41,50 @@ Canonical runner:
 
 `scripts/nxb-153-linux-immutable-source.sh`
 
+Current runner blob at the source head preceding the documentation-only authority updates:
+
+`57e99472b09a291479f84c8e73fd1c56b1309837`
+
+### Entry, environment and representation authority
+
+The immutable-source runner is a canonical entrypoint in its own right.
+
+It requests privileged Bash through `#!/usr/bin/env -S bash -p` and fails unless `$-` contains `p`. This prevents `BASH_ENV` startup code and ambient exported shell functions from becoming authority before the runner can perform its own checks.
+
+After fixing the exact head and inherited repository anchor, the runner resolves the exact-head `scripts/nxb-153-validation-environment.py` blob and executes both its isolated self-test and ambient audit before creating any trusted exported function.
+
+The runner also resolves `scripts/nxb-153-linux-source-envelope.py`. Because this helper is intentionally retained in a Bash variable and reused through `python3 -I -c`, producer success alone is insufficient. The runner therefore:
+
+1. bounds the selected helper through the existing committed-blob envelope;
+2. captures `git cat-file blob` output only when the producer succeeds and appends the expected sentinel;
+3. rejects missing sentinel or empty source;
+4. recomputes `git hash-object --stdin` over the captured Bash representation;
+5. requires that object ID to equal the selected exact-head source-envelope blob before Python consumes those bytes.
+
+This makes Bash representation drift, including NUL loss, fail closed rather than silently changing helper authority.
+
+After the environment audit and helper integrity checks, the runner deliberately defines and exports one trusted `cp` function. The shim invokes the exact-head bounded Rust snapshot-copy helper. The final H2 inner Bash process is intentionally non-privileged so it can import this runner-created function.
+
+That handoff is an explicit authority boundary. Ambient `BASH_ENV` and pre-existing exported-function authority must already have been rejected before the trusted shim exists. Runtime acceptance must prove that hostile startup/function state cannot reach the child and that the intended `cp` shim remains functional.
+
+The mandatory exact-head Linux entry-blob probe records this structural contract. It verifies the immutable runner's exact working bytes, privileged syntax/direct-entry requirement, captured-byte object check, exact environment-helper resolution, environment audit, trusted `cp` export and expected post-audit child handoff.
+
 ### Source construction
 
-The Linux validator resolves the immutable-source runner itself from the exact-head Git object graph and streams those committed bytes to Bash. The runner then:
+The Linux validator resolves the immutable-source runner itself from the exact-head Git object graph and streams those committed bytes into the canonical privileged-Bash entry authority. The runner then:
 
-1. rejects unsupported Git tree entries such as symlinks, gitlinks and special modes;
-2. streams `git archive --format=tar <exact-head>` into a child user/mount namespace;
-3. mounts a namespace-private tmpfs for the extracted exact-head source tree;
-4. validates the extracted source namespace against the exact-head NUL-delimited `git ls-tree` file/directory set before runtime mounts are introduced;
-5. walks every tracked source file descriptor-relatively with `O_DIRECTORY` / `O_NOFOLLOW`, recomputes its canonical Git blob SHA-1 representation (`blob <length>\0<bytes>`) and requires equality with the exact-head `git ls-tree` object ID;
-6. validates the exact-head Cargo.lock digest and committed sealed-tool helper bytes;
-7. reserves `target`, `.nxb-153-tmp`, `.nxb-153-fetch-home`, `.nxb-153-vendor`, `.nxb-153-cargo-home` and `.nxb-153-config` as untracked runtime locations;
-8. mounts separate private writable tmpfs instances at those runtime locations and verifies each with a write/read/remove probe;
-9. remounts the source tmpfs itself read-only before any Cargo gate executes;
-10. fails closed unless both existing-source mutation and new source-root file creation are rejected;
-11. after the heavy gates, recomputes every tracked file Git blob object ID again and revalidates the exact source file/directory namespace while ignoring only the controlled runtime subtrees.
+1. establishes the independent entry/environment/representation authority described above;
+2. rejects unsupported Git tree entries such as symlinks, gitlinks and special modes;
+3. streams `git archive --format=tar <exact-head>` into a child user/mount namespace;
+4. mounts a namespace-private tmpfs for the extracted exact-head source tree;
+5. validates the extracted source namespace against the exact-head NUL-delimited `git ls-tree` file/directory set before runtime mounts are introduced;
+6. walks every tracked source file descriptor-relatively with `O_DIRECTORY` / `O_NOFOLLOW`, recomputes its canonical Git blob SHA-1 representation (`blob <length>\0<bytes>`) and requires equality with the exact-head `git ls-tree` object ID;
+7. validates the exact-head Cargo.lock digest and committed sealed-tool helper bytes;
+8. reserves `target`, `.nxb-153-tmp`, `.nxb-153-fetch-home`, `.nxb-153-vendor`, `.nxb-153-cargo-home` and `.nxb-153-config` as untracked runtime locations;
+9. mounts separate private writable tmpfs instances at those runtime locations and verifies each with a write/read/remove probe;
+10. remounts the source tmpfs itself read-only before any Cargo gate executes;
+11. fails closed unless both existing-source mutation and new source-root file creation are rejected;
+12. after the heavy gates, recomputes every tracked file Git blob object ID again and revalidates the exact source file/directory namespace while ignoring only the controlled runtime subtrees.
 
 The object verifier obtains its expected `mode type object-id<TAB>path<NUL>` records from `git ls-tree -rz --full-tree <exact-head>` through the inherited repository descriptor. Paths are rejected unless they are non-empty relative component sequences with only admitted regular blob modes. Duplicate records fail closed.
 
@@ -99,9 +130,24 @@ Narrow local primitive checks have demonstrated:
 - exact Git blob recomputation accepting trusted regular-file bytes;
 - changed tracked bytes being rejected against the original Git object ID;
 - a final symlink substitution being rejected by `O_NOFOLLOW`;
-- a real local `git archive` `export-subst` transformation producing different archive bytes/object identity and therefore being rejected by the exact-head blob comparison.
+- a real local `git archive` `export-subst` transformation producing different archive bytes/object identity and therefore being rejected by the exact-head blob comparison;
+- supported-host narrow Bash primitives showing privileged mode suppresses `BASH_ENV` and ambient exported-function import while `builtin eval` preserves the tested same-shell state/argument behavior.
 
 The exact changed nested-shell quoting structure for the Git-object verifier has also passed a local `bash -n` syntax primitive. These checks are primitive/source checks only. They are **not** an exact-current-head Rust 1.97.1 Linux admission PASS.
+
+### Linux runtime acceptance still required
+
+The exact final head must still demonstrate on the supported Linux host:
+
+- normal canonical immutable-source entry under privileged Bash;
+- direct non-privileged entry failure;
+- hostile `BASH_ENV` and exported-function injection non-influence/rejection;
+- exact-head source-envelope captured-byte object equality on normal execution;
+- the mandatory entry probe's immutable-runner structural checks;
+- intentional trusted `cp` export/import across the post-audit non-privileged H2 child;
+- no unintended exported function or startup code reaches that child;
+- full namespace, object, dependency, Rust 1.97.1 and security gate execution;
+- cleanup and schema-v2 evidence behavior on the same exact head.
 
 ## Windows immutable source authority
 
@@ -233,6 +279,6 @@ This dependency-source staging still requires real exact-head Linux + Windows ru
 
 The immutable-source model narrows what a platform PASS is allowed to mean, but it does not itself constitute that PASS.
 
-The exact final NXB-153 head still requires real Rust 1.97.1 Linux and Windows execution, immutable source/object/dependency/environment primitive checks on those platform runs, the complete platform gate sets, exact-head tooling receipts/evidence, guarded dual-platform closure and final blocker review.
+The exact final NXB-153 head still requires real Rust 1.97.1 Linux and Windows execution, immutable source/object/dependency/environment/shell-authority primitive checks on those platform runs, the complete platform gate sets, exact-head tooling receipts/evidence, guarded dual-platform closure and final blocker review.
 
 PR #89 remains draft/not admitted. Issues #90–#98 remain open. NXB-154 must not use the NXB-153 feature branch as an admitted implementation base until the same-head dual-platform closure and blocker review complete.
