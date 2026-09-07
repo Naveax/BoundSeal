@@ -55,6 +55,14 @@ pipeline **before** evaluating the preserved validator inner bytes.
 
 The committed ambient environment guard separately rejects Bash startup/function authority variables together with the existing compiler/Cargo/Python/native-build authority set. Privileged Bash is still required because an environment audit that runs after shell startup cannot retroactively undo startup code that already executed.
 
+## Authority precedence
+
+This document is the canonical authority for Linux outer-entry and preparation-to-validator shell handoff semantics.
+
+Older NXB-153 documentation may describe the historical preparation handoff as streaming the exact validator blob into `bash -s -- '.'`. That wording is superseded for the current source-staged contract. The preserved preparation implementation still spells a bare `bash -s -- '.'` command, but it executes inside the canonical preparation wrapper's trusted `bash()` shim; the actual child process is the already-resolved Bash executable invoked with `-p`.
+
+Therefore the current effective handoff is privileged Bash (`<resolved-bash> -p -s -- '.'`), and any earlier documentation that omits `-p` must be read as historical implementation description rather than current admission authority.
+
 ## Mandatory adversarial probe
 
 `scripts/nxb-153-linux-entry-blob-probe.sh` stages a concrete adversarial contract for the capture primitive and the three canonical wrappers.
