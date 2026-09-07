@@ -304,6 +304,40 @@ switch -CaseSensitive ($Mode) {
         Start-Sleep -Seconds 30
         exit 0
     }
+    'close-stdout-then-stall' {
+        Add-Type -TypeDefinition @"
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+public static class Nxb153ProbeStdout
+{
+    private const uint STD_OUTPUT_HANDLE = unchecked((uint)-11);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr GetStdHandle(uint nStdHandle);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    public static void CloseRedirectedStdout()
+    {
+        IntPtr handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (handle == IntPtr.Zero || handle == new IntPtr(-1))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "GetStdHandle(STD_OUTPUT_HANDLE) failed");
+        }
+        if (!CloseHandle(handle))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "CloseHandle(STD_OUTPUT_HANDLE) failed");
+        }
+    }
+}
+"@
+        [Nxb153ProbeStdout]::CloseRedirectedStdout()
+        Start-Sleep -Seconds 30
+        exit 0
+    }
     'spawn-descendant-stall' {
         if ([string]::IsNullOrWhiteSpace($PidPath)) { exit 23 }
         $shell = (Get-Process -Id $PID -ErrorAction Stop).Path
@@ -360,8 +394,11 @@ try {
     Assert-NxbExpectedFailure -Label 'production helper stalled-output timeout primitive' -ExpectedFragment 'made no progress' -Action {
         [void](Invoke-NxbProductionHelperProbe -Mode 'stall-no-output')
     }
-    Assert-NxbExpectedFailure -Label 'production helper post-output stall timeout primitive' -ExpectedFragment 'made no progress' -Action {
+    Assert-NxbExpectedFailure -Label 'production helper output-then-stall read-timeout primitive' -ExpectedFragment 'made no progress' -Action {
         [void](Invoke-NxbProductionHelperProbe -Mode 'output-then-stall')
+    }
+    Assert-NxbExpectedFailure -Label 'production helper post-stdout exit-timeout primitive' -ExpectedFragment 'did not exit within' -Action {
+        [void](Invoke-NxbProductionHelperProbe -Mode 'close-stdout-then-stall')
     }
 
     Assert-NxbExpectedFailure -Label 'production helper recursive-cleanup timeout primitive' -ExpectedFragment 'made no progress' -Action {
