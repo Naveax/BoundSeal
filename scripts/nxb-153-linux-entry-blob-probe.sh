@@ -1,10 +1,12 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S bash -p
 set -euo pipefail
 
 fail() {
-    printf 'NXB-153 Linux entry blob authority probe failed: %s\n' "$1" >&2
-    exit 1
+    builtin printf 'NXB-153 Linux entry blob authority probe failed: %s\n' "$1" >&2
+    builtin exit 1
 }
+
+[[ "$-" == *p* ]] || fail 'Linux entry blob authority probe requires privileged Bash mode (-p)'
 
 capture_blob_exact() {
     local git_path="$1" object="$2" output_name="$3"
@@ -12,14 +14,14 @@ capture_blob_exact() {
     [[ "$output_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 80
     payload="$({
         "$git_path" cat-file blob "$object" || exit $?
-        printf '%s' "$sentinel"
+        builtin printf '%s' "$sentinel"
     })" || return 81
     [[ "${payload: -1}" == "$sentinel" ]] || return 82
     payload="${payload%$sentinel}"
     [[ -n "$payload" ]] || return 83
-    captured_object="$(printf '%s' "$payload" | "$git_path" hash-object --stdin)" || return 84
+    captured_object="$(builtin printf '%s' "$payload" | "$git_path" hash-object --stdin)" || return 84
     [[ "$captured_object" == "$object" ]] || return 85
-    printf -v "$output_name" '%s' "$payload"
+    builtin printf -v "$output_name" '%s' "$payload"
 }
 
 primitive_self_test() {
@@ -31,15 +33,15 @@ primitive_self_test() {
     "$real_git" -C "$root" init -q
     cd "$root"
 
-    normal_object="$(printf '#!/usr/bin/env bash\nprintf trusted\\n\n' | "$real_git" hash-object -w --stdin)" ||
+    normal_object="$(builtin printf '#!/usr/bin/env bash\nprintf trusted\\n\n' | "$real_git" hash-object -w --stdin)" ||
         fail 'could not create normal synthetic Git blob'
     captured=''
     capture_blob_exact "$real_git" "$normal_object" captured ||
         fail 'normal synthetic blob did not survive exact capture'
-    [[ "$(printf '%s' "$captured" | "$real_git" hash-object --stdin)" == "$normal_object" ]] ||
+    [[ "$(builtin printf '%s' "$captured" | "$real_git" hash-object --stdin)" == "$normal_object" ]] ||
         fail 'normal synthetic captured bytes lost Git object identity'
 
-    nul_object="$(printf 'before\0after\n' | "$real_git" hash-object -w --stdin)" ||
+    nul_object="$(builtin printf 'before\0after\n' | "$real_git" hash-object -w --stdin)" ||
         fail 'could not create NUL-bearing synthetic Git blob'
     captured=''
     if capture_blob_exact "$real_git" "$nul_object" captured 2>/dev/null; then
@@ -48,20 +50,20 @@ primitive_self_test() {
 
     fake_git="$root/fake-git"
     cat > "$fake_git" <<'SH'
-#!/usr/bin/env bash
+#!/usr/bin/env -S bash -p
 set -euo pipefail
 if [[ "$#" -ge 3 && "$1" == cat-file && "$2" == blob ]]; then
     case "${NXB_FAKE_GIT_MODE:?}" in
         fail)
-            printf 'partial-prefix'
-            exit 17
+            builtin printf 'partial-prefix'
+            builtin exit 17
             ;;
         truncate)
-            printf 'partial-prefix'
-            exit 0
+            builtin printf 'partial-prefix'
+            builtin exit 0
             ;;
         *)
-            exit 18
+            builtin exit 18
             ;;
     esac
 fi
@@ -91,10 +93,12 @@ for required_command in git bash mktemp chmod; do
     type -P "$required_command" >/dev/null 2>&1 || fail "$required_command executable is unavailable"
 done
 
+bash_application="$(type -P bash)" || fail 'bash executable could not be resolved'
+
 if [[ "${1:-}" == '--primitive-self-test' ]]; then
     [[ "$#" -eq 1 ]] || fail '--primitive-self-test accepts no additional arguments'
     primitive_self_test
-    printf 'NXB-153 Linux entry blob primitive self-test passed.\n'
+    builtin printf 'NXB-153 Linux entry blob primitive self-test passed.\n'
     exit 0
 fi
 
@@ -130,23 +134,31 @@ for relative in "${wrappers[@]}"; do
 
     source_text=''
     capture_blob_exact "$git_application" "$object" source_text || fail "wrapper exact-head bytes failed capture integrity: $relative"
-    bash -n <(printf '%s' "$source_text") || fail "wrapper exact-head bytes failed Bash syntax validation: $relative"
+    "$bash_application" -p -n <<<"$source_text" || fail "wrapper exact-head bytes failed privileged Bash syntax validation: $relative"
 
-    source_count=0
+    [[ "$source_text" == '#!/usr/bin/env -S bash -p'$'\n'* ]] ||
+        fail "wrapper does not request privileged Bash in its direct-exec shebang: $relative"
+    [[ "$source_text" == *'[[ "$-" == *p* ]]'* ]] ||
+        fail "wrapper does not require privileged Bash mode at runtime: $relative"
+    [[ "$source_text" != *'source <('* ]] ||
+        fail "wrapper retained process-substitution source delegation: $relative"
+    [[ "$source_text" == *'hash-object --stdin'* ]] ||
+        fail "wrapper is missing captured-byte Git object verification: $relative"
+
+    eval_count=0
     while IFS= read -r line; do
-        if [[ "$line" == *'source <('* ]]; then
-            source_count=$((source_count + 1))
-            [[ "$line" == *"source <(printf '%s'"* ]] || fail "wrapper contains noncanonical process-substitution source: $relative"
+        if [[ "$line" == *'builtin eval '* ]]; then
+            eval_count=$((eval_count + 1))
         fi
     done <<< "$source_text"
-    [[ "$source_count" -eq 1 ]] || fail "wrapper must contain exactly one canonical source delegation: $relative"
-    [[ "$source_text" == *'hash-object --stdin'* ]] || fail "wrapper is missing captured-byte Git object verification: $relative"
+    [[ "$eval_count" -eq 1 ]] ||
+        fail "wrapper must contain exactly one builtin in-memory eval delegation: $relative"
     unset source_text
 done
 
 final_head="$("$git_application" rev-parse HEAD)" || fail 'could not re-resolve final Git HEAD'
 [[ "$final_head" == "$head_sha" ]] || fail 'Git HEAD changed during Linux entry blob authority probe'
 
-printf 'NXB-153 Linux entry blob authority probe passed.\n'
-printf 'HEAD: %s\n' "$head_sha"
-printf 'Wrappers: %s\n' "${#wrappers[@]}"
+builtin printf 'NXB-153 Linux entry blob authority probe passed.\n'
+builtin printf 'HEAD: %s\n' "$head_sha"
+builtin printf 'Wrappers: %s\n' "${#wrappers[@]}"
