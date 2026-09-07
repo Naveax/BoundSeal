@@ -114,11 +114,15 @@ nxb-153-windows-immutable-source.ps1
 Current outer availability/object layers:
 
 - canonical bounded string-capture guard: `scripts/nxb-153-windows-immutable-source.ps1` -> `f768e3b8a7899b7f63555f380e5a96ae3c8c6ac2`;
-- preserved bounded Git-output guard: `scripts/nxb-153-windows-immutable-source-git-output-inner.ps1` -> `7ffbaadb69ecffec8fcc9961c585fcb3644df422`;
+- current bounded H2 Git-output guard: `scripts/nxb-153-windows-immutable-source-git-output-inner.ps1` -> `c92a612c2e7921191beb64d1c60a0798fe3fb7ae`;
 - preserved PowerShell enumeration guard: `scripts/nxb-153-windows-immutable-source-enumeration-inner.ps1` -> `b586f5c8557f8a08f56f9616c9580b983be0d16f`;
 - current bounded-copy/broker supervisor: `scripts/nxb-153-windows-immutable-source-bounded-inner.ps1` -> `6d103dd7711d52e679a675cac9cf2b9d4f52e5fe`;
 - H2 broker-entry wrapper: `scripts/nxb-153-windows-immutable-source-h2-broker-entry.ps1` -> `1afaeb0656201fae952a7d877cbc01d5ce7d1fee`;
-- native destination broker: `scripts/nxb-153-windows-h2-destination-broker.py` -> `c8520395f24d3fe3f29149b152892fac6cd7872c`.
+- native destination broker: `scripts/nxb-153-windows-h2-destination-broker.py` -> `c8520395f24d3fe3f29149b152892fac6cd7872c`;
+- bounded dependency direct-child authority: `scripts/nxb-153-windows-dependency-source.ps1` -> `76734e3f5ab9adbf2c9e509ff4be08427da57aa3`;
+- bounded immutable-source archive/tar authority: `scripts/nxb-153-windows-immutable-source-inner.ps1` -> `664930b3b62f54b57345ff387fabce7a8171f45f`.
+
+The earlier `7ffbaadb69ecffec8fcc9961c585fcb3644df422` H2 Git-output blob is historical and is not current authority.
 
 Each outer layer pins the `scripts` namespace, exact-Git-object verifies the next admitted implementation object, delegates through a deliberately narrow proxy/supervision surface and re-verifies pinned implementation authority before success. Cleanup failures fail closed.
 
@@ -145,14 +149,17 @@ No Windows parser/runtime PASS is claimed for this proxy; the semantic self-test
 
 ### Bounded Git stdout
 
-The preserved Git-output layer resolves the real Git application before installing a temporary `git` function.
+The H2 Git-output layer resolves the real Git application before installing a temporary `git` function.
 
 All bare Git invocations inside the nested H2 scope are executed through `Diagnostics.Process` with bounded stdout:
 
 - maximum 64 MiB stdout bytes;
 - maximum 4,096 decoded stdout records;
 - strict UTF-8 decoding;
-- nonzero Git exit code preserved through `$LASTEXITCODE` for existing caller semantics;
+- each stdout read must make progress within **300,000 ms / 5 minutes**;
+- after stdout closes, Git must exit within **30,000 ms / 30 seconds**;
+- timeout/limit failure attempts recursive termination and bounded reap;
+- nonzero Git exit code is preserved through `$LASTEXITCODE` for existing caller semantics;
 - oversized byte/record output fails closed;
 - the function is removed in `finally`.
 
@@ -195,23 +202,33 @@ After capture, the Windows H2 chain verifies deterministic snapshot identity, en
 
 The deny mask intentionally does not deny `ChangePermissions` or `TakeOwnership`; ACL restoration remains possible while write/create/delete mutation is denied. Restoration, handle disposal and snapshot deletion are part of success.
 
-### Direct process-output capture hardening
+### Direct process-output and child-lifecycle hardening
 
-The three previously identified direct `.NET ReadToEndAsync()` capture paths have been removed from current source.
+The three previously identified direct `.NET ReadToEndAsync()` capture paths remain removed, and the known child pipe/exit lifecycle gap is now source-bounded.
+
+Current exact blobs:
+
+- `scripts/nxb-153-windows-dependency-source.ps1` -> `76734e3f5ab9adbf2c9e509ff4be08427da57aa3`;
+- `scripts/nxb-153-windows-immutable-source-inner.ps1` -> `664930b3b62f54b57345ff387fabce7a8171f45f`.
 
 Current source-staged behavior is:
 
-- isolated registry metadata verification redirects stdin only; stdout/stderr inherit the validation host and the parent retains no child-output string;
-- `git archive` redirects only binary stdout, streaming it to the pinned create-new archive with the existing 1 GiB cap; stderr inherits the validation host;
-- tar extraction redirects only stdin from the bounded pinned archive; stdout/stderr inherit the validation host.
+- isolated registry metadata verification redirects stdin only; stdout/stderr inherit the validation host; stdin uses bounded `WriteAsync` and `FlushAsync`; child exit is bounded;
+- `git archive` redirects only binary stdout, reads it with bounded `ReadAsync`, preserves the existing 1 GiB archive cap, inherits stderr and bounds post-stdout exit;
+- tar extraction redirects only stdin from the bounded pinned archive, delivers archive chunks with bounded `WriteAsync` / `FlushAsync`, inherits stdout/stderr and bounds post-stdin exit;
+- each child-pipe operation uses **300,000 ms / 5 minutes** inactivity authority;
+- post-I/O exit uses **30,000 ms / 30 seconds**;
+- timeout/failure cleanup attempts recursive `Kill(true)` and bounded reap before process disposal.
 
-The registry helper itself admits at most 32 MiB of Cargo metadata and emits only its bounded validation summary on the successful metadata path. The parent uses child exit status rather than retaining child-output strings.
+The registry helper itself admits at most 32 MiB of Cargo metadata and emits only its bounded validation summary on the successful metadata path. The parent retains no verifier stdout/stderr string.
 
-This removes the source-level unbounded direct process-retention surface. Real Windows tests must still demonstrate correct inherited-output, failure, cancellation and cleanup behavior.
+Static exact-head review confirms the former synchronous `StandardInput.Write(...)`, child-pipe `CopyTo(...)` and parameterless `WaitForExit()` forms are absent from the targeted source-hardened paths.
+
+This closes the known direct-child **source-level** availability finding. Real Windows tests must still demonstrate correct timeout, inherited-output, nonzero-exit, cancellation, process-tree termination and cleanup behavior.
 
 ## Explicit remaining Windows runtime blockers
 
-The source-level destination handoff and direct `ReadToEndAsync()` findings are now hardened, but no supported Windows/NTFS PowerShell H2 PASS is claimed from the current execution environment.
+The source-level destination handoff, direct retention and known direct-child lifecycle findings are now hardened, but no supported Windows/NTFS PowerShell H2 PASS is claimed from the current execution environment.
 
 Real Windows validation must prove at least:
 
@@ -219,8 +236,12 @@ Real Windows validation must prove at least:
 - exact formatting equivalence of the bounded `Out-String` proxy for its admitted string/information/error record surface;
 - 64 MiB input/output and 4,096-object string-capture rejection;
 - 64 MiB / 4,096-record Git-output rejection;
+- Git read-inactivity and post-stdout exit timeout behavior;
 - 131,072-object filesystem-enumeration rejection;
 - whole-sysroot file/directory/byte accounting;
+- registry-verifier stalled-stdin, nonzero-exit, inherited-output and cleanup behavior;
+- exact-head Git-archive stalled-stdout, byte-limit, nonzero-exit and cleanup behavior;
+- tar-extraction stalled-stdin, nonzero-exit, inherited-output and cleanup behavior;
 - Python `ctypes` and relative `NtCreateFile` destination creation;
 - create-new collision and reparse rejection;
 - directory/file share-mode behavior and writer-to-read-guard identity continuity;
@@ -228,7 +249,6 @@ Real Windows validation must prove at least:
 - successful creator-broker to PowerShell handle/ACL overlap;
 - ACL mutation/injection denial while execution and ACL restoration remain functional;
 - Rust 1.97.1 rustc/cargo/rustfmt/Clippy, DLL/sysroot/library loading from the copied snapshot while broker guards remain live;
-- inherited stdout/stderr behavior for the source-hardened process paths;
 - deliberate mutation during heavy gates causing final failure;
 - broker CHECK/STOP and cleanup/recovery behavior on success and failure.
 
@@ -242,4 +262,4 @@ A stronger state must be introduced atomically across both platform producers, b
 
 ## Admission acceptance
 
-H2 can be admitted only after the exact same final NXB-153 Git head has real Linux and Windows evidence proving that heavy Rust gates consumed only the verified immutable/pinned and availability-bounded snapshot, the bounded string layer preserves admitted pipeline semantics, Windows destination lifetime authority survives creation-to-consumption, the source-hardened process-output paths behave correctly, final identity/cleanup succeeds and every other #90-#98 gate remains satisfied.
+H2 can be admitted only after the exact same final NXB-153 Git head has real Linux and Windows evidence proving that heavy Rust gates consumed only the verified immutable/pinned and availability-bounded snapshot, the bounded string/Git/direct-child layers behave correctly, Windows destination lifetime authority survives creation-to-consumption, final identity/cleanup succeeds and every other #90-#98 gate remains satisfied.
