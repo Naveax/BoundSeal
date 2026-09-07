@@ -129,20 +129,77 @@ function Read-NxbH2BrokerLine {
         [Parameter(Mandatory = $true)][string]$Label,
         [Parameter(Mandatory = $true)][int]$TimeoutMilliseconds
     )
-    $task = $Process.StandardOutput.ReadLineAsync()
-    if (-not $task.Wait($TimeoutMilliseconds)) {
-        Fail-NxbH2CopyEntry "$Label timed out"
+    if ($TimeoutMilliseconds -le 0) {
+        Fail-NxbH2CopyEntry "$Label timeout must be positive"
     }
-    $line = $task.Result
-    if ($null -eq $line) {
-        $exit = if ($Process.HasExited) { $Process.ExitCode } else { 'running' }
-        Fail-NxbH2CopyEntry "$Label control stream closed unexpectedly; broker=$exit"
+
+    $stream = $Process.StandardOutput.BaseStream
+    $buffer = [byte[]]::new(1)
+    $memory = [IO.MemoryStream]::new()
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $abortBroker = {
+        try {
+            if (-not $Process.HasExited) {
+                $Process.Kill($true)
+                [void]$Process.WaitForExit(30000)
+            }
+        }
+        catch {}
     }
-    $utf8 = [Text.UTF8Encoding]::new($false, $true)
-    if ($utf8.GetByteCount($line) -gt 65536) {
-        Fail-NxbH2CopyEntry "$Label response exceeds 64 KiB"
+
+    try {
+        while ($true) {
+            [Int64]$remaining = [Int64]$TimeoutMilliseconds - $clock.ElapsedMilliseconds
+            if ($remaining -le 0) {
+                & $abortBroker
+                Fail-NxbH2CopyEntry "$Label timed out"
+            }
+
+            $readTask = $stream.ReadAsync($buffer, 0, 1)
+            if (-not $readTask.Wait([int]$remaining)) {
+                & $abortBroker
+                Fail-NxbH2CopyEntry "$Label timed out"
+            }
+            $read = $readTask.Result
+            if ($read -eq 0) {
+                & $abortBroker
+                $exit = if ($Process.HasExited) { $Process.ExitCode } else { 'running' }
+                Fail-NxbH2CopyEntry "$Label control stream closed before newline; broker=$exit"
+            }
+
+            if ($buffer[0] -eq 10) {
+                break
+            }
+            if ($memory.Length -ge 65537) {
+                & $abortBroker
+                Fail-NxbH2CopyEntry "$Label response exceeds 64 KiB"
+            }
+            $memory.WriteByte($buffer[0])
+        }
+
+        $raw = $memory.ToArray()
+        $length = $raw.Length
+        if ($length -gt 0 -and $raw[$length - 1] -eq 13) {
+            $length--
+        }
+        if ($length -gt 65536) {
+            & $abortBroker
+            Fail-NxbH2CopyEntry "$Label response exceeds 64 KiB"
+        }
+
+        $utf8 = [Text.UTF8Encoding]::new($false, $true)
+        try {
+            return $utf8.GetString($raw, 0, $length)
+        }
+        catch {
+            & $abortBroker
+            Fail-NxbH2CopyEntry "$Label response is not strict UTF-8: $($_.Exception.Message)"
+        }
     }
-    return $line
+    finally {
+        $clock.Stop()
+        $memory.Dispose()
+    }
 }
 
 function ConvertFrom-NxbH2BrokerRecord {
