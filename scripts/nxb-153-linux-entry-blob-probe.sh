@@ -183,10 +183,34 @@ capture_blob_exact "$git_application" "$immutable_object" immutable_source ||
     fail 'immutable-source runner does not resolve the exact-head environment authority helper'
 [[ "$immutable_source" == *"python3 -I - audit"* ]] ||
     fail 'immutable-source runner does not re-audit ambient environment authority'
+[[ "$immutable_source" == *'unset -f cp'* ]] ||
+    fail 'immutable-source runner trusted cp shim does not remove itself after use'
 [[ "$immutable_source" == *'export -f cp'* ]] ||
     fail 'immutable-source runner lost the intentional trusted cp export'
 [[ "$immutable_source" == *'| "$bash_application" -s -- "$@"'* ]] ||
     fail 'immutable-source runner no longer has the canonical post-audit trusted-function child handoff'
+
+immutable_line_number=0
+immutable_audit_line=0
+immutable_export_line=0
+immutable_handoff_line=0
+while IFS= read -r line; do
+    immutable_line_number=$((immutable_line_number + 1))
+    if [[ "$immutable_audit_line" -eq 0 && "$line" == *"python3 -I - audit"* ]]; then
+        immutable_audit_line="$immutable_line_number"
+    fi
+    if [[ "$immutable_export_line" -eq 0 && "$line" == 'export -f cp' ]]; then
+        immutable_export_line="$immutable_line_number"
+    fi
+    if [[ "$immutable_handoff_line" -eq 0 && "$line" == *'| "$bash_application" -s -- "$@"'* ]]; then
+        immutable_handoff_line="$immutable_line_number"
+    fi
+done <<< "$immutable_source"
+[[ "$immutable_audit_line" -gt 0 ]] || fail 'immutable-source runner environment audit line was not found'
+[[ "$immutable_export_line" -gt "$immutable_audit_line" ]] ||
+    fail 'immutable-source runner trusted cp export does not occur after environment audit'
+[[ "$immutable_handoff_line" -gt "$immutable_export_line" ]] ||
+    fail 'immutable-source runner non-privileged child handoff does not occur after trusted cp export'
 unset immutable_source
 
 final_head="$("$git_application" rev-parse HEAD)" || fail 'could not re-resolve final Git HEAD'
