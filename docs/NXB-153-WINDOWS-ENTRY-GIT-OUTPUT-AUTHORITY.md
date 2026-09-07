@@ -64,6 +64,27 @@ The H2 guard retains the **64 MiB / 4,096 record** stdout envelope and now addit
 
 The H2 guard still exact-object verifies the next enumeration layer and removes its local Git proxy during cleanup.
 
+## Separate direct-child I/O / exit blocker
+
+The entry/H2 Git hardening above does **not** cover three direct `Diagnostics.Process` paths deeper in the Windows source/dependency chain. Their former `ReadToEndAsync()` parent-memory retention has been removed, but static review shows that their complete child lifecycle is not yet availability-bounded:
+
+1. the isolated registry verifier performs synchronous `StandardInput.Write($InputText)` and then unbounded `WaitForExit()`;
+2. exact-head `git archive` performs synchronous stdout `Read(...)` in the archive loop and then unbounded `WaitForExit()`;
+3. tar extraction performs synchronous archive `CopyTo(...)` into child stdin and then unbounded `WaitForExit()`.
+
+Therefore merely changing `WaitForExit()` to a timed overload would be incomplete. Source closure must bound **pipe progress and exit**.
+
+The intended follow-on contract is aligned with the already staged entry/H2 process policy:
+
+- each child pipe operation must make progress within **300,000 ms / 5 minutes**;
+- after pipe completion/closure, the child must exit within **30,000 ms / 30 seconds**;
+- existing byte/count envelopes remain independently enforced;
+- timeout or limit failure attempts recursive process-tree termination;
+- cleanup/disposal follows bounded termination handling and remains fail-closed;
+- inherited stdout/stderr behavior remains unchanged for the paths already hardened against parent retention.
+
+This section records a **remaining source blocker**, not a completed implementation. Registry verifier, Git archive and tar extraction require code hardening before NXB-153 can be admitted.
+
 ## What this does not prove
 
 Source staging does not prove PowerShell scoping, process-tree termination or timing behavior on the supported Windows host. Real exact-head Windows validation must still demonstrate at least:
@@ -76,6 +97,7 @@ Source staging does not prove PowerShell scoping, process-tree termination or ti
 - recursive child termination on timeout/limit failure;
 - clean/dirty repository semantics and `$LASTEXITCODE` compatibility;
 - exact-head inner-object pinning and final HEAD/object re-verification;
+- bounded registry-verifier / Git-archive / tar pipe-I/O and exit behavior after that source patch lands;
 - failure/cancellation cleanup without weakening the existing destination-broker, source, dependency or evidence authority chains.
 
 ## Admission boundary
@@ -84,4 +106,4 @@ Current schema-v2 evidence intentionally remains:
 
 `host_rust_toolchain_identity = version_pinned_object_identity_pending`
 
-PR #89 remains draft/not admitted. Issues #90-#98 remain open until real exact-final-head Linux + Windows execution, schema-v2 evidence review and guarded dual-platform closure are complete. NXB-154 must not use NXB-153 as an admitted implementation base before that closure.
+PR #89 remains draft/not admitted. Issues #90-#98 remain open until the direct-child source blocker is closed, real exact-final-head Linux + Windows execution completes, schema-v2 evidence is reviewed and guarded dual-platform closure succeeds. NXB-154 must not use NXB-153 as an admitted implementation base before that closure.
