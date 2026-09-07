@@ -88,6 +88,79 @@ function Get-NxbWindowsEntryBlobOid {
     }
 }
 
+function Get-NxbWindowsEntryGitControlValue {
+    param(
+        [Parameter(Mandatory = $true)][string]$GitPath,
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = $GitPath
+    $start.UseShellExecute = $false
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $false
+    $start.CreateNoWindow = $true
+    foreach ($argument in $Arguments) {
+        [void]$start.ArgumentList.Add([string]$argument)
+    }
+
+    $process = [Diagnostics.Process]::new()
+    $memory = [IO.MemoryStream]::new()
+    try {
+        $process.StartInfo = $start
+        if (-not $process.Start()) {
+            Fail-NxbWindowsEntryGitGuard "$Label Git process could not be started"
+        }
+
+        $buffer = [byte[]]::new(1024)
+        [Int64]$total = 0
+        while ($true) {
+            $readTask = $process.StandardOutput.BaseStream.ReadAsync($buffer, 0, $buffer.Length)
+            if (-not $readTask.Wait(30000)) {
+                Fail-NxbWindowsEntryGitGuard "$Label Git stdout made no progress for 30000 ms"
+            }
+            $read = $readTask.Result
+            if ($read -le 0) { break }
+            $total += $read
+            if ($total -gt 4096) {
+                Fail-NxbWindowsEntryGitGuard "$Label Git stdout exceeds the 4096-byte control-plane envelope"
+            }
+            $memory.Write($buffer, 0, $read)
+        }
+
+        if (-not $process.WaitForExit(30000)) {
+            Fail-NxbWindowsEntryGitGuard "$Label Git process did not exit after stdout closed"
+        }
+        if ($process.ExitCode -ne 0) {
+            Fail-NxbWindowsEntryGitGuard "$Label Git command failed with exit code $($process.ExitCode)"
+        }
+
+        $utf8 = [Text.UTF8Encoding]::new($false, $true)
+        try {
+            $value = $utf8.GetString($memory.ToArray()).Trim()
+        }
+        catch {
+            Fail-NxbWindowsEntryGitGuard "$Label Git stdout is not strict UTF-8: $($_.Exception.Message)"
+        }
+        if ([string]::IsNullOrWhiteSpace($value) -or $value.Length -gt 256) {
+            Fail-NxbWindowsEntryGitGuard "$Label did not return one bounded control value"
+        }
+        return $value
+    }
+    finally {
+        try {
+            if (-not $process.HasExited) {
+                $process.Kill($true)
+                [void]$process.WaitForExit(30000)
+            }
+        }
+        catch {}
+        $memory.Dispose()
+        $process.Dispose()
+    }
+}
+
 if ($null -eq ('Nxb153WindowsEntryGitGuardNative' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
@@ -195,8 +268,11 @@ $innerRelative = "scripts/$innerName"
 $innerPath = Join-Path $PSScriptRoot $innerName
 $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
 $gitApplication = $gitCommand.Source
-$initialHead = (& $gitApplication -C $RepoRoot rev-parse HEAD | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $initialHead -notmatch '^[0-9a-f]{40}$') {
+$initialHead = Get-NxbWindowsEntryGitControlValue `
+    -GitPath $gitApplication `
+    -Arguments @('-C', $RepoRoot, 'rev-parse', 'HEAD') `
+    -Label 'initial exact Git HEAD'
+if ($initialHead -notmatch '^[0-9a-f]{40}$') {
     Fail-NxbWindowsEntryGitGuard 'exact Git HEAD could not be resolved before bounded entry delegation'
 }
 
@@ -207,12 +283,18 @@ function Assert-NxbWindowsEntryCommittedFile {
         [Parameter(Mandatory = $true)][string]$Label
     )
 
-    $expected = (& $gitApplication -C $RepoRoot rev-parse "${initialHead}:$RelativePath" | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $expected -notmatch '^[0-9a-f]{40}$') {
+    $expected = Get-NxbWindowsEntryGitControlValue `
+        -GitPath $gitApplication `
+        -Arguments @('-C', $RepoRoot, 'rev-parse', "${initialHead}:$RelativePath") `
+        -Label "exact-head $Label Git object"
+    if ($expected -notmatch '^[0-9a-f]{40}$') {
         Fail-NxbWindowsEntryGitGuard "exact-head $Label Git object could not be resolved"
     }
-    $type = (& $gitApplication -C $RepoRoot cat-file -t $expected | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $type -cne 'blob') {
+    $type = Get-NxbWindowsEntryGitControlValue `
+        -GitPath $gitApplication `
+        -Arguments @('-C', $RepoRoot, 'cat-file', '-t', $expected) `
+        -Label "exact-head $Label Git object type"
+    if ($type -cne 'blob') {
         Fail-NxbWindowsEntryGitGuard "exact-head $Label is not a Git blob"
     }
     $actual = Get-NxbWindowsEntryBlobOid -Stream $Stream -Label $Label
@@ -371,13 +453,19 @@ try {
 
     . $innerPath @innerParameters
 
-    $finalHead = (& $gitApplication -C $RepoRoot rev-parse HEAD | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $finalHead -cne $initialHead) {
+    $finalHead = Get-NxbWindowsEntryGitControlValue `
+        -GitPath $gitApplication `
+        -Arguments @('-C', $RepoRoot, 'rev-parse', 'HEAD') `
+        -Label 'final exact Git HEAD'
+    if ($finalHead -cne $initialHead) {
         Fail-NxbWindowsEntryGitGuard "Git HEAD changed during $entryName delegation"
     }
     $finalOid = Get-NxbWindowsEntryBlobOid -Stream $innerStream -Label "$entryName preserved inner final pinned object"
-    $expectedOid = (& $gitApplication -C $RepoRoot rev-parse "${initialHead}:$innerRelative" | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $expectedOid -notmatch '^[0-9a-f]{40}$' -or $finalOid -cne $expectedOid) {
+    $expectedOid = Get-NxbWindowsEntryGitControlValue `
+        -GitPath $gitApplication `
+        -Arguments @('-C', $RepoRoot, 'rev-parse', "${initialHead}:$innerRelative") `
+        -Label 'final exact-head inner Git object'
+    if ($expectedOid -notmatch '^[0-9a-f]{40}$' -or $finalOid -cne $expectedOid) {
         Fail-NxbWindowsEntryGitGuard "$entryName preserved inner authority changed during execution"
     }
 }
