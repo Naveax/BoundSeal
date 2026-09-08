@@ -264,11 +264,41 @@ pub(super) fn activate_value(
     if workspace::safe_exists(&disable_path)? {
         bail!("target disable receipt already exists without a creatable profile");
     }
-    if workspace::safe_exists(&profile_path)? {
-        bail!("guided target profile already exists");
+
+    let profile_exists = workspace::safe_exists(&profile_path)?;
+    let artifact_exists = workspace::safe_exists(&artifact_path)?;
+
+    if profile_exists {
+        if !artifact_exists {
+            bail!("guided target profile already exists without exact guided activation continuity");
+        }
+        let (profile, artifact_sha256) = recover_inert_continuity(
+            &artifact_path,
+            &identity.target_id,
+            &build.preview,
+            &build.policy.document,
+        )?;
+        if profile.policy_sha256 != expected_policy_sha256 {
+            bail!("recovered target policy digest does not match the confirmed preview policy");
+        }
+        let profile_bytes = canonical_json(&profile)?;
+        verify_published_bytes(
+            &profile_path,
+            &profile_bytes,
+            "guided activation recovered target profile",
+        )?;
+        ensure_recovered_publication_durable(&profile_path)?;
+        return activation_value(
+            profile,
+            confirm_preview_sha256,
+            &policy_snapshot_sha256,
+            &expected_policy_sha256,
+            &artifact_relative_path,
+            &artifact_sha256,
+        );
     }
 
-    let (profile, artifact_sha256) = if workspace::safe_exists(&artifact_path)? {
+    let (profile, artifact_sha256) = if artifact_exists {
         recover_inert_continuity(
             &artifact_path,
             &identity.target_id,
