@@ -6,12 +6,7 @@ This document records the current **source-staged, not admitted** Windows proces
 
 The gate does not replace the canonical Windows validator, H2 destination-broker tests, main schema-v2 validation evidence or guarded Linux + Windows closure. It proves one narrower property: the exact-head direct-child and broker-control hardening is still present in source and the supported Windows PowerShell/.NET host honors the async pipe, bounded framing, timed-exit and recursive process-tree termination primitives on which that hardening depends.
 
-A terminal-only probe PASS is not admission evidence. Canonical admission uses a four-stage chain:
-
-1. exact-head process primitive probe;
-2. create-only exact-head process-lifecycle evidence publication;
-3. native-pinned process-lifecycle semantic evidence review;
-4. canonical Windows admission wrapper, which requires the process review before the existing Windows schema-v2 / dual-platform closure reviewer.
+A terminal-only probe PASS is not admission evidence.
 
 Policies:
 
@@ -29,7 +24,7 @@ Canonical complete admission-review authority is defined by:
 
 `docs/NXB-153-WINDOWS-ADMISSION-REVIEW-AUTHORITY.md`.
 
-Where older NXB-153 material calls `scripts/review-nxb-153-evidence-windows.ps1` the canonical Windows closure entrypoint, that statement now describes the schema-v2 closure **sublayer only**. Direct invocation of that script alone is not sufficient for current NXB-153 Windows admission.
+Where older NXB-153 material calls `scripts/review-nxb-153-evidence-windows.ps1` the canonical Windows closure entrypoint, that statement describes the schema-v2 closure **sublayer only**. Direct invocation of that script alone is not sufficient for current NXB-153 Windows admission.
 
 ## Production source contract checked by the probe
 
@@ -48,8 +43,8 @@ It parses the production PowerShell sources with the PowerShell AST and requires
   - `Expand-NxbPinnedTarArchive` uses chunked `WriteAsync`, `FlushAsync`, bounded post-input exit and recursive termination cleanup;
   - child-pipe `CopyTo(...)` and parameterless `WaitForExit()` are absent.
 - `scripts/nxb-153-windows-immutable-source-bounded-inner.ps1`
-  - `Read-NxbH2BrokerLine` reads the broker control channel from `StandardOutput.BaseStream` with incremental `ReadAsync` rather than `ReadLineAsync`;
-  - retained control payload is bounded before decode to **64 KiB**, with at most one trailing CR admitted before the required LF terminator;
+  - `Read-NxbH2BrokerLine` reads broker control from `StandardOutput.BaseStream` with incremental `ReadAsync` rather than `ReadLineAsync`;
+  - retained control payload is bounded before decode to **64 KiB**, with at most one trailing CR admitted before required LF;
   - strict UTF-8 decode occurs only after the byte ceiling succeeds;
   - timeout, malformed framing, oversized framing and invalid UTF-8 attempt recursive broker termination plus bounded reap;
   - `ReadLineAsync` and `ReadToEndAsync` are forbidden in the broker-control reader.
@@ -104,7 +99,7 @@ pwsh -NoLogo -NoProfile -File .\scripts\nxb-153-windows-process-lifecycle-probe.
 
 The 1,000 ms I/O and 1,500 ms exit values are **probe-only** deadlines. They do not alter production 300,000 ms / 30,000 ms authority or the broker-control framing ceiling.
 
-A direct JSON PASS is useful diagnostics but is not the canonical persistent admission artifact.
+A direct JSON PASS is diagnostic only. During canonical evidence recording, the writer pins the selected host Git executable and its immediate directory, prepends that pinned Git directory to PATH, verifies nested `Get-Command git -CommandType Application` resolves the same file, and only then launches this probe. A direct probe invocation outside that writer does not carry the writer's host-Git lifetime authority and is not persistent admission evidence.
 
 ## Canonical create-only evidence publication
 
@@ -114,10 +109,18 @@ Admission uses the evidence writer instead of manually redirecting probe output:
 pwsh -NoLogo -NoProfile -File .\scripts\record-nxb-153-windows-process-lifecycle-evidence.ps1
 ```
 
+Current writer exact blob:
+
+`1313a6af73d0884d9db9f4939a073e2aa00f1109`
+
 The writer:
 
 - requires Windows PowerShell Core;
-- requires the canonical **1,000 ms I/O / 1,500 ms exit** probe deadlines and rejects custom admission deadlines before the probe starts;
+- requires canonical **1,000 ms I/O / 1,500 ms exit** probe deadlines;
+- resolves the supported-host Git application, opens the Git executable read-only with write/delete sharing withheld and native final-path equality;
+- native-pins the selected Git executable directory with delete sharing withheld and final-path equality;
+- temporarily prepends that directory to PATH and verifies nested Git application resolution before exact-head authority work;
+- keeps Git file/directory lifetime pinned through probe execution, evidence publication and final source/HEAD checks;
 - exact-head verifies the probe, writer, dependency-source, immutable-source and bounded H2 source bytes;
 - invokes the exact-head probe in JSON mode;
 - limits captured probe JSON to **64 KiB**;
@@ -144,89 +147,95 @@ The evidence record binds:
 - PASS status;
 - probe and evidence timestamps.
 
+Repository root, `scripts`, `target`, `target/nxb-validation`, exact-head source files, selected host Git file and host Git directory remain pinned for their documented lifetimes. Source/namespace/Git handle cleanup plus PATH restoration are part of successful publication and fail closed before writer PASS output.
+
 ## Native-pinned process evidence review
 
 The process-evidence reviewer is:
 
 `scripts/review-nxb-153-windows-process-lifecycle-evidence.ps1`.
 
-It may be invoked directly for narrow diagnostics, but final Windows admission must route through `scripts/review-nxb-153-windows-admission.ps1` so this review cannot be bypassed before the schema-v2 closure sublayer.
+It may be invoked directly for narrow diagnostics, but final Windows admission must route through `scripts/review-nxb-153-windows-admission.ps1` so this review cannot bypass the canonical admission authority. During canonical admission its own `Get-Command git` resolves under the admission wrapper's pinned host-Git PATH binding.
 
 The process-evidence reviewer:
 
 - exact-head verifies the probe, evidence writer, reviewer and all three inspected production sources;
 - requires the canonical exact-head evidence pathname;
 - rejects reparse evidence;
-- opens the evidence with read-only access while withholding write/delete sharing;
-- resolves the native final path from the file handle and requires it to equal the canonical pathname, rejecting redirected parent authority;
-- bounds the pinned evidence object to **64 KiB** and requires strict UTF-8;
-- requires the exact field set and exact values for head, script objects, policies, timeouts, platform and PASS status;
+- opens evidence read-only while withholding write/delete sharing;
+- resolves native final path from the evidence handle and requires it to equal the canonical pathname;
+- bounds pinned evidence to **64 KiB** and requires strict UTF-8;
+- requires exact field set and exact values for head, script objects, policies, timeouts, platform and PASS status;
 - requires the exact ordered **16-record** test result list;
 - requires canonical UTC times with `recorded_at` no earlier than `probed_at` and no more than five minutes later;
-- computes the pinned evidence SHA-256;
-- re-verifies Git HEAD and all exact-head authority objects, including the bounded H2 source, before success.
+- computes pinned evidence SHA-256;
+- re-verifies Git HEAD and all exact-head authority objects, including bounded H2 source, before success.
 
-The reviewer emits only a fixed small success summary containing HEAD, evidence SHA-256 and reviewer object ID. It does not rewrite the evidence.
+The reviewer emits only a fixed small success summary containing HEAD, evidence SHA-256 and reviewer object ID. It does not rewrite evidence.
 
 ## Canonical complete Windows admission review
 
-After the process evidence has been recorded and the normal exact-head Linux + Windows platform validation evidence required by the existing closure layer exists, final Windows-side review must use:
+After process evidence and normal exact-head Linux + Windows platform validation evidence exist, final Windows-side review must use:
 
 ```powershell
 pwsh -NoLogo -NoProfile -File .\scripts\review-nxb-153-windows-admission.ps1
 ```
 
-The admission wrapper exact-head verifies and pins read-only handles for:
+Current admission wrapper exact blob:
 
-- itself;
-- `scripts/review-nxb-153-windows-process-lifecycle-evidence.ps1`;
-- `scripts/review-nxb-153-evidence-windows.ps1`.
+`aa90917a629d57fa9319ead2ffe9d9e0b77f4a35`
 
-It then:
+The admission wrapper first pins the selected supported-host Git executable and directory and temporarily binds PATH so subordinate `Get-Command git -CommandType Application` calls resolve that same executable. It also native-pins repository root + canonical `scripts` and opens exact-head authority files with write/delete sharing withheld and native final-path equality.
 
-1. runs the process-lifecycle evidence review first;
-2. rechecks all pinned reviewer Git objects and exact Git HEAD;
-3. only then runs the existing Windows schema-v2 / dual-platform closure reviewer;
-4. rechecks all pinned reviewer Git objects and exact Git HEAD again;
-5. fails closed if pinned-reviewer handle cleanup fails.
+Mandatory admission order is:
 
-This makes `scripts/review-nxb-153-evidence-windows.ps1` a required subordinate closure layer rather than a bypassable complete admission entrypoint.
+1. exact-head tool-version output regression probe;
+2. process-lifecycle evidence review;
+3. Windows schema-v2 / dual-platform closure review.
+
+After every phase, exact HEAD and all pinned source authorities are rechecked. Success output from each subordinate phase is bounded and withheld through later phases. PATH restoration and Git/source/namespace handle cleanup are part of successful admission and failures are fatal before canonical PASS.
+
+This makes direct process review or direct `review-nxb-153-evidence-windows.ps1` invocation subordinate rather than a complete admission entrypoint.
 
 ## Failure behavior
 
 Any of the following is fatal:
 
 - inspected source bytes do not match exact-head Git authority;
+- selected host Git executable/directory cannot be pinned or their opened native paths differ from expected paths;
+- nested Git application resolution differs from the parent-pinned host Git;
+- PATH cannot be restored during successful cleanup;
 - production timeout constants, 1 GiB archive ceiling or 64 KiB broker framing ceiling drift;
 - required async/timed/recursive-kill patterns disappear;
 - forbidden synchronous/unbounded source patterns reappear;
-- `ReadLineAsync` or `ReadToEndAsync` reappears in the broker-control reader;
+- `ReadLineAsync` or `ReadToEndAsync` reappears in broker-control reader;
 - PowerShell AST parsing fails;
-- broker control closes before LF, contains invalid UTF-8 or stalls beyond the admitted probe timeout;
+- broker control closes before LF, contains invalid UTF-8 or stalls beyond admitted probe timeout;
 - a stalled input/output operation does not time out;
 - a sleeping child does not trigger timed exit failure;
 - nonzero child exit is not surfaced;
-- recursive `Kill(true)` leaves the spawned descendant alive;
-- a probe child cannot be reaped inside the bounded cleanup envelope;
-- probe JSON exceeds its bounded envelope or differs from the canonical schema;
-- evidence already exists at the exact-head pathname;
+- recursive `Kill(true)` leaves spawned descendant alive;
+- a probe child cannot be reaped inside bounded cleanup envelope;
+- probe JSON exceeds its bounded envelope or differs from canonical schema;
+- evidence already exists at exact-head pathname;
 - evidence path resolves through redirected/reparse authority;
 - evidence fields/object IDs/test sequence/timestamps differ;
 - Git HEAD or authority objects drift during review;
-- process evidence review fails before schema-v2 review;
-- any pinned admission reviewer object changes between review phases;
-- admission-wrapper handle cleanup fails.
+- tool-version probe or process evidence review fails before schema-v2 review;
+- any pinned admission authority changes between phases;
+- source/namespace/host-Git cleanup fails.
 
 ## What this does not prove
 
 A reviewed PASS from this process-lifecycle chain is supporting platform evidence only. It does **not** prove:
 
+- initial host Git installation trust beyond the supported-host boundary;
 - the real registry helper's complete metadata-validation semantics;
-- real `git archive` behavior against the repository or the actual 1 GiB rejection boundary;
+- real `git archive` behavior against the repository or actual 1 GiB rejection boundary;
 - real tar extraction into the immutable source snapshot;
-- the real broker's complete 64 KiB response-boundary behavior under adversarial or corrupted output;
+- real broker complete 64 KiB response-boundary behavior under adversarial output;
 - inherited stdout/stderr compatibility across every production child;
-- canonical entry/H2 Git proxy nesting/restoration;
+- canonical entry/H2 Git proxy nesting/restoration under real Windows execution;
 - H2 destination-broker native handle/share/watcher semantics;
 - relocated Rust 1.97.1 DLL/sysroot behavior;
 - mutation/injection/lock-contention behavior;
@@ -234,15 +243,15 @@ A reviewed PASS from this process-lifecycle chain is supporting platform evidenc
 - main schema-v2 validation evidence publication/review;
 - same-head Linux + Windows admission.
 
-Those remain mandatory through the canonical full validation/evidence path.
+Those remain mandatory through canonical full validation/evidence path.
 
 ## Admission boundary
 
 For the exact final NXB-153 head, supported Windows admission requires:
 
-1. create-only process-lifecycle evidence publication, which dynamically executes the probe;
-2. native-pinned process-lifecycle evidence review;
-3. canonical Windows admission wrapper completion, including the existing schema-v2 / dual-platform closure reviewer;
+1. canonical Windows preparation/full validation under the pinned outer-entry Git/source/namespace authority;
+2. create-only process-lifecycle evidence publication, including writer-pinned host Git and dynamic process probe;
+3. canonical Windows admission wrapper completion, including tool-version probe, native-pinned process review and schema-v2 / dual-platform closure;
 4. complete full Windows NXB-153 validation evidence on the same exact Git head.
 
 Linux H2 validation, object-anchored main evidence review and guarded dual-platform closure remain independently required.
