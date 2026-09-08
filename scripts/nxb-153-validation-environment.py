@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 from typing import Mapping, NoReturn
 
 FORBIDDEN_EXACT = frozenset(
@@ -116,6 +119,108 @@ def audit_environment(environment: Mapping[str, str]) -> dict[str, object]:
     }
 
 
+def run_bash_startup_probe(
+    bash_path: str,
+    arguments: list[str],
+    environment: Mapping[str, str],
+    label: str,
+) -> int:
+    try:
+        completed = subprocess.run(
+            [bash_path, *arguments],
+            env=dict(environment),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        fail(f"Linux Bash startup self-test timed out: {label}")
+    except OSError as error:
+        fail(f"Linux Bash startup self-test could not execute {label}: {error}")
+    return completed.returncode
+
+
+def linux_bash_startup_self_test() -> None:
+    if not sys.platform.startswith("linux"):
+        return
+
+    path_value = os.environ.get("PATH", "")
+    bash_path = shutil.which("bash", path=path_value)
+    if not bash_path or not os.path.isabs(bash_path) or not os.path.isfile(bash_path):
+        fail("Linux Bash startup self-test could not resolve an absolute Bash executable")
+
+    baseline_environment: dict[str, str] = {"PATH": path_value}
+    for name in ("HOME", "LANG", "LC_ALL", "TERM", "TMPDIR"):
+        value = os.environ.get(name)
+        if value is not None:
+            baseline_environment[name] = value
+
+    with tempfile.TemporaryDirectory(prefix="nxb-153-bash-startup-") as root:
+        startup_path = os.path.join(root, "bash-env-startup.sh")
+        marker_path = os.path.join(root, "bash-env-marker")
+        with open(startup_path, "x", encoding="utf-8", newline="\n") as handle:
+            handle.write(
+                'builtin printf "%s" hostile > "${NXB153_BASH_ENV_MARKER:?}"\n'
+                "export NXB153_BASH_ENV_IMPORTED=1\n"
+            )
+
+        bash_env_environment = dict(baseline_environment)
+        bash_env_environment["BASH_ENV"] = startup_path
+        bash_env_environment["NXB153_BASH_ENV_MARKER"] = marker_path
+
+        nonprivileged = run_bash_startup_probe(
+            bash_path,
+            ["-c", '[[ "${NXB153_BASH_ENV_IMPORTED:-}" == 1 ]]'],
+            bash_env_environment,
+            "non-privileged BASH_ENV control",
+        )
+        if nonprivileged != 0 or not os.path.isfile(marker_path):
+            fail("non-privileged Bash control did not consume the synthetic BASH_ENV startup file")
+
+        os.unlink(marker_path)
+        privileged = run_bash_startup_probe(
+            bash_path,
+            ["-p", "-c", '[[ -z "${NXB153_BASH_ENV_IMPORTED+x}" ]]'],
+            bash_env_environment,
+            "privileged BASH_ENV rejection",
+        )
+        if privileged != 0 or os.path.exists(marker_path):
+            fail("privileged Bash consumed synthetic BASH_ENV startup authority")
+
+        hostile_function_environment = dict(baseline_environment)
+        hostile_function_environment["BASH_FUNC_nxb153_hostile%%"] = "() { return 23; }"
+        nonprivileged_function = run_bash_startup_probe(
+            bash_path,
+            ["-c", "declare -F nxb153_hostile >/dev/null"],
+            hostile_function_environment,
+            "non-privileged exported-function control",
+        )
+        if nonprivileged_function != 0:
+            fail("non-privileged Bash control did not import the synthetic exported function")
+
+        privileged_function = run_bash_startup_probe(
+            bash_path,
+            ["-p", "-c", "! declare -F nxb153_hostile >/dev/null"],
+            hostile_function_environment,
+            "privileged exported-function rejection",
+        )
+        if privileged_function != 0:
+            fail("privileged Bash imported synthetic exported-function authority")
+
+        trusted_cp_environment = dict(baseline_environment)
+        trusted_cp_environment["BASH_FUNC_cp%%"] = "() { return 37; }"
+        trusted_cp = run_bash_startup_probe(
+            bash_path,
+            ["-c", "declare -F cp >/dev/null; cp; [[ $? -eq 37 ]]"],
+            trusted_cp_environment,
+            "intended non-privileged trusted-function import",
+        )
+        if trusted_cp != 0:
+            fail("non-privileged Bash did not import the intended trusted-function control")
+
+
 def self_test() -> None:
     allowed = {
         "HOME": "/tmp/nxb-home",
@@ -187,6 +292,8 @@ def self_test() -> None:
         pass
     else:
         fail("self-test accepted case-variant exported Bash function authority")
+
+    linux_bash_startup_self_test()
 
     print("NXB-153 validation environment authority self-test passed.")
 
