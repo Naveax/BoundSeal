@@ -358,6 +358,18 @@ if ($ProbeIoTimeoutMilliseconds -ne 1000 -or $ProbeExitTimeoutMilliseconds -ne 1
     Fail-NxbProcessEvidence 'admission evidence requires canonical probe deadlines: 1000 ms I/O and 1500 ms exit'
 }
 
+$ambientGitAuthority = [Collections.Generic.List[string]]::new()
+foreach ($entry in [Environment]::GetEnvironmentVariables().Keys) {
+    $name = [string]$entry
+    if ($name.StartsWith('GIT_', [StringComparison]::OrdinalIgnoreCase)) {
+        $ambientGitAuthority.Add($name)
+    }
+}
+if ($ambientGitAuthority.Count -gt 0) {
+    $orderedGitAuthority = @($ambientGitAuthority | Sort-Object { $_.ToUpperInvariant() })
+    Fail-NxbProcessEvidence ('ambient Git authority variables are not admitted before exact-head resolution: ' + ($orderedGitAuthority -join ', '))
+}
+
 $RepoRoot = [IO.Path]::GetFullPath($RepoRoot)
 $namespaceHandles = [Collections.Generic.List[IDisposable]]::new()
 $sourceAuthorities = [Collections.Generic.List[object]]::new()

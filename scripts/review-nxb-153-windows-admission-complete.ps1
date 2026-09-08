@@ -308,6 +308,18 @@ if ($PSVersionTable.PSEdition -cne 'Core') {
     Fail-NxbWindowsCompleteAdmission 'complete Windows admission review requires PowerShell Core'
 }
 
+$ambientGitAuthority = [Collections.Generic.List[string]]::new()
+foreach ($entry in [Environment]::GetEnvironmentVariables().Keys) {
+    $name = [string]$entry
+    if ($name.StartsWith('GIT_', [StringComparison]::OrdinalIgnoreCase)) {
+        $ambientGitAuthority.Add($name)
+    }
+}
+if ($ambientGitAuthority.Count -gt 0) {
+    $orderedGitAuthority = @($ambientGitAuthority | Sort-Object { $_.ToUpperInvariant() })
+    Fail-NxbWindowsCompleteAdmission ('ambient Git authority variables are not admitted before exact-head resolution: ' + ($orderedGitAuthority -join ', '))
+}
+
 $RepoRoot = [IO.Path]::GetFullPath($RepoRoot)
 $canonicalScripts = [IO.Path]::GetFullPath((Join-Path $RepoRoot 'scripts'))
 if (-not [string]::Equals($canonicalScripts, [IO.Path]::GetFullPath($PSScriptRoot), [StringComparison]::OrdinalIgnoreCase)) {

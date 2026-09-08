@@ -214,6 +214,18 @@ if ($PSVersionTable.PSEdition -cne 'Core') {
     Fail-NxbHostGitLifetimeProbe 'probe requires PowerShell Core'
 }
 
+$ambientGitAuthority = [Collections.Generic.List[string]]::new()
+foreach ($entry in [Environment]::GetEnvironmentVariables().Keys) {
+    $name = [string]$entry
+    if ($name.StartsWith('GIT_', [StringComparison]::OrdinalIgnoreCase)) {
+        $ambientGitAuthority.Add($name)
+    }
+}
+if ($ambientGitAuthority.Count -gt 0) {
+    $orderedGitAuthority = @($ambientGitAuthority | Sort-Object { $_.ToUpperInvariant() })
+    Fail-NxbHostGitLifetimeProbe ('ambient Git authority variables are not admitted before exact-head resolution: ' + ($orderedGitAuthority -join ', '))
+}
+
 $RepoRoot = [IO.Path]::GetFullPath($RepoRoot)
 $admissionPath = Join-Path $RepoRoot 'scripts\review-nxb-153-windows-admission.ps1'
 $selfPath = Join-Path $RepoRoot 'scripts\nxb-153-windows-host-git-lifetime-probe.ps1'
