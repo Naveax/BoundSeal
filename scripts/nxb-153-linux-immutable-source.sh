@@ -8,6 +8,11 @@ fail() {
 
 [[ "$-" == *p* ]] || fail 'Linux immutable-source entrypoint requires privileged Bash mode (-p)'
 
+nxb_guard_git_environment=("${!GIT_@}")
+[[ "${#nxb_guard_git_environment[@]}" -eq 0 ]] ||
+    fail "ambient Git authority variables are not admitted before exact-head resolution: ${nxb_guard_git_environment[*]}"
+builtin unset nxb_guard_git_environment
+
 resolve_blob() {
     local repo_anchor="$1" head_sha="$2" relative_path="$3" label="$4"
     local object object_type object_size
