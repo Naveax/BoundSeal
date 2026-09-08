@@ -1,4 +1,7 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 const VALIDATOR_PATH: &str = "scripts/validate-nxb-153-windows-inner.ps1";
 
