@@ -2,7 +2,7 @@ use std::{fs, io::Read, path::Path};
 
 use anyhow::{bail, Context, Result};
 
-use super::{reject_path_indirections, validate_private_permissions, MAX_DOCUMENT_BYTES};
+use super::{reject_path_indirections, MAX_DOCUMENT_BYTES};
 
 pub(super) fn read_document(path: &Path, label: &str) -> Result<Vec<u8>> {
     reject_path_indirections(path, label)?;
@@ -97,7 +97,7 @@ fn validate_platform_authority(path: &Path, _opened: &fs::Metadata, label: &str)
     if super::windows::is_reparse_point(&named) || !named.is_file() {
         bail!("{label} pathname no longer names a regular non-reparse file");
     }
-    validate_private_permissions(path, false)
+    super::validate_private_permissions(path, false)
 }
 
 #[cfg(all(unix, not(target_os = "linux")))]
