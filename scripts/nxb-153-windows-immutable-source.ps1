@@ -140,6 +140,18 @@ if ($HeadSha -notmatch '^[0-9a-f]{40}$') {
     Fail-NxbH2StringGuard 'exact head is not canonical 40-hex SHA-1'
 }
 
+$ambientGitAuthority = [Collections.Generic.List[string]]::new()
+foreach ($entry in [Environment]::GetEnvironmentVariables().Keys) {
+    $name = [string]$entry
+    if ($name.StartsWith('GIT_', [StringComparison]::OrdinalIgnoreCase)) {
+        $ambientGitAuthority.Add($name)
+    }
+}
+if ($ambientGitAuthority.Count -gt 0) {
+    $orderedGitAuthority = @($ambientGitAuthority | Sort-Object { $_.ToUpperInvariant() })
+    Fail-NxbH2StringGuard ('ambient Git authority variables are not admitted before exact-head resolution: ' + ($orderedGitAuthority -join ', '))
+}
+
 $RepoRoot = [IO.Path]::GetFullPath($RepoRoot)
 $ValidationDirectory = [IO.Path]::GetFullPath($ValidationDirectory)
 $scriptsRoot = Join-Path $RepoRoot 'scripts'
