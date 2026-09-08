@@ -85,6 +85,10 @@ fn harden_windows_acl(path: &Path, directory: bool) -> Result<()> {
             .map(|sid| OsString::from(format!("*{sid}"))),
     );
     remove_arguments.push(OsString::from("/q"));
+    run_icacls(path, &remove_arguments)?;
+
+    // Make inheritance protection the final ACL mutation. This prevents
+    // later ACL edits from weakening the protected DACL control flag.
     run_icacls(
         path,
         &[OsString::from("/inheritancelevel:r"), OsString::from("/q")],
