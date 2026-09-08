@@ -24,7 +24,26 @@ fn required_index(text: &str, needle: &str) -> usize {
 #[test]
 fn guided_activation_linearizes_active_result_after_disable_receipt_checks() {
     let text = activation_source();
+
+    let helper_start = required_index(&text, "fn ensure_target_not_disabled(disable_path: &Path)");
+    let helper_end_relative = text[helper_start..]
+        .find("\n}\n\n#[allow(clippy::too_many_arguments)]")
+        .expect("disable helper boundary is missing");
+    let helper = &text[helper_start..helper_start + helper_end_relative + 2];
+    assert!(
+        helper.contains("workspace::safe_exists(disable_path)?"),
+        "{ACTIVATION_PATH}: disable gate must inspect the canonical disable receipt path with safe_exists"
+    );
+    assert!(
+        helper.contains("guided activation active result was withheld"),
+        "{ACTIVATION_PATH}: disable gate must fail closed rather than silently accepting a visible receipt"
+    );
+
     let body_start = required_index(&text, "pub(super) fn activate_value(");
+    assert!(
+        helper_start < body_start,
+        "{ACTIVATION_PATH}: disable gate helper must be defined before activate_value"
+    );
     let body_end_relative = text[body_start..]
         .find("\nfn activation_value(")
         .expect("activation_value helper boundary is missing");
