@@ -83,7 +83,12 @@ The Linux primitive:
 
 The synthetic controls do **not** modify the repository, installed Bash or installed Git.
 
-This runtime primitive is already on mandatory canonical Linux paths because the exact-head environment helper `self-test` is executed before outer heavy validation and is independently repeated by the immutable-source runner before it creates the trusted exported `cp` shim.
+This runtime primitive is mandatory on all current Linux admission paths that need to trust Bash startup/function semantics:
+
+- preparation resolves the exact-head environment helper and runs `self-test` before tool installation/receipt publication;
+- outer validation resolves the same helper and runs `self-test` before lock-owned heavy validation;
+- the immutable-source runner independently repeats the exact-head helper `self-test` immediately before its ambient audit and trusted-function transition;
+- standalone evidence review independently resolves the exact-head helper, validates its blob/type/size authority, runs `python3 -I - self-test` before semantic review, and re-resolves the helper object before returning success.
 
 A self-test PASS is still not final Linux admission. It proves the selected supported-host Bash primitive at runtime; the complete exact-head preparation/validation/review/H1/H2 chain must still execute successfully on the final head.
 
@@ -97,7 +102,7 @@ The preparation/validation wrappers also resolve the Bash executable and force B
 
 Privileged Bash prevents `BASH_ENV` startup processing and exported-function import before the script's later environment audit. The strengthened environment helper self-test dynamically verifies those two selected-host Bash primitives on Linux rather than leaving them as documentation-only assumptions.
 
-The environment audit then independently rejects those ambient variables, together with the new `GIT_*` family, so their presence is visible as an admission failure rather than silently ignored.
+The environment audit then independently rejects those ambient variables, together with the `GIT_*` family, so their presence is visible as an admission failure rather than silently ignored.
 
 Canonical Linux blob/startup authority is documented in:
 
@@ -148,6 +153,24 @@ Python security/registry helpers are executed with `python3 -I` isolated mode so
 
 After the audit, NXB-153 itself creates the controlled Cargo environment required by the validation lifecycle, including private target/fetch/vendor/gate roots and offline gate state. Those controlled variables are implementation state, not inherited ambient authority.
 
+## Linux evidence review
+
+Canonical entrypoint:
+
+`scripts/review-nxb-153-evidence-linux.sh`
+
+Evidence review is intentionally safe to invoke independently of the host/process that created Linux evidence. It therefore cannot rely on a startup primitive proved only by an earlier validation run.
+
+The canonical review wrapper:
+
+1. requires privileged Bash and rejects ambient `GIT_*` before its first Git operation;
+2. resolves the exact-head environment helper as a canonical blob within the 1 MiB implementation envelope;
+3. runs that exact helper through the already-resolved `python3 -I - self-test` path before semantic review;
+4. evaluates only the existing captured/OID-verified semantic-review inner source; and
+5. re-resolves both the review inner object and environment-helper object before returning success.
+
+Thus the review host must itself satisfy the selected-host Bash startup/function primitive before object-anchored evidence review can succeed.
+
 ## Windows preparation
 
 Canonical entrypoint:
@@ -186,7 +209,7 @@ The environment policy and Linux startup primitive are not final admission by th
 - direct invocation without privileged Bash fails closed for every canonical privileged entrypoint;
 - representative `GIT_DIR`, object-directory/alternate-object and config-injection variables are rejected before the first exact-head Git operation on every canonical Linux entrypoint;
 - clean exact-head Git resolution/object lookup remains unchanged after the pre-Git gate;
-- the exact-final-head environment helper self-test actually executes successfully in preparation, outer validation and immutable-source entry;
+- the exact-final-head environment helper self-test actually executes successfully in preparation, outer validation, immutable-source entry and standalone evidence review;
 - representative real canonical-flow `BASH_ENV` and exported-function injection cannot influence preparation/validation/review before the audit;
 - the intended self-removing trusted `cp` shim is the only function authority admitted across the immutable-source non-privileged H2 transition;
 - nested H1/H2 Bash children remain compatible with the privileged-Bash child authority;
