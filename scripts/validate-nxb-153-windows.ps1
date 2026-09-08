@@ -24,26 +24,51 @@ function ConvertTo-NxbWindowsEntryHex {
     return (($Bytes | ForEach-Object { $_.ToString('x2') }) -join '')
 }
 
+function ConvertFrom-NxbWindowsEntryFinalPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $value = $Path
+    if ($value.StartsWith('\\?\UNC\', [StringComparison]::OrdinalIgnoreCase)) {
+        $value = '\\' + $value.Substring(8)
+    }
+    elseif ($value.StartsWith('\\?\', [StringComparison]::OrdinalIgnoreCase)) {
+        $value = $value.Substring(4)
+    }
+    $full = [IO.Path]::GetFullPath($value)
+    $root = [IO.Path]::GetPathRoot($full)
+    if ($full.Length -gt $root.Length) {
+        $full = $full.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    }
+    return $full
+}
+
 function Open-NxbWindowsEntryPinnedFile {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string]$Label
     )
 
-    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    $expected = ConvertFrom-NxbWindowsEntryFinalPath -Path ([IO.Path]::GetFullPath($Path))
+    $item = Get-Item -LiteralPath $expected -Force -ErrorAction Stop
     if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-        Fail-NxbWindowsEntryGitGuard "$Label must be a regular non-reparse file: $Path"
+        Fail-NxbWindowsEntryGitGuard "$Label must be a regular non-reparse file: $expected"
     }
+    $stream = $null
     try {
-        return [IO.File]::Open(
-            $Path,
+        $stream = [IO.File]::Open(
+            $expected,
             [IO.FileMode]::Open,
             [IO.FileAccess]::Read,
             [IO.FileShare]::Read
         )
+        $resolved = ConvertFrom-NxbWindowsEntryFinalPath -Path ([Nxb153WindowsEntryGitGuardNative]::GetFinalPath($stream.SafeFileHandle))
+        if (-not [string]::Equals($resolved, $expected, [StringComparison]::OrdinalIgnoreCase)) {
+            Fail-NxbWindowsEntryGitGuard "$Label resolved through redirected authority: expected '$expected', resolved '$resolved'"
+        }
+        return $stream
     }
     catch {
-        Fail-NxbWindowsEntryGitGuard "could not pin $Label with write/delete sharing withheld: $($_.Exception.Message)"
+        if ($null -ne $stream) { $stream.Dispose() }
+        Fail-NxbWindowsEntryGitGuard "could not pin $Label with canonical path and write/delete sharing withheld: $($_.Exception.Message)"
     }
 }
 
@@ -166,6 +191,7 @@ if ($null -eq ('Nxb153WindowsEntryGitGuardNative' -as [type])) {
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.Win32.SafeHandles;
 
 public static class Nxb153WindowsEntryGitGuardNative
@@ -186,6 +212,13 @@ public static class Nxb153WindowsEntryGitGuardNative
         uint dwFlagsAndAttributes,
         IntPtr hTemplateFile);
 
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetFinalPathNameByHandleW(
+        SafeFileHandle hFile,
+        StringBuilder lpszFilePath,
+        uint cchFilePath,
+        uint dwFlags);
+
     public static SafeFileHandle OpenDirectoryNoDeleteShare(string path)
     {
         SafeFileHandle handle = CreateFileW(
@@ -204,8 +237,83 @@ public static class Nxb153WindowsEntryGitGuardNative
         }
         return handle;
     }
+
+    public static string GetFinalPath(SafeFileHandle handle)
+    {
+        var builder = new StringBuilder(32768);
+        uint result = GetFinalPathNameByHandleW(handle, builder, (uint)builder.Capacity, 0);
+        if (result == 0)
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        if (result >= builder.Capacity)
+            throw new InvalidOperationException("Resolved path exceeds supported buffer.");
+        return builder.ToString();
+    }
 }
 '@
+}
+
+function Open-NxbWindowsEntryPinnedDirectory {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $expected = ConvertFrom-NxbWindowsEntryFinalPath -Path ([IO.Path]::GetFullPath($Path))
+    $item = Get-Item -LiteralPath $expected -Force -ErrorAction Stop
+    if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        Fail-NxbWindowsEntryGitGuard "$Label must be a normal non-reparse directory"
+    }
+    $handle = [Nxb153WindowsEntryGitGuardNative]::OpenDirectoryNoDeleteShare($expected)
+    try {
+        $resolved = ConvertFrom-NxbWindowsEntryFinalPath -Path ([Nxb153WindowsEntryGitGuardNative]::GetFinalPath($handle))
+        if (-not [string]::Equals($resolved, $expected, [StringComparison]::OrdinalIgnoreCase)) {
+            Fail-NxbWindowsEntryGitGuard "$Label resolved through redirected authority: expected '$expected', resolved '$resolved'"
+        }
+        return $handle
+    }
+    catch {
+        $handle.Dispose()
+        throw
+    }
+}
+
+function Open-NxbWindowsEntryPinnedHostTool {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $expected = ConvertFrom-NxbWindowsEntryFinalPath -Path ([IO.Path]::GetFullPath($Path))
+    $item = Get-Item -LiteralPath $expected -Force -ErrorAction Stop
+    if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        Fail-NxbWindowsEntryGitGuard "$Label executable must be a regular non-reparse file"
+    }
+    $directory = [IO.Path]::GetDirectoryName($expected)
+    if ([string]::IsNullOrWhiteSpace($directory)) {
+        Fail-NxbWindowsEntryGitGuard "$Label executable parent directory is unavailable"
+    }
+
+    $directoryHandle = $null
+    $stream = $null
+    try {
+        $directoryHandle = Open-NxbWindowsEntryPinnedDirectory -Path $directory -Label "$Label executable directory"
+        $stream = [IO.File]::Open($expected, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        $resolved = ConvertFrom-NxbWindowsEntryFinalPath -Path ([Nxb153WindowsEntryGitGuardNative]::GetFinalPath($stream.SafeFileHandle))
+        if (-not [string]::Equals($resolved, $expected, [StringComparison]::OrdinalIgnoreCase)) {
+            Fail-NxbWindowsEntryGitGuard "$Label executable resolved through redirected authority: expected '$expected', resolved '$resolved'"
+        }
+        return [pscustomobject]@{
+            Path = $expected
+            Directory = (ConvertFrom-NxbWindowsEntryFinalPath -Path ([IO.Path]::GetFullPath($directory)))
+            Stream = $stream
+            DirectoryHandle = $directoryHandle
+        }
+    }
+    catch {
+        if ($null -ne $stream) { $stream.Dispose() }
+        if ($null -ne $directoryHandle) { $directoryHandle.Dispose() }
+        throw
+    }
 }
 
 if (-not $IsWindows) {
@@ -267,14 +375,8 @@ switch -CaseSensitive ($entryName) {
 $innerRelative = "scripts/$innerName"
 $innerPath = Join-Path $PSScriptRoot $innerName
 $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
-$gitApplication = $gitCommand.Source
-$initialHead = Get-NxbWindowsEntryGitControlValue `
-    -GitPath $gitApplication `
-    -Arguments @('-C', $RepoRoot, 'rev-parse', 'HEAD') `
-    -Label 'initial exact Git HEAD'
-if ($initialHead -notmatch '^[0-9a-f]{40}$') {
-    Fail-NxbWindowsEntryGitGuard 'exact Git HEAD could not be resolved before bounded entry delegation'
-}
+$gitApplication = ConvertFrom-NxbWindowsEntryFinalPath -Path ([IO.Path]::GetFullPath([string]$gitCommand.Source))
+$initialHead = $null
 
 function Assert-NxbWindowsEntryCommittedFile {
     param(
@@ -391,16 +493,47 @@ $gitProxy = {
 $previousGlobalGit = Get-Item Function:\global:git -ErrorAction SilentlyContinue
 $previousGlobalGitScriptBlock = if ($null -ne $previousGlobalGit) { $previousGlobalGit.ScriptBlock } else { $null }
 $innerStream = $null
-$scriptsHandle = $null
+$namespaceHandles = [Collections.Generic.List[IDisposable]]::new()
+$gitAuthority = $null
 $primaryError = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
+$originalPath = [string]$env:PATH
+$pathWasRebound = $false
 
 try {
-    $scriptsItem = Get-Item -LiteralPath $canonicalScriptsRoot -Force -ErrorAction Stop
-    if (-not $scriptsItem.PSIsContainer -or ($scriptsItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-        Fail-NxbWindowsEntryGitGuard 'scripts namespace must be a normal non-reparse directory'
+    $gitAuthority = Open-NxbWindowsEntryPinnedHostTool -Path $gitApplication -Label 'host Git'
+    $gitApplication = [string]$gitAuthority.Path
+    $gitProxyApplication = $gitApplication
+
+    if ([string]::IsNullOrEmpty($originalPath)) {
+        $env:PATH = [string]$gitAuthority.Directory
     }
-    $scriptsHandle = [Nxb153WindowsEntryGitGuardNative]::OpenDirectoryNoDeleteShare($canonicalScriptsRoot)
+    else {
+        $env:PATH = ([string]$gitAuthority.Directory) + [IO.Path]::PathSeparator + $originalPath
+    }
+    $pathWasRebound = $true
+
+    $resolvedGit = Get-Command git -CommandType Application -ErrorAction Stop
+    $resolvedGitPath = ConvertFrom-NxbWindowsEntryFinalPath -Path ([IO.Path]::GetFullPath([string]$resolvedGit.Source))
+    if (-not [string]::Equals($resolvedGitPath, $gitApplication, [StringComparison]::OrdinalIgnoreCase)) {
+        Fail-NxbWindowsEntryGitGuard "nested Git resolution differs from pinned host Git: expected '$gitApplication', resolved '$resolvedGitPath'"
+    }
+
+    $initialHead = Get-NxbWindowsEntryGitControlValue `
+        -GitPath $gitApplication `
+        -Arguments @('-C', $RepoRoot, 'rev-parse', 'HEAD') `
+        -Label 'initial exact Git HEAD'
+    if ($initialHead -notmatch '^[0-9a-f]{40}$') {
+        Fail-NxbWindowsEntryGitGuard 'exact Git HEAD could not be resolved before bounded entry delegation'
+    }
+
+    foreach ($entry in @(
+        [pscustomobject]@{ Path = $RepoRoot; Label = 'repository root' },
+        [pscustomobject]@{ Path = $canonicalScriptsRoot; Label = 'scripts namespace' }
+    )) {
+        $namespaceHandles.Add((Open-NxbWindowsEntryPinnedDirectory -Path $entry.Path -Label $entry.Label))
+    }
+
     $innerStream = Open-NxbWindowsEntryPinnedFile -Path $innerPath -Label "$entryName preserved inner implementation"
     [void](Assert-NxbWindowsEntryCommittedFile -Stream $innerStream -RelativePath $innerRelative -Label "$entryName preserved inner implementation")
 
@@ -486,9 +619,19 @@ finally {
         try { $innerStream.Dispose() }
         catch { $cleanupErrors.Add("inner implementation handle disposal failed: $($_.Exception.Message)") }
     }
-    if ($null -ne $scriptsHandle) {
-        try { $scriptsHandle.Dispose() }
-        catch { $cleanupErrors.Add("scripts namespace handle disposal failed: $($_.Exception.Message)") }
+    for ($index = $namespaceHandles.Count - 1; $index -ge 0; $index--) {
+        try { $namespaceHandles[$index].Dispose() }
+        catch { $cleanupErrors.Add("entry namespace handle disposal failed at index ${index}: $($_.Exception.Message)") }
+    }
+    if ($pathWasRebound) {
+        try { $env:PATH = $originalPath }
+        catch { $cleanupErrors.Add("host PATH restoration failed: $($_.Exception.Message)") }
+    }
+    if ($null -ne $gitAuthority) {
+        try { $gitAuthority.Stream.Dispose() }
+        catch { $cleanupErrors.Add("pinned host Git file disposal failed: $($_.Exception.Message)") }
+        try { $gitAuthority.DirectoryHandle.Dispose() }
+        catch { $cleanupErrors.Add("pinned host Git directory disposal failed: $($_.Exception.Message)") }
     }
 }
 
