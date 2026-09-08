@@ -18,7 +18,7 @@ No supported Windows/NTFS/PowerShell runtime PASS is claimed. Historical blobs a
 - host-Git lifetime probe -> `5b12134f18cb6a71efde0d06b0622ec170269401`;
 - complete Windows admission -> `b2b5cdec1a24b92e34d2397c9567e2cc4c2e3a98`;
 - Windows validator inner -> `d32246838e9a7445fa87aafec85c32ebd6416d8a`;
-- Windows validator fixed-output source contract -> `58b13d37c15cc02810fde8a48f4df0fe69c22d30`;
+- Windows validator fixed-output source contract -> `93bb0bf9e131fd30bfb7fbc700589f36c99b006c`;
 - Windows semantic-review inner -> `4a295b77323b3b4c43075c39c50800e50577dbc9`.
 
 ## Pre-Git ambient authority
@@ -157,11 +157,15 @@ The validator resolves `rustup` with `Get-Command rustup -CommandType Applicatio
 
 Cross-platform source regression authority:
 
-`crates/nxb-core/tests/windows_validator_fixed_output_source_contract.rs` -> `58b13d37c15cc02810fde8a48f4df0fe69c22d30`
+`crates/nxb-core/tests/windows_validator_fixed_output_source_contract.rs` -> `93bb0bf9e131fd30bfb7fbc700589f36c99b006c`
 
-That `std`-only Rust integration test verifies the production constants/helper shape, rejects `Out-String`/`ReadToEndAsync`/`ReadLineAsync`/parameterless `WaitForExit()`, requires bounded tool/rustc/cargo call paths and asserts that bounded version setup precedes the first H2 delegation. Canonical Linux immutable validation and Windows dependency validation both run the workspace test suite, so this source contract participates in both full Rust paths.
+The first `std`-only Rust integration test verifies the production constants/helper shape, rejects `Out-String`/`ReadToEndAsync`/`ReadLineAsync`/parameterless `WaitForExit()`, requires bounded tool/rustc/cargo call paths and asserts that bounded version setup precedes the first H2 delegation.
 
-This is source-level regression evidence only. Supported-Windows dynamic version-output timeout, oversize, invalid-UTF8, nonzero and cleanup behavior remains mandatory.
+The second test reads both the validator and preparation PowerShell sources, extracts each complete `Invoke-NxbBoundedFixedOutput` source region and requires those regions to be source-identical while both retain the same **4096 / 30000 / 30000** constants.
+
+This closes a regression-evidence gap without duplicating a second dynamic probe: the exact-head Windows tool-version probe dynamically executes the preparation helper, while the Rust workspace test refuses any validator helper that drifts from that dynamically exercised source primitive. Canonical Linux immutable validation and Windows dependency validation both run the workspace test suite, so this equivalence gate participates in both full Rust paths.
+
+This remains source-level inheritance evidence only. Supported-Windows dynamic validator execution is mandatory because executable/path identity, PowerShell/.NET semantics, surrounding pin lifetimes and actual timeout/cleanup behavior remain runtime properties.
 
 ## Windows semantic-review output authority
 
@@ -186,7 +190,7 @@ Current source hardens:
 - bounded process-probe JSON;
 - process-evidence and admission Git-control authority;
 - preparation tool-version fixed-output behavior;
-- validator pre-H2 rustc/cargo/security-tool version capture;
+- validator pre-H2 rustc/cargo/security-tool version capture plus helper equivalence to the dynamically probed primitive;
 - semantic reviewer output retention.
 
 This source review does **not** replace supported Windows execution.
@@ -202,7 +206,7 @@ Exact-head Windows/NTFS/PowerShell evidence must still prove:
 - 4 KiB control-plane timeout/limit/nonzero cleanup;
 - 64 MiB / 4,096-record delegated Git timeout/limit behavior and nesting/restoration;
 - preparation and validator fixed-output normal/oversize/invalid-UTF8/nonzero/stall/post-output-exit/recursive-cleanup behavior;
-- validator source regression test under pinned Rust 1.97.1;
+- both validator source-regression tests under pinned Rust 1.97.1;
 - process writer 64 KiB JSON ceiling and stalled-output cleanup;
 - process reviewer/admission fixed-output Git behavior;
 - semantic-review 64 KiB / 4,096-record behavior on both passes;
