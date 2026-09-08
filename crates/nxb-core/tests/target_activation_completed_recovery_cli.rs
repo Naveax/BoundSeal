@@ -300,3 +300,37 @@ fn disable_receipt_blocks_completed_activation_recovery_without_mutation() {
 
     fs::remove_dir_all(fixture.root).unwrap();
 }
+
+#[test]
+fn visible_profile_with_leftover_publication_link_recovers_without_rollback_mutation() {
+    let fixture = completed_fixture("leftover-publication-link");
+    let profile = profile_path(&fixture.root);
+    let leftover = fixture
+        .root
+        .join("targets")
+        .join(".example-app.json.recovery-fixture.tmp");
+    fs::hard_link(&profile, &leftover).unwrap();
+    let leftover_before = fs::read(&leftover).unwrap();
+
+    let recovered = run_json(&fixture.arguments);
+    let recovered_identity = recovered
+        .get("identity_sha256")
+        .and_then(Value::as_str)
+        .unwrap();
+    let persisted: Value = serde_json::from_slice(&fixture.profile_bytes).unwrap();
+    assert_eq!(
+        Some(recovered_identity),
+        persisted.get("identity_sha256").and_then(Value::as_str)
+    );
+    assert_eq!(
+        fs::read(&profile).unwrap(),
+        fixture.profile_bytes
+    );
+    assert_eq!(
+        fs::read(artifact_path(&fixture.root)).unwrap(),
+        fixture.artifact_bytes
+    );
+    assert_eq!(fs::read(&leftover).unwrap(), leftover_before);
+
+    fs::remove_dir_all(fixture.root).unwrap();
+}
