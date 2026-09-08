@@ -145,6 +145,49 @@ function Open-NxbPinnedDirectory {
     }
 }
 
+function Open-NxbPinnedHostTool {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $expected = ConvertFrom-NxbFinalPath -Path ([IO.Path]::GetFullPath($Path))
+    if (-not (Test-Path -LiteralPath $expected -PathType Leaf)) {
+        Fail-NxbProcessEvidence "$Label executable is missing: $expected"
+    }
+    $item = Get-Item -LiteralPath $expected -Force
+    if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        Fail-NxbProcessEvidence "$Label executable must be a regular non-reparse file"
+    }
+
+    $directory = [IO.Path]::GetDirectoryName($expected)
+    if ([string]::IsNullOrWhiteSpace($directory)) {
+        Fail-NxbProcessEvidence "$Label executable parent directory is unavailable"
+    }
+
+    $directoryHandle = $null
+    $stream = $null
+    try {
+        $directoryHandle = Open-NxbPinnedDirectory -Path $directory -Label "$Label executable directory"
+        $stream = [IO.File]::Open($expected, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        $resolved = ConvertFrom-NxbFinalPath -Path ([Nxb153ProcessEvidenceWriterNative]::GetFinalPath($stream.SafeFileHandle))
+        if (-not [string]::Equals($resolved, $expected, [StringComparison]::OrdinalIgnoreCase)) {
+            Fail-NxbProcessEvidence "$Label executable resolved through redirected authority: expected '$expected', resolved '$resolved'"
+        }
+        return [pscustomobject]@{
+            Path = $expected
+            Directory = (ConvertFrom-NxbFinalPath -Path ([IO.Path]::GetFullPath($directory)))
+            Stream = $stream
+            DirectoryHandle = $directoryHandle
+        }
+    }
+    catch {
+        if ($null -ne $stream) { $stream.Dispose() }
+        if ($null -ne $directoryHandle) { $directoryHandle.Dispose() }
+        throw
+    }
+}
+
 function Invoke-NxbBoundedProcessOutput {
     param(
         [Parameter(Mandatory = $true)][string]$Executable,
@@ -316,19 +359,40 @@ if ($ProbeIoTimeoutMilliseconds -ne 1000 -or $ProbeExitTimeoutMilliseconds -ne 1
 }
 
 $RepoRoot = [IO.Path]::GetFullPath($RepoRoot)
-$git = Get-Command git -CommandType Application -ErrorAction Stop
-$gitPath = $git.Source
-$headSha = Get-NxbGitValue -GitPath $gitPath -Arguments @('-C', $RepoRoot, 'rev-parse', 'HEAD') -Label 'exact Git HEAD'
-if ($headSha -notmatch '^[0-9a-f]{40}$') {
-    Fail-NxbProcessEvidence 'exact Git HEAD is not canonical 40-hex SHA-1'
-}
-
 $namespaceHandles = [Collections.Generic.List[IDisposable]]::new()
 $sourceAuthorities = [Collections.Generic.List[object]]::new()
 $cleanupErrors = [Collections.Generic.List[string]]::new()
 $primaryFailure = $null
 $evidencePath = $null
+$gitAuthority = $null
+$gitPath = $null
+$headSha = $null
+$originalPath = [string]$env:PATH
+$pathWasRebound = $false
 try {
+    $git = Get-Command git -CommandType Application -ErrorAction Stop
+    $gitAuthority = Open-NxbPinnedHostTool -Path ([string]$git.Source) -Label 'host Git'
+    $gitPath = [string]$gitAuthority.Path
+
+    if ([string]::IsNullOrEmpty($originalPath)) {
+        $env:PATH = [string]$gitAuthority.Directory
+    }
+    else {
+        $env:PATH = ([string]$gitAuthority.Directory) + [IO.Path]::PathSeparator + $originalPath
+    }
+    $pathWasRebound = $true
+
+    $resolvedGit = Get-Command git -CommandType Application -ErrorAction Stop
+    $resolvedGitPath = ConvertFrom-NxbFinalPath -Path ([IO.Path]::GetFullPath([string]$resolvedGit.Source))
+    if (-not [string]::Equals($resolvedGitPath, $gitPath, [StringComparison]::OrdinalIgnoreCase)) {
+        Fail-NxbProcessEvidence "probe Git resolution differs from the pinned host Git: expected '$gitPath', resolved '$resolvedGitPath'"
+    }
+
+    $headSha = Get-NxbGitValue -GitPath $gitPath -Arguments @('-C', $RepoRoot, 'rev-parse', 'HEAD') -Label 'exact Git HEAD'
+    if ($headSha -notmatch '^[0-9a-f]{40}$') {
+        Fail-NxbProcessEvidence 'exact Git HEAD is not canonical 40-hex SHA-1'
+    }
+
     $scriptsDirectory = Join-Path $RepoRoot 'scripts'
     $targetDirectory = Join-Path $RepoRoot 'target'
     $validationDirectory = Join-Path $targetDirectory 'nxb-validation'
@@ -505,6 +569,16 @@ finally {
     for ($index = $namespaceHandles.Count - 1; $index -ge 0; $index--) {
         try { $namespaceHandles[$index].Dispose() }
         catch { $cleanupErrors.Add("namespace handle disposal failed at index $index: $($_.Exception.Message)") }
+    }
+    if ($pathWasRebound) {
+        try { $env:PATH = $originalPath }
+        catch { $cleanupErrors.Add("host PATH restoration failed: $($_.Exception.Message)") }
+    }
+    if ($null -ne $gitAuthority) {
+        try { $gitAuthority.Stream.Dispose() }
+        catch { $cleanupErrors.Add("pinned host Git file disposal failed: $($_.Exception.Message)") }
+        try { $gitAuthority.DirectoryHandle.Dispose() }
+        catch { $cleanupErrors.Add("pinned host Git directory disposal failed: $($_.Exception.Message)") }
     }
 }
 
