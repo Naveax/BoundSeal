@@ -40,7 +40,11 @@ fn create_document_transient_recognizer_and_target_quarantine_remain_fail_closed
         );
     }
 
-    let count_start = required_index(&workspace, "fn count_regular_files(path: &Path)", WORKSPACE_PATH);
+    let count_start = required_index(
+        &workspace,
+        "fn count_regular_files(path: &Path)",
+        WORKSPACE_PATH,
+    );
     let count_body = &workspace[count_start..];
     let transient_filter = required_index(
         count_body,
@@ -55,9 +59,7 @@ fn create_document_transient_recognizer_and_target_quarantine_remain_fail_closed
 
     let target = source(TARGET_PATH);
     assert!(
-        target.contains(
-            "const MAX_TARGET_DIRECTORY_ENTRIES: usize = MAX_TARGET_PROFILES * 4;"
-        ),
+        target.contains("const MAX_TARGET_DIRECTORY_ENTRIES: usize = MAX_TARGET_PROFILES * 4;"),
         "{TARGET_PATH}: bounded target directory-entry budget is missing"
     );
     let load_start = required_index(&target, "fn load_profiles(", TARGET_PATH);
@@ -90,7 +92,12 @@ fn create_document_transient_recognizer_and_target_quarantine_remain_fail_closed
         "{TARGET_PATH}: transient quarantine must occur only after path/type/private-permission and bounded entry accounting, before canonical record admission"
     );
 
-    for forbidden in ["remove_file(", "remove_regular(", "replace_document(", "fs::rename("] {
+    for forbidden in [
+        "remove_file(",
+        "remove_regular(",
+        "replace_document(",
+        "fs::rename(",
+    ] {
         assert!(
             !load.contains(forbidden),
             "{TARGET_PATH}: target enumeration must quarantine, never mutate, transient residue: {forbidden}"
