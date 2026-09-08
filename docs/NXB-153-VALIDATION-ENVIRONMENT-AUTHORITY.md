@@ -171,17 +171,40 @@ The canonical review wrapper:
 
 Thus the review host must itself satisfy the selected-host Bash startup/function primitive before object-anchored evidence review can succeed.
 
+## Pre-Git authority boundary on Windows
+
+The same ordering rule applies on Windows: pinning the selected `git.exe` cannot make an earlier Git invocation safe if the child inherits ambient repository/object/config authority.
+
+Current source-staged Windows authority surfaces reject every environment-variable name beginning with `GIT_`, case-insensitively, before their first exact-head Git operation:
+
+- `scripts/prepare-and-validate-nxb-153-windows.ps1`;
+- `scripts/validate-nxb-153-windows.ps1`;
+- `scripts/review-nxb-153-evidence-windows.ps1`;
+- `scripts/record-nxb-153-windows-process-lifecycle-evidence.ps1`;
+- `scripts/review-nxb-153-windows-admission.ps1`;
+- `scripts/review-nxb-153-windows-admission-complete.ps1`;
+- `scripts/nxb-153-windows-host-git-lifetime-probe.ps1`.
+
+These early PowerShell gates report names only, never values. They exist before `rev-parse HEAD`, exact-head object lookup or working-tree hashing. The shared Python environment helper later repeats the complete `GIT_*` family rejection before deeper validation work.
+
+Canonical Windows Git-output/lifetime details and current exact blobs are documented in:
+
+`docs/NXB-153-WINDOWS-ENTRY-GIT-OUTPUT-AUTHORITY.md`
+
 ## Windows preparation
 
 Canonical entrypoint:
 
 `scripts/prepare-and-validate-nxb-153-windows.ps1`
 
-Windows preparation performs the existing case-insensitive forbidden compiler/Cargo/Python/native-build audit before repository/tool preparation reaches any `rustup` or Cargo installation step. The shared helper now also rejects `GIT_*`; Windows canonical Git pathname/lifetime authority remains separately governed by the Windows pinned-host-Git controls.
+Windows preparation now performs two distinct source-staged environment boundaries:
+
+1. the canonical outer PowerShell entry rejects ambient `GIT_*`, case-insensitively, before its first exact-head Git operation;
+2. after exact-head authority is established, the existing pre-Python/compiler/Cargo/Python/native-build policy and exact-head shared helper audit continue to reject later ambient authority before `rustup` or Cargo preparation reaches heavy tool mutation.
 
 The Bash startup subprocess controls are Linux-only and therefore do not add a Bash dependency to the PowerShell-only Windows path. Bash-specific variable names remain part of the cross-platform forbidden-name policy.
 
-The PowerShell implementation intentionally duplicates the small pre-Python name policy rather than invoking Python before Python authority has itself been constrained. Exact-final-head Windows runtime review must confirm that its duplicated pre-Python policy remains aligned with the helper's current `GIT_*` strengthening before admission.
+The early Windows `GIT_*` gate is now source-aligned across the canonical outer entry, process-evidence writer, subordinate/complete admission and host-Git lifetime probe. Runtime admission must still prove those controls on supported Windows rather than infer correctness from source text.
 
 ## Windows validation/dependency gates
 
@@ -203,17 +226,19 @@ The v2 environment policy consequently rejects the relevant `cc`/compiler flag f
 
 ## Remaining acceptance
 
-The environment policy and Linux startup primitive are not final admission by themselves. Exact final-head platform evidence must still prove:
+The environment policy and source guards are not final admission by themselves. Exact final-head platform evidence must still prove:
 
 - all canonical Linux privileged entrypoints parse and execute correctly under the supported Bash host;
 - direct invocation without privileged Bash fails closed for every canonical privileged entrypoint;
 - representative `GIT_DIR`, object-directory/alternate-object and config-injection variables are rejected before the first exact-head Git operation on every canonical Linux entrypoint;
-- clean exact-head Git resolution/object lookup remains unchanged after the pre-Git gate;
+- clean exact-head Git resolution/object lookup remains unchanged after the Linux pre-Git gate;
 - the exact-final-head environment helper self-test actually executes successfully in preparation, outer validation, immutable-source entry and standalone evidence review;
 - representative real canonical-flow `BASH_ENV` and exported-function injection cannot influence preparation/validation/review before the audit;
 - the intended self-removing trusted `cp` shim is the only function authority admitted across the immutable-source non-privileged H2 transition;
 - nested H1/H2 Bash children remain compatible with the privileged-Bash child authority;
-- Windows PowerShell environment guard parses and rejects representative exact/prefix/case-variant variables, including the strengthened Git authority family where applicable, on supported Windows;
+- representative `GIT_DIR`, `GIT_WORK_TREE`, object-directory/alternate-object and `GIT_CONFIG_*` variables are rejected before the first exact-head Git operation on every canonical Windows authority surface listed above;
+- clean supported-Windows execution still resolves the intended exact HEAD/object database after the pre-Git gate;
+- Windows PowerShell environment guard parses and rejects representative exact/prefix/case-variant compiler/Cargo/Python/native-build variables after exact-head authority is established;
 - Windows Python 3.11+ isolated-mode invocations work in the canonical dependency flow;
 - supported host SDK/toolchain discovery still works with allowed host variables;
 - no rejected ambient Git/compiler/Cargo/Python/native-build/Bash variable is silently reintroduced before a heavy gate;
