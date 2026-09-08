@@ -8,6 +8,11 @@ fail() {
 
 [[ "$-" == *p* ]] || fail 'Linux entry blob authority probe requires privileged Bash mode (-p)'
 
+nxb_guard_git_environment=("${!GIT_@}")
+[[ "${#nxb_guard_git_environment[@]}" -eq 0 ]] ||
+    fail "ambient Git authority variables are not admitted before exact-head resolution: ${nxb_guard_git_environment[*]}"
+builtin unset nxb_guard_git_environment
+
 capture_blob_exact() {
     local git_path="$1" object="$2" output_name="$3"
     local payload sentinel=$'\036' captured_object
@@ -140,6 +145,10 @@ for relative in "${wrappers[@]}"; do
         fail "wrapper does not request privileged Bash in its direct-exec shebang: $relative"
     [[ "$source_text" == *'[[ "$-" == *p* ]]'* ]] ||
         fail "wrapper does not require privileged Bash mode at runtime: $relative"
+    [[ "$source_text" == *'nxb_guard_git_environment=("${!GIT_@}")'* ]] ||
+        fail "wrapper does not reject ambient Git authority before exact-head resolution: $relative"
+    [[ "$source_text" == *'ambient Git authority variables are not admitted before exact-head resolution'* ]] ||
+        fail "wrapper is missing the pre-Git authority rejection contract: $relative"
     [[ "$source_text" != *'source <('* ]] ||
         fail "wrapper retained process-substitution source delegation: $relative"
     [[ "$source_text" == *'hash-object --stdin'* ]] ||
@@ -177,6 +186,10 @@ capture_blob_exact "$git_application" "$immutable_object" immutable_source ||
     fail 'immutable-source runner does not request privileged Bash in its direct-exec shebang'
 [[ "$immutable_source" == *'[[ "$-" == *p* ]]'* ]] ||
     fail 'immutable-source runner does not require privileged Bash mode at runtime'
+[[ "$immutable_source" == *'nxb_guard_git_environment=("${!GIT_@}")'* ]] ||
+    fail 'immutable-source runner does not reject ambient Git authority before exact-head resolution'
+[[ "$immutable_source" == *'ambient Git authority variables are not admitted before exact-head resolution'* ]] ||
+    fail 'immutable-source runner is missing the pre-Git authority rejection contract'
 [[ "$immutable_source" == *'hash-object --stdin'* ]] ||
     fail 'immutable-source runner is missing captured-byte Git object verification'
 [[ "$immutable_source" == *"'scripts/nxb-153-validation-environment.py'"* ]] ||
