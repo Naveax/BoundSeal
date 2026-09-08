@@ -41,9 +41,9 @@ Canonical runner:
 
 `scripts/nxb-153-linux-immutable-source.sh`
 
-Current runner blob at the source head preceding the documentation-only authority updates:
+Current exact-head runner blob:
 
-`57e99472b09a291479f84c8e73fd1c56b1309837`
+`917d186f77d157b41ce9293d949690184656d19c`
 
 ### Entry, environment and representation authority
 
