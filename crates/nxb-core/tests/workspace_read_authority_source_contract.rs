@@ -52,6 +52,11 @@ fn workspace_read_document_delegates_to_pinned_authority() {
 #[test]
 fn linux_read_authority_is_no_follow_same_handle_and_identity_bound() {
     let authority = source(READ_AUTHORITY_PATH);
+    let production = authority
+        .split("#[cfg(all(test, target_os = \"linux\"))]")
+        .next()
+        .expect("read-authority production boundary is missing");
+
     for marker in [
         "const O_NOFOLLOW: i32 = 0o400000;",
         ".custom_flags(O_NOFOLLOW)",
@@ -66,31 +71,35 @@ fn linux_read_authority_is_no_follow_same_handle_and_identity_bound() {
         "validate_platform_authority(path, final_metadata, label)",
     ] {
         assert!(
-            authority.contains(marker),
+            production.contains(marker),
             "{READ_AUTHORITY_PATH}: missing Linux/same-handle authority marker: {marker}"
         );
     }
 
     let open = index(
-        &authority,
+        production,
         "let mut file = open_document_authority(path, label)?;",
         READ_AUTHORITY_PATH,
     );
-    let initial = index(&authority, "let initial = file", READ_AUTHORITY_PATH);
+    let initial = index(production, "let initial = file", READ_AUTHORITY_PATH);
     let validate = index(
-        &authority,
+        production,
         "validate_platform_authority(path, &initial, label)?;",
         READ_AUTHORITY_PATH,
     );
-    let read = index(&authority, "(&mut file)", READ_AUTHORITY_PATH);
-    let final_metadata = index(&authority, "let final_metadata = file", READ_AUTHORITY_PATH);
+    let read = index(production, "(&mut file)", READ_AUTHORITY_PATH);
+    let final_metadata = index(production, "let final_metadata = file", READ_AUTHORITY_PATH);
     let stability = index(
-        &authority,
+        production,
         "validate_platform_stability(path, &initial, &final_metadata, label)?;",
         READ_AUTHORITY_PATH,
     );
     assert!(
-        open < initial && initial < validate && validate < read && read < final_metadata && final_metadata < stability,
+        open < initial
+            && initial < validate
+            && validate < read
+            && read < final_metadata
+            && final_metadata < stability,
         "{READ_AUTHORITY_PATH}: opened-handle validation/read/stability ordering changed"
     );
 
@@ -102,7 +111,7 @@ fn linux_read_authority_is_no_follow_same_handle_and_identity_bound() {
         "replace_document(",
     ] {
         assert!(
-            !authority.contains(forbidden),
+            !production.contains(forbidden),
             "{READ_AUTHORITY_PATH}: read authority must not re-open or mutate by pathname: {forbidden}"
         );
     }
@@ -124,6 +133,14 @@ fn windows_read_authority_pins_reparse_and_share_lifetime() {
             "{WINDOWS_PATH}: missing pinned Windows read authority marker: {marker}"
         );
     }
+    assert!(
+        !windows.contains("const FILE_SHARE_WRITE"),
+        "{WINDOWS_PATH}: pinned read authority must not admit write sharing"
+    );
+    assert!(
+        !windows.contains("const FILE_SHARE_DELETE"),
+        "{WINDOWS_PATH}: pinned read authority must not admit delete/rename sharing"
+    );
 
     let authority = source(READ_AUTHORITY_PATH);
     for marker in [
