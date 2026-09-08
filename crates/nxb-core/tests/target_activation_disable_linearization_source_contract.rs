@@ -25,7 +25,10 @@ fn required_index(text: &str, needle: &str) -> usize {
 fn guided_activation_linearizes_active_result_after_disable_receipt_checks() {
     let text = activation_source();
 
-    let helper_start = required_index(&text, "fn ensure_target_not_disabled(disable_path: &Path)");
+    let helper_start = required_index(
+        &text,
+        "fn ensure_target_not_disabled(disable_path: &Path)",
+    );
     let helper_end_relative = text[helper_start..]
         .find("\n}\n\n#[allow(clippy::too_many_arguments)]")
         .expect("disable helper boundary is missing");
