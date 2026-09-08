@@ -13,6 +13,116 @@ function Fail-NxbWindowsAdmission {
     throw "NXB-153 Windows admission review failed: $Message"
 }
 
+if ($null -eq ('Nxb153WindowsAdmissionNative' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
+
+public static class Nxb153WindowsAdmissionNative
+{
+    private const uint GENERIC_READ = 0x80000000;
+    private const uint FILE_SHARE_READ = 0x00000001;
+    private const uint FILE_SHARE_WRITE = 0x00000002;
+    private const uint OPEN_EXISTING = 3;
+    private const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeFileHandle CreateFileW(
+        string lpFileName,
+        uint dwDesiredAccess,
+        uint dwShareMode,
+        IntPtr lpSecurityAttributes,
+        uint dwCreationDisposition,
+        uint dwFlagsAndAttributes,
+        IntPtr hTemplateFile);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetFinalPathNameByHandleW(
+        SafeFileHandle hFile,
+        StringBuilder lpszFilePath,
+        uint cchFilePath,
+        uint dwFlags);
+
+    public static SafeFileHandle OpenDirectoryNoDeleteShare(string path)
+    {
+        SafeFileHandle handle = CreateFileW(
+            path,
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            IntPtr.Zero,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            int error = Marshal.GetLastWin32Error();
+            handle.Dispose();
+            throw new Win32Exception(error, "CreateFileW failed for " + path);
+        }
+        return handle;
+    }
+
+    public static string GetFinalPath(SafeFileHandle handle)
+    {
+        var builder = new StringBuilder(32768);
+        uint result = GetFinalPathNameByHandleW(handle, builder, (uint)builder.Capacity, 0);
+        if (result == 0)
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        if (result >= builder.Capacity)
+            throw new InvalidOperationException("Resolved path exceeds supported buffer.");
+        return builder.ToString();
+    }
+}
+'@
+}
+
+function ConvertFrom-NxbFinalPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $value = $Path
+    if ($value.StartsWith('\\?\UNC\', [StringComparison]::OrdinalIgnoreCase)) {
+        $value = '\\' + $value.Substring(8)
+    }
+    elseif ($value.StartsWith('\\?\', [StringComparison]::OrdinalIgnoreCase)) {
+        $value = $value.Substring(4)
+    }
+    $full = [IO.Path]::GetFullPath($value)
+    $root = [IO.Path]::GetPathRoot($full)
+    if ($full.Length -gt $root.Length) {
+        $full = $full.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    }
+    return $full
+}
+
+function Open-NxbPinnedDirectory {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    $expected = ConvertFrom-NxbFinalPath -Path ([IO.Path]::GetFullPath($Path))
+    if (-not (Test-Path -LiteralPath $expected -PathType Container)) {
+        Fail-NxbWindowsAdmission "$Label is missing: $expected"
+    }
+    $item = Get-Item -LiteralPath $expected -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        Fail-NxbWindowsAdmission "$Label must not be a reparse point"
+    }
+    $handle = [Nxb153WindowsAdmissionNative]::OpenDirectoryNoDeleteShare($expected)
+    try {
+        $resolved = ConvertFrom-NxbFinalPath -Path ([Nxb153WindowsAdmissionNative]::GetFinalPath($handle))
+        if (-not [string]::Equals($resolved, $expected, [StringComparison]::OrdinalIgnoreCase)) {
+            Fail-NxbWindowsAdmission "$Label resolved through redirected authority: expected '$expected', resolved '$resolved'"
+        }
+        return $handle
+    }
+    catch {
+        $handle.Dispose()
+        throw
+    }
+}
+
 function Get-NxbGitValue {
     param(
         [Parameter(Mandatory = $true)][string]$GitPath,
@@ -100,6 +210,11 @@ function Open-NxbPinnedExactHeadScript {
     $stream = $null
     try {
         $stream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        $expectedPath = ConvertFrom-NxbFinalPath -Path ([IO.Path]::GetFullPath($path))
+        $resolvedPath = ConvertFrom-NxbFinalPath -Path ([Nxb153WindowsAdmissionNative]::GetFinalPath($stream.SafeFileHandle))
+        if (-not [string]::Equals($resolvedPath, $expectedPath, [StringComparison]::OrdinalIgnoreCase)) {
+            Fail-NxbWindowsAdmission "admission script resolved through redirected authority: expected '$expectedPath', resolved '$resolvedPath'"
+        }
         $expected = Get-NxbGitValue -GitPath $GitPath -Arguments @('-C', $RepoRoot, 'rev-parse', "${HeadSha}:$RelativePath") -Label "Git object for $RelativePath"
         $actual = Get-NxbGitValue -GitPath $GitPath -Arguments @('-C', $RepoRoot, 'hash-object', '--', $path) -Label "working-tree object for $RelativePath"
         if ($expected -notmatch '^[0-9a-f]{40}$' -or $actual -cne $expected) {
@@ -172,6 +287,7 @@ if ($headSha -notmatch '^[0-9a-f]{40}$') {
     Fail-NxbWindowsAdmission 'exact Git HEAD is not canonical 40-hex SHA-1'
 }
 
+$namespaceHandles = [Collections.Generic.List[IDisposable]]::new()
 $authorities = [Collections.Generic.List[object]]::new()
 $toolVersionProbeOutput = @()
 $processReviewOutput = @()
@@ -179,6 +295,13 @@ $mainReviewOutput = @()
 $primaryFailure = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
 try {
+    foreach ($entry in @(
+        [pscustomobject]@{ Path = $RepoRoot; Label = 'repository root' },
+        [pscustomobject]@{ Path = $canonicalScripts; Label = 'scripts directory' }
+    )) {
+        $namespaceHandles.Add((Open-NxbPinnedDirectory -Path $entry.Path -Label $entry.Label))
+    }
+
     foreach ($relative in @(
         'scripts/review-nxb-153-windows-admission.ps1',
         'scripts/review-nxb-153-windows-process-lifecycle-evidence.ps1',
@@ -231,6 +354,10 @@ finally {
     for ($index = $authorities.Count - 1; $index -ge 0; $index--) {
         try { $authorities[$index].Stream.Dispose() }
         catch { $cleanupErrors.Add("pinned admission script disposal failed: $($authorities[$index].RelativePath): $($_.Exception.Message)") }
+    }
+    for ($index = $namespaceHandles.Count - 1; $index -ge 0; $index--) {
+        try { $namespaceHandles[$index].Dispose() }
+        catch { $cleanupErrors.Add("pinned admission namespace disposal failed at index ${index}: $($_.Exception.Message)") }
     }
 }
 
