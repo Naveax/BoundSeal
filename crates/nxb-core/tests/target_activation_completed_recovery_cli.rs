@@ -308,7 +308,7 @@ fn visible_profile_with_leftover_publication_link_recovers_without_rollback_muta
     let leftover = fixture
         .root
         .join("targets")
-        .join(".example-app.json.recovery-fixture.tmp");
+        .join(".example-app.json.0123456789abcdef01234567.tmp");
     fs::hard_link(&profile, &leftover).unwrap();
     let leftover_before = fs::read(&leftover).unwrap();
 
@@ -322,13 +322,36 @@ fn visible_profile_with_leftover_publication_link_recovers_without_rollback_muta
         Some(recovered_identity),
         persisted.get("identity_sha256").and_then(Value::as_str)
     );
-    assert_eq!(
-        fs::read(&profile).unwrap(),
-        fixture.profile_bytes
-    );
+    assert_eq!(fs::read(&profile).unwrap(), fixture.profile_bytes);
     assert_eq!(
         fs::read(artifact_path(&fixture.root)).unwrap(),
         fixture.artifact_bytes
+    );
+    assert_eq!(fs::read(&leftover).unwrap(), leftover_before);
+
+    let listed = run_json(&[
+        "target".into(),
+        "list".into(),
+        "--workspace".into(),
+        fixture.root.to_string_lossy().into_owned(),
+        "--json".into(),
+    ]);
+    assert_eq!(listed.get("count").and_then(Value::as_u64), Some(1));
+    assert_eq!(
+        listed.pointer("/targets/0/target_id").and_then(Value::as_str),
+        Some("example-app")
+    );
+
+    let status = run_json(&[
+        "workspace".into(),
+        "status".into(),
+        "--workspace".into(),
+        fixture.root.to_string_lossy().into_owned(),
+        "--json".into(),
+    ]);
+    assert_eq!(
+        status.pointer("/records/targets").and_then(Value::as_u64),
+        Some(1)
     );
     assert_eq!(fs::read(&leftover).unwrap(), leftover_before);
 
