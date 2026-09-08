@@ -50,6 +50,7 @@ A guard that runs only after `rev-parse HEAD` is therefore too late. The selecte
 Current source-staged Windows surfaces reject the complete `GIT_*` name family, case-insensitively, before their first exact-head Git operation:
 
 - the three byte-identical canonical outer entrypoints, shared blob `9f1852241f62d6a1357688713dd32595464682b6`;
+- `scripts/nxb-153-windows-immutable-source.ps1` -> `58cfcfa709404f7dae467a4591af755bad52209c`;
 - `scripts/record-nxb-153-windows-process-lifecycle-evidence.ps1` -> `1ebca56bc704dcacb4864ace03ba16640b4b1e0d`;
 - `scripts/review-nxb-153-windows-admission.ps1` -> `6b0e4ddc47ad440ab113ff073d3ae5275a95b949`;
 - `scripts/review-nxb-153-windows-admission-complete.ps1` -> `b2b5cdec1a24b92e34d2397c9567e2cc4c2e3a98`;
@@ -78,11 +79,17 @@ The wrapper self-test retains normal Git-version delegation plus deliberate one-
 
 ## H2 Git-output layer
 
-The nested Windows H2 Git-output guard exact Git blob remains:
+Current Windows H2 outer string/Git-output authority wrapper:
+
+`scripts/nxb-153-windows-immutable-source.ps1` -> `58cfcfa709404f7dae467a4591af755bad52209c`
+
+It now independently rejects ambient `GIT_*` before resolving the exact-head Git-output inner object. This makes direct `-SelfTest` invocation fail closed rather than depending on an earlier canonical outer process to have sanitized Git repository/object/config authority.
+
+The nested Git-output inner remains:
 
 `scripts/nxb-153-windows-immutable-source-git-output-inner.ps1` -> `c92a612c2e7921191beb64d1c60a0798fe3fb7ae`
 
-The H2 guard retains the **64 MiB / 4,096-record**, **5-minute read-inactivity**, **30-second post-stdout exit** authority. It resolves the real Git application while the canonical outer PATH binding is active, so the intended supported-host Git remains consistent through nesting.
+The H2 layer retains the **64 MiB / 4,096-record**, **5-minute read-inactivity**, **30-second post-stdout exit** authority. The nested inner resolves the real Git application while the canonical PATH binding is active; the H2 outer now also enforces its own pre-Git ambient-authority boundary before that delegation.
 
 ## Direct-child pipe / exit authority
 
@@ -110,7 +117,7 @@ Direct standalone probes/reviewers remain diagnostic when invoked outside the co
 
 Real exact-head Windows execution must still demonstrate at least:
 
-- representative `GIT_DIR`, `GIT_WORK_TREE`, `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES` and `GIT_CONFIG_*` injection is rejected before the first exact-head Git operation on every canonical Windows authority surface above;
+- representative `GIT_DIR`, `GIT_WORK_TREE`, `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES` and `GIT_CONFIG_*` injection is rejected before the first exact-head Git operation on every canonical Windows authority surface above, including direct H2 outer `-SelfTest` entry;
 - clean environments still resolve the intended exact HEAD and object database after the pre-Git gate;
 - host Git executable/directory cannot be replaced or renamed while pinned;
 - deliberate alternate PATH/Git injection does not change nested Git resolution;
