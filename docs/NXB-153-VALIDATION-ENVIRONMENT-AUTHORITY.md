@@ -6,12 +6,13 @@ This document records the ambient-process environment boundary for NXB-153 valid
 
 The controls described here are **source-staged, not admitted**. Real exact-head Linux and supported Windows execution is still required before any platform PASS or NXB-153 admission claim.
 
-The purpose of this contract is to prevent an exact-head validation from consuming immutable workspace/dependency bytes while the operator process silently changes compiler, Cargo, Python, Bash startup, target, runner or native-build behavior through ambient environment variables.
+The purpose of this contract is to prevent exact-head validation from consuming immutable workspace/dependency bytes while the operator process silently changes Git repository/object/config authority, compiler, Cargo, Python, Bash startup, target, runner or native-build behavior through ambient environment variables.
 
 ## Threat model
 
 The contract addresses avoidable ambient authority such as:
 
+- `GIT_*` repository/object/config/process overrides, including `GIT_DIR`, `GIT_WORK_TREE`, `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_CONFIG_*` and `GIT_EXEC_PATH`;
 - `RUSTC`, `RUSTC_WRAPPER`, `RUSTC_WORKSPACE_WRAPPER`, `RUSTFLAGS` and related Rust compiler/documentation overrides;
 - `RUSTUP_*` toolchain/distribution overrides;
 - `CARGO_HOME`, `CARGO_TARGET_DIR`, encoded Rust flags and Cargo build/profile/source/registry/target/runner configuration families;
@@ -20,7 +21,7 @@ The contract addresses avoidable ambient authority such as:
 - `BINDGEN_EXTRA_CLANG_ARGS` and target-specific variants;
 - Bash startup/behavior controls `BASH_ENV`, `BASHOPTS`, `BASH_COMPAT`, `SHELLOPTS`, `POSIXLY_CORRECT` and exported shell-function environment entries matching `BASH_FUNC_*`.
 
-This is not a claim that the complete host operating system or Rust installation is adversarially reproducible. A compromised kernel, administrator, hypervisor, trusted Rust distribution, platform SDK or every host tool simultaneously remains outside this contract. Host-toolchain executable identity remains an explicit admission consideration rather than being disguised as an environment-variable property.
+This is not a claim that the complete host operating system, Git installation or Rust installation is adversarially reproducible. A compromised kernel, administrator, hypervisor, trusted Git/Rust distribution, platform SDK or every host tool simultaneously remains outside this contract. Host-tool executable identity remains an explicit admission consideration rather than being disguised as an environment-variable property.
 
 ## Canonical policy
 
@@ -30,7 +31,7 @@ Canonical cross-platform policy implementation:
 
 Current helper blob:
 
-`c294c69c72b100efade6e106aa75e36eb97d4c95`
+`d3c4a27064468bba6d6247cb1c7767eead4abfe8`
 
 The helper uses case-insensitive variable-name matching so Windows spelling/casing does not create a different security contract.
 
@@ -40,13 +41,31 @@ Policy identifier remains:
 
 `nxb-153-compiler-cargo-python-authority-v2`
 
-The identifier is unchanged because the forbidden-name policy and audit result schema are unchanged. The source-staged self-test is stronger, but admitted evidence still binds to the exact committed helper object and runtime behavior rather than infer semantics from the label alone.
+The result schema identifier is retained for compatibility. The exact committed helper object, not the label alone, is the authority. The current source strengthens the forbidden-name set by rejecting the complete `GIT_*` family and extends the self-test with representative Git repository/object/config variables and a case-variant control.
+
+## Pre-Git authority boundary on Linux
+
+The Python audit cannot protect a Git operation that already happened. Canonical Linux entrypoints therefore reject ambient `GIT_*` variables **before their first exact-head Git resolution**.
+
+The following direct canonical entrypoints perform that pre-Git gate immediately after confirming privileged Bash mode:
+
+- `scripts/prepare-and-validate-nxb-153-linux.sh`;
+- `scripts/validate-nxb-153-linux.sh`;
+- `scripts/review-nxb-153-evidence-linux.sh`;
+- `scripts/nxb-153-linux-immutable-source.sh`;
+- `scripts/nxb-153-linux-entry-blob-probe.sh`.
+
+This matters because Git itself treats environment variables such as `GIT_DIR`, `GIT_WORK_TREE`, object-directory/alternate-object settings, configuration injection and executable-path settings as authority. In particular, an ambient `GIT_DIR` can redirect `git rev-parse HEAD` away from the repository selected by the caller even after `cd` into the intended working tree.
+
+The pre-Git gate rejects names, not values. It therefore fails before `rev-parse`, `cat-file`, `hash-object`, `ls-tree` or `archive` can consume attacker-selected Git repository/object/config authority. The later exact-head Python environment audit repeats the broader `GIT_*` rejection before deeper children and heavy validation.
+
+The exact-head entry-blob probe also requires the three outer wrappers and immutable-source runner to contain this pre-Git guard, making its presence part of the source-staged canonical contract rather than a convention.
 
 ## Linux Bash startup runtime primitive
 
-On Linux, the helper's mandatory `self-test` now performs bounded host-Bash startup tests in addition to the existing name-policy checks.
+On Linux, the helper's mandatory `self-test` performs bounded host-Bash startup tests in addition to the name-policy checks.
 
-The runtime primitive is Linux-only. Windows behavior of the helper remains the existing policy self-test/audit path.
+The runtime primitive is Linux-only. Windows behavior of the helper remains the policy self-test/audit path.
 
 The Linux primitive:
 
@@ -76,9 +95,9 @@ Canonical Linux preparation, validation and evidence-review wrappers require pri
 
 The preparation/validation wrappers also resolve the Bash executable and force Bash children launched by the preserved inner implementations through `-p`. The exact-head entry-blob adversarial probe is executed by the canonical validator through a `pipefail`-protected `<resolved-bash> -p -s` pipeline before inner validation.
 
-Privileged Bash prevents `BASH_ENV` startup processing and exported-function import before the script's later environment audit. The strengthened environment helper self-test now dynamically verifies those two selected-host Bash primitives on Linux rather than leaving them as documentation-only assumptions.
+Privileged Bash prevents `BASH_ENV` startup processing and exported-function import before the script's later environment audit. The strengthened environment helper self-test dynamically verifies those two selected-host Bash primitives on Linux rather than leaving them as documentation-only assumptions.
 
-The environment audit then independently rejects those ambient variables so their presence is visible as an admission failure rather than silently ignored.
+The environment audit then independently rejects those ambient variables, together with the new `GIT_*` family, so their presence is visible as an admission failure rather than silently ignored.
 
 Canonical Linux blob/startup authority is documented in:
 
@@ -98,15 +117,16 @@ Canonical entrypoint:
 
 `scripts/prepare-and-validate-nxb-153-linux.sh`
 
-Before `rustup toolchain install` or either `cargo install` begins, Linux preparation:
+Before the first exact-head Git resolution, Linux preparation rejects every ambient `GIT_*` variable. After exact-head helper resolution and before `rustup toolchain install` or either `cargo install` begins, Linux preparation:
 
 1. begins under privileged Bash authority;
-2. resolves `scripts/nxb-153-validation-environment.py` from the exact-head committed Git object;
-3. executes its self-test with `python3 -I`, including the Linux Bash startup runtime primitive;
-4. executes its ambient-environment audit with `python3 -I`;
-5. fails before tool mutation/receipt publication if the policy or startup primitive is violated.
+2. passes the pre-Git `GIT_*` authority gate;
+3. resolves `scripts/nxb-153-validation-environment.py` from the exact-head committed Git object;
+4. executes its self-test with `python3 -I`, including the Linux Bash startup runtime primitive and representative Git-variable rejection controls;
+5. executes its ambient-environment audit with `python3 -I`;
+6. fails before tool mutation/receipt publication if the policy or startup primitive is violated.
 
-Thus a tooling receipt cannot be intentionally prepared under one of the rejected compiler/Cargo/Python/native-build/Bash authority variables, and the selected Linux Bash must satisfy the staged privileged/non-privileged startup semantics before preparation proceeds.
+Thus a tooling receipt cannot be intentionally prepared under one of the rejected Git/compiler/Cargo/Python/native-build/Bash authority variables, and the selected Linux Bash must satisfy the staged privileged/non-privileged startup semantics before preparation proceeds.
 
 ## Linux validation
 
@@ -118,7 +138,7 @@ Canonical immutable runner:
 
 `scripts/nxb-153-linux-immutable-source.sh`
 
-The outer validator starts under privileged Bash, executes the exact-head entry-blob probe under privileged Bash, then evaluates only captured/OID-verified preserved validator bytes. The preserved validator resolves the exact-head environment helper and runs its self-test/audit before dependency acquisition or heavy Cargo gates.
+Both canonical entries reject ambient `GIT_*` before their first Git authority operation. The outer validator then executes the exact-head entry-blob probe under privileged Bash and evaluates only captured/OID-verified preserved validator bytes. The preserved validator resolves the exact-head environment helper and runs its self-test/audit before dependency acquisition or heavy Cargo gates.
 
 The exact-head immutable snapshot must contain the environment and registry authority helpers as regular tracked files. Before dependency acquisition or heavy Cargo gates, the child validation flow runs the environment self-test/audit and the registry verifier self-test.
 
@@ -134,11 +154,11 @@ Canonical entrypoint:
 
 `scripts/prepare-and-validate-nxb-153-windows.ps1`
 
-Windows preparation performs the existing case-insensitive forbidden compiler/Cargo/Python/native-build audit before repository/tool preparation reaches any `rustup` or Cargo installation step.
+Windows preparation performs the existing case-insensitive forbidden compiler/Cargo/Python/native-build audit before repository/tool preparation reaches any `rustup` or Cargo installation step. The shared helper now also rejects `GIT_*`; Windows canonical Git pathname/lifetime authority remains separately governed by the Windows pinned-host-Git controls.
 
-The new Bash startup subprocess controls are Linux-only and therefore do not add a Bash dependency to the PowerShell-only Windows path. Bash-specific variable names remain part of the cross-platform forbidden-name policy.
+The Bash startup subprocess controls are Linux-only and therefore do not add a Bash dependency to the PowerShell-only Windows path. Bash-specific variable names remain part of the cross-platform forbidden-name policy.
 
-The PowerShell implementation intentionally duplicates the small pre-Python name policy rather than invoking Python before Python authority has itself been constrained. Values are not printed.
+The PowerShell implementation intentionally duplicates the small pre-Python name policy rather than invoking Python before Python authority has itself been constrained. Exact-final-head Windows runtime review must confirm that its duplicated pre-Python policy remains aligned with the helper's current `GIT_*` strengthening before admission.
 
 ## Windows validation/dependency gates
 
@@ -164,16 +184,18 @@ The environment policy and Linux startup primitive are not final admission by th
 
 - all canonical Linux privileged entrypoints parse and execute correctly under the supported Bash host;
 - direct invocation without privileged Bash fails closed for every canonical privileged entrypoint;
+- representative `GIT_DIR`, object-directory/alternate-object and config-injection variables are rejected before the first exact-head Git operation on every canonical Linux entrypoint;
+- clean exact-head Git resolution/object lookup remains unchanged after the pre-Git gate;
 - the exact-final-head environment helper self-test actually executes successfully in preparation, outer validation and immutable-source entry;
 - representative real canonical-flow `BASH_ENV` and exported-function injection cannot influence preparation/validation/review before the audit;
 - the intended self-removing trusted `cp` shim is the only function authority admitted across the immutable-source non-privileged H2 transition;
 - nested H1/H2 Bash children remain compatible with the privileged-Bash child authority;
-- Windows PowerShell environment guard parses and rejects representative exact/prefix/case-variant variables on supported Windows;
+- Windows PowerShell environment guard parses and rejects representative exact/prefix/case-variant variables, including the strengthened Git authority family where applicable, on supported Windows;
 - Windows Python 3.11+ isolated-mode invocations work in the canonical dependency flow;
 - supported host SDK/toolchain discovery still works with allowed host variables;
-- no rejected ambient compiler/Cargo/Python/native-build/Bash variable is silently reintroduced before a heavy gate;
+- no rejected ambient Git/compiler/Cargo/Python/native-build/Bash variable is silently reintroduced before a heavy gate;
 - immutable workspace/dependency source, exact-head security-tool authority, serialization, create-only evidence and object-anchored review all continue to pass on the same exact head.
 
-Host Rust/rustup/cargo/rustc/rustfmt/clippy executable identity is a separate trust boundary. This document does not claim to make a malicious or replaced trusted Rust distribution safe merely by sanitizing environment variables.
+Host Git/Rust/rustup/cargo/rustc/rustfmt/clippy executable identity is a separate trust boundary. This document does not claim to make a malicious or replaced trusted distribution safe merely by sanitizing environment variables.
 
 PR #89 remains draft/not admitted. Issues #90–#98 remain open. NXB-154 must not use NXB-153 as an admitted implementation base until the exact-head Linux + Windows closure and blocker review complete.
