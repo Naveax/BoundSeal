@@ -320,6 +320,18 @@ if (-not $IsWindows) {
     Fail-NxbWindowsEntryGitGuard 'Windows entry Git-output guard must run on Windows'
 }
 
+$ambientGitAuthority = [Collections.Generic.List[string]]::new()
+foreach ($entry in [Environment]::GetEnvironmentVariables().Keys) {
+    $name = [string]$entry
+    if ($name.StartsWith('GIT_', [StringComparison]::OrdinalIgnoreCase)) {
+        $ambientGitAuthority.Add($name)
+    }
+}
+if ($ambientGitAuthority.Count -gt 0) {
+    $orderedGitAuthority = @($ambientGitAuthority | Sort-Object { $_.ToUpperInvariant() })
+    Fail-NxbWindowsEntryGitGuard ('ambient Git authority variables are not admitted before exact-head resolution: ' + ($orderedGitAuthority -join ', '))
+}
+
 $RepoRoot = [IO.Path]::GetFullPath($RepoRoot)
 $canonicalScriptsRoot = [IO.Path]::GetFullPath((Join-Path $RepoRoot 'scripts'))
 $actualScriptsRoot = [IO.Path]::GetFullPath($PSScriptRoot)
