@@ -55,10 +55,11 @@ FORBIDDEN_EXACT = frozenset(
     }
 )
 
-# These families map directly to Cargo/rustup configuration, Bash function/startup
-# authority, or can substitute compiler/runner/profile/source/native-build behavior.
-# The audit runs before NXB-153 stages controlled Cargo/build values or launches
-# deeper noninteractive Bash children.
+# These families map directly to Git repository/object/config authority,
+# Cargo/rustup configuration, Bash function/startup authority, or can substitute
+# compiler/runner/profile/source/native-build behavior. Canonical Linux entrypoints
+# also reject GIT_* before their first Git invocation; this audit deliberately repeats
+# that fail-closed boundary before deeper children and heavy validation.
 FORBIDDEN_PREFIXES = (
     "AR_",
     "BASH_FUNC_",
@@ -76,6 +77,7 @@ FORBIDDEN_PREFIXES = (
     "CPPFLAGS_",
     "CXX_",
     "CXXFLAGS_",
+    "GIT_",
     "LD_",
     "LDFLAGS_",
     "RANLIB_",
@@ -109,7 +111,7 @@ def audit_environment(environment: Mapping[str, str]) -> dict[str, object]:
         # Values are intentionally never printed: registry tokens or other
         # sensitive data must not leak merely because a variable name is banned.
         fail(
-            "ambient compiler/Cargo/Python/Bash authority variables are not admitted: "
+            "ambient Git/compiler/Cargo/Python/Bash authority variables are not admitted: "
             + ", ".join(collisions)
         )
     return {
@@ -269,6 +271,14 @@ def self_test() -> None:
         "BASH_FUNC_untrusted%%",
         "POSIXLY_CORRECT",
         "SHELLOPTS",
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_KEY_0",
+        "GIT_CONFIG_VALUE_0",
+        "GIT_EXEC_PATH",
     )
     for name in rejected_names:
         try:
@@ -292,6 +302,13 @@ def self_test() -> None:
         pass
     else:
         fail("self-test accepted case-variant exported Bash function authority")
+
+    try:
+        audit_environment({"git_dir": "/tmp/untrusted-git-dir"})
+    except EnvironmentAuthorityError:
+        pass
+    else:
+        fail("self-test accepted case-variant Git authority variable")
 
     linux_bash_startup_self_test()
 
