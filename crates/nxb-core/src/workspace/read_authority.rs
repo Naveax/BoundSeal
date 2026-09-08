@@ -221,3 +221,43 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 }
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temporary_root() -> std::path::PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "nxb-read-authority-windows-{}-{nonce}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn pinned_windows_read_handle_blocks_write_delete_and_rename_until_drop() {
+        let root = temporary_root();
+        fs::create_dir(&root).unwrap();
+        super::super::set_private_directory_permissions(&root).unwrap();
+        let path = root.join("record.json");
+        fs::write(&path, b"{}\n").unwrap();
+        super::super::set_private_file_permissions(&path).unwrap();
+
+        let pinned = open_document_authority(&path, "test document").unwrap();
+        validate_platform_authority(&path, &pinned.metadata().unwrap(), "test document").unwrap();
+
+        assert!(fs::OpenOptions::new().write(true).open(&path).is_err());
+        assert!(fs::remove_file(&path).is_err());
+        let renamed = root.join("renamed.json");
+        assert!(fs::rename(&path, &renamed).is_err());
+
+        drop(pinned);
+        fs::rename(&path, &renamed).unwrap();
+        fs::remove_file(&renamed).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+}
