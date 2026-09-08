@@ -27,7 +27,7 @@ Source-hardening commit:
 
 `bac80193a4029f321984a24a425eeeccaa182bea`
 
-Current implementation blob introduced by that commit:
+Current implementation blob:
 
 `0b225518141800ad9823b8057195a14022478f03`
 
@@ -38,15 +38,19 @@ Cross-platform source regression:
 Regression commits:
 
 - `6638aece52efd80733c4f4221e46e7546a49ee00` — introduced the source-ordering contract;
-- `c3f5fc0d5866cac78438601bd54760b09917bf35` — normalized the regression to the workspace formatting contract.
+- `c3f5fc0d5866cac78438601bd54760b09917bf35` — normalized the first regression version to the workspace formatting contract;
+- `5e3499ef413750d4c56b426a2fc9673221bbe991` — bound the disable helper implementation itself, not only its call ordering;
+- `e6d29609ed87ef2a56f5345894d67ab14bc387ee` — normalized the strengthened regression formatting.
 
 Current regression blob:
 
-`fb96480d7f5fe2fced45e6ba29b16df4651211d7`
+`acda28e705e189f0ee7c4ddd837cfc2b1b8c0d78`
 
 ## Linearization contract
 
 `activate_value()` now uses one common fail-closed helper for disable-receipt visibility.
+
+The helper itself is regression-bound to inspect `workspace::safe_exists(disable_path)` and to fail closed when the receipt is visible. A call-site-only regression is insufficient because a no-op helper would otherwise preserve source ordering while silently destroying the authority boundary.
 
 The helper is invoked three times:
 
@@ -77,6 +81,8 @@ This preserves the create-only publication authority from #90 and the exact comp
 
 The std-only Rust source regression requires:
 
+- the disable helper to use `workspace::safe_exists(disable_path)` and retain a fail-closed rejection path;
+- the helper definition to precede `activate_value()`;
 - exactly three disable gates inside `activate_value()`;
 - the first gate before profile/artifact existence handling;
 - the recovery final gate after exact recovered profile verification and durability, before the recovery `activation_value(...)` return;
