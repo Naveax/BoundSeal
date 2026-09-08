@@ -1209,19 +1209,21 @@ fn create_value_from_bytes(
 
     workspace::create_document(&path, &bytes)?;
 
-    serde_json::to_value(effective_target(profile, None))
-        .context("could not serialize target profile")
+    let effective = reconcile_effective_target(&targets, profile, None)?;
+    serde_json::to_value(effective).context("could not serialize target profile")
 }
 
 fn list_value(workspace_path: &Path, include_disabled: bool) -> Result<Value> {
     let root = ready_workspace(workspace_path)?;
-    let profiles = load_profiles(&targets_directory(&root)?)?;
+    let targets_directory = targets_directory(&root)?;
+    let profiles = load_profiles(&targets_directory)?;
     let mut targets = Vec::with_capacity(profiles.len());
     for (profile, receipt) in profiles.into_values() {
-        if receipt.is_some() && !include_disabled {
+        let effective = reconcile_effective_target(&targets_directory, profile, receipt)?;
+        if effective.status == "disabled" && !include_disabled {
             continue;
         }
-        targets.push(effective_target(profile, receipt));
+        targets.push(effective);
     }
     serde_json::to_value(TargetList {
         status: "ready",
@@ -1238,9 +1240,8 @@ fn show_value(workspace_path: &Path, id: &str) -> Result<Value> {
     let targets = targets_directory(&root)?;
     validate_target_id(id)?;
     let profile = read_profile(&profile_path(&targets, id))?;
-    let receipt = read_optional_receipt(&disable_path(&targets, id), &profile)?;
-    serde_json::to_value(effective_target(profile, receipt))
-        .context("could not serialize target profile")
+    let effective = reconcile_effective_target(&targets, profile, None)?;
+    serde_json::to_value(effective).context("could not serialize target profile")
 }
 
 fn disable_value(workspace_path: &Path, id: &str, reason: DisableReason) -> Result<Value> {
@@ -1287,7 +1288,6 @@ fn validate_value(
     let targets = targets_directory(&root)?;
     validate_target_id(id)?;
     let profile = read_profile(&profile_path(&targets, id))?;
-    let receipt = read_optional_receipt(&disable_path(&targets, id), &profile)?;
 
     let policy_bytes = read_bounded_source(policy_path, "target policy", MAX_POLICY_BYTES)?;
     let authorization_bytes = read_bounded_source(
@@ -1311,8 +1311,9 @@ fn validate_value(
         bail!("target method boundary does not match the supplied policy");
     }
 
-    let mut value = serde_json::to_value(effective_target(profile, receipt))
-        .context("could not serialize validated target")?;
+    let effective = reconcile_effective_target(&targets, profile, None)?;
+    let mut value =
+        serde_json::to_value(effective).context("could not serialize validated target")?;
     value["validation"] = serde_json::json!({
         "policy_sha256": workspace::sha256(&policy_bytes),
         "authorization_sha256": workspace::sha256(&authorization_bytes),
@@ -1437,6 +1438,18 @@ fn read_optional_receipt(path: &Path, profile: &TargetProfile) -> Result<Option<
     } else {
         Ok(None)
     }
+}
+
+fn reconcile_effective_target(
+    targets: &Path,
+    profile: TargetProfile,
+    known_receipt: Option<DisableReceipt>,
+) -> Result<EffectiveTarget> {
+    let receipt = match known_receipt {
+        Some(receipt) => Some(receipt),
+        None => read_optional_receipt(&disable_path(targets, &profile.target_id), &profile)?,
+    };
+    Ok(effective_target(profile, receipt))
 }
 
 fn read_receipt(path: &Path, profile: &TargetProfile) -> Result<DisableReceipt> {
