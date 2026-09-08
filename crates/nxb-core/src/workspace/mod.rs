@@ -1,4 +1,5 @@
 pub(crate) mod migration;
+mod read_authority;
 
 #[cfg(windows)]
 mod windows;
@@ -6,7 +7,7 @@ mod windows;
 use std::{
     collections::BTreeMap,
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::Write,
     path::{Component, Path, PathBuf},
 };
 
@@ -463,8 +464,7 @@ impl std::fmt::Display for UnpublishedDocumentCleanupError {
         write!(
             formatter,
             "create-only destination was not published but temporary cleanup failed (operation={}; cleanup={})",
-            self.operation_detail,
-            self.cleanup_detail
+            self.operation_detail, self.cleanup_detail
         )
     }
 }
@@ -573,7 +573,10 @@ where
         let cleanup_error = remove_temporary(&temporary).err();
         if let Some(cleanup_error) = cleanup_error {
             let operation_detail = if error.kind() == std::io::ErrorKind::AlreadyExists {
-                format!("destination claim lost because destination already exists: {}", path.display())
+                format!(
+                    "destination claim lost because destination already exists: {}",
+                    path.display()
+                )
             } else {
                 format!(
                     "could not atomically claim create-new destination {} from {}: {error}",
@@ -653,21 +656,7 @@ pub(crate) fn replace_document(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 pub(crate) fn read_document(path: &Path, label: &str) -> Result<Vec<u8>> {
-    reject_path_indirections(path, label)?;
-    let metadata =
-        fs::metadata(path).with_context(|| format!("{label} is missing: {}", path.display()))?;
-    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_DOCUMENT_BYTES {
-        bail!("{label} size or type is invalid");
-    }
-    validate_private_permissions(path, false)?;
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    File::open(path)?
-        .take(MAX_DOCUMENT_BYTES + 1)
-        .read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
-        bail!("{label} exceeds the supported size limit");
-    }
-    Ok(bytes)
+    read_authority::read_document(path, label)
 }
 
 fn write_probe(workspace: &Path) -> Result<()> {
