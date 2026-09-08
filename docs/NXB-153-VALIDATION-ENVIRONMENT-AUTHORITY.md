@@ -180,12 +180,15 @@ Current source-staged Windows authority surfaces reject every environment-variab
 - `scripts/prepare-and-validate-nxb-153-windows.ps1`;
 - `scripts/validate-nxb-153-windows.ps1`;
 - `scripts/review-nxb-153-evidence-windows.ps1`;
+- `scripts/nxb-153-windows-immutable-source.ps1` (direct H2 outer / `-SelfTest` authority);
 - `scripts/record-nxb-153-windows-process-lifecycle-evidence.ps1`;
 - `scripts/review-nxb-153-windows-admission.ps1`;
 - `scripts/review-nxb-153-windows-admission-complete.ps1`;
 - `scripts/nxb-153-windows-host-git-lifetime-probe.ps1`.
 
 These early PowerShell gates report names only, never values. They exist before `rev-parse HEAD`, exact-head object lookup or working-tree hashing. The shared Python environment helper later repeats the complete `GIT_*` family rejection before deeper validation work.
+
+The H2 outer independently enforces this boundary because it can be invoked through its own `-SelfTest` surface. Ordinary subordinate diagnostic probes remain parent-bounded and are not promoted to standalone admission authority merely by having direct-execution diagnostics.
 
 Canonical Windows Git-output/lifetime details and current exact blobs are documented in:
 
@@ -204,7 +207,7 @@ Windows preparation now performs two distinct source-staged environment boundari
 
 The Bash startup subprocess controls are Linux-only and therefore do not add a Bash dependency to the PowerShell-only Windows path. Bash-specific variable names remain part of the cross-platform forbidden-name policy.
 
-The early Windows `GIT_*` gate is now source-aligned across the canonical outer entry, process-evidence writer, subordinate/complete admission and host-Git lifetime probe. Runtime admission must still prove those controls on supported Windows rather than infer correctness from source text.
+The early Windows `GIT_*` gate is now source-aligned across canonical outer entry, H2 outer/self-test authority, process-evidence writer, subordinate/complete admission and host-Git lifetime probe. Runtime admission must still prove those controls on supported Windows rather than infer correctness from source text.
 
 ## Windows validation/dependency gates
 
@@ -236,7 +239,7 @@ The environment policy and source guards are not final admission by themselves. 
 - representative real canonical-flow `BASH_ENV` and exported-function injection cannot influence preparation/validation/review before the audit;
 - the intended self-removing trusted `cp` shim is the only function authority admitted across the immutable-source non-privileged H2 transition;
 - nested H1/H2 Bash children remain compatible with the privileged-Bash child authority;
-- representative `GIT_DIR`, `GIT_WORK_TREE`, object-directory/alternate-object and `GIT_CONFIG_*` variables are rejected before the first exact-head Git operation on every canonical Windows authority surface listed above;
+- representative `GIT_DIR`, `GIT_WORK_TREE`, object-directory/alternate-object and `GIT_CONFIG_*` variables are rejected before the first exact-head Git operation on every canonical Windows authority surface listed above, including direct H2 outer `-SelfTest` entry;
 - clean supported-Windows execution still resolves the intended exact HEAD/object database after the pre-Git gate;
 - Windows PowerShell environment guard parses and rejects representative exact/prefix/case-variant compiler/Cargo/Python/native-build variables after exact-head authority is established;
 - Windows Python 3.11+ isolated-mode invocations work in the canonical dependency flow;
