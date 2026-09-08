@@ -41,6 +41,25 @@ nxb_guard_head_sha="$("$nxb_guard_git_application" rev-parse HEAD)" ||
 [[ "$nxb_guard_head_sha" =~ ^[0-9a-f]{40}$ ]] ||
     nxb_guard_fail 'exact Git HEAD is not canonical SHA-1'
 
+nxb_guard_environment_relative='scripts/nxb-153-validation-environment.py'
+nxb_guard_environment_object="$("$nxb_guard_git_application" rev-parse "$nxb_guard_head_sha:$nxb_guard_environment_relative")" ||
+    nxb_guard_fail 'committed validation environment authority helper is missing'
+[[ "$nxb_guard_environment_object" =~ ^[0-9a-f]{40}$ ]] ||
+    nxb_guard_fail 'validation environment authority helper object is not canonical SHA-1'
+[[ "$("$nxb_guard_git_application" cat-file -t "$nxb_guard_environment_object")" == blob ]] ||
+    nxb_guard_fail 'validation environment authority helper is not a Git blob'
+nxb_guard_environment_size="$("$nxb_guard_git_application" cat-file -s "$nxb_guard_environment_object")" ||
+    nxb_guard_fail 'could not resolve validation environment authority helper size'
+[[ "$nxb_guard_environment_size" =~ ^[0-9]+$ && "$nxb_guard_environment_size" -gt 0 && "$nxb_guard_environment_size" -le 1048576 ]] ||
+    nxb_guard_fail 'validation environment authority helper size is outside the supported envelope'
+
+# Evidence review can be invoked independently of preparation/validation. Re-run the
+# exact-head host primitive self-test here so this supported Linux host proves the
+# privileged Bash startup/function contract before semantic evidence review begins.
+"$nxb_guard_git_application" cat-file blob "$nxb_guard_environment_object" |
+    "$nxb_guard_python_application" -I - self-test >/dev/null ||
+    nxb_guard_fail 'exact-head validation environment authority self-test failed before evidence review'
+
 nxb_guard_inner_relative='scripts/review-nxb-153-evidence-linux-inner.sh'
 nxb_guard_inner_object="$("$nxb_guard_git_application" rev-parse "$nxb_guard_head_sha:$nxb_guard_inner_relative")" ||
     nxb_guard_fail 'committed Linux evidence-review inner implementation is missing'
@@ -142,3 +161,7 @@ nxb_guard_final_object="$("$nxb_guard_git_application" rev-parse "$nxb_guard_hea
     nxb_guard_fail 'could not re-resolve Linux evidence-review inner authority after review'
 [[ "$nxb_guard_final_object" == "$nxb_guard_inner_object" ]] ||
     nxb_guard_fail 'Linux evidence-review inner Git authority changed during review'
+nxb_guard_environment_final_object="$("$nxb_guard_git_application" rev-parse "$nxb_guard_head_sha:$nxb_guard_environment_relative")" ||
+    nxb_guard_fail 'could not re-resolve validation environment authority after evidence review'
+[[ "$nxb_guard_environment_final_object" == "$nxb_guard_environment_object" ]] ||
+    nxb_guard_fail 'validation environment authority Git object changed during evidence review'
