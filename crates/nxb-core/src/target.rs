@@ -37,6 +37,7 @@ const VALIDATE_EXIT_CODE: u8 = 54;
 const SETUP_EXIT_CODE: u8 = 55;
 const ACTIVATE_EXIT_CODE: u8 = 56;
 const MAX_TARGET_PROFILES: usize = 1_024;
+const MAX_TARGET_DIRECTORY_ENTRIES: usize = MAX_TARGET_PROFILES * 4;
 const MAX_PATH_RULES: usize = 64;
 const MAX_PATH_BYTES: usize = 512;
 const MAX_POLICY_BYTES: u64 = 1024 * 1024;
@@ -1364,13 +1365,23 @@ fn load_profiles(
         entries = entries
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("target record count overflow"))?;
-        if entries > MAX_TARGET_PROFILES.saturating_mul(2) {
-            bail!("target record count exceeds the supported limit");
+        if entries > MAX_TARGET_DIRECTORY_ENTRIES {
+            bail!("target directory entry count exceeds the supported limit");
         }
         let name = path
             .file_name()
             .and_then(|value| value.to_str())
             .ok_or_else(|| anyhow::anyhow!("target record file name is invalid"))?;
+        if let Some(destination) = workspace::create_document_temporary_destination(name) {
+            let transient_id = destination
+                .strip_suffix(".disabled.json")
+                .or_else(|| destination.strip_suffix(".json"));
+            if let Some(id) = transient_id {
+                validate_target_id(id)?;
+                continue;
+            }
+            bail!("target directory contains an unsupported record: {name}");
+        }
         if let Some(id) = name.strip_suffix(".disabled.json") {
             validate_target_id(id)?;
             if receipt_files.insert(id.to_owned(), path).is_some() {
