@@ -10,6 +10,8 @@ use anyhow::{bail, Context, Result};
 use super::{random_hex, reject_path_indirections};
 
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+const FILE_SHARE_READ: u32 = 0x0000_0001;
 const WINDOWS_SYSTEM_SID: &str = "S-1-5-18";
 const WINDOWS_ADMINISTRATORS_SID: &str = "S-1-5-32-544";
 const WINDOWS_FORBIDDEN_ALLOW_SIDS: &[&str] = &["S-1-1-0", "S-1-5-11", "S-1-5-32-545"];
@@ -20,6 +22,27 @@ pub(super) fn is_reparse_point(metadata: &fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
 
     metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+pub(super) fn open_document_read_authority(path: &Path) -> Result<fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .with_context(|| format!("could not pin workspace document {}", path.display()))?;
+    let metadata = file
+        .metadata()
+        .with_context(|| format!("could not inspect pinned workspace document {}", path.display()))?;
+    if is_reparse_point(&metadata) || !metadata.is_file() {
+        bail!(
+            "pinned workspace document is a reparse point or non-file: {}",
+            path.display()
+        );
+    }
+    Ok(file)
 }
 
 pub(super) fn set_private_directory_permissions(path: &Path) -> Result<()> {
@@ -62,10 +85,6 @@ fn harden_windows_acl(path: &Path, directory: bool) -> Result<()> {
             .map(|sid| OsString::from(format!("*{sid}"))),
     );
     remove_arguments.push(OsString::from("/q"));
-    run_icacls(path, &remove_arguments)?;
-
-    // Make inheritance protection the final ACL mutation. This prevents
-    // later ACL edits from weakening the protected DACL control flag.
     run_icacls(
         path,
         &[OsString::from("/inheritancelevel:r"), OsString::from("/q")],
