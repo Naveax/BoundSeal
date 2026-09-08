@@ -17,6 +17,8 @@ No supported Windows/NTFS/PowerShell runtime PASS is claimed. Historical blobs a
 - tool-version probe -> `381529e260f2a9c9b0f20bff3f29a8b2c6ef6e84`;
 - host-Git lifetime probe -> `5b12134f18cb6a71efde0d06b0622ec170269401`;
 - complete Windows admission -> `b2b5cdec1a24b92e34d2397c9567e2cc4c2e3a98`;
+- Windows validator inner -> `d32246838e9a7445fa87aafec85c32ebd6416d8a`;
+- Windows validator fixed-output source contract -> `58b13d37c15cc02810fde8a48f4df0fe69c22d30`;
 - Windows semantic-review inner -> `4a295b77323b3b4c43075c39c50800e50577dbc9`.
 
 ## Pre-Git ambient authority
@@ -123,7 +125,43 @@ Complete admission is `scripts/review-nxb-153-windows-admission-complete.ps1` ->
 
 `scripts/nxb-153-windows-tool-version-output-probe.ps1` -> `381529e260f2a9c9b0f20bff3f29a8b2c6ef6e84`
 
-The probe exact-head binds production tool-preparation source and requires the production helper to retain the **4,096-byte / 30,000-ms read / 30,000-ms exit** fixed-output contract, strict UTF-8, <=256-character semantic output and recursive cleanup. It dynamically exercises normal, oversize, invalid UTF-8, nonzero exit, stalled output, output-then-stall/post-output exit and descendant cleanup behavior with shorter probe-only deadlines.
+The probe exact-head binds production tool-preparation source and requires the preparation helper to retain the **4,096-byte / 30,000-ms read / 30,000-ms exit** fixed-output contract, strict UTF-8, <=256-character semantic output and recursive cleanup. It dynamically exercises normal, oversize, invalid UTF-8, nonzero exit, stalled output, output-then-stall/post-output exit and descendant cleanup behavior with shorter probe-only deadlines.
+
+Preparation authority remains documented in `docs/NXB-153-WINDOWS-TOOL-VERSION-OUTPUT-AUTHORITY.md`.
+
+## Windows validator pre-H2 fixed-output authority
+
+`scripts/validate-nxb-153-windows-inner.ps1` -> `d32246838e9a7445fa87aafec85c32ebd6416d8a`
+
+A source audit found that the validator performed four small version inspections before its first H2 delegation while the H2 bounded `Out-String` proxy was not yet active. The validator now independently applies the same native-process fixed-output discipline to:
+
+- `cargo-audit.exe --version`;
+- `cargo-deny.exe --version`;
+- `rustup run 1.97.1 rustc --version`;
+- `rustup run 1.97.1 cargo --version`.
+
+The validator contract requires:
+
+- `UseShellExecute = false`;
+- redirected stdout and inherited stderr;
+- incremental `StandardOutput.BaseStream.ReadAsync(...)`;
+- **4,096-byte** raw stdout ceiling;
+- **30,000 ms** read-inactivity timeout;
+- **30,000 ms** post-stdout exit timeout;
+- nonzero exit rejection;
+- strict UTF-8 after the byte ceiling;
+- semantic output <= **256 characters**;
+- recursive `Kill(true)` plus bounded reap on failure/timeout.
+
+The validator resolves `rustup` with `Get-Command rustup -CommandType Application` and passes the resolved application path to the bounded helper. The validator source no longer contains `Out-String`.
+
+Cross-platform source regression authority:
+
+`crates/nxb-core/tests/windows_validator_fixed_output_source_contract.rs` -> `58b13d37c15cc02810fde8a48f4df0fe69c22d30`
+
+That `std`-only Rust integration test verifies the production constants/helper shape, rejects `Out-String`/`ReadToEndAsync`/`ReadLineAsync`/parameterless `WaitForExit()`, requires bounded tool/rustc/cargo call paths and asserts that bounded version setup precedes the first H2 delegation. Canonical Linux immutable validation and Windows dependency validation both run the workspace test suite, so this source contract participates in both full Rust paths.
+
+This is source-level regression evidence only. Supported-Windows dynamic version-output timeout, oversize, invalid-UTF8, nonzero and cleanup behavior remains mandatory.
 
 ## Windows semantic-review output authority
 
@@ -147,7 +185,8 @@ Current source hardens:
 - fixed-output Git control values;
 - bounded process-probe JSON;
 - process-evidence and admission Git-control authority;
-- tool-version fixed-output behavior;
+- preparation tool-version fixed-output behavior;
+- validator pre-H2 rustc/cargo/security-tool version capture;
 - semantic reviewer output retention.
 
 This source review does **not** replace supported Windows execution.
@@ -162,6 +201,8 @@ Exact-head Windows/NTFS/PowerShell evidence must still prove:
 - canonical entry repo/scripts/preserved-inner final-path rejection under pathname/reparse substitution;
 - 4 KiB control-plane timeout/limit/nonzero cleanup;
 - 64 MiB / 4,096-record delegated Git timeout/limit behavior and nesting/restoration;
+- preparation and validator fixed-output normal/oversize/invalid-UTF8/nonzero/stall/post-output-exit/recursive-cleanup behavior;
+- validator source regression test under pinned Rust 1.97.1;
 - process writer 64 KiB JSON ceiling and stalled-output cleanup;
 - process reviewer/admission fixed-output Git behavior;
 - semantic-review 64 KiB / 4,096-record behavior on both passes;
