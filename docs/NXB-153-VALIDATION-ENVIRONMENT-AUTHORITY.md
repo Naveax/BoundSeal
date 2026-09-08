@@ -30,7 +30,7 @@ Canonical cross-platform policy implementation:
 
 Current helper blob:
 
-`8b1766915b6ad3a2350a3368fb666b8dbff240b5`
+`c294c69c72b100efade6e106aa75e36eb97d4c95`
 
 The helper uses case-insensitive variable-name matching so Windows spelling/casing does not create a different security contract.
 
@@ -40,9 +40,33 @@ Policy identifier remains:
 
 `nxb-153-compiler-cargo-python-authority-v2`
 
-The identifier is retained because no NXB-153 evidence using this policy has been admitted. The current source-staged v2 implementation now also covers the Bash startup/function variables listed above; final exact-head evidence must bind to the actual committed helper object and runtime behavior rather than infer semantics from the label alone.
+The identifier is unchanged because the forbidden-name policy and audit result schema are unchanged. The source-staged self-test is stronger, but admitted evidence still binds to the exact committed helper object and runtime behavior rather than infer semantics from the label alone.
 
-The Python helper includes a networkless self-test covering accepted host variables, Rust/Cargo/Python/native-build overrides, Bash startup/function overrides and case-variant rejection.
+## Linux Bash startup runtime primitive
+
+On Linux, the helper's mandatory `self-test` now performs bounded host-Bash startup tests in addition to the existing name-policy checks.
+
+The runtime primitive is Linux-only. Windows behavior of the helper remains the existing policy self-test/audit path.
+
+The Linux primitive:
+
+- resolves the selected `bash` application from the supported-host `PATH` boundary;
+- runs every child with stdin/stdout/stderr detached to bounded null streams and a **5 second timeout**;
+- creates a private temporary `BASH_ENV` fixture that writes a marker and exports a synthetic variable;
+- proves a non-privileged Bash control consumes that `BASH_ENV` fixture, so the negative test is not vacuous;
+- proves `bash -p` does **not** consume the same `BASH_ENV` fixture and does not create its marker;
+- injects a synthetic `BASH_FUNC_nxb153_hostile%%` environment entry;
+- proves a non-privileged Bash control imports the synthetic exported function;
+- proves `bash -p` rejects that same exported-function authority;
+- injects a synthetic trusted `BASH_FUNC_cp%%` control and proves an ordinary non-privileged Bash child imports it, matching the host primitive intentionally used by the immutable-source H2 handoff;
+- uses a minimal synthetic environment for those controls rather than inheriting arbitrary ambient Bash authority into the test fixture;
+- removes all temporary files through `TemporaryDirectory` before the self-test can report success.
+
+The synthetic controls do **not** modify the repository, installed Bash or installed Git.
+
+This runtime primitive is already on mandatory canonical Linux paths because the exact-head environment helper `self-test` is executed before outer heavy validation and is independently repeated by the immutable-source runner before it creates the trusted exported `cp` shim.
+
+A self-test PASS is still not final Linux admission. It proves the selected supported-host Bash primitive at runtime; the complete exact-head preparation/validation/review/H1/H2 chain must still execute successfully on the final head.
 
 ## Privileged Bash boundary on Linux
 
@@ -52,7 +76,9 @@ Canonical Linux preparation, validation and evidence-review wrappers require pri
 
 The preparation/validation wrappers also resolve the Bash executable and force Bash children launched by the preserved inner implementations through `-p`. The exact-head entry-blob adversarial probe is executed by the canonical validator through a `pipefail`-protected `<resolved-bash> -p -s` pipeline before inner validation.
 
-Privileged Bash prevents `BASH_ENV` startup processing and exported-function import before the script's later environment audit. The environment audit then independently rejects those ambient variables so their presence is visible as an admission failure rather than silently ignored.
+Privileged Bash prevents `BASH_ENV` startup processing and exported-function import before the script's later environment audit. The strengthened environment helper self-test now dynamically verifies those two selected-host Bash primitives on Linux rather than leaving them as documentation-only assumptions.
+
+The environment audit then independently rejects those ambient variables so their presence is visible as an admission failure rather than silently ignored.
 
 Canonical Linux blob/startup authority is documented in:
 
@@ -76,11 +102,11 @@ Before `rustup toolchain install` or either `cargo install` begins, Linux prepar
 
 1. begins under privileged Bash authority;
 2. resolves `scripts/nxb-153-validation-environment.py` from the exact-head committed Git object;
-3. executes its self-test with `python3 -I`;
+3. executes its self-test with `python3 -I`, including the Linux Bash startup runtime primitive;
 4. executes its ambient-environment audit with `python3 -I`;
-5. fails before tool mutation/receipt publication if the policy is violated.
+5. fails before tool mutation/receipt publication if the policy or startup primitive is violated.
 
-Thus a tooling receipt cannot be intentionally prepared under one of the rejected compiler/Cargo/Python/native-build/Bash authority variables.
+Thus a tooling receipt cannot be intentionally prepared under one of the rejected compiler/Cargo/Python/native-build/Bash authority variables, and the selected Linux Bash must satisfy the staged privileged/non-privileged startup semantics before preparation proceeds.
 
 ## Linux validation
 
@@ -92,9 +118,11 @@ Canonical immutable runner:
 
 `scripts/nxb-153-linux-immutable-source.sh`
 
-The outer validator starts under privileged Bash, executes the exact-head entry-blob probe under privileged Bash, then evaluates only captured/OID-verified preserved validator bytes. The preserved validator runs the exact-head environment helper before dependency acquisition or heavy Cargo gates.
+The outer validator starts under privileged Bash, executes the exact-head entry-blob probe under privileged Bash, then evaluates only captured/OID-verified preserved validator bytes. The preserved validator resolves the exact-head environment helper and runs its self-test/audit before dependency acquisition or heavy Cargo gates.
 
 The exact-head immutable snapshot must contain the environment and registry authority helpers as regular tracked files. Before dependency acquisition or heavy Cargo gates, the child validation flow runs the environment self-test/audit and the registry verifier self-test.
+
+The immutable-source runner independently resolves the same exact-head environment helper and repeats both self-test and ambient audit immediately before defining/exporting the one intended trusted `cp` function and launching its deliberately non-privileged H2 child.
 
 Python security/registry helpers are executed with `python3 -I` isolated mode so `PYTHONPATH`/user-site import state is not trusted as helper-code authority.
 
@@ -108,7 +136,7 @@ Canonical entrypoint:
 
 Windows preparation performs the existing case-insensitive forbidden compiler/Cargo/Python/native-build audit before repository/tool preparation reaches any `rustup` or Cargo installation step.
 
-Bash-specific startup/function variables do not grant shell startup authority in the PowerShell-only Windows path. They are rejected by the canonical Python helper when that helper's cross-platform audit is used, while the PowerShell-native pre-Python guard retains the variables relevant to the Windows execution model.
+The new Bash startup subprocess controls are Linux-only and therefore do not add a Bash dependency to the PowerShell-only Windows path. Bash-specific variable names remain part of the cross-platform forbidden-name policy.
 
 The PowerShell implementation intentionally duplicates the small pre-Python name policy rather than invoking Python before Python authority has itself been constrained. Values are not printed.
 
@@ -132,12 +160,13 @@ The v2 environment policy consequently rejects the relevant `cc`/compiler flag f
 
 ## Remaining acceptance
 
-The environment policy is not final admission by itself. Exact final-head platform evidence must still prove:
+The environment policy and Linux startup primitive are not final admission by themselves. Exact final-head platform evidence must still prove:
 
-- Linux canonical entry wrappers actually start in privileged Bash mode;
-- direct invocation without privileged Bash fails closed;
-- representative `BASH_ENV` and exported-function injection cannot influence canonical Linux preparation/validation/review before the audit;
-- Linux environment self-test/audit runs before preparation and heavy validation under the real canonical flow;
+- all canonical Linux privileged entrypoints parse and execute correctly under the supported Bash host;
+- direct invocation without privileged Bash fails closed for every canonical privileged entrypoint;
+- the exact-final-head environment helper self-test actually executes successfully in preparation, outer validation and immutable-source entry;
+- representative real canonical-flow `BASH_ENV` and exported-function injection cannot influence preparation/validation/review before the audit;
+- the intended self-removing trusted `cp` shim is the only function authority admitted across the immutable-source non-privileged H2 transition;
 - nested H1/H2 Bash children remain compatible with the privileged-Bash child authority;
 - Windows PowerShell environment guard parses and rejects representative exact/prefix/case-variant variables on supported Windows;
 - Windows Python 3.11+ isolated-mode invocations work in the canonical dependency flow;
