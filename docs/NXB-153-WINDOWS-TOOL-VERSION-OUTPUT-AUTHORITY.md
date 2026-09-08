@@ -2,21 +2,23 @@
 
 ## Status
 
-This document records a source-staged NXB-153 availability hardening found after the broader fixed-output capture review.
+This document records source-staged NXB-153 availability hardening for fixed-output tool/version capture outside the bounded H2 formatting boundary.
 
 It does **not** claim supported Windows/NTFS/PowerShell runtime PASS. NXB-153 remains draft/not admitted and the host Rust schema-v2 identity remains pending.
 
 ## Finding
 
-The preserved Windows preparation implementation already pinned every namespace component and both freshly installed security-tool files before version/hash inspection. That protected executable pathname identity, but the small `--version` outputs were still collected through post-hoc `Out-String` retention.
+The preserved Windows preparation implementation already pinned every namespace component and both freshly installed security-tool files before version/hash inspection. That protected executable pathname identity, but the small `--version` outputs were originally collected through post-hoc `Out-String` retention.
 
 The same preparation path also inserted `rustup run 1.97.1 rustc --version` into the tooling receipt through a direct post-hoc `Out-String` capture.
 
-A pinned executable path is an identity control, not an output-memory bound. Those fixed-output calls therefore required the same incremental process discipline used elsewhere in the Windows admission chain.
+A later source audit found the same availability gap in `scripts/validate-nxb-153-windows-inner.ps1`: before delegating to the immutable H2 runner, the validator captured `rustc`, `cargo`, `cargo-audit` and `cargo-deny` version output through direct `Out-String` paths. Those calls occur before the H2 bounded `Out-String` proxy is active, so the H2 guard could not bound them.
+
+A pinned executable path is an identity control, not an output-memory bound. All of these pre-H2 fixed-output calls therefore require native incremental process discipline.
 
 ## Current source authority
 
-Current prepared-tool implementation:
+Prepared-tool implementation:
 
 `scripts/prepare-and-validate-nxb-153-windows-inner.ps1`
 
@@ -24,20 +26,46 @@ Exact Git blob:
 
 `98aa023626e2410dce6800bd799a6d3230355b86`
 
+Validator implementation:
+
+`scripts/validate-nxb-153-windows-inner.ps1`
+
+Current exact Git blob:
+
+`d32246838e9a7445fa87aafec85c32ebd6416d8a`
+
+Cross-platform validator source regression test:
+
+`crates/nxb-core/tests/windows_validator_fixed_output_source_contract.rs`
+
+Current exact Git blob:
+
+`58b13d37c15cc02810fde8a48f4df0fe69c22d30`
+
 Source hardening commits:
 
-- `43e97db07a0f9241dd382a4ff865f0d32c412ad2` — introduced bounded fixed-output version capture;
-- `638126fcf7fc13621d5aa57f5e6e105c5259add2` — restored the pre-existing `RUSTC_WRAPPER` ambient-authority rejection that was accidentally omitted during the complete-file replacement and restored the trailing newline.
+- `43e97db07a0f9241dd382a4ff865f0d32c412ad2` — introduced bounded fixed-output version capture in Windows tool preparation;
+- `638126fcf7fc13621d5aa57f5e6e105c5259add2` — restored the pre-existing `RUSTC_WRAPPER` ambient-authority rejection accidentally omitted during that complete-file replacement and restored the trailing newline;
+- `a401c760e3b553ca1ead62c3212df47cdca7f72b` — routed Windows validator `rustc`, `cargo`, `cargo-audit` and `cargo-deny` version capture through the same bounded native-process discipline;
+- `411ee3d7ce743cfb31c74625040f630f2ea23e79` — introduced the platform-independent validator fixed-output source regression test;
+- `b701d4e8689e3f2bfb62297df7b7cd00fd0f54a7` — normalized that Rust regression test to the workspace formatting contract.
 
-The net change from the previous source-stage head preserves the ambient compiler/Cargo/Python authority deny-list.
+The current source retains the ambient compiler/Cargo/Python authority deny-list and does not relax existing tool/file/path pinning.
 
 ## Fixed-output process contract
 
-`Invoke-NxbBoundedFixedOutput` is used for:
+`Invoke-NxbBoundedFixedOutput` is used in Windows preparation for:
 
 - freshly installed pinned `cargo-audit.exe --version`;
 - freshly installed pinned `cargo-deny.exe --version`;
 - `rustup run 1.97.1 rustc --version` used in the create-only tooling receipt.
+
+The same contract is now independently present in the Windows validator for:
+
+- pinned `cargo-audit.exe --version`;
+- pinned `cargo-deny.exe --version`;
+- `rustup run 1.97.1 rustc --version` used to validate the receipt and emit schema-v2 evidence;
+- `rustup run 1.97.1 cargo --version` used in schema-v2 evidence.
 
 The helper requires:
 
@@ -54,11 +82,11 @@ The helper requires:
 - failure/timeout cleanup attempts recursive `Kill(true)` followed by bounded reap;
 - process and buffer disposal in `finally`.
 
-`Get-ToolVersion` retains its exact-version-token check after bounded capture.
+`Get-ToolVersion` retains its exact-version-token check after bounded capture. The validator resolves `rustup` as an application and passes that resolved application path to the bounded helper instead of invoking a post-hoc pipeline capture.
 
-## Exact-head regression probe authority
+## Preparation exact-head regression probe authority
 
-The fixed-output helper has a dedicated supported-Windows regression probe:
+The preparation fixed-output helper has a dedicated supported-Windows regression probe:
 
 `scripts/nxb-153-windows-tool-version-output-probe.ps1`
 
@@ -72,7 +100,7 @@ Probe source commits:
 - `90b24664b8728afa31a74cb59f7c0febf5229b0b` — fixed the StrictMode literal source-pattern check and widened the probe-only nested-process timeout defaults to reduce false negatives;
 - `5f83a9d9ef6957b4d560a3fa1784341632dfc6c5` — added a distinct post-stdout-exit timeout primitive by explicitly closing the redirected Windows stdout handle while the fixture process remains alive.
 
-The probe does not reimplement the production helper. It:
+The probe does not reimplement the preparation helper. It:
 
 1. resolves exact `HEAD` through bounded Git stdout;
 2. verifies the working-tree bytes of both the tool-preparation inner and the probe itself against their exact-head Git objects;
@@ -98,33 +126,62 @@ The post-stdout fixture uses the redirected `STD_OUTPUT_HANDLE` obtained through
 
 A successful probe can emit bounded JSON containing the exact head, tool-preparation object, probe object, production/probe limits, PowerShell version and ordered test results. That output is evidence of these primitives only; canonical admission still requires the complete Windows admission wrapper and the rest of the NXB-153 evidence chain.
 
+## Validator source-regression authority
+
+The validator's pre-H2 fixed-output path is additionally bound by:
+
+`crates/nxb-core/tests/windows_validator_fixed_output_source_contract.rs`
+
+The Rust test uses `std` only and can therefore run in both canonical Linux and Windows workspace test suites while inspecting the committed PowerShell source. It requires:
+
+- production `4096 / 30000 / 30000` constants;
+- redirected stdout with inherited stderr and no shell execution;
+- incremental `ReadAsync` raw-byte accounting;
+- bounded post-stdout process exit;
+- nonzero exit rejection;
+- strict UTF-8 after byte admission;
+- <=256-character semantic output;
+- recursive `Kill(true)` cleanup;
+- application-only `rustup` resolution;
+- bounded `cargo-audit`, `cargo-deny`, `rustc` and `cargo` version routes;
+- absence of `Out-String`, `ReadToEndAsync`, `ReadLineAsync` and parameterless `WaitForExit()` in the validator source;
+- helper/version setup occurring before the first H2 delegation.
+
+The test expects one bounded-helper definition and exactly three source call sites: the common security-tool path, `rustc`, and `cargo`. The common security-tool path is invoked separately for cargo-audit and cargo-deny at runtime.
+
+Because canonical Linux immutable validation and Windows dependency validation both execute `cargo test --workspace --all-features --locked`, this regression contract is part of both full Rust test paths. It is source-level evidence, not a replacement for supported-Windows dynamic timeout/cleanup execution.
+
 ## Existing identity and receipt controls retained
 
-This change does not relax the existing preparation authority:
+This change does not relax the existing preparation or validation authority:
 
 - repository and target/validation namespaces remain pinned;
-- exact-head create-new preparation lock remains required;
+- exact-head create-new preparation and validation locks remain required;
 - exact-head tool root must not pre-exist without an admitted receipt;
-- cargo-audit and cargo-deny are installed into the exact-head tool root;
-- every namespace component used to resolve the installed executables is pinned without delete sharing;
+- cargo-audit and cargo-deny remain installed into the exact-head tool root;
+- every namespace component used to resolve the installed executables remains pinned without delete sharing;
 - both tool executable files are pinned before version/hash inspection;
-- pinned-stream SHA-256 is compared with pathname SHA-256 before receipt publication;
+- pinned-stream SHA-256 is compared with pathname SHA-256 where required;
 - Git HEAD and clean-worktree authority are rechecked before publication;
-- tooling receipt remains create-only, bounded and read back byte-for-byte;
-- tool handles remain held through receipt publication;
-- `RUSTC_WRAPPER` remains rejected by the ambient-authority guard together with the other compiler/Cargo/Python override variables.
+- tooling receipt and validation evidence remain create-only and bounded;
+- tool handles remain held through their authority intervals;
+- `RUSTC_WRAPPER` remains rejected together with the other compiler/Cargo/Python override variables.
 
 ## Relationship to the H1/H2 Out-String guard
 
-Other `Out-String` occurrences in the Windows H1/H2 validation chain were reviewed separately. Those captures execute beneath the existing bounded H2 `Out-String` proxy, which applies byte/object limits before delegating admitted bounded objects to the module-qualified real formatter and self-tests formatting equivalence.
+`Out-String` occurrences inside the immutable Windows H1/H2 chain are reviewed separately. Those captures execute beneath the existing bounded H2 `Out-String` proxy, which applies byte/object limits before delegating admitted bounded objects to the module-qualified real formatter and self-tests formatting equivalence.
 
-The preparation-tool version calls documented here occur outside that H2 string-guard boundary, which is why they require an independent native-process fixed-output helper and the dedicated exact-head probe above.
+Preparation tool-version calls occur outside that H2 string-guard boundary and therefore use an independent native-process fixed-output helper plus the dedicated Windows regression probe.
+
+The validator version calls also occur **before** its first H2 delegation. They are now independently bounded by the validator's native-process helper and guarded against source regression by the cross-platform Rust integration test. The validator source itself no longer contains `Out-String`.
 
 ## Canonical admission integration
 
-`scripts/review-nxb-153-windows-admission.ps1` now executes the exact-head tool-version probe as its first mandatory runtime phase before process-lifecycle evidence review and schema-v2 closure review.
+`scripts/review-nxb-153-windows-admission.ps1` executes the exact-head preparation tool-version probe as its first mandatory runtime phase before process-lifecycle evidence review and schema-v2 closure review.
 
 The admission wrapper pins both the probe and production tool-preparation source with write/delete sharing withheld for the complete admission review, rechecks their Git objects and HEAD after the probe, and withholds probe output through all later authority/cleanup checks.
+
+The validator bounded-output source contract is exercised through the normal Rust workspace suite in both canonical platform validation paths. Supported Windows validator execution remains separately mandatory.
 
 A direct standalone probe run remains useful diagnostically but is not a substitute for the canonical admission wrapper.
 
@@ -132,16 +189,17 @@ A direct standalone probe run remains useful diagnostically but is not a substit
 
 Supported exact-head Windows execution must still demonstrate at least:
 
-- successful execution of the tool-version probe as part of `scripts/review-nxb-153-windows-admission.ps1` against the exact final head;
-- normal cargo-audit/cargo-deny/rustc version capture;
+- successful execution of the preparation tool-version probe as part of `scripts/review-nxb-153-windows-admission.ps1` against the exact final head;
+- successful execution of the validator source-regression test under pinned Rust 1.97.1;
+- normal preparation and validator cargo-audit/cargo-deny/rustc version capture plus validator cargo version capture;
 - stalled stdout timeout;
 - output above 4 KiB rejection before unbounded retention;
 - invalid UTF-8 rejection;
 - nonzero exit propagation;
-- actual post-stdout exit timeout behavior of the close-handle fixture;
+- actual post-stdout exit timeout behavior;
 - recursive process-tree cleanup on failure;
-- preservation of tool-path pinning while the version child executes;
-- correct create-only tooling receipt publication and later exact-object validation.
+- preservation of tool-path pinning while version children execute;
+- correct create-only tooling receipt and validation-evidence publication with later exact-object review.
 
 This is in addition to the existing NXB-153 Windows H2, broker, direct-child, schema-v2 and same-head dual-platform admission requirements.
 
