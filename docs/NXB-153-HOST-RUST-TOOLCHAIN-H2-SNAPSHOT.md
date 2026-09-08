@@ -113,16 +113,16 @@ nxb-153-windows-immutable-source.ps1
 
 Current outer availability/object layers:
 
-- canonical bounded string-capture guard: `scripts/nxb-153-windows-immutable-source.ps1` -> `f768e3b8a7899b7f63555f380e5a96ae3c8c6ac2`;
+- canonical bounded string-capture / direct `-SelfTest` guard: `scripts/nxb-153-windows-immutable-source.ps1` -> `58cfcfa709404f7dae467a4591af755bad52209c`;
 - current bounded H2 Git-output guard: `scripts/nxb-153-windows-immutable-source-git-output-inner.ps1` -> `c92a612c2e7921191beb64d1c60a0798fe3fb7ae`;
 - preserved PowerShell enumeration guard: `scripts/nxb-153-windows-immutable-source-enumeration-inner.ps1` -> `b586f5c8557f8a08f56f9616c9580b983be0d16f`;
-- current bounded-copy/broker supervisor: `scripts/nxb-153-windows-immutable-source-bounded-inner.ps1` -> `6d103dd7711d52e679a675cac9cf2b9d4f52e5fe`;
+- current bounded-copy/broker supervisor: `scripts/nxb-153-windows-immutable-source-bounded-inner.ps1` -> `357f074092436140fb5b7ee4960386bed915efb7`;
 - H2 broker-entry wrapper: `scripts/nxb-153-windows-immutable-source-h2-broker-entry.ps1` -> `1afaeb0656201fae952a7d877cbc01d5ce7d1fee`;
 - native destination broker: `scripts/nxb-153-windows-h2-destination-broker.py` -> `c8520395f24d3fe3f29149b152892fac6cd7872c`;
 - bounded dependency direct-child authority: `scripts/nxb-153-windows-dependency-source.ps1` -> `76734e3f5ab9adbf2c9e509ff4be08427da57aa3`;
 - bounded immutable-source archive/tar authority: `scripts/nxb-153-windows-immutable-source-inner.ps1` -> `664930b3b62f54b57345ff387fabce7a8171f45f`.
 
-The earlier `7ffbaadb69ecffec8fcc9961c585fcb3644df422` H2 Git-output blob is historical and is not current authority.
+The current H2 outer object includes the later pre-Git ambient `GIT_*` rejection required for direct `-SelfTest` authority. The current bounded supervisor object includes the later broker/lifetime hardening. The earlier `7ffbaadb69ecffec8fcc9961c585fcb3644df422` H2 Git-output blob is historical and is not current authority.
 
 Each outer layer pins the `scripts` namespace, exact-Git-object verifies the next admitted implementation object, delegates through a deliberately narrow proxy/supervision surface and re-verifies pinned implementation authority before success. Cleanup failures fail closed.
 
