@@ -2,132 +2,108 @@
 
 ## Status
 
-This document records the current **source-staged, not admitted** Windows process-output availability contract for NXB-153.
+This document records the current **source-staged, not admitted** Windows Git-output and host-Git lifetime contract for NXB-153.
 
-The canonical Windows entry Git-output guard was introduced at commit:
+No supported Windows/NTFS/PowerShell runtime PASS is claimed by source staging.
 
-`b3762f604191c024e3cd55a4b9055a03f1845f03`
+## Canonical Windows entry authority
 
-The deeper direct-child pipe/lifecycle hardening was source-staged by:
-
-- `836b7e82d93157b2da1ba4d61d89b4ae31d343c5` for isolated registry-verifier stdin/exit supervision;
-- `f9193e251ad3fe39ae42f831c15b26de0ca935e3` for Git-archive stdout and tar-extraction stdin/exit supervision.
-
-No supported Windows/NTFS/PowerShell runtime PASS is claimed by this source staging.
-
-## Canonical Windows entry Git-output authority
-
-The three canonical Windows entry surfaces previously invoked `git status --porcelain=v1 --untracked-files=all` directly and allowed PowerShell to retain the complete stdout sequence before cleanliness rejection:
+The three canonical Windows entry surfaces are byte-identical:
 
 - `scripts/prepare-and-validate-nxb-153-windows.ps1`;
 - `scripts/validate-nxb-153-windows.ps1`;
 - `scripts/review-nxb-153-evidence-windows.ps1`.
 
-The canonical entrypoints now share one bounded outer implementation with exact Git blob:
+Current shared exact Git blob:
 
-`ab8383d4281ebc147dfe8305a926dd862699cef4`
+`18d638dde788abe363322685b04b4a04e87f6394`
 
-The historical/full implementations are preserved byte-for-byte at:
+This supersedes prior current-entry blobs including `3267f592f074d12326bd518f8b74555f033beba5` and `ab8383d4281ebc147dfe8305a926dd862699cef4`.
 
-- `scripts/prepare-and-validate-nxb-153-windows-inner.ps1` -> `b8874331a06496a7c77e6d6bd8ce99c7762b7c35`;
-- `scripts/validate-nxb-153-windows-inner.ps1` -> `835e7b77dccbec99aa1f3b32600e18ee09730a43`;
-- `scripts/review-nxb-153-evidence-windows-inner.ps1` -> `65b4538186cc449608d1362367902bce0ee84bed`.
+The initially resolved installed Git application remains a **supported-host trust boundary**. Current hardening binds the lifetime of that selected host tool rather than claiming an independent cryptographic identity for the Git installation.
 
-The outer wrapper resolves the real Git application before proxy installation, exact-head resolves and pins the selected preserved inner implementation, installs a temporary bounded global `git` function, delegates to the preserved implementation and re-verifies both HEAD and the pinned inner Git object before success.
+The shared wrapper now:
 
-Nested canonical Windows entrypoints preserve and restore the prior global Git function, so preparation can delegate to the validator without discarding the outer authority chain.
+- resolves the host Git application before proxy installation;
+- requires the selected Git executable to be a regular non-reparse file;
+- opens it read-only with write/delete sharing withheld;
+- requires the actual Git file handle final path to equal the canonical expected executable path;
+- native-pins the Git executable's immediate directory with delete sharing withheld and final-path equality;
+- temporarily prepends the pinned Git directory to PATH;
+- requires nested `Get-Command git -CommandType Application` resolution to return the same pinned executable;
+- native-pins repository root and canonical `scripts` with delete sharing withheld and final-path equality;
+- opens the selected preserved inner implementation read-only with write/delete sharing withheld and requires its actual opened handle final path to equal the expected canonical path;
+- exact-head verifies the pinned inner implementation;
+- installs the bounded global Git proxy, delegates, and re-verifies HEAD plus pinned inner Git object;
+- restores the prior global Git function and PATH and releases all namespace/source/host-Git handles before successful completion;
+- treats cleanup/restoration failure as fatal before PASS.
 
-### Bounded entry Git process contract
+Nested canonical entrypoints therefore resolve the same PATH-pinned host Git while preserving/restoring the outer bounded-proxy authority chain.
 
-For Git invocations passing through the canonical Windows entry wrapper:
+## Bounded entry Git process contract
 
-- stdout is streamed from `Diagnostics.Process` rather than retained without a bound;
+For Git invocations passing through the canonical outer wrapper:
+
 - maximum stdout bytes: **64 MiB**;
 - maximum decoded stdout records: **4,096**;
-- stdout decoding is strict UTF-8;
-- stderr is inherited rather than retained by the proxy;
-- stdout must make progress within **300,000 ms / 5 minutes** for each asynchronous read;
-- after stdout closes, the child must exit within **30,000 ms / 30 seconds**;
-- byte-limit, record-limit or timeout failure attempts recursive process termination and fails closed;
-- child exit status is copied to `$LASTEXITCODE` so existing caller checks remain effective.
+- strict UTF-8 decoding;
+- inherited stderr;
+- per-read inactivity timeout: **300,000 ms / 5 minutes**;
+- post-stdout exit timeout: **30,000 ms / 30 seconds**;
+- byte/record/timeout failure attempts recursive process termination and fails closed;
+- child exit status is propagated to `$LASTEXITCODE`.
 
-The wrapper self-test proves normal Git version delegation and deliberately forces both one-record and four-byte rejection before running the preserved inner implementation.
+The small raw control-plane calls used before proxy installation and after delegation remain separately bounded to **4 KiB raw stdout / 30 s read inactivity / 30 s post-output exit / strict UTF-8 / <=256-character semantic value**.
+
+The wrapper self-test retains normal Git-version delegation plus deliberate one-record and four-byte rejection checks.
 
 ## H2 Git-output layer
 
-The nested Windows H2 Git-output guard exact Git blob is:
+The nested Windows H2 Git-output guard exact Git blob remains:
 
 `scripts/nxb-153-windows-immutable-source-git-output-inner.ps1` -> `c92a612c2e7921191beb64d1c60a0798fe3fb7ae`
 
-This supersedes the earlier `7ffbaadb69ecffec8fcc9961c585fcb3644df422` Git-output guard blob wherever older authority notes still list that blob as current.
-
-The H2 guard retains the **64 MiB / 4,096-record** stdout envelope and applies the same **5 minute read-inactivity** and **30 second post-stdout exit** timeouts. It resolves the real Git application before defining its local H2 proxy, so an outer canonical entry wrapper can remain installed while the H2 layer safely narrows authority inside its own scope.
-
-The H2 guard still exact-object verifies the next enumeration layer and removes its local Git proxy during cleanup.
+The H2 guard retains the **64 MiB / 4,096-record**, **5-minute read-inactivity**, **30-second post-stdout exit** authority. It resolves the real Git application while the canonical outer PATH binding is active, so the intended supported-host Git remains consistent through nesting.
 
 ## Direct-child pipe / exit authority
 
-The three deeper `Diagnostics.Process` paths no longer retain the previously identified `.NET ReadToEndAsync()` parent-memory captures, and their complete child pipe/exit lifecycle is now source-bounded.
-
-Current exact blobs:
+Current direct-child source blobs remain:
 
 - `scripts/nxb-153-windows-dependency-source.ps1` -> `76734e3f5ab9adbf2c9e509ff4be08427da57aa3`;
 - `scripts/nxb-153-windows-immutable-source-inner.ps1` -> `664930b3b62f54b57345ff387fabce7a8171f45f`.
 
-### Registry metadata verifier
+Registry verifier uses bounded async stdin and bounded post-input exit. Git archive uses bounded async stdout under the existing **1 GiB** archive ceiling. Tar extraction uses bounded async stdin. Production child I/O inactivity remains **300,000 ms** and post-I/O exit **30,000 ms**, with recursive termination attempt plus bounded reap on failure/timeout.
 
-The isolated registry verifier still redirects stdin only and inherits stdout/stderr. The parent now:
+## Canonical process-evidence and admission host Git lifetime
 
-- performs `StandardInput.WriteAsync(...)` instead of synchronous `Write(...)`;
-- requires the write to complete within **300,000 ms / 5 minutes**;
-- performs bounded `FlushAsync()` under the same inactivity limit;
-- closes stdin only after the bounded write/flush completes;
-- requires child exit within **30,000 ms / 30 seconds** after stdin closes;
-- on failure/timeout, `finally` attempts recursive `Kill(true)` and bounded reap before process disposal.
+The process-evidence writer current blob is:
 
-The parent still retains no verifier stdout/stderr string.
+`1313a6af73d0884d9db9f4939a073e2aa00f1109`
 
-### Exact-head Git archive
+The canonical admission wrapper current blob is:
 
-Git archive still redirects only binary stdout and inherits stderr. The parent now:
+`aa90917a629d57fa9319ead2ffe9d9e0b77f4a35`
 
-- performs chunked `ReadAsync(...)` from Git stdout;
-- requires each read to make progress within **300,000 ms / 5 minutes**;
-- preserves the existing **1 GiB** archive byte ceiling;
-- writes admitted bytes into the pinned create-new archive stream;
-- requires Git exit within **30,000 ms / 30 seconds** after stdout closes;
-- attempts recursive kill plus bounded reap in cleanup if the child remains live.
+Both select the supported-host Git application, pin its file and parent-directory lifetime, prepend the pinned directory to PATH for nested Git resolution, retain that authority through their complete operation and fail closed if PATH restoration or Git-handle cleanup fails.
 
-### Tar extraction
+Direct standalone probes/reviewers remain diagnostic when invoked outside those canonical parent chains.
 
-Tar extraction still redirects only stdin from the already bounded pinned archive and inherits stdout/stderr. The parent now:
+## Runtime proof still required
 
-- reads the local pinned archive in bounded chunks;
-- writes each chunk with `WriteAsync(...)` to tar stdin;
-- requires each child-pipe write to complete within **300,000 ms / 5 minutes**;
-- applies the same bound to `FlushAsync()`;
-- closes stdin only after all admitted archive bytes are delivered;
-- requires tar exit within **30,000 ms / 30 seconds** after stdin closes;
-- attempts recursive kill plus bounded reap on failure/timeout before cleanup completes.
+Real exact-head Windows execution must still demonstrate at least:
 
-Static exact-head review confirms the former synchronous `StandardInput.Write(...)`, child-pipe `CopyTo(...)` and parameterless `WaitForExit()` forms are absent from these source-staged paths. Local file-stream reads/writes remain ordinary bounded-object filesystem operations and are not redirected child-pipe retention surfaces.
-
-## What this does not prove
-
-Source staging does not prove PowerShell/.NET process timing, cancellation or process-tree behavior on the supported Windows host. Real exact-head Windows validation must still demonstrate at least:
-
+- host Git executable/directory cannot be replaced or renamed while pinned;
+- deliberate alternate PATH/Git injection does not change nested Git resolution;
+- original PATH is restored on success and failure;
+- repository root, `scripts`, preserved-inner and admission authority handle final-path rejection under deliberate pathname/reparse/namespace substitution;
 - outer global Git proxy installation/restoration across prepare -> validate nesting;
-- local H2 Git proxy shadowing and cleanup while the outer wrapper remains installed;
+- local H2 proxy shadowing/cleanup;
 - 64 MiB and 4,096-record fail-closed behavior;
-- read-inactivity timeout and post-stdout exit timeout behavior;
-- inherited stderr behavior;
-- recursive child termination on timeout/limit failure;
-- clean/dirty repository semantics and `$LASTEXITCODE` compatibility;
-- exact-head inner-object pinning and final HEAD/object re-verification;
-- registry-verifier stalled-stdin, nonzero-exit and cleanup behavior;
-- Git-archive stalled-stdout, byte-limit, nonzero-exit and cleanup behavior;
-- tar stalled-stdin, nonzero-exit and cleanup behavior;
-- failure/cancellation cleanup without weakening the existing destination-broker, source, dependency or evidence authority chains.
+- read-inactivity and post-stdout exit timeouts;
+- inherited stderr and `$LASTEXITCODE` behavior;
+- recursive child termination;
+- registry-verifier, Git-archive and tar real stalled-I/O/nonzero/cleanup behavior;
+- process-evidence and admission lifetime behavior under the same exact final head.
 
 ## Admission boundary
 
@@ -135,4 +111,4 @@ Current schema-v2 evidence intentionally remains:
 
 `host_rust_toolchain_identity = version_pinned_object_identity_pending`
 
-The known direct-child source blocker is now source-hardened, but PR #89 remains draft/not admitted. Issues #90-#98 remain open until the exact final head completes real supported Linux + Windows execution, schema-v2 evidence review and guarded dual-platform closure. NXB-154 must not use NXB-153 as an admitted implementation base before that closure.
+PR #89 remains draft/not admitted. Issues #90-#98 remain open until the exact final head completes real supported Linux + Windows execution, schema-v2 evidence review and guarded dual-platform closure. NXB-154 must not use NXB-153 as an admitted implementation base before that closure.
