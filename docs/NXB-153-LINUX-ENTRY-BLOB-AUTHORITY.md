@@ -6,11 +6,12 @@ This document records a **source-staged, not admitted** NXB-153 Linux entrypoint
 
 Canonical Linux preparation, validation, evidence-review and immutable-source entrypoints must not accept implementation bytes through an authority boundary weaker than the exact-head Git object and supported shell-startup contract.
 
-The rule addresses three related boundaries:
+The rule addresses four related boundaries:
 
-1. producer/representation integrity for exact-head Git blob bytes;
-2. ambient Bash startup/function authority before later environment audits can run; and
-3. the deliberate transition from privileged shell authority into the one non-privileged H2 child that must import the exact runner-created `cp` shim.
+1. ambient Git repository/object/config authority before the first exact-head Git operation;
+2. producer/representation integrity for exact-head Git blob bytes;
+3. ambient Bash startup/function authority before later environment audits can run; and
+4. the deliberate transition from privileged shell authority into the one non-privileged H2 child that must import the exact runner-created `cp` shim.
 
 Source staging is not runtime PASS.
 
@@ -20,12 +21,12 @@ The three outer canonical wrappers resolve and size-check their exact-head inner
 
 Current source blobs:
 
-- `scripts/prepare-and-validate-nxb-153-linux.sh` -> `e78a4d7626977fd511d9acae562519da56c49f27`;
-- `scripts/validate-nxb-153-linux.sh` -> `6b343e0cd2cc42888db4276c4e2cb6b035c5ccea`;
-- `scripts/review-nxb-153-evidence-linux.sh` -> `77e62d7c79791eb7678c1a81b7272af15eaa5ebf`;
-- `scripts/nxb-153-linux-immutable-source.sh` -> `57e99472b09a291479f84c8e73fd1c56b1309837`;
-- `scripts/nxb-153-linux-entry-blob-probe.sh` -> `511e7160a0221b4889f3b46b8267894a6b4e195d`;
-- `scripts/nxb-153-validation-environment.py` -> `c294c69c72b100efade6e106aa75e36eb97d4c95`.
+- `scripts/prepare-and-validate-nxb-153-linux.sh` -> `3a7a8f402ec31459ab3e3ad734b7231feac79d3d`;
+- `scripts/validate-nxb-153-linux.sh` -> `957de0d851e40f0d2c4c86e1c55f3869723f03e1`;
+- `scripts/review-nxb-153-evidence-linux.sh` -> `7874e3d62b4d935aaea37b315e59ae3758cf986c`;
+- `scripts/nxb-153-linux-immutable-source.sh` -> `917d186f77d157b41ce9293d949690184656d19c`;
+- `scripts/nxb-153-linux-entry-blob-probe.sh` -> `e821698b793bbea8f2615ca53e2792fdddd2e703`;
+- `scripts/nxb-153-validation-environment.py` -> `d3c4a27064468bba6d6247cb1c7767eead4abfe8`.
 
 Each outer wrapper requires its selected inner implementation to be a Git blob whose reported size is greater than zero and no larger than **1 MiB** before capture.
 
@@ -42,6 +43,16 @@ The wrapper therefore fails if:
 
 After this check there is **no second process-substitution source producer**. The exact verified in-memory string is executed directly through `builtin eval`, preserving the intended same-shell sourced-script behavior while removing the earlier asynchronous delegation boundary.
 
+## Pre-Git ambient authority boundary
+
+The canonical direct Linux entrypoints reject every ambient variable whose name begins with `GIT_` immediately after privileged-Bash entry validation and **before their first Git operation**.
+
+This covers preparation, validation, evidence review, the immutable-source runner and the entry-blob probe. It prevents variables such as `GIT_DIR`, `GIT_WORK_TREE`, object-directory/alternate-object configuration, config injection and executable-path settings from redirecting the very Git operation that would otherwise be used to establish exact-head authority.
+
+The exact-head environment helper independently rejects the complete `GIT_*` family later in the flow as well. The pre-Git shell gate and the helper audit are complementary: the former protects the first `rev-parse`/object lookup, while the latter prevents reintroduction of Git authority before deeper children or heavy validation.
+
+The entry-blob probe source-stages this rule by requiring the admitted direct Linux entry source shapes to retain their pre-Git authority gate.
+
 ## Privileged Bash startup authority
 
 The preparation, validation and evidence-review wrappers, the immutable-source runner and the entry-blob probe request privileged Bash in their direct-exec shebang and fail unless `$-` contains `p`.
@@ -56,11 +67,11 @@ The canonical validator also executes the exact-head entry-blob probe through a 
 
 pipeline before evaluating the preserved validator inner bytes.
 
-The ambient environment guard rejects Bash startup/function authority variables together with the compiler/Cargo/Python/native-build authority set. Privileged Bash remains required because an audit that runs after shell startup cannot retroactively undo startup code that already executed.
+The ambient environment guard rejects Bash startup/function authority variables together with Git/compiler/Cargo/Python/native-build authority. Privileged Bash remains required because an audit that runs after shell startup cannot retroactively undo startup code that already executed.
 
 ## Mandatory selected-host Bash runtime self-test
 
-The exact-head environment helper now turns the central Bash startup assumption into a Linux runtime primitive inside its existing mandatory `self-test`.
+The exact-head environment helper turns the central Bash startup assumption into a Linux runtime primitive inside its existing mandatory `self-test`.
 
 Current helper:
 
@@ -68,7 +79,7 @@ Current helper:
 
 Current helper blob:
 
-`c294c69c72b100efade6e106aa75e36eb97d4c95`
+`d3c4a27064468bba6d6247cb1c7767eead4abfe8`
 
 On Linux the helper self-test:
 
@@ -82,16 +93,18 @@ On Linux the helper self-test:
 - proves `bash -p` rejects it;
 - injects a synthetic exported `BASH_FUNC_cp%%` control;
 - proves an ordinary non-privileged Bash child imports the intended trusted-function primitive used by the later H2 handoff;
+- verifies representative `GIT_*` names are rejected by the environment policy;
 - uses a minimal synthetic subprocess environment instead of inheriting arbitrary ambient authority into the control fixtures;
 - cleans all temporary startup artifacts before self-test success.
 
-This runtime self-test is mandatory through existing exact-head control flow rather than through a new optional wrapper:
+This runtime self-test is mandatory through existing exact-head control flow rather than through an optional diagnostic:
 
 - Linux preparation resolves the exact-head environment helper and runs `self-test` before tool installation/receipt publication;
 - outer Linux validation resolves the same helper and runs `self-test` before lock-owned heavy validation;
-- the immutable-source runner independently resolves the same helper and repeats `self-test` immediately before its ambient audit and trusted-function transition.
+- the immutable-source runner independently resolves the same helper and repeats `self-test` immediately before its ambient audit and trusted-function transition;
+- standalone Linux evidence review now independently resolves the same exact-head helper, checks its blob/type/size authority, runs `python3 -I - self-test` before semantic review, and re-resolves the helper object after review.
 
-The audit policy/result schema remains `nxb-153-compiler-cargo-python-authority-v2`; only the source-staged runtime self-test became stronger.
+The audit policy/result schema remains `nxb-153-compiler-cargo-python-authority-v2`; the exact committed helper object, not the label alone, defines the strengthened Git/Bash authority semantics.
 
 ## Immutable-source entry and trusted-function transition
 
@@ -100,6 +113,7 @@ The audit policy/result schema remains `nxb-153-compiler-cargo-python-authority-
 The runner independently:
 
 - requires privileged Bash mode at entry;
+- rejects ambient `GIT_*` authority before its first Git operation;
 - resolves the exact-head validation environment helper;
 - runs that helper's isolated self-test and ambient audit before constructing any exported function authority;
 - resolves the exact-head source-envelope helper;
@@ -108,13 +122,28 @@ The runner independently:
 
 After the audit, the runner deliberately creates and exports one trusted `cp` function. That shim delegates copying to the exact-head bounded Rust snapshot-copy helper and removes itself with `unset -f cp` after its admitted copy invocation. The final H2 inner Bash child is intentionally **non-privileged** so it can import this exact runner-created function.
 
-This non-privileged child is not an ambient-authority exception. Ambient `BASH_ENV` and pre-existing exported-function authority must already have been rejected before the trusted shim is defined or exported. The new Linux runtime self-test proves the selected supported-host Bash distinguishes the privileged rejection behavior from the intended ordinary-child exported-function import primitive.
+This non-privileged child is not an ambient-authority exception. Ambient `BASH_ENV` and pre-existing exported-function authority must already have been rejected before the trusted shim is defined or exported. The Linux runtime self-test proves the selected supported-host Bash distinguishes the privileged rejection behavior from the intended ordinary-child exported-function import primitive.
 
 Runtime acceptance must still demonstrate that the real exact runner-created `cp` shim is the only function authority admitted across that exact-head transition.
 
+## Evidence-review host startup authority
+
+Linux evidence review can be invoked independently of the host that produced validation evidence. The canonical review wrapper therefore no longer assumes that a prior validation run proved the current review host's Bash startup behavior.
+
+Before the semantic review implementation is evaluated, `scripts/review-nxb-153-evidence-linux.sh`:
+
+1. rejects ambient `GIT_*` before the first Git operation;
+2. resolves `scripts/nxb-153-validation-environment.py` from the exact current HEAD;
+3. requires a canonical blob object whose size is within the 1 MiB implementation envelope;
+4. executes that exact blob through the already-resolved `python3 -I - self-test` path;
+5. performs the existing exact captured/OID-verified semantic review; and
+6. re-resolves both the semantic-review inner object and environment-helper object before returning success.
+
+A source-staged review PASS therefore cannot rely solely on a Bash startup primitive proved on another machine or an earlier validation process.
+
 ## Authority precedence
 
-This document is the canonical authority for Linux outer-entry, preparation-to-validator and immutable-source shell handoff semantics.
+This document is the canonical authority for Linux outer-entry, preparation-to-validator, evidence-review startup and immutable-source shell handoff semantics.
 
 Older NXB-153 documentation may describe the historical preparation handoff as streaming the exact validator blob into `bash -s -- '.'`. That wording is superseded for the current source-staged contract. The preserved preparation implementation still spells a bare `bash -s -- '.'` command, but it executes inside the canonical preparation wrapper's trusted `bash()` shim; the actual child process is the already-resolved Bash executable invoked with `-p`.
 
@@ -136,6 +165,7 @@ The repository-aware probe additionally requires for the three outer wrappers:
 - working file bytes to equal their exact-head Git blob;
 - privileged `bash -p -n` syntax validation;
 - privileged direct-entry shebang and runtime requirement;
+- pre-Git ambient `GIT_*` rejection before exact-head Git resolution;
 - no retained `source <(` delegation;
 - captured-byte `hash-object --stdin` verification;
 - exactly one `builtin eval` in-memory delegation per wrapper.
@@ -144,6 +174,7 @@ For the canonical immutable-source runner, the probe additionally requires:
 
 - working bytes equal the exact-head runner blob;
 - privileged syntax/direct-entry/runtime requirements;
+- pre-Git ambient `GIT_*` rejection;
 - captured-byte Git object verification;
 - exact-head validation environment helper resolution;
 - exactly one canonical environment-audit handoff;
@@ -155,7 +186,7 @@ For the canonical immutable-source runner, the probe additionally requires:
 
 Those source-order checks use exact line signatures and occurrence counts rather than loose substring existence.
 
-The entry-blob probe and the environment-helper Bash runtime self-test are complementary. The former binds source/object/order semantics; the latter proves the selected Linux Bash startup/function primitive at runtime.
+The entry-blob probe and the environment-helper Bash runtime self-test are complementary. The former binds source/object/order/pre-Git semantics; the latter proves the selected Linux Bash startup/function primitive at runtime.
 
 ## Required runtime proof
 
@@ -163,7 +194,8 @@ Exact-final-head Linux validation must still prove:
 
 - all three outer wrappers and the immutable-source runner parse and execute correctly under the supported Bash host in privileged mode;
 - direct invocation without privileged mode fails closed for every canonical privileged entrypoint;
-- the new exact-head environment-helper Bash startup self-test executes successfully through preparation, outer validation and immutable-source entry;
+- representative `GIT_*` authority is rejected before the first Git operation on every canonical Linux entrypoint;
+- the exact-head environment-helper Bash startup self-test executes successfully through preparation, outer validation, immutable-source entry and standalone evidence review;
 - representative real canonical-flow `BASH_ENV` and hostile exported-function injection cannot influence preparation/validation/review before the audit;
 - the mandatory exact-head entry-blob probe executes successfully through the canonical validator;
 - clean and dirty Git-status semantics remain unchanged;
