@@ -16,6 +16,8 @@ A later source audit found the same availability gap in `scripts/validate-nxb-15
 
 A pinned executable path is an identity control, not an output-memory bound. All of these pre-H2 fixed-output calls therefore require native incremental process discipline.
 
+A further review found an evidence-quality gap after the validator helper was added: the supported-Windows dynamic tool-version probe executes the preparation helper, while the validator helper was protected only by static source markers. Source equivalence is now part of the canonical regression contract so the validator helper cannot drift away from the dynamically exercised preparation primitive without failing the Rust workspace tests.
+
 ## Current source authority
 
 Prepared-tool implementation:
@@ -40,7 +42,7 @@ Cross-platform validator source regression test:
 
 Current exact Git blob:
 
-`58b13d37c15cc02810fde8a48f4df0fe69c22d30`
+`93bb0bf9e131fd30bfb7fbc700589f36c99b006c`
 
 Source hardening commits:
 
@@ -48,7 +50,8 @@ Source hardening commits:
 - `638126fcf7fc13621d5aa57f5e6e105c5259add2` — restored the pre-existing `RUSTC_WRAPPER` ambient-authority rejection accidentally omitted during that complete-file replacement and restored the trailing newline;
 - `a401c760e3b553ca1ead62c3212df47cdca7f72b` — routed Windows validator `rustc`, `cargo`, `cargo-audit` and `cargo-deny` version capture through the same bounded native-process discipline;
 - `411ee3d7ce743cfb31c74625040f630f2ea23e79` — introduced the platform-independent validator fixed-output source regression test;
-- `b701d4e8689e3f2bfb62297df7b7cd00fd0f54a7` — normalized that Rust regression test to the workspace formatting contract.
+- `b701d4e8689e3f2bfb62297df7b7cd00fd0f54a7` — normalized that Rust regression test to the workspace formatting contract;
+- `3598ff27acffca06980a953a9307e9cd89f08e71` — requires the validator helper source to remain identical to the preparation helper dynamically exercised by the exact-head Windows tool-version probe.
 
 The current source retains the ambient compiler/Cargo/Python authority deny-list and does not relax existing tool/file/path pinning.
 
@@ -60,7 +63,7 @@ The current source retains the ambient compiler/Cargo/Python authority deny-list
 - freshly installed pinned `cargo-deny.exe --version`;
 - `rustup run 1.97.1 rustc --version` used in the create-only tooling receipt.
 
-The same contract is now independently present in the Windows validator for:
+The same contract is independently present in the Windows validator for:
 
 - pinned `cargo-audit.exe --version`;
 - pinned `cargo-deny.exe --version`;
@@ -128,11 +131,11 @@ A successful probe can emit bounded JSON containing the exact head, tool-prepara
 
 ## Validator source-regression authority
 
-The validator's pre-H2 fixed-output path is additionally bound by:
+The validator's pre-H2 fixed-output path is bound by:
 
 `crates/nxb-core/tests/windows_validator_fixed_output_source_contract.rs`
 
-The Rust test uses `std` only and can therefore run in both canonical Linux and Windows workspace test suites while inspecting the committed PowerShell source. It requires:
+The Rust test uses `std` only and can therefore run in both canonical Linux and Windows workspace test suites while inspecting committed PowerShell source. Its first test requires:
 
 - production `4096 / 30000 / 30000` constants;
 - redirected stdout with inherited stderr and no shell execution;
@@ -147,9 +150,16 @@ The Rust test uses `std` only and can therefore run in both canonical Linux and 
 - absence of `Out-String`, `ReadToEndAsync`, `ReadLineAsync` and parameterless `WaitForExit()` in the validator source;
 - helper/version setup occurring before the first H2 delegation.
 
-The test expects one bounded-helper definition and exactly three source call sites: the common security-tool path, `rustc`, and `cargo`. The common security-tool path is invoked separately for cargo-audit and cargo-deny at runtime.
+The first test expects one bounded-helper definition and exactly three source call sites: the common security-tool path, `rustc`, and `cargo`. The common security-tool path is invoked separately for cargo-audit and cargo-deny at runtime.
 
-Because canonical Linux immutable validation and Windows dependency validation both execute `cargo test --workspace --all-features --locked`, this regression contract is part of both full Rust test paths. It is source-level evidence, not a replacement for supported-Windows dynamic timeout/cleanup execution.
+The second test reads both exact workspace sources and extracts the complete `Invoke-NxbBoundedFixedOutput` source region from each. It requires:
+
+- validator and preparation helper source regions to be identical;
+- both sources to retain the same `4096 / 30000 / 30000` production constants.
+
+This makes dynamic-probe inheritance fail closed: the existing exact-head Windows probe dynamically executes the preparation helper, while the cross-platform Rust contract refuses a validator helper that is not the same source primitive. This is still not a substitute for running the validator itself on supported Windows, because executable identity, PowerShell/.NET/runtime behavior and surrounding call-site lifetime remain runtime properties.
+
+Because canonical Linux immutable validation and Windows dependency validation both execute `cargo test --workspace --all-features --locked`, both source-regression tests are part of both full Rust test paths.
 
 ## Existing identity and receipt controls retained
 
@@ -173,7 +183,7 @@ This change does not relax the existing preparation or validation authority:
 
 Preparation tool-version calls occur outside that H2 string-guard boundary and therefore use an independent native-process fixed-output helper plus the dedicated Windows regression probe.
 
-The validator version calls also occur **before** its first H2 delegation. They are now independently bounded by the validator's native-process helper and guarded against source regression by the cross-platform Rust integration test. The validator source itself no longer contains `Out-String`.
+The validator version calls also occur **before** its first H2 delegation. They are independently bounded by the validator's native-process helper and guarded against source regression by the cross-platform Rust integration tests. The validator source itself no longer contains `Out-String`.
 
 ## Canonical admission integration
 
@@ -181,7 +191,7 @@ The validator version calls also occur **before** its first H2 delegation. They 
 
 The admission wrapper pins both the probe and production tool-preparation source with write/delete sharing withheld for the complete admission review, rechecks their Git objects and HEAD after the probe, and withholds probe output through all later authority/cleanup checks.
 
-The validator bounded-output source contract is exercised through the normal Rust workspace suite in both canonical platform validation paths. Supported Windows validator execution remains separately mandatory.
+The validator bounded-output source contract, including helper equivalence to the dynamically probed preparation primitive, is exercised through the normal Rust workspace suite in both canonical platform validation paths. Supported Windows validator execution remains separately mandatory.
 
 A direct standalone probe run remains useful diagnostically but is not a substitute for the canonical admission wrapper.
 
@@ -190,7 +200,7 @@ A direct standalone probe run remains useful diagnostically but is not a substit
 Supported exact-head Windows execution must still demonstrate at least:
 
 - successful execution of the preparation tool-version probe as part of `scripts/review-nxb-153-windows-admission.ps1` against the exact final head;
-- successful execution of the validator source-regression test under pinned Rust 1.97.1;
+- successful execution of both validator source-regression tests under pinned Rust 1.97.1;
 - normal preparation and validator cargo-audit/cargo-deny/rustc version capture plus validator cargo version capture;
 - stalled stdout timeout;
 - output above 4 KiB rejection before unbounded retention;
