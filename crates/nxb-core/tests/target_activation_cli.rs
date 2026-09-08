@@ -274,7 +274,7 @@ fn stale_preview_digest_rejects_changed_budget_before_persistence() {
 }
 
 #[test]
-fn wrong_activation_acknowledgement_and_duplicate_activation_fail_closed() {
+fn wrong_activation_acknowledgement_rejects_and_exact_retry_is_idempotent() {
     let root = temporary_workspace("acknowledgement");
     initialize(&root);
     let authorization = authorization_document(&root);
@@ -296,14 +296,22 @@ fn wrong_activation_acknowledgement_and_duplicate_activation_fail_closed() {
     assert_eq!(fs::read_dir(root.join("targets")).unwrap().count(), 0);
 
     let valid = activation_arguments(&root, &authorization, preview_sha256);
-    let first = run(&valid);
-    assert!(
-        first.status.success(),
-        "first activation failed: {}",
-        String::from_utf8_lossy(&first.stderr)
-    );
+    let first = run_json(&valid);
+    let profile_path = root.join("targets").join("example-app.json");
+    let artifact_path = root
+        .join("state")
+        .join("target-example-app.guided-activation.json");
+    let profile_before = fs::read(&profile_path).unwrap();
+    let artifact_before = fs::read(&artifact_path).unwrap();
 
-    assert_activation_rejection(&run(&valid));
+    let retried = run_json(&valid);
+    assert_eq!(retried.get("identity_sha256"), first.get("identity_sha256"));
+    assert_eq!(
+        retried.pointer("/activation/preview_sha256"),
+        first.pointer("/activation/preview_sha256")
+    );
+    assert_eq!(fs::read(&profile_path).unwrap(), profile_before);
+    assert_eq!(fs::read(&artifact_path).unwrap(), artifact_before);
     assert_eq!(fs::read_dir(root.join("targets")).unwrap().count(), 1);
 
     fs::remove_dir_all(root).unwrap();
