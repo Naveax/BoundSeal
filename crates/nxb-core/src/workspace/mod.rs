@@ -21,6 +21,7 @@ pub(crate) const PRODUCT_NAME: &str = "NXBounty";
 pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 1;
 pub(crate) const MANIFEST_FILE: &str = "workspace.json";
 pub(crate) const MAX_DOCUMENT_BYTES: u64 = 64 * 1024;
+const CREATE_DOCUMENT_TEMPORARY_NONCE_HEX_LENGTH: usize = 24;
 const CANONICAL_DIRECTORIES: &[&str] = &[
     "config", "targets", "sessions", "runs", "evidence", "reports", "state", "tmp",
 ];
@@ -361,9 +362,6 @@ pub(crate) fn reject_path_indirections(path: &Path, label: &str) -> Result<()> {
         match component {
             Component::Prefix(prefix) => {
                 current.push(prefix.as_os_str());
-                // A Windows drive/UNC prefix is not itself a filesystem
-                // entry. Inspect only after RootDir or a normal component
-                // has completed an inspectable path.
                 continue;
             }
             Component::RootDir => current.push(Path::new(std::path::MAIN_SEPARATOR_STR)),
@@ -484,6 +482,20 @@ pub(crate) fn create_document_error_published(error: &anyhow::Error) -> bool {
 
 fn should_cleanup_initialization(error: &anyhow::Error) -> bool {
     !create_document_error_published(error)
+}
+
+pub(crate) fn create_document_temporary_destination(name: &str) -> Option<&str> {
+    let body = name.strip_prefix('.')?.strip_suffix(".tmp")?;
+    let (destination, nonce) = body.rsplit_once('.')?;
+    if destination.is_empty()
+        || nonce.len() != CREATE_DOCUMENT_TEMPORARY_NONCE_HEX_LENGTH
+        || !nonce
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return None;
+    }
+    Some(destination)
 }
 
 pub(crate) fn create_document(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -694,6 +706,14 @@ fn count_regular_files(path: &Path) -> Result<u64> {
             );
         }
         if metadata.is_file() {
+            let file_name = entry.file_name();
+            if file_name
+                .to_str()
+                .and_then(create_document_temporary_destination)
+                .is_some()
+            {
+                continue;
+            }
             count = count
                 .checked_add(1)
                 .ok_or_else(|| anyhow::anyhow!("record count overflow"))?;
