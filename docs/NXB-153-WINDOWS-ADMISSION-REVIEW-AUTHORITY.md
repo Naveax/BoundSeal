@@ -16,19 +16,23 @@ The complete current Windows admission-review entrypoint is:
 
 Current exact Git blob:
 
-`c0ea7d3e251e4139bc9c02b75c83a1e4078b74cc`
+`48927e15c389c99aa25cb908eb5ca28574b6b3e3`
 
-Commit `93acff2adcf6794f5c0130e6728118d1c15af966` made the exact-head tool-version output regression probe a mandatory canonical admission layer.
+Relevant source-hardening commits:
+
+- `93acff2adcf6794f5c0130e6728118d1c15af966` made the exact-head tool-version output regression probe a mandatory canonical admission layer;
+- `d97ec601867c78e46e0285c40f7be54df4adc3dd` bound the admission wrapper's repository/scripts namespace and opened authority-file handles to native final-path identity.
 
 The wrapper requires, on the same exact Git head:
 
 1. successful execution of the exact-head Windows tool-version output regression probe against the pinned production tool-preparation source;
 2. successful review of create-only Windows process-lifecycle evidence;
 3. successful canonical Windows schema-v2 / dual-platform evidence review;
-4. exact-head authority-object continuity before, between and after all three phases;
-5. unchanged Git HEAD through the complete admission-review sequence;
-6. fail-closed cleanup of pinned authority handles;
-7. no subordinate PASS output is released before the complete admission-review sequence succeeds.
+4. native canonical-path identity for the repository/scripts namespace and every pinned authority file;
+5. exact-head authority-object continuity before, between and after all three phases;
+6. unchanged Git HEAD through the complete admission-review sequence;
+7. fail-closed cleanup of pinned namespace and authority handles;
+8. no subordinate PASS output is released before the complete admission-review sequence succeeds.
 
 The former direct entrypoint:
 
@@ -48,6 +52,8 @@ canonical Windows preparation / validation namespace
      -> create-only target/nxb-validation/nxb-153-windows-process-lifecycle-<head>.json
 
 scripts/review-nxb-153-windows-admission.ps1
+  -> native-pin repository root + scripts namespace
+  -> native/open-handle final-path bind all canonical authority files
   -> scripts/nxb-153-windows-tool-version-output-probe.ps1
      -> exact-head scripts/prepare-and-validate-nxb-153-windows-inner.ps1
      -> AST-loaded Invoke-NxbBoundedFixedOutput production helper
@@ -77,7 +83,7 @@ Current exact Git blob:
 
 `98aa023626e2410dce6800bd799a6d3230355b86`
 
-The admission wrapper pins read-only handles for both files with write/delete sharing withheld before running the probe and retains those handles through the complete admission review.
+The admission wrapper pins read-only handles for both files with write/delete sharing withheld before running the probe and retains those handles through the complete admission review. Each opened authority file is also resolved through `GetFinalPathNameByHandleW`; the native resolved path must equal the expected canonical absolute path before Git-object verification proceeds.
 
 The probe independently:
 
@@ -160,7 +166,20 @@ A terminal-only probe PASS is supporting diagnostic output and is not sufficient
 
 ## Admission-wrapper source authority
 
-`scripts/review-nxb-153-windows-admission.ps1` exact-head verifies and pins read-only handles for:
+Before opening its authority files, `scripts/review-nxb-153-windows-admission.ps1` now opens native no-delete-share directory handles for:
+
+- repository root;
+- canonical `scripts` directory.
+
+Both namespace handles:
+
+- require existing normal non-reparse directories;
+- use `CreateFileW(..., FILE_FLAG_BACKUP_SEMANTICS, ...)`;
+- permit read/write sharing but withhold delete sharing;
+- are resolved through `GetFinalPathNameByHandleW` and must equal the expected canonical absolute paths;
+- remain live through all three admission phases and final authority/HEAD checks.
+
+The wrapper then exact-head verifies and pins read-only handles for:
 
 - itself;
 - `scripts/review-nxb-153-windows-process-lifecycle-evidence.ps1`;
@@ -168,15 +187,16 @@ A terminal-only probe PASS is supporting diagnostic output and is not sufficient
 - `scripts/nxb-153-windows-tool-version-output-probe.ps1`;
 - `scripts/prepare-and-validate-nxb-153-windows-inner.ps1`.
 
-Write/delete sharing is withheld while those authority handles remain open.
+Write/delete sharing is withheld while those authority handles remain open. Immediately after each file handle opens, the wrapper resolves that actual handle through `GetFinalPathNameByHandleW`; native final-path identity must equal the canonical expected pathname before exact-head Git-object verification is accepted. This closes the pathname substitution interval between the preliminary non-reparse check and `File.Open`.
 
 After the tool-version probe, after process-evidence review, and again after the schema-v2 Windows reviewer, the wrapper:
 
 - recomputes every pinned authority file's working-tree Git object and requires exact equality with the initial exact-head object;
 - requires Git HEAD to remain the initial exact head;
-- fails closed if authority-handle cleanup reports an error.
+- keeps repository/scripts namespace handles and all authority-file handles live until the complete review has finished;
+- treats both authority-file and namespace-handle disposal failures as fatal cleanup failures before canonical PASS is released.
 
-This closes the former gap where the tool-version probe was documented as required but was not itself on the canonical admission execution path.
+This closes both the former documented-but-bypassable tool-version probe gap and the later admission-wrapper pathname/namespace-lifetime gap.
 
 ### Guarded subordinate output
 
@@ -251,6 +271,7 @@ Source staging still does not prove supported Windows behavior. Same-head admiss
 
 - exact-head tool-version output probe success as part of canonical admission;
 - tool-version fixed-output normal, oversize, invalid-UTF8, nonzero-exit, read-inactivity, **post-stdout exit** and recursive-cleanup behavior;
+- admission-wrapper repository/scripts native no-delete-share pinning, handle final-path equality and rejection under deliberate pathname/reparse/namespace substitution attempts;
 - native process-evidence writer namespace/source handle pinning and no-delete-share behavior;
 - process-evidence create-only publication and cleanup-failure handling;
 - process-lifecycle evidence creation and review;
