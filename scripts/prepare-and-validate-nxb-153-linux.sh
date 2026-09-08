@@ -8,6 +8,11 @@ fail() {
 
 [[ "$-" == *p* ]] || fail 'canonical Linux preparation requires privileged Bash mode (-p)'
 
+nxb_guard_git_environment=("${!GIT_@}")
+[[ "${#nxb_guard_git_environment[@]}" -eq 0 ]] ||
+    fail "ambient Git authority variables are not admitted before exact-head resolution: ${nxb_guard_git_environment[*]}"
+builtin unset nxb_guard_git_environment
+
 read_blob_text_exact() {
     local object="$1" label="$2" output_name="$3"
     local payload sentinel=$'\036' captured_object
