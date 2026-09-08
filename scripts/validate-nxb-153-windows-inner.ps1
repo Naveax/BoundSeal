@@ -498,9 +498,15 @@ $receiptStream = $null
 $cargoLockStream = $null
 $immutableSourceStream = $null
 $namespaceHandles = [Collections.Generic.List[IDisposable]]::new()
+$primaryFailure = $null
+$cleanupErrors = [Collections.Generic.List[string]]::new()
+$locationPushed = $false
+$validationSucceeded = $false
 
-Push-Location $RepoRoot
 try {
+    Push-Location $RepoRoot
+    $locationPushed = $true
+
     foreach ($command in @('git', 'rustup', 'tar')) {
         if ($null -eq (Get-Command $command -ErrorAction SilentlyContinue)) {
             throw "$command is unavailable."
@@ -772,6 +778,8 @@ try {
     }
 
     $evidenceStream = $null
+    $evidencePrimaryFailure = $null
+    $evidenceCleanupFailure = $null
     try {
         try {
             $evidenceStream = [IO.File]::Open(
@@ -791,40 +799,85 @@ try {
         $evidenceStream.Flush($true)
         Assert-ExactStreamBytes -Stream $evidenceStream -Expected $evidenceBytes -Label 'Windows validation evidence'
     }
+    catch {
+        $evidencePrimaryFailure = $_
+    }
     finally {
         if ($null -ne $evidenceStream) {
-            $evidenceStream.Dispose()
+            try {
+                $evidenceStream.Dispose()
+            }
+            catch {
+                $evidenceCleanupFailure = $_
+            }
         }
     }
+    if ($null -ne $evidencePrimaryFailure) {
+        if ($null -ne $evidenceCleanupFailure) {
+            throw "Windows validation evidence publication failed: $($evidencePrimaryFailure.Exception.Message); cleanup: $($evidenceCleanupFailure.Exception.Message)"
+        }
+        throw $evidencePrimaryFailure
+    }
+    if ($null -ne $evidenceCleanupFailure) {
+        throw "Windows validation evidence handle cleanup failed after successful publication: $($evidenceCleanupFailure.Exception.Message)"
+    }
 
-    Write-Host 'NXB-153 Windows validation passed from an exact-head pinned write-denied source snapshot.'
-    Write-Host "HEAD: $headSha"
-    Write-Host "Tool root: $toolsRelative"
-    Write-Host "Cargo.lock SHA-256: $lockSha256"
-    Write-Host "Tooling receipt SHA-256: $receiptSha256"
-    Write-Host "Evidence: $evidencePath"
+    $validationSucceeded = $true
+}
+catch {
+    $primaryFailure = $_
 }
 finally {
     if ($null -ne $immutableSourceStream) {
-        $immutableSourceStream.Dispose()
+        try { $immutableSourceStream.Dispose() }
+        catch { $cleanupErrors.Add("immutable source stream cleanup failed: $($_.Exception.Message)") }
     }
     if ($null -ne $cargoLockStream) {
-        $cargoLockStream.Dispose()
+        try { $cargoLockStream.Dispose() }
+        catch { $cleanupErrors.Add("Cargo.lock stream cleanup failed: $($_.Exception.Message)") }
     }
     if ($null -ne $receiptStream) {
-        $receiptStream.Dispose()
+        try { $receiptStream.Dispose() }
+        catch { $cleanupErrors.Add("tooling receipt stream cleanup failed: $($_.Exception.Message)") }
     }
     if ($null -ne $denyToolStream) {
-        $denyToolStream.Dispose()
+        try { $denyToolStream.Dispose() }
+        catch { $cleanupErrors.Add("cargo-deny stream cleanup failed: $($_.Exception.Message)") }
     }
     if ($null -ne $auditToolStream) {
-        $auditToolStream.Dispose()
+        try { $auditToolStream.Dispose() }
+        catch { $cleanupErrors.Add("cargo-audit stream cleanup failed: $($_.Exception.Message)") }
     }
     if ($null -ne $validationLockStream) {
-        $validationLockStream.Dispose()
+        try { $validationLockStream.Dispose() }
+        catch { $cleanupErrors.Add("validation lock cleanup failed: $($_.Exception.Message)") }
     }
     for ($index = $namespaceHandles.Count - 1; $index -ge 0; $index--) {
-        $namespaceHandles[$index].Dispose()
+        try { $namespaceHandles[$index].Dispose() }
+        catch { $cleanupErrors.Add("namespace handle cleanup failed at index ${index}: $($_.Exception.Message)") }
     }
-    Pop-Location
+    if ($locationPushed) {
+        try { Pop-Location }
+        catch { $cleanupErrors.Add("location restoration failed: $($_.Exception.Message)") }
+    }
 }
+
+if ($null -ne $primaryFailure) {
+    if ($cleanupErrors.Count -gt 0) {
+        throw "NXB-153 Windows validation failed: $($primaryFailure.Exception.Message); cleanup: $($cleanupErrors -join ' | ')"
+    }
+    throw $primaryFailure
+}
+if ($cleanupErrors.Count -gt 0) {
+    throw "NXB-153 Windows validation cleanup failed after otherwise successful validation: $($cleanupErrors -join ' | ')"
+}
+if (-not $validationSucceeded) {
+    throw 'NXB-153 Windows validation reached cleanup without an explicit successful validation state.'
+}
+
+Write-Host 'NXB-153 Windows validation passed from an exact-head pinned write-denied source snapshot.'
+Write-Host "HEAD: $headSha"
+Write-Host "Tool root: $toolsRelative"
+Write-Host "Cargo.lock SHA-256: $lockSha256"
+Write-Host "Tooling receipt SHA-256: $receiptSha256"
+Write-Host "Evidence: $evidencePath"
