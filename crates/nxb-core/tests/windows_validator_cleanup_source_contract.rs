@@ -27,6 +27,11 @@ fn unique_index(text: &str, needle: &str) -> usize {
     first.0
 }
 
+fn last_index(text: &str, needle: &str) -> usize {
+    text.rfind(needle)
+        .unwrap_or_else(|| panic!("{VALIDATOR_PATH}: missing required source marker: {needle}"))
+}
+
 #[test]
 fn windows_validator_withholds_pass_until_all_cleanup_succeeds() {
     let text = validator_source();
@@ -79,13 +84,18 @@ fn windows_validator_withholds_pass_until_all_cleanup_succeeds() {
     let pushed_index = unique_index(&text, "    $locationPushed = $true");
     let success_index = unique_index(&text, "    $validationSucceeded = $true");
     let primary_failure_gate = unique_index(&text, "if ($null -ne $primaryFailure) {");
-    let cleanup_failure_gate = unique_index(&text, "if ($cleanupErrors.Count -gt 0) {");
+    let cleanup_failure_gate = last_index(&text, "if ($cleanupErrors.Count -gt 0) {");
     let explicit_success_gate = unique_index(&text, "if (-not $validationSucceeded) {");
     let pass_index = unique_index(
         &text,
         "Write-Host 'NXB-153 Windows validation passed from an exact-head pinned write-denied source snapshot.'",
     );
 
+    assert_eq!(
+        text.matches("if ($cleanupErrors.Count -gt 0) {").count(),
+        2,
+        "{VALIDATOR_PATH}: expected primary-failure and cleanup-only cleanup-error gates"
+    );
     assert!(
         push_index < pushed_index,
         "{VALIDATOR_PATH}: location authority must be marked only after Push-Location succeeds"
@@ -108,7 +118,12 @@ fn windows_validator_withholds_pass_until_all_cleanup_succeeds() {
     );
 
     let evidence_primary_gate = unique_index(&text, "    if ($null -ne $evidencePrimaryFailure) {");
-    let evidence_cleanup_gate = unique_index(&text, "    if ($null -ne $evidenceCleanupFailure) {");
+    let evidence_cleanup_gate = last_index(&text, "    if ($null -ne $evidenceCleanupFailure) {");
+    assert_eq!(
+        text.matches("if ($null -ne $evidenceCleanupFailure) {").count(),
+        2,
+        "{VALIDATOR_PATH}: expected combined-primary and cleanup-only evidence cleanup gates"
+    );
     assert!(
         evidence_primary_gate < evidence_cleanup_gate && evidence_cleanup_gate < success_index,
         "{VALIDATOR_PATH}: evidence cleanup must preserve primary publication failure before validation success"
