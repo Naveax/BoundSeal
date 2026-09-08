@@ -11,7 +11,83 @@ $cargoAuditVersion = '0.22.2'
 $cargoDenyVersion = '0.20.2'
 $maximumEvidenceBytes = 65536
 $maximumImplementationBytes = 1048576
+$fixedOutputByteLimit = 4096
+$fixedOutputReadTimeoutMilliseconds = 30000
+$fixedOutputExitTimeoutMilliseconds = 30000
 $expectedCargoLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
+
+function Invoke-NxbBoundedFixedOutput {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = $FilePath
+    $start.UseShellExecute = $false
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $false
+    $start.CreateNoWindow = $true
+    foreach ($argument in $Arguments) {
+        [void]$start.ArgumentList.Add([string]$argument)
+    }
+
+    $process = [Diagnostics.Process]::new()
+    $memory = [IO.MemoryStream]::new()
+    try {
+        $process.StartInfo = $start
+        if (-not $process.Start()) {
+            throw "$Label process could not be started."
+        }
+
+        $buffer = [byte[]]::new(1024)
+        [Int64]$total = 0
+        while ($true) {
+            $readTask = $process.StandardOutput.BaseStream.ReadAsync($buffer, 0, $buffer.Length)
+            if (-not $readTask.Wait($fixedOutputReadTimeoutMilliseconds)) {
+                throw "$Label stdout made no progress for $fixedOutputReadTimeoutMilliseconds ms."
+            }
+            $read = $readTask.Result
+            if ($read -le 0) { break }
+            $total += $read
+            if ($total -gt $fixedOutputByteLimit) {
+                throw "$Label stdout exceeds the $fixedOutputByteLimit-byte fixed-output envelope."
+            }
+            $memory.Write($buffer, 0, $read)
+        }
+
+        if (-not $process.WaitForExit($fixedOutputExitTimeoutMilliseconds)) {
+            throw "$Label process did not exit within $fixedOutputExitTimeoutMilliseconds ms after stdout closed."
+        }
+        if ($process.ExitCode -ne 0) {
+            throw "$Label failed with exit code $($process.ExitCode)."
+        }
+
+        $strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
+        try {
+            $value = $strictUtf8.GetString($memory.ToArray()).Trim()
+        }
+        catch {
+            throw "$Label stdout is not strict UTF-8: $($_.Exception.Message)"
+        }
+        if ([string]::IsNullOrWhiteSpace($value) -or $value.Length -gt 256) {
+            throw "$Label did not return one bounded fixed-output value."
+        }
+        return $value
+    }
+    finally {
+        try {
+            if (-not $process.HasExited) {
+                $process.Kill($true)
+                [void]$process.WaitForExit($fixedOutputExitTimeoutMilliseconds)
+            }
+        }
+        catch {}
+        $memory.Dispose()
+        $process.Dispose()
+    }
+}
 
 function Get-NxbToolVersion {
     param(
@@ -23,8 +99,8 @@ function Get-NxbToolVersion {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "$Label is unavailable at $Path. Run scripts/prepare-and-validate-nxb-153-windows.ps1 first."
     }
-    $value = (& $Path --version | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $value -notmatch ('(^|\s)' + [regex]::Escape($ExpectedVersion) + '($|\s)')) {
+    $value = Invoke-NxbBoundedFixedOutput -FilePath $Path -Arguments @('--version') -Label "$Label version"
+    if ($value -notmatch ('(^|\s)' + [regex]::Escape($ExpectedVersion) + '($|\s)')) {
         throw "$Label version mismatch: expected $ExpectedVersion, found '$value'."
     }
     return $value
@@ -513,14 +589,22 @@ try {
     $auditToolStream = Open-NxbPinnedStream -Path $auditPath -Label 'cargo-audit'
     $denyToolStream = Open-NxbPinnedStream -Path $denyPath -Label 'cargo-deny'
 
-    $rustcVersion = (& rustup run $rustToolchain rustc --version | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or -not $rustcVersion.StartsWith('rustc 1.97.1 ')) {
+    $rustupCommand = Get-Command rustup -CommandType Application -ErrorAction Stop
+    $rustupPath = [string]$rustupCommand.Source
+    if ([string]::IsNullOrWhiteSpace($rustupPath)) {
+        throw 'Could not resolve the rustup application path.'
+    }
+    $rustcVersion = Invoke-NxbBoundedFixedOutput `
+        -FilePath $rustupPath `
+        -Arguments @('run', $rustToolchain, 'rustc', '--version') `
+        -Label 'Rust 1.97.1 version'
+    if (-not $rustcVersion.StartsWith('rustc 1.97.1 ')) {
         throw "Expected rustc 1.97.1, found '$rustcVersion'."
     }
-    $cargoVersion = (& rustup run $rustToolchain cargo --version | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Could not resolve pinned Cargo version.'
-    }
+    $cargoVersion = Invoke-NxbBoundedFixedOutput `
+        -FilePath $rustupPath `
+        -Arguments @('run', $rustToolchain, 'cargo', '--version') `
+        -Label 'Cargo 1.97.1 toolchain version'
     $auditVersion = Get-NxbToolVersion -Path $auditPath -ExpectedVersion $cargoAuditVersion -Label 'cargo-audit'
     $denyVersion = Get-NxbToolVersion -Path $denyPath -ExpectedVersion $cargoDenyVersion -Label 'cargo-deny'
     $auditSha256 = Get-NxbStreamSha256 -Stream $auditToolStream -Label 'cargo-audit'
