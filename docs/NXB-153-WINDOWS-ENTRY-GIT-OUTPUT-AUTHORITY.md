@@ -2,7 +2,7 @@
 
 ## Status
 
-This document records the current **source-staged, not admitted** Windows Git-output and host-Git lifetime contract for NXB-153.
+This document records the current **source-staged, not admitted** Windows Git-output, ambient Git-environment and host-Git lifetime contract for NXB-153.
 
 No supported Windows/NTFS/PowerShell runtime PASS is claimed by source staging.
 
@@ -16,14 +16,15 @@ The three canonical Windows entry surfaces are byte-identical:
 
 Current shared exact Git blob:
 
-`18d638dde788abe363322685b04b4a04e87f6394`
+`9f1852241f62d6a1357688713dd32595464682b6`
 
-This supersedes prior current-entry blobs including `3267f592f074d12326bd518f8b74555f033beba5` and `ab8383d4281ebc147dfe8305a926dd862699cef4`.
+This supersedes prior current-entry blobs including `18d638dde788abe363322685b04b4a04e87f6394`, `3267f592f074d12326bd518f8b74555f033beba5` and `ab8383d4281ebc147dfe8305a926dd862699cef4`.
 
 The initially resolved installed Git application remains a **supported-host trust boundary**. Current hardening binds the lifetime of that selected host tool rather than claiming an independent cryptographic identity for the Git installation.
 
 The shared wrapper now:
 
+- rejects every ambient environment variable whose name begins with `GIT_`, case-insensitively, before the first exact-head Git operation;
 - resolves the host Git application before proxy installation;
 - requires the selected Git executable to be a regular non-reparse file;
 - opens it read-only with write/delete sharing withheld;
@@ -39,6 +40,24 @@ The shared wrapper now:
 - treats cleanup/restoration failure as fatal before PASS.
 
 Nested canonical entrypoints therefore resolve the same PATH-pinned host Git while preserving/restoring the outer bounded-proxy authority chain.
+
+## Pre-Git ambient authority boundary
+
+Pinning the correct `git.exe` does not by itself prove which repository, object database or Git configuration that executable will consume. Git honors environment authority including `GIT_DIR`, `GIT_WORK_TREE`, `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_CONFIG_*`, `GIT_EXEC_PATH` and related `GIT_*` controls.
+
+A guard that runs only after `rev-parse HEAD` is therefore too late. The selected Git executable could already have resolved a different repository/object/config authority.
+
+Current source-staged Windows surfaces reject the complete `GIT_*` name family, case-insensitively, before their first exact-head Git operation:
+
+- the three byte-identical canonical outer entrypoints, shared blob `9f1852241f62d6a1357688713dd32595464682b6`;
+- `scripts/record-nxb-153-windows-process-lifecycle-evidence.ps1` -> `1ebca56bc704dcacb4864ace03ba16640b4b1e0d`;
+- `scripts/review-nxb-153-windows-admission.ps1` -> `6b0e4ddc47ad440ab113ff073d3ae5275a95b949`;
+- `scripts/review-nxb-153-windows-admission-complete.ps1` -> `b2b5cdec1a24b92e34d2397c9567e2cc4c2e3a98`;
+- `scripts/nxb-153-windows-host-git-lifetime-probe.ps1` -> `5b12134f18cb6a71efde0d06b0622ec170269401`.
+
+Only variable names are reported on rejection. Values are never emitted, avoiding accidental disclosure of credentials or other process secrets carried in Git-related environment variables.
+
+The shared cross-platform environment helper independently rejects the same `GIT_*` family later in the validation lifecycle. The early PowerShell guards exist because a post-Git Python audit cannot retroactively make an earlier Git lookup trustworthy.
 
 ## Bounded entry Git process contract
 
@@ -76,22 +95,23 @@ Registry verifier uses bounded async stdin and bounded post-input exit. Git arch
 
 ## Canonical process-evidence and admission host Git lifetime
 
-The process-evidence writer current blob is:
+Current authority blobs are:
 
-`1313a6af73d0884d9db9f4939a073e2aa00f1109`
+- process-evidence writer `1ebca56bc704dcacb4864ace03ba16640b4b1e0d`;
+- subordinate three-phase admission `6b0e4ddc47ad440ab113ff073d3ae5275a95b949`;
+- host-Git lifetime probe `5b12134f18cb6a71efde0d06b0622ec170269401`;
+- complete canonical admission `b2b5cdec1a24b92e34d2397c9567e2cc4c2e3a98`.
 
-The canonical admission wrapper current blob is:
+These surfaces reject ambient `GIT_*` before exact-head Git lookup. The process-evidence and admission layers then select the supported-host Git application, pin its file and parent-directory lifetime, prepend the pinned directory to PATH for nested Git resolution, retain that authority through their complete operation and fail closed if PATH restoration or Git-handle cleanup fails.
 
-`aa90917a629d57fa9319ead2ffe9d9e0b77f4a35`
-
-Both select the supported-host Git application, pin its file and parent-directory lifetime, prepend the pinned directory to PATH for nested Git resolution, retain that authority through their complete operation and fail closed if PATH restoration or Git-handle cleanup fails.
-
-Direct standalone probes/reviewers remain diagnostic when invoked outside those canonical parent chains.
+Direct standalone probes/reviewers remain diagnostic when invoked outside the complete canonical admission chain unless their caller is explicitly part of that chain.
 
 ## Runtime proof still required
 
 Real exact-head Windows execution must still demonstrate at least:
 
+- representative `GIT_DIR`, `GIT_WORK_TREE`, `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES` and `GIT_CONFIG_*` injection is rejected before the first exact-head Git operation on every canonical Windows authority surface above;
+- clean environments still resolve the intended exact HEAD and object database after the pre-Git gate;
 - host Git executable/directory cannot be replaced or renamed while pinned;
 - deliberate alternate PATH/Git injection does not change nested Git resolution;
 - original PATH is restored on success and failure;
