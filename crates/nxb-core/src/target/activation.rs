@@ -182,6 +182,13 @@ fn enforce_persistence_envelope(label: &str, serialized_bytes: usize) -> Result<
     Ok(())
 }
 
+fn ensure_target_not_disabled(disable_path: &Path) -> Result<()> {
+    if workspace::safe_exists(disable_path)? {
+        bail!("target disable receipt is visible; guided activation active result was withheld");
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn activate_value(
     workspace_path: &Path,
@@ -261,9 +268,7 @@ pub(super) fn activate_value(
     );
     let artifact_path = root.join(&artifact_relative_path);
 
-    if workspace::safe_exists(&disable_path)? {
-        bail!("target disable receipt already exists without a creatable profile");
-    }
+    ensure_target_not_disabled(&disable_path)?;
 
     let profile_exists = workspace::safe_exists(&profile_path)?;
     let artifact_exists = workspace::safe_exists(&artifact_path)?;
@@ -288,6 +293,7 @@ pub(super) fn activate_value(
             "guided activation recovered target profile",
         )?;
         ensure_recovered_publication_durable(&profile_path)?;
+        ensure_target_not_disabled(&disable_path)?;
         return activation_value(
             profile,
             confirm_preview_sha256,
@@ -339,6 +345,7 @@ pub(super) fn activate_value(
         &profile_bytes,
         "guided activation target profile",
     )?;
+    ensure_target_not_disabled(&disable_path)?;
 
     activation_value(
         profile,
