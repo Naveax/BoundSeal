@@ -40,14 +40,21 @@ fn guided_activation_linearizes_active_result_after_disable_receipt_checks() {
         "{ACTIVATION_PATH}: expected one early and two final disable-receipt gates"
     );
 
-    let profile_exists = required_index(body, "let profile_exists = workspace::safe_exists(&profile_path)?;");
+    let profile_exists = required_index(
+        body,
+        "let profile_exists = workspace::safe_exists(&profile_path)?;",
+    );
     assert!(
         gates[0] < profile_exists,
         "{ACTIVATION_PATH}: the first disable gate must remain before profile/artifact recovery or publication"
     );
 
-    let recovered_verify = required_index(body, "\"guided activation recovered target profile\"");
-    let recovered_durable = required_index(body, "ensure_recovered_publication_durable(&profile_path)?;");
+    let recovered_verify =
+        required_index(body, "\"guided activation recovered target profile\"");
+    let recovered_durable = required_index(
+        body,
+        "ensure_recovered_publication_durable(&profile_path)?;",
+    );
     let recovered_return = required_index(body, "return activation_value(");
     assert!(
         recovered_verify < recovered_durable
