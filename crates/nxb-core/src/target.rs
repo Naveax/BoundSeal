@@ -7,8 +7,7 @@ use guided_policy::{compile_guided_policy, GuidedPolicyArtifact};
 use scope_import::load_scope_import;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::{self, File},
-    io::Read,
+    fs,
     net::IpAddr,
     path::{Path, PathBuf},
     process::ExitCode,
@@ -1802,20 +1801,7 @@ fn validate_time(value: &str, field: &str) -> Result<()> {
 }
 
 fn read_bounded_source(path: &Path, label: &str, maximum: u64) -> Result<Vec<u8>> {
-    workspace::reject_path_indirections(path, label)?;
-    let metadata =
-        fs::metadata(path).with_context(|| format!("{label} is missing: {}", path.display()))?;
-    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > maximum {
-        bail!("{label} size or type is invalid");
-    }
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    File::open(path)?
-        .take(maximum + 1)
-        .read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > maximum {
-        bail!("{label} exceeds the supported size limit");
-    }
-    Ok(bytes)
+    workspace::read_bounded_source(path, label, maximum)
 }
 
 fn profile_path(targets: &Path, id: &str) -> PathBuf {
