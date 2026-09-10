@@ -659,6 +659,10 @@ pub(crate) fn read_document(path: &Path, label: &str) -> Result<Vec<u8>> {
     read_authority::read_document(path, label)
 }
 
+pub(crate) fn read_bounded_source(path: &Path, label: &str, maximum: u64) -> Result<Vec<u8>> {
+    read_authority::read_bounded_source(path, label, maximum)
+}
+
 fn write_probe(workspace: &Path) -> Result<()> {
     let path = workspace
         .join("tmp")
