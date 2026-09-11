@@ -4,7 +4,9 @@ use std::{
 };
 
 const WORKFLOW_PATH: &str = ".github/workflows/nxb-153-admission.yml";
+const ATTRIBUTES_PATH: &str = ".gitattributes";
 const LINUX_H1_PATH: &str = "scripts/nxb-153-linux-immutable-source-h1-inner.sh";
+const LINUX_H2_PATH: &str = "scripts/nxb-153-linux-immutable-source-h2-copy-inner.sh";
 const LINUX_INNER_PATH: &str = "scripts/nxb-153-linux-immutable-source-inner.sh";
 
 fn repository_root() -> PathBuf {
@@ -56,6 +58,37 @@ fn hosted_linux_root_namespace_adapter_is_exact_and_fail_closed() {
 }
 
 #[test]
+fn hosted_linux_h2_outer_namespace_adapts_root_without_weakening_nested_remount_probes() {
+    let h2 = read_source(LINUX_H2_PATH);
+
+    for marker in [
+        "run_outer_namespace()",
+        "real_unshare=\"$(type -P unshare)\"",
+        "H2 outer namespace adapter could not resolve host unshare",
+        "if [[ \"$(id -u)\" -eq 0 ]]; then",
+        "\"$real_unshare\" --mount --pid --fork \"$@\"",
+        "\"$real_unshare\" --user --map-root-user --mount --pid --fork \"$@\"",
+        "if ! run_outer_namespace bash -s -- \"$host\" \"$snapshot\" \"$shim\"",
+        "run_outer_namespace bash -s -- \\",
+    ] {
+        assert!(
+            h2.contains(marker),
+            "{LINUX_H2_PATH}: missing hosted H2 namespace adapter marker: {marker}"
+        );
+    }
+
+    assert_eq!(
+        h2.matches("if unshare --user --map-root-user --mount --pid --fork bash -c").count(),
+        2,
+        "{LINUX_H2_PATH}: nested user-namespace remount attack probes must remain unadapted"
+    );
+    assert!(
+        h2.contains("mount -o remount,rw \"$1\" 2>/dev/null"),
+        "{LINUX_H2_PATH}: nested remount attack must continue attempting writable remount"
+    );
+}
+
+#[test]
 fn hosted_windows_json_timestamps_remain_strings_for_canonical_validation() {
     let workflow = read_source(WORKFLOW_PATH);
 
@@ -94,4 +127,19 @@ fn hosted_windows_json_timestamps_remain_strings_for_canonical_validation() {
     assert!(prepare_index < record_index);
     assert!(record_index < review_index);
     assert!(review_index < cleanup_index);
+}
+
+#[test]
+fn hosted_windows_exact_blob_checkout_pins_powershell_and_python_to_lf() {
+    let attributes = read_source(ATTRIBUTES_PATH);
+
+    for marker in [
+        "/scripts/*.ps1 text eol=lf",
+        "/scripts/*.py text eol=lf",
+    ] {
+        assert!(
+            attributes.lines().any(|line| line == marker),
+            "{ATTRIBUTES_PATH}: missing exact-blob checkout authority marker: {marker}"
+        );
+    }
 }

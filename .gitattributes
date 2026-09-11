@@ -5,3 +5,7 @@
 # Windows admission pins committed PowerShell source by exact Git blob identity.
 # Prevent checkout EOL conversion from changing the opened-file authority bytes.
 /scripts/*.ps1 text eol=lf
+
+# Windows H2 also pins Python broker/helpers by exact Git blob identity.
+# Keep their opened working-tree bytes identical to committed blob bytes.
+/scripts/*.py text eol=lf

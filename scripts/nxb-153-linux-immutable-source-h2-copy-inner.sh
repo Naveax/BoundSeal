@@ -29,6 +29,19 @@ run_bash_blob() {
     git -C "$repo_anchor" cat-file blob "$object" | bash -s -- "$@"
 }
 
+run_outer_namespace() {
+    local real_unshare
+    real_unshare="$(type -P unshare)" || fail 'H2 outer namespace adapter could not resolve host unshare'
+    [[ "$real_unshare" == /* && -x "$real_unshare" ]] ||
+        fail 'H2 outer namespace adapter resolved an unsupported host unshare authority'
+
+    if [[ "$(id -u)" -eq 0 ]]; then
+        "$real_unshare" --mount --pid --fork "$@"
+    else
+        "$real_unshare" --user --map-root-user --mount --pid --fork "$@"
+    fi
+}
+
 json_tree_sha256() {
     local payload="$1"
     python3 -I - "$payload" <<'PY'
@@ -69,7 +82,7 @@ SH
     printf trusted > "$host/lib/core.rlib"
     chmod +x "$host/bin/"*
 
-    if ! unshare --user --map-root-user --mount --pid --fork bash -s -- "$host" "$snapshot" "$shim" <<'CHILD'
+    if ! run_outer_namespace bash -s -- "$host" "$snapshot" "$shim" <<'CHILD'
 set -euo pipefail
 host="$1"; snapshot="$2"; shim="$3"
 mount --make-rprivate /
@@ -119,7 +132,7 @@ CHILD
 [[ "$#" -ge  1 ]] || fail 'mode is required'
 mode="$1"
 
-for required_command in git bash python3 unshare mount cp mktemp; do
+for required_command in git bash python3 unshare mount cp mktemp id; do
     command -v "$required_command" >/dev/null 2>&1 || fail "$required_command is unavailable"
 done
 
@@ -165,7 +178,7 @@ cleanup_mountpoints() {
 }
 trap 'cleanup_mountpoints || true' EXIT
 
-unshare --user --map-root-user --mount --pid --fork bash -s -- \
+run_outer_namespace bash -s -- \
     "$host_sysroot" "$snapshot_mount" "$shim_mount" "$expected_sha" "$rust_toolchain" \
     "$repo_fd" "$authority_object" "$h1_object" "$@" <<'CHILD'
 set -euo pipefail
