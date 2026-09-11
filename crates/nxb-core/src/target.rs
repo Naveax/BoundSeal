@@ -433,6 +433,7 @@ struct TargetList {
 }
 
 pub(crate) fn run(args: TargetArgs) -> ExitCode {
+    let _authority_scope = workspace::target_authority_scope();
     let (failure_code, diagnostic_spec, json_output, result) = match args.command {
         TargetCommand::Setup {
             workspace,
@@ -1226,7 +1227,7 @@ fn list_value(workspace_path: &Path, include_disabled: bool) -> Result<Value> {
     }
     serde_json::to_value(TargetList {
         status: "ready",
-        workspace: root.display().to_string(),
+        workspace: workspace::logical_authority_path(&root).display().to_string(),
         count: targets.len(),
         targets,
         network_activity: "none",
@@ -1335,14 +1336,7 @@ fn ready_workspace(workspace_path: &Path) -> Result<PathBuf> {
 }
 
 fn targets_directory(root: &Path) -> Result<PathBuf> {
-    let targets = root.join("targets");
-    workspace::reject_path_indirections(&targets, "target directory")?;
-    let metadata = fs::metadata(&targets).context("target directory is missing")?;
-    if !metadata.is_dir() {
-        bail!("target path is not a directory");
-    }
-    workspace::validate_private_permissions(&targets, true)?;
-    Ok(targets)
+    workspace::pin_private_child_path(root, "targets", "target directory")
 }
 
 fn load_profiles(
