@@ -1,0 +1,126 @@
+name: NXB-153 Exact Head Admission
+
+on:
+  push:
+    branches:
+      - nxb-153-guided-target-setup
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nxb-153-admission-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  linux-validation:
+    name: Linux canonical validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact event head without action indirection
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -c protocol.version=2 fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Reject non-privileged Bash entry
+        shell: bash
+        run: |
+          set -euo pipefail
+          if env -i HOME="$HOME" PATH="$PATH" LANG=C.UTF-8 \
+            /bin/bash scripts/prepare-and-validate-nxb-153-linux.sh . >/tmp/nxb-nonpriv.out 2>/tmp/nxb-nonpriv.err; then
+            echo 'non-privileged Linux preparation unexpectedly succeeded' >&2
+            exit 1
+          fi
+          grep -F 'canonical Linux preparation requires privileged Bash mode (-p)' /tmp/nxb-nonpriv.err >/dev/null
+
+      - name: Reject ambient Git authority before exact-head resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          if env -i HOME="$HOME" PATH="$PATH" LANG=C.UTF-8 GIT_DIR=/tmp/nxb-hostile-git \
+            /bin/bash -p scripts/prepare-and-validate-nxb-153-linux.sh . >/tmp/nxb-git.out 2>/tmp/nxb-git.err; then
+            echo 'ambient GIT_DIR Linux preparation unexpectedly succeeded' >&2
+            exit 1
+          fi
+          grep -F 'ambient Git authority variables are not admitted before exact-head resolution' /tmp/nxb-git.err >/dev/null
+
+      - name: Prepare sealed tools and run canonical Linux validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          env -i \
+            HOME="$HOME" \
+            USER="${USER:-runner}" \
+            LOGNAME="${LOGNAME:-runner}" \
+            PATH="$PATH" \
+            LANG=C.UTF-8 \
+            LC_ALL=C.UTF-8 \
+            TMPDIR="$RUNNER_TEMP" \
+            /bin/bash -p scripts/prepare-and-validate-nxb-153-linux.sh .
+
+  windows-validation:
+    name: Windows canonical validation
+    runs-on: windows-2025
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact event head without action indirection
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git init .
+          git remote add origin "https://github.com/$env:GITHUB_REPOSITORY.git"
+          git -c protocol.version=2 fetch --no-tags --depth=1 origin $env:GITHUB_SHA
+          git checkout --detach FETCH_HEAD
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -cne $env:GITHUB_SHA) { throw "checkout head mismatch: $head" }
+          $status = git status --porcelain=v1 --untracked-files=all
+          if ($LASTEXITCODE -ne 0 -or $status) { throw 'checkout is not clean' }
+
+      - name: Reject ambient Git authority before exact-head resolution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:GIT_DIR = Join-Path $env:RUNNER_TEMP 'nxb-hostile-git'
+          & pwsh -NoLogo -NoProfile -NonInteractive -File .\scripts\prepare-and-validate-nxb-153-windows.ps1 -RepoRoot .
+          $code = $LASTEXITCODE
+          Remove-Item Env:GIT_DIR -ErrorAction SilentlyContinue
+          if ($code -eq 0) { throw 'ambient GIT_DIR Windows preparation unexpectedly succeeded' }
+
+      - name: Remove non-admitted compiler and Git authority variables
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exact = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+          foreach ($name in @(
+            'AR','BINDGEN_EXTRA_CLANG_ARGS','CARGO','CARGO_ENCODED_RUSTFLAGS','CARGO_ENCODED_RUSTDOCFLAGS',
+            'CARGO_HOME','CARGO_INCREMENTAL','CARGO_NET_OFFLINE','CARGO_TARGET_DIR','CC','CC_ENABLE_DEBUG_OUTPUT',
+            'CFLAGS','CL','CPP','CPPFLAGS','CRATE_CC_NO_DEFAULTS','CXX','CXXFLAGS','LD','LDFLAGS','PYTHONHOME',
+            'PYTHONINSPECT','PYTHONPATH','PYTHONSTARTUP','RANLIB','RANLIBFLAGS','RUSTC','RUSTC_BOOTSTRAP',
+            'RUSTC_WORKSPACE_WRAPPER','RUSTC_WRAPPER','RUSTDOC','RUSTDOCFLAGS','RUSTFLAGS','_CL_'
+          )) { [void]$exact.Add($name) }
+          $prefixes = @(
+            'AR_','BINDGEN_EXTRA_CLANG_ARGS_','CARGO_ALIAS_','CARGO_BUILD_','CARGO_NET_','CARGO_PROFILE_',
+            'CARGO_REGISTRIES_','CARGO_REGISTRY_','CARGO_SOURCE_','CARGO_TARGET_','CC_','CFLAGS_','CPPFLAGS_',
+            'CXX_','CXXFLAGS_','LD_','LDFLAGS_','RANLIB_','RUSTC_','RUSTDOC_','RUSTUP_'
+          )
+          foreach ($entry in @(Get-ChildItem Env:)) {
+            $name = $entry.Name
+            $remove = $name.StartsWith('GIT_', [StringComparison]::OrdinalIgnoreCase) -or $exact.Contains($name)
+            if (-not $remove) {
+              foreach ($prefix in $prefixes) {
+                if ($name.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { $remove = $true; break }
+              }
+            }
+            if ($remove) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
+          }
+
+          & .\scripts\prepare-and-validate-nxb-153-windows.ps1 -RepoRoot .
+          if ($LASTEXITCODE -ne 0) { throw "Windows canonical validation failed with exit code $LASTEXITCODE" }
