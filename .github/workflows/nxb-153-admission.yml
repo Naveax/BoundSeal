@@ -120,16 +120,8 @@ jobs:
           foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command')) {
             [void]$start.ArgumentList.Add($argument)
           }
-          [void]$start.ArgumentList.Add(@'
-try {
-    & '.\scripts\prepare-and-validate-nxb-153-windows.ps1' -RepoRoot '.'
-    exit 0
-}
-catch {
-    [Console]::Error.WriteLine([string]$_.Exception.Message)
-    exit 97
-}
-'@)
+          $childCommand = 'try { & ''.\scripts\prepare-and-validate-nxb-153-windows.ps1'' -RepoRoot ''.''; exit 0 } catch { [Console]::Error.WriteLine([string]$_.Exception.Message); exit 97 }'
+          [void]$start.ArgumentList.Add($childCommand)
           $start.Environment['GIT_DIR'] = Join-Path $env:RUNNER_TEMP 'nxb-hostile-git'
 
           $process = [Diagnostics.Process]::new()
