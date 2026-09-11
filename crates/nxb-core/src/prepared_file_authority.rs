@@ -106,10 +106,6 @@ impl PreparedFileAuthority {
         Ok(authority)
     }
 
-    pub(crate) fn path(&self) -> &Path {
-        &self.path
-    }
-
     pub(crate) fn validate_named_binding(&self) -> Result<()> {
         crate::workspace_impl::reject_path_indirections(&self.path, "prepared file")?;
         let named = fs::symlink_metadata(&self.path)
