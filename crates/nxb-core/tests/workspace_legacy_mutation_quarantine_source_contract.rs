@@ -32,7 +32,7 @@ fn public_workspace_module_is_the_composed_entry_not_the_legacy_base() {
         "pub(crate) fn create_document(path: &Path, bytes: &[u8])",
         "workspace_authority_publication::create_document(path, bytes)",
         "pub(crate) fn doctor_value(workspace: &Path) -> Result<Value>",
-        "workspace_doctor_probe::probe(&root)",
+        "workspace_doctor_probe::run(&root.join(\"tmp\"))",
     ] {
         assert!(entry.contains(marker), "{ENTRY_PATH}: missing local shadow for legacy mutation route: {marker}");
     }
@@ -84,7 +84,7 @@ fn historical_pathname_delete_helpers_are_not_mistaken_for_active_authority() {
     }
 
     let entry = source(ENTRY_PATH);
-    assert!(entry.contains("workspace_doctor_probe::probe(&root)"));
+    assert!(entry.contains("workspace_doctor_probe::run(&root.join(\"tmp\"))"));
     let windows_entry = source(WINDOWS_ENTRY_PATH);
     assert!(windows_entry.contains("workspace_authority_replacement_windows::replace_document(path, bytes)"));
 }
