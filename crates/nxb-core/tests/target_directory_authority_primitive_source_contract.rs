@@ -33,7 +33,8 @@ fn live_directory_authority_is_compiled_through_the_workspace_authority_facade()
     for marker in [
         "mod directory_authority;",
         "#[path = \"workspace/mod.rs\"]\nmod workspace_impl;",
-        "#[path = \"workspace_authority.rs\"]\nmod workspace;",
+        "#[path = \"workspace_authority.rs\"]\nmod workspace_authority_base;",
+        "#[path = \"workspace_authority_entry.rs\"]\nmod workspace;",
     ] {
         assert!(
             nxb.contains(marker),
