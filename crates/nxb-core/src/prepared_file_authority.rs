@@ -10,7 +10,7 @@ use anyhow::{bail, Context, Result};
 ///
 /// The opened file remains retained from creation through namespace claim or
 /// replacement finalization. Callers must not treat the temporary pathname as
-/// authority; it is diagnostic/cleanup state only.
+/// authority; it is diagnostic/residue state only.
 pub(crate) struct PreparedFileAuthority {
     path: PathBuf,
     file: fs::File,
@@ -110,10 +110,6 @@ impl PreparedFileAuthority {
         &self.path
     }
 
-    pub(crate) fn file(&self) -> &fs::File {
-        &self.file
-    }
-
     pub(crate) fn validate_named_binding(&self) -> Result<()> {
         crate::workspace_impl::reject_path_indirections(&self.path, "prepared file")?;
         let named = fs::symlink_metadata(&self.path)
@@ -134,7 +130,10 @@ impl PreparedFileAuthority {
     }
 
     pub(crate) fn validate_destination_binding(&self, destination: &Path) -> Result<()> {
-        crate::workspace_impl::reject_path_indirections(destination, "published prepared destination")?;
+        crate::workspace_impl::reject_path_indirections(
+            destination,
+            "published prepared destination",
+        )?;
         let destination_metadata = fs::symlink_metadata(destination).with_context(|| {
             format!(
                 "could not inspect published prepared destination {}",
@@ -155,12 +154,99 @@ impl PreparedFileAuthority {
 
         Ok(())
     }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn claim_create_only(&self, destination: &Path) -> Result<()> {
+        use std::{
+            os::unix::fs::{MetadataExt, PermissionsExt},
+            os::unix::io::AsRawFd,
+            process::{Command, Stdio},
+        };
+
+        const TRUSTED_LN: &str = "/usr/bin/ln";
+        let tool = Path::new(TRUSTED_LN);
+        crate::workspace_impl::reject_path_indirections(tool, "Linux hard-link system tool")?;
+        let tool_metadata = fs::symlink_metadata(tool)
+            .with_context(|| format!("trusted Linux hard-link tool is missing: {TRUSTED_LN}"))?;
+        if tool_metadata.file_type().is_symlink()
+            || !tool_metadata.is_file()
+            || tool_metadata.uid() != 0
+            || tool_metadata.permissions().mode() & 0o022 != 0
+        {
+            bail!("trusted Linux hard-link tool authority is invalid: {TRUSTED_LN}");
+        }
+
+        crate::workspace_impl::reject_path_indirections(
+            destination
+                .parent()
+                .ok_or_else(|| anyhow::anyhow!("create-only destination has no parent"))?,
+            "create-only destination parent",
+        )?;
+        crate::workspace_impl::reject_path_indirections(destination, "create-only destination")?;
+
+        let source = PathBuf::from(format!(
+            "/proc/{}/fd/{}",
+            std::process::id(),
+            self.file.as_raw_fd()
+        ));
+        let output = Command::new(tool)
+            .arg("-L")
+            .arg("--")
+            .arg(&source)
+            .arg(destination)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .env_clear()
+            .output()
+            .with_context(|| format!("could not execute trusted Linux hard-link tool {TRUSTED_LN}"))?;
+
+        if !output.status.success() {
+            if fs::symlink_metadata(destination).is_ok() {
+                bail!("create-new destination already exists: {}", destination.display());
+            }
+            let detail = String::from_utf8_lossy(&output.stderr)
+                .chars()
+                .take(512)
+                .collect::<String>();
+            bail!(
+                "trusted Linux hard-link tool failed with status {} while claiming {}: {}",
+                output.status,
+                destination.display(),
+                detail
+            );
+        }
+
+        self.validate_destination_binding(destination)
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn claim_create_only(&self, destination: &Path) -> Result<()> {
+        self.validate_named_binding()?;
+        fs::hard_link(&self.path, destination).with_context(|| {
+            format!(
+                "could not claim create-only destination {} from retained prepared file",
+                destination.display()
+            )
+        })?;
+        self.validate_destination_binding(destination)
+    }
+
+    #[cfg(all(unix, not(target_os = "linux")))]
+    pub(crate) fn claim_create_only(&self, _destination: &Path) -> Result<()> {
+        bail!("prepared file create-only claim is unsupported on this Unix platform")
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    pub(crate) fn claim_create_only(&self, _destination: &Path) -> Result<()> {
+        bail!("prepared file create-only claim is unsupported on this platform")
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]
 mod linux_tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     #[test]
     fn prepared_authority_detects_same_permission_path_replacement() {
@@ -187,6 +273,38 @@ mod linux_tests {
         drop(authority);
         fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn create_only_claim_uses_retained_inode_after_prepared_path_replacement() {
+        let root = std::env::temp_dir().join(format!(
+            "nxb-prepared-claim-{}-{}",
+            std::process::id(),
+            crate::workspace_impl::random_hex(8).unwrap()
+        ));
+        fs::create_dir(&root).unwrap();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        let prepared = root.join("prepared.tmp");
+        let moved = root.join("moved.tmp");
+        let replacement = root.join("replacement.tmp");
+        let destination = root.join("published.json");
+
+        let authority = PreparedFileAuthority::create_named(&prepared, b"prepared\n").unwrap();
+        let retained = authority.file.metadata().unwrap();
+        fs::rename(&prepared, &moved).unwrap();
+        fs::write(&replacement, b"attacker\n").unwrap();
+        fs::set_permissions(&replacement, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::rename(&replacement, &prepared).unwrap();
+
+        authority.claim_create_only(&destination).unwrap();
+        let published = fs::metadata(&destination).unwrap();
+        assert_eq!(published.dev(), retained.dev());
+        assert_eq!(published.ino(), retained.ino());
+        assert_eq!(fs::read(&destination).unwrap(), b"prepared\n");
+        assert_eq!(fs::read(&prepared).unwrap(), b"attacker\n");
+
+        drop(authority);
+        fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[cfg(all(test, windows))]
@@ -209,6 +327,26 @@ mod windows_tests {
         assert!(fs::rename(&prepared, &moved).is_err());
         drop(authority);
         fs::rename(&prepared, &moved).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn create_only_claim_remains_bound_to_retained_windows_prepared_handle() {
+        let root = std::env::temp_dir().join(format!(
+            "nxb-prepared-claim-{}-{}",
+            std::process::id(),
+            crate::workspace_impl::random_hex(8).unwrap()
+        ));
+        fs::create_dir(&root).unwrap();
+        crate::workspace_impl::set_private_directory_permissions(&root).unwrap();
+        let prepared = root.join("prepared.tmp");
+        let destination = root.join("published.json");
+
+        let authority = PreparedFileAuthority::create_named(&prepared, b"prepared\n").unwrap();
+        authority.claim_create_only(&destination).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), b"prepared\n");
+
+        drop(authority);
         fs::remove_dir_all(root).unwrap();
     }
 }
