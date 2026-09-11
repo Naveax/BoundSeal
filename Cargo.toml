@@ -48,6 +48,7 @@ members = [
     "crates/nxb-vault",
     "crates/nxb-vault-provider",
     "crates/nxb-vault-provider-process",
+    "crates/nxb-win32-fs-authority",
     "crates/nxb-workflow-graph",
 ]
 resolver = "2"
