@@ -44,3 +44,6 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 url.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+nxb-win32-fs-authority = { path = "../nxb-win32-fs-authority" }
