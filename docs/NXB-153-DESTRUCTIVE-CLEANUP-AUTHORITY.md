@@ -1,6 +1,6 @@
 # NXB-153 destructive cleanup authority
 
-Status: **reachable destructive production routes source-reduced / legacy compiled quarantine + lockfile refresh + runtime-platform proof pending / not admitted**.
+Status: **reachable destructive production routes source-reduced / legacy compiled quarantine + runtime-platform proof pending / not admitted**.
 
 This note records the NXB-153 / issue #112 destructive-cleanup boundary. It deliberately distinguishes a reachable production mutation route from older compiled helpers that are shadowed by the composed workspace entry.
 
@@ -45,7 +45,7 @@ Windows replacement no longer routes through the historical non-Unix `replace_fi
 - claims the canonical destination create-only from the retained prepared object;
 - validates the destination and parent binding before success.
 
-The Win32 unsafe ABI is isolated in `nxb-win32-fs-authority`; the `nxb` binary remains `#![forbid(unsafe_code)]`.
+The Win32 unsafe ABI is isolated in the `nxb_core_win32_authority` library crate target inside the existing `nxb-core` package. The `nxb` binary is a separate crate target and remains `#![forbid(unsafe_code)]`; it consumes only the helper library's safe API. The helper is dependency-free, so this authority change adds no workspace/path package and requires no `Cargo.lock` graph mutation.
 
 This removes the historical Windows `remove_regular(destination) -> rename(source, destination)` path from the selected production migration route.
 
@@ -84,7 +84,7 @@ Source contracts cover:
 
 This issue remains open because source staging is not runtime/platform admission.
 
-- `Cargo.lock` still needs canonical regeneration for the new `nxb-win32-fs-authority` workspace package;
+- the standalone Win32 helper package/dependency experiment has been removed and `Cargo.lock` remains byte-identical to the earlier canonical blob; Cargo 1.97.1 still has to verify that source graph on the exact head;
 - legacy compiled pathname helpers should eventually be physically removed or reduced after compatibility checks;
 - Linux adversarial namespace execution and Windows/NTFS sharing/reparse execution are not yet proven on this head;
 - pinned Rust 1.97.1 build/check/clippy/test/doc/dependency-policy evidence is absent.
