@@ -1,6 +1,6 @@
 # NXB-153 Prepared File Authority
 
-Status: **partial source fix staged / Windows migration replacement + runtime-platform proof pending / not admitted**.
+Status: **Linux + Windows source fixes staged / lockfile refresh + runtime-platform proof pending / not admitted**.
 
 This note records the source boundary staged for blocker #111. It does not claim canonical runtime proof and it does not close #111.
 
@@ -8,50 +8,59 @@ This note records the source boundary staged for blocker #111. It does not claim
 
 Target create, disable-receipt publication and guided-activation artifact/profile publication resolve through the target workspace entry facade and the prepared-authority publication writer.
 
-The generic `workspace_impl::create_document` production path now uses the same retained `PreparedFileAuthority` instead of a write/drop/reopen temporary pathname flow. The old injectable pathname-cleanup helper remains `#[cfg(test)]` only so the historical finalization/error tests remain available without keeping that behavior in production.
+The generic `workspace_impl::create_document` production path uses retained `PreparedFileAuthority` instead of a write/drop/reopen temporary pathname flow. The historical injectable pathname-cleanup helper remains `#[cfg(test)]` only.
 
-A `PreparedFileAuthority` retains the opened prepared file from successful creation, private-permission setup, write and `sync_all` through namespace claim and post-claim destination identity validation.
+A `PreparedFileAuthority` retains the opened prepared file from successful creation, private-permission setup, write and `sync_all` through namespace claim and post-claim destination validation.
 
 ### Linux create-only claim
 
-The reusable temporary pathname is not the publication source authority. The retained descriptor is exposed only to the trusted absolute `/usr/bin/ln` process through `/proc/<parent-pid>/fd/<fd>`, using logical (`-L`) source resolution. The tool is admitted only when `/usr/bin/ln` is a root-owned regular non-symlink file that is not group/other writable. The child process receives an empty environment.
+The reusable temporary pathname is not the publication source authority. The retained descriptor is exposed only to the admitted absolute `/usr/bin/ln` process through `/proc/<parent-pid>/fd/<fd>` with logical (`-L`) source resolution. The tool must be a root-owned regular non-symlink file and not group/other writable. The child environment is cleared.
 
-After the hard-link claim, destination device/inode must match the retained prepared descriptor before success. A regression test replaces the prepared temporary pathname with a same-permission attacker file before claim and requires the destination to contain the retained original inode/bytes.
+After claim, destination device/inode must match the retained prepared descriptor. The regression suite replaces the prepared pathname with a same-permission attacker file and requires the published destination to remain bound to the retained original object.
 
 ### Windows create-only claim
 
-The prepared file is opened with `FILE_FLAG_OPEN_REPARSE_POINT` and `FILE_SHARE_READ` only. Write and delete/rename sharing are deliberately withheld while the prepared authority lives. The named binding is revalidated before hard-link claim and the destination is validated after claim.
+The prepared file is opened with `FILE_FLAG_OPEN_REPARSE_POINT` and `FILE_SHARE_READ` only. Write and delete/rename sharing are withheld while the authority lives. The named binding is revalidated before hard-link claim and the destination binding after claim.
 
 ### Create-only cleanup boundary
 
-Production create-only publication deliberately does not pathname-delete the prepared temporary after claim or failure. A hostile same-user namespace actor can replace a pathname after object admission; pathname deletion would therefore reintroduce blocker #112. Exact create-document transients are quarantined by the existing temporary-shape parser and cannot become target record authority.
+Production create-only publication deliberately does not pathname-delete its private transport residue. Exact recognized create-document transient names remain quarantined from target/receipt enumeration. Physical cleanup is not allowed to regain authority by merely reopening a reusable pathname.
 
-## Linux migration replacement source slice
+## Linux migration replacement
 
-Linux migration manifest replacement now routes through `workspace_authority_replacement.rs` rather than `workspace_impl::replace_document`.
+Linux migration replacement routes through `workspace_authority_replacement.rs`.
+
+The retained parent directory is opened with `O_DIRECTORY | O_NOFOLLOW`; child opens and creates are rooted through `/proc/<pid>/fd/<parent-fd>`. The previous manifest, if present, and the prepared replacement remain open across namespace mutation.
+
+The previous canonical name is moved to a random private retired name using admitted `/usr/bin/mv -n -T -- ...` under the retained parent namespace. The retired name must resolve to the exact retained device/inode. The canonical destination is then claimed from the exact prepared file descriptor through admitted `/usr/bin/ln -L -- ...`, and the final destination must match the retained prepared device/inode. The parent is synchronized and its logical binding revalidated before success.
+
+The production Linux replacement module contains no pathname deletion and no plain `fs::rename` fallback.
+
+## Windows migration replacement
+
+Windows migration replacement now routes through `workspace_windows_entry.rs` to `workspace_authority_replacement_windows.rs`; it no longer uses the historical Windows `workspace_impl::replace_document` production route.
 
 The source contract is:
 
-1. open and retain the replacement parent directory with `O_DIRECTORY | O_NOFOLLOW`;
-2. perform child opens/creates beneath the retained directory through `/proc/<pid>/fd/<parent-fd>/<child>`;
-3. retain the current manifest object, if present, and retain the newly prepared replacement object from create/write/`sync_all` through namespace mutation;
-4. move the current canonical name to a random private retired name using the admitted absolute `/usr/bin/mv -n -T -- ...` tool against the retained parent namespace;
-5. validate that the retired name still references the exact previously retained device/inode;
-6. claim the now-empty canonical name from the exact prepared file descriptor using the admitted `/usr/bin/ln -L -- ...` path;
-7. validate canonical destination device/inode against the retained prepared object;
-8. synchronize the retained parent and revalidate the logical parent pathname binding before success.
+1. canonicalize the replacement parent and retain its ancestor handle chain with `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT` while withholding delete sharing;
+2. open the current manifest, when present, with `GENERIC_READ | DELETE`, `FILE_SHARE_READ` only and `FILE_FLAG_OPEN_REPARSE_POINT`;
+3. read and retain the current bytes plus Win32 file identity while the handle prevents write/delete/rename substitution;
+4. create/write/sync the candidate through the existing `PreparedFileAuthority`;
+5. require the retained current bytes to match the operation's observed state before namespace mutation;
+6. rename the exact retained current handle, not a reopened pathname, to a random retired child name using `SetFileInformationByHandle(FileRenameInfo)` with `ReplaceIfExists = FALSE` and the retained parent handle as `RootDirectory`;
+7. reopen the retired name only for post-mutation verification with share semantics compatible with the still-retained DELETE-capable handle, and require its Win32 volume/file-index identity to match;
+8. create-only claim the canonical destination from the retained prepared object and validate the final destination binding;
+9. revalidate the retained parent logical binding before success.
 
-Both system tools must be root-owned regular non-symlink files and must not be group/other writable. Child environments are cleared.
+The unsafe Win32 ABI is isolated in the small `nxb-win32-fs-authority` crate. The `nxb` binary keeps `#![forbid(unsafe_code)]`; `nxb-core` calls only the safe wrapper API. The platform crate wraps only `GetFileInformationByHandle` and `SetFileInformationByHandle(FileRenameInfo)` needed for exact identity and handle-relative no-replace rename.
 
-No production replacement path in this module calls `remove_file`, `remove_regular`, a recursive delete, or plain `fs::rename`. Previous manifests and prepared transport files remain private residue rather than being pathname-deleted.
+Regression coverage includes exact identity preservation, no-replace quarantine collision, retained-source rename denial, expected-current mismatch before mutation, same-permission final-component swap denial, ancestor/root replacement denial and missing-destination create-only publication.
 
-Regression coverage includes exact old/new inode binding, same-permission final-component substitution, parent-directory replacement, and a missing-destination recovery case. A namespace substitution may make the operation fail after safely quarantining the substituted name; it must not cause an unrelated file to be deleted or published as the replacement.
+## Reachable cleanup boundary
 
-## Still open in #111
+The current public workspace entry shadows the older base create-authority writer with `workspace_authority_publication`. On Windows, the selected workspace implementation is `workspace_windows_entry`, which shadows the historical base replacement and migration modules with the exact-handle replacement route.
 
-Windows migration replacement still routes to the historical `workspace_impl::replace_document` implementation. That implementation drops prepared-file authority before replacement and contains pathname-based failure cleanup. It is **not** claimed fixed.
-
-A Windows closure must keep the prepared source object and current destination/parent authority across the actual NT namespace mutation. Reopening or deleting a pathname after admission is insufficient under the same-user race model. `#![forbid(unsafe_code)]` remains in force for the `nxb` binary; this staging milestone does not weaken it merely to reach an NT handle API.
+The older pathname mutation helpers remain compiled as quarantined legacy implementation detail, but are not the selected public target/workspace mutation authority. `workspace_legacy_mutation_quarantine_source_contract.rs` locks that routing distinction.
 
 ## Evidence staged in source
 
@@ -59,10 +68,17 @@ A Windows closure must keep the prepared source object and current destination/p
 - `crates/nxb-core/src/workspace_authority_publication.rs`
 - `crates/nxb-core/src/workspace_authority_entry.rs`
 - `crates/nxb-core/src/workspace_authority_replacement.rs`
-- `crates/nxb-core/src/workspace/mod.rs`
-- `crates/nxb-core/src/workspace/migration.rs`
+- `crates/nxb-core/src/workspace_authority_replacement_windows.rs`
+- `crates/nxb-core/src/workspace_windows_entry.rs`
+- `crates/nxb-win32-fs-authority/src/lib.rs`
 - `crates/nxb-core/tests/target_prepared_file_authority_source_contract.rs`
 - `crates/nxb-core/tests/workspace_create_publication_source_contract.rs`
 - `crates/nxb-core/tests/workspace_replacement_authority_source_contract.rs`
+- `crates/nxb-core/tests/workspace_windows_replacement_authority_source_contract.rs`
+- `crates/nxb-core/tests/workspace_legacy_mutation_quarantine_source_contract.rs`
 
-Required closure remains canonical Rust 1.97.1 gates plus supported Linux and Windows/NTFS race/lifetime injection on one exact final head. No runtime PASS is claimed by this document.
+## Still pending
+
+`Cargo.lock` has not yet been regenerated for the new workspace path package. The already-locked registry dependency `windows-sys 0.61.2` is reused, but the path-package records still need a canonical Cargo-generated lock refresh before admission.
+
+Required closure remains pinned Rust 1.97.1 build/check/clippy/test/doc/dependency-policy gates plus supported Linux and Windows/NTFS race/lifetime injection on one exact final head. No runtime PASS is claimed by this document.
