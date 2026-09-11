@@ -260,13 +260,21 @@ pub(super) fn activate_value(
     let policy_snapshot_sha256 = build.policy.snapshot_sha256.clone();
     let root = workspace::validate_workspace_root(workspace_path, true)?;
     let targets = super::targets_directory(&root)?;
+    let state = workspace::pin_private_child_path(
+        &root,
+        "state",
+        "guided activation state directory",
+    )?;
     let profile_path = targets.join(format!("{}.json", identity.target_id));
     let disable_path = targets.join(format!("{}.disabled.json", identity.target_id));
     let artifact_relative_path = format!(
         "state/target-{}.guided-activation.json",
         identity.target_id
     );
-    let artifact_path = root.join(&artifact_relative_path);
+    let artifact_path = state.join(format!(
+        "target-{}.guided-activation.json",
+        identity.target_id
+    ));
 
     ensure_target_not_disabled(&disable_path)?;
 
