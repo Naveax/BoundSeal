@@ -1,3 +1,9 @@
+#![allow(hidden_glob_reexports)]
+// This module intentionally composes the base workspace authority surface and
+// shadows only the mutation/status entry points below. Keep this lint exception
+// local so `-D warnings` does not turn the deliberate facade override into a
+// crate-wide lint suppression.
+
 use std::path::Path;
 
 use anyhow::{Context, Result};
