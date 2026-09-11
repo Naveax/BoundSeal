@@ -70,18 +70,15 @@ fn canonical_windows_surfaces_reject_ambient_git_authority_before_host_git_resol
     let surfaces = [
         CanonicalSurface {
             path: "scripts/prepare-and-validate-nxb-153-windows.ps1",
-            host_git_resolution:
-                "$gitCommand = Get-Command git -CommandType Application -ErrorAction Stop",
+            host_git_resolution: "$gitCommand = $gitCommands[0]",
         },
         CanonicalSurface {
             path: "scripts/validate-nxb-153-windows.ps1",
-            host_git_resolution:
-                "$gitCommand = Get-Command git -CommandType Application -ErrorAction Stop",
+            host_git_resolution: "$gitCommand = $gitCommands[0]",
         },
         CanonicalSurface {
             path: "scripts/review-nxb-153-evidence-windows.ps1",
-            host_git_resolution:
-                "$gitCommand = Get-Command git -CommandType Application -ErrorAction Stop",
+            host_git_resolution: "$gitCommand = $gitCommands[0]",
         },
         CanonicalSurface {
             path: "scripts/nxb-153-windows-immutable-source.ps1",
@@ -124,4 +121,15 @@ fn canonical_windows_outer_entries_remain_byte_identical() {
             "canonical Windows outer entry drifted from the shared byte-identical authority: {sibling}"
         );
     }
+}
+
+#[test]
+fn canonical_windows_powershell_checkout_bytes_are_lf_pinned() {
+    let attributes = read_text(".gitattributes");
+    assert!(
+        attributes
+            .lines()
+            .any(|line| line == "/scripts/*.ps1 text eol=lf"),
+        ".gitattributes must keep canonical PowerShell source byte-identical to Git blobs on Windows"
+    );
 }

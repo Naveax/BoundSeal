@@ -188,6 +188,24 @@ jobs:
             if ($remove) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
           }
 
+          $normalizedPath = [Collections.Generic.List[string]]::new()
+          $gitDirectorySeen = $false
+          foreach ($pathEntry in @($env:PATH -split [IO.Path]::PathSeparator)) {
+            if ([string]::IsNullOrWhiteSpace($pathEntry)) { continue }
+            $gitCandidate = Join-Path $pathEntry 'git.exe'
+            if (Test-Path -LiteralPath $gitCandidate -PathType Leaf) {
+              if ($gitDirectorySeen) { continue }
+              $gitDirectorySeen = $true
+            }
+            $normalizedPath.Add($pathEntry)
+          }
+          if (-not $gitDirectorySeen) { throw 'hosted Windows PATH contains no Git application directory' }
+          $env:PATH = $normalizedPath -join [IO.Path]::PathSeparator
+          $gitApplications = @(Get-Command git -CommandType Application -ErrorAction Stop)
+          if ($gitApplications.Count -ne 1) {
+            throw "hosted Windows PATH did not normalize to one Git application: $($gitApplications.Count)"
+          }
+
           & .\scripts\prepare-and-validate-nxb-153-windows.ps1 -RepoRoot .
           & .\scripts\record-nxb-153-windows-process-lifecycle-evidence.ps1 -RepoRoot .
           & .\scripts\review-nxb-153-windows-admission-complete.ps1 -RepoRoot .

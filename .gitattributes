@@ -1,3 +1,7 @@
 # NXB validation binds the root lockfile by byte-level SHA-256.
 # Keep checkout bytes identical on Windows, Linux and macOS regardless of core.autocrlf.
 /Cargo.lock text eol=lf
+
+# Windows admission pins committed PowerShell source by exact Git blob identity.
+# Prevent checkout EOL conversion from changing the opened-file authority bytes.
+/scripts/*.ps1 text eol=lf

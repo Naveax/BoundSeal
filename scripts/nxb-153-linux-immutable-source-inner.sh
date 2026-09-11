@@ -8,7 +8,7 @@ fail() {
 
 require_commands() {
     local required_command
-    for required_command in git unshare mount tar find grep sha256sum awk touch python3 rustup; do
+    for required_command in git unshare mount findmnt tar find grep sha256sum awk touch python3 rustup; do
         command -v "$required_command" >/dev/null 2>&1 || fail "$required_command is unavailable"
     done
 }
@@ -28,6 +28,23 @@ self_test() {
     unshare --user --map-root-user --mount --pid --fork bash -c '
         set -euo pipefail
         mountpoint="$1"
+
+        assert_readonly_mount() {
+            local path="$1"
+            local options
+            local required_option
+            options="$(findmnt -no OPTIONS --target "$path")" || {
+                printf "could not inspect read-only bind options: %s\n" "$path" >&2
+                exit 75
+            }
+            for required_option in ro nosuid nodev; do
+                if ! printf "%s\n" "$options" | grep -Eq "(^|,)${required_option}(,|$)"; then
+                    printf "read-only bind is missing %s: %s options=%s\n" "$required_option" "$path" "$options" >&2
+                    exit 76
+                fi
+            done
+        }
+
         mount --make-rprivate /
         mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$mountpoint"
         printf trusted > "$mountpoint/trusted.txt"
@@ -35,16 +52,19 @@ self_test() {
             mkdir "$mountpoint/$runtime_path"
         done
         mount --bind "$mountpoint" "$mountpoint"
-        mount -o remount,bind,ro,nosuid,nodev "$mountpoint"
+        mount -o remount,bind,ro "$mountpoint"
+        assert_readonly_mount "$mountpoint"
         for runtime_path in target tmp fetch-home vendor cargo-home config; do
             mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$mountpoint/$runtime_path"
         done
         printf dependency > "$mountpoint/vendor/dependency.txt"
         printf "[source.crates-io]\nreplace-with = \"nxb-vendored-sources\"\n" > "$mountpoint/config/config.toml"
         mount --bind "$mountpoint/vendor" "$mountpoint/vendor"
-        mount -o remount,bind,ro,nosuid,nodev "$mountpoint/vendor"
+        mount -o remount,bind,ro "$mountpoint/vendor"
+        assert_readonly_mount "$mountpoint/vendor"
         mount --bind "$mountpoint/config" "$mountpoint/config"
-        mount -o remount,bind,ro,nosuid,nodev "$mountpoint/config"
+        mount -o remount,bind,ro "$mountpoint/config"
+        assert_readonly_mount "$mountpoint/config"
         touch "$mountpoint/cargo-home/config.toml"
         mount --bind "$mountpoint/config/config.toml" "$mountpoint/cargo-home/config.toml"
         mount -o remount,bind,ro "$mountpoint/cargo-home/config.toml"
@@ -149,6 +169,20 @@ validate_snapshot() {
             die() {
                 printf "NXB-153 immutable validation child failed: %s\n" "$1" >&2
                 exit 1
+            }
+
+            assert_readonly_mount() {
+                local path="$1"
+                local label="$2"
+                local options
+                local required_option
+                options="$(findmnt -no OPTIONS --target "$path")" ||
+                    die "could not inspect $label read-only bind options"
+                for required_option in ro nosuid nodev; do
+                    if ! printf "%s\n" "$options" | grep -Eq "(^|,)${required_option}(,|$)"; then
+                        die "$label read-only bind is missing $required_option (options=$options)"
+                    fi
+                done
             }
 
             validate_namespace() {
@@ -365,7 +399,8 @@ finally:
                 mkdir "$source_root/$runtime_path"
             done
             mount --bind "$source_root" "$source_root"
-            mount -o remount,bind,ro,nosuid,nodev "$source_root"
+            mount -o remount,bind,ro "$source_root"
+            assert_readonly_mount "$source_root" 'immutable source root'
             for runtime_path in \
                 target \
                 .nxb-153-tmp \
@@ -420,7 +455,8 @@ finally:
             [[ -n "$vendor_summary" ]] || die "vendored dependency authority summary is empty"
 
             mount --bind "$vendor_root" "$vendor_root"
-            mount -o remount,bind,ro,nosuid,nodev "$vendor_root"
+            mount -o remount,bind,ro "$vendor_root"
+            assert_readonly_mount "$vendor_root" 'vendored dependency snapshot'
             if touch "$vendor_root/.nxb-153-vendor-write-probe" 2>/dev/null; then
                 die "vendored dependency snapshot remained writable after read-only bind"
             fi
@@ -435,7 +471,8 @@ EOF
             config_sha256="$(sha256sum "$config_root/config.toml" | awk "{print \$1}")"
             [[ "$config_sha256" =~ ^[0-9a-f]{64}$ ]] || die "gate Cargo config SHA-256 is invalid"
             mount --bind "$config_root" "$config_root"
-            mount -o remount,bind,ro,nosuid,nodev "$config_root"
+            mount -o remount,bind,ro "$config_root"
+            assert_readonly_mount "$config_root" 'gate Cargo config root'
             if printf changed > "$config_root/config.toml" 2>/dev/null; then
                 die "gate Cargo config root remained writable after read-only bind"
             fi

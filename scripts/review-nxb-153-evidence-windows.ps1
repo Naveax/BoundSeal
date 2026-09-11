@@ -386,7 +386,11 @@ switch -CaseSensitive ($entryName) {
 
 $innerRelative = "scripts/$innerName"
 $innerPath = Join-Path $PSScriptRoot $innerName
-$gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
+$gitCommands = @(Get-Command git -CommandType Application -ErrorAction Stop)
+if ($gitCommands.Count -lt 1) {
+    Fail-NxbWindowsEntryGitGuard 'host Git application could not be resolved from PATH'
+}
+$gitCommand = $gitCommands[0]
 $gitApplication = ConvertFrom-NxbWindowsEntryFinalPath -Path ([IO.Path]::GetFullPath([string]$gitCommand.Source))
 $initialHead = $null
 
@@ -525,7 +529,11 @@ try {
     }
     $pathWasRebound = $true
 
-    $resolvedGit = Get-Command git -CommandType Application -ErrorAction Stop
+    $resolvedGitCommands = @(Get-Command git -CommandType Application -ErrorAction Stop)
+    if ($resolvedGitCommands.Count -lt 1) {
+        Fail-NxbWindowsEntryGitGuard 'nested Git application could not be resolved after host Git pinning'
+    }
+    $resolvedGit = $resolvedGitCommands[0]
     $resolvedGitPath = ConvertFrom-NxbWindowsEntryFinalPath -Path ([IO.Path]::GetFullPath([string]$resolvedGit.Source))
     if (-not [string]::Equals($resolvedGitPath, $gitApplication, [StringComparison]::OrdinalIgnoreCase)) {
         Fail-NxbWindowsEntryGitGuard "nested Git resolution differs from pinned host Git: expected '$gitApplication', resolved '$resolvedGitPath'"
