@@ -65,7 +65,7 @@ mod tests {
     fn readiness_record_directories_match_workspace_status_contract() {
         assert_eq!(
             RECORD_DIRECTORIES,
-            ["targets", "sessions", "runs", "evidence", "reports"]
+            &["targets", "sessions", "runs", "evidence", "reports"]
         );
     }
 }
