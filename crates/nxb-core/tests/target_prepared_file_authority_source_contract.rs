@@ -84,7 +84,7 @@ fn linux_create_only_claim_uses_held_fd_not_the_reusable_temporary_pathname() {
         "tool_metadata.uid() != 0",
         "tool_metadata.permissions().mode() & 0o022 != 0",
         "self.file.as_raw_fd()",
-        "format!(\"/proc/{}/fd/{}\"",
+        "\"/proc/{}/fd/{}\"",
         ".arg(\"-L\")",
         ".arg(\"--\")",
         ".env_clear()",
