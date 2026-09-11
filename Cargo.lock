@@ -71,7 +71,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 name = "asn1-rs"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7f43a50c2cd6fe86c3a76584ef5e0baf286d038cda203eb6223df2cc413565f7"
+checksum = "b7f43a50ac4fdca5df8e885c21b835997f0a1cdee65494a6847694a98652d9d8"
 dependencies = [
  "asn1-rs-derive",
  "asn1-rs-impl",
@@ -116,13 +116,13 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bit-vec"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b71798fca2c1fe1086445a7258fa1d7426e975df68041f6d8f4ed888b23e459"
+checksum = "b71798fca2c1fe1086445a7258a4bc81e6e49dcd24c8d0dd9a1e57395b603f51"
 dependencies = [
  "serde",
 ]
@@ -131,7 +131,7 @@ dependencies = [
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3078c7629b2c9273be9e2902612524fbc6cd4e5a7bbbc9bef191281470a089aa"
+checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
 dependencies = [
  "generic-array",
 ]
@@ -228,7 +228,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59ed5838eebb26a2bbf2e7e7ff857777a0524da402b9f41bb09690d7f99d24f7"
+checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
 dependencies = [
  "libc",
 ]
@@ -710,7 +710,6 @@ dependencies = [
  "nxb-transport",
  "nxb-unified-operator",
  "nxb-vault-provider",
- "nxb-win32-fs-authority",
  "ring",
  "serde",
  "serde_json",
@@ -767,7 +766,6 @@ dependencies = [
  "ring",
  "serde",
  "serde_json",
- "sha2",
  "thiserror",
  "zeroize",
 ]
@@ -1288,13 +1286,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxb-win32-fs-authority"
-version = "0.1.0"
-dependencies = [
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "nxb-workflow-graph"
 version = "0.1.0"
 dependencies = [
@@ -1668,7 +1659,7 @@ dependencies = [
 name = "toml_datetime"
 version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22cddaf88f4fbc13c51aebbf5f8eceb5c7d3d96fa1f56c575eb01fcbe6c88c7"
+checksum = "22cddaf88f4fbc13c51aebbf5f8eceb5c7c5a9da2ac40a13519eb5b0a0e8f11c"
 dependencies = [
  "serde",
 ]
