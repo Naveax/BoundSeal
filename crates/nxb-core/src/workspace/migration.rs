@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
-    create_document, manifest_schema, now, read_document, replace_document, safe_exists,
+    manifest_schema, now, read_document, replace_document, safe_exists,
     set_private_directory_permissions, sha256, validate_common, validate_identifier,
     validate_manifest_v1, validate_private_permissions, validate_sha, validate_workspace_root,
     LegacyManifestV0, ManifestV1, SecretStorageBoundary, CURRENT_SCHEMA_VERSION, MANIFEST_FILE,
@@ -258,11 +258,20 @@ fn receipt_count(paths: &MigrationPaths) -> Result<usize> {
     validate_private_permissions(&paths.receipts, true)?;
     let mut count = 0_usize;
     for entry in fs::read_dir(&paths.receipts)? {
-        let path = entry?.path();
+        let entry = entry?;
+        let path = entry.path();
         super::reject_path_indirections(&path, "migration receipt")?;
         let metadata = fs::symlink_metadata(&path)?;
         if !metadata.is_file() {
             bail!("migration receipts directory contains a non-file entry");
+        }
+        let file_name = entry.file_name();
+        if file_name
+            .to_str()
+            .and_then(super::create_document_temporary_destination)
+            .is_some()
+        {
+            continue;
         }
         validate_private_permissions(&path, false)?;
         count = count
@@ -301,7 +310,7 @@ fn read_optional_document(path: &Path, label: &str) -> Result<Vec<u8>> {
 fn create_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     let mut bytes = serde_json::to_vec_pretty(value)?;
     bytes.push(b'\n');
-    create_document(path, &bytes)
+    crate::workspace_authority_publication::create_document(path, &bytes)
 }
 
 fn cleanup(paths: &MigrationPaths) -> Result<()> {
@@ -356,7 +365,7 @@ fn prepare(paths: &MigrationPaths, plan: &MigrationPlan, source: &[u8]) -> Resul
     if sha256(source) != plan.source_sha256 {
         bail!("migration source does not match its plan");
     }
-    create_document(&paths.backup, source)?;
+    crate::workspace_authority_publication::create_document(&paths.backup, source)?;
     let journal = PreparedJournal {
         journal_version: JOURNAL_VERSION,
         migration_id: plan.migration_id.clone(),
@@ -675,7 +684,7 @@ mod tests {
         let root = workspace("orphan", 0);
         let paths = ensure_state_layout(&root).unwrap();
         let source = read_document(&paths.manifest, "manifest").unwrap();
-        create_document(&paths.backup, &source).unwrap();
+        crate::workspace_authority_publication::create_document(&paths.backup, &source).unwrap();
         recover_value(&root).unwrap();
         assert_eq!(optional_manifest_schema(&paths.manifest).unwrap(), Some(1));
         assert_eq!(transient_state(&paths).unwrap(), 0);
