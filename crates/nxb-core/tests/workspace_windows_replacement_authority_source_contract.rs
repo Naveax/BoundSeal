@@ -2,6 +2,7 @@ use std::{fs, path::{Path, PathBuf}};
 
 const ROOT_MANIFEST: &str = "Cargo.toml";
 const CORE_MANIFEST: &str = "crates/nxb-core/Cargo.toml";
+const LOCK_PATH: &str = "Cargo.lock";
 const NXB_PATH: &str = "crates/nxb-core/src/nxb.rs";
 const ENTRY_PATH: &str = "crates/nxb-core/src/workspace_windows_entry.rs";
 const REPLACEMENT_PATH: &str = "crates/nxb-core/src/workspace_authority_replacement_windows.rs";
@@ -21,6 +22,7 @@ fn source(path: &str) -> String {
 fn windows_unsafe_abi_is_isolated_in_a_separate_core_library_crate_without_lock_graph_growth() {
     let root = source(ROOT_MANIFEST);
     let core = source(CORE_MANIFEST);
+    let lock = source(LOCK_PATH);
     let nxb = source(NXB_PATH);
     let platform = source(PLATFORM_PATH);
     let replacement = source(REPLACEMENT_PATH);
@@ -35,6 +37,7 @@ fn windows_unsafe_abi_is_isolated_in_a_separate_core_library_crate_without_lock_
     }
     assert!(!core.contains("nxb-win32-fs-authority"));
     assert!(!core.contains("windows-sys"));
+    assert!(!lock.contains("name = \"nxb-win32-fs-authority\""));
 
     assert!(nxb.contains("#![forbid(unsafe_code)]"));
     assert!(nxb.contains("#[cfg(windows)]\nmod workspace_authority_replacement_windows;"));
