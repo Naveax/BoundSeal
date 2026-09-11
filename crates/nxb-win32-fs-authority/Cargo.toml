@@ -1,9 +1,0 @@
-[package]
-name = "nxb-win32-fs-authority"
-version.workspace = true
-edition.workspace = true
-authors.workspace = true
-publish = false
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
