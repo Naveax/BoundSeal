@@ -5,8 +5,7 @@ const CORE_MANIFEST: &str = "crates/nxb-core/Cargo.toml";
 const NXB_PATH: &str = "crates/nxb-core/src/nxb.rs";
 const ENTRY_PATH: &str = "crates/nxb-core/src/workspace_windows_entry.rs";
 const REPLACEMENT_PATH: &str = "crates/nxb-core/src/workspace_authority_replacement_windows.rs";
-const PLATFORM_PATH: &str = "crates/nxb-win32-fs-authority/src/lib.rs";
-const PLATFORM_MANIFEST: &str = "crates/nxb-win32-fs-authority/Cargo.toml";
+const PLATFORM_PATH: &str = "crates/nxb-core/src/win32_fs_authority_lib.rs";
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -19,35 +18,45 @@ fn source(path: &str) -> String {
 }
 
 #[test]
-fn windows_unsafe_abi_is_isolated_from_the_forbid_unsafe_nxb_crate() {
+fn windows_unsafe_abi_is_isolated_in_a_separate_core_library_crate_without_lock_graph_growth() {
     let root = source(ROOT_MANIFEST);
     let core = source(CORE_MANIFEST);
-    let platform_manifest = source(PLATFORM_MANIFEST);
     let nxb = source(NXB_PATH);
     let platform = source(PLATFORM_PATH);
     let replacement = source(REPLACEMENT_PATH);
 
-    assert!(root.contains("\"crates/nxb-win32-fs-authority\""));
-    assert!(core.contains("[target.'cfg(windows)'.dependencies]"));
-    assert!(core.contains("nxb-win32-fs-authority = { path = \"../nxb-win32-fs-authority\" }"));
-    assert!(platform_manifest.contains("windows-sys = { version = \"=0.61.2\""));
+    assert!(!root.contains("crates/nxb-win32-fs-authority"));
+    for marker in [
+        "[lib]",
+        "name = \"nxb_core_win32_authority\"",
+        "path = \"src/win32_fs_authority_lib.rs\"",
+    ] {
+        assert!(core.contains(marker), "{CORE_MANIFEST}: missing isolated library target marker: {marker}");
+    }
+    assert!(!core.contains("nxb-win32-fs-authority"));
+    assert!(!core.contains("windows-sys"));
 
     assert!(nxb.contains("#![forbid(unsafe_code)]"));
     assert!(nxb.contains("#[cfg(windows)]\nmod workspace_authority_replacement_windows;"));
     assert!(!replacement.contains("unsafe {"));
+    assert!(replacement.contains(
+        "use nxb_core_win32_authority::{file_identity, rename_handle_relative_no_replace, FileIdentity};"
+    ));
 
     for marker in [
-        "GetFileInformationByHandle",
-        "SetFileInformationByHandle",
-        "FILE_RENAME_INFO",
-        "FileRenameInfo",
+        "unsafe extern \"system\"",
+        "#[link_name = \"GetFileInformationByHandle\"]",
+        "#[link_name = \"SetFileInformationByHandle\"]",
+        "const FILE_RENAME_INFO_CLASS: i32 = 3;",
+        "struct ByHandleFileInformation",
+        "struct FileRenameInfo",
         "pub fn file_identity(file: &File)",
         "pub fn rename_handle_relative_no_replace(",
-        "Zeroed Anonymous means ReplaceIfExists = FALSE",
+        "ReplaceIfExists = FALSE",
     ] {
         assert!(platform.contains(marker), "{PLATFORM_PATH}: missing Win32 ABI authority marker: {marker}");
     }
-    assert!(platform.contains("unsafe {"), "{PLATFORM_PATH}: the audited ABI boundary must remain visible instead of leaking into nxb-core");
+    assert!(platform.contains("unsafe {"), "{PLATFORM_PATH}: the audited ABI boundary must remain visible in the isolated library crate");
 }
 
 #[test]
@@ -98,11 +107,11 @@ fn windows_replacement_retains_parent_current_and_prepared_authorities_through_f
         assert!(replacement.contains(marker), "{REPLACEMENT_PATH}: missing retained-authority marker: {marker}");
     }
 
+    let production = replacement
+        .split("#[cfg(test)]")
+        .next()
+        .expect("Windows replacement production section is missing");
     for forbidden in ["fs::rename(", "remove_file(", "remove_regular("] {
-        let production = replacement
-            .split("#[cfg(test)]")
-            .next()
-            .expect("Windows replacement production section is missing");
         assert!(!production.contains(forbidden), "{REPLACEMENT_PATH}: production replacement must not use pathname-destructive primitive: {forbidden}");
     }
 }
