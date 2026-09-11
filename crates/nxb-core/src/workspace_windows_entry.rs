@@ -1,3 +1,8 @@
+#![allow(hidden_glob_reexports)]
+// Windows intentionally re-exports the historical workspace surface while
+// shadowing replacement and migration with handle-bound implementations.
+// Keep the lint exception local to this composition facade.
+
 use std::path::Path;
 
 use anyhow::Result;
