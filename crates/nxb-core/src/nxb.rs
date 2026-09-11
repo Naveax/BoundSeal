@@ -8,5 +8,6 @@ mod target;
 mod workspace_impl;
 #[path = "workspace_authority.rs"]
 mod workspace;
+mod workspace_authority_receipts;
 
 include!("main.rs");
