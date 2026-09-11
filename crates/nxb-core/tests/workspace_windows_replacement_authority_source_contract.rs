@@ -1,4 +1,7 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 const ROOT_MANIFEST: &str = "Cargo.toml";
 const CORE_MANIFEST: &str = "crates/nxb-core/Cargo.toml";
@@ -33,14 +36,19 @@ fn windows_unsafe_abi_is_isolated_in_a_separate_core_library_crate_without_lock_
         "name = \"nxb_core_win32_authority\"",
         "path = \"src/win32_fs_authority_lib.rs\"",
     ] {
-        assert!(core.contains(marker), "{CORE_MANIFEST}: missing isolated library target marker: {marker}");
+        assert!(
+            core.contains(marker),
+            "{CORE_MANIFEST}: missing isolated library target marker: {marker}"
+        );
     }
     assert!(!core.contains("nxb-win32-fs-authority"));
     assert!(!core.contains("windows-sys"));
     assert!(!lock.contains("name = \"nxb-win32-fs-authority\""));
 
     assert!(nxb.contains("#![forbid(unsafe_code)]"));
-    assert!(nxb.contains("#[cfg(windows)]\nmod workspace_authority_replacement_windows;"));
+    assert!(nxb.contains(
+        "#[cfg(windows)]\nmod workspace_authority_replacement_windows;"
+    ));
     assert!(!replacement.contains("unsafe {"));
     assert!(replacement.contains(
         "use nxb_core_win32_authority::{file_identity, rename_handle_relative_no_replace, FileIdentity};"
@@ -57,9 +65,15 @@ fn windows_unsafe_abi_is_isolated_in_a_separate_core_library_crate_without_lock_
         "pub fn rename_handle_relative_no_replace(",
         "ReplaceIfExists = FALSE",
     ] {
-        assert!(platform.contains(marker), "{PLATFORM_PATH}: missing Win32 ABI authority marker: {marker}");
+        assert!(
+            platform.contains(marker),
+            "{PLATFORM_PATH}: missing Win32 ABI authority marker: {marker}"
+        );
     }
-    assert!(platform.contains("unsafe {"), "{PLATFORM_PATH}: the audited ABI boundary must remain visible in the isolated library crate");
+    assert!(
+        platform.contains("unsafe {"),
+        "{PLATFORM_PATH}: the audited ABI boundary must remain visible in the isolated library crate"
+    );
 }
 
 #[test]
@@ -71,7 +85,10 @@ fn windows_workspace_routes_migration_replacement_through_the_safe_handle_author
         "#[cfg(not(windows))]\n#[path = \"workspace/mod.rs\"]\nmod workspace_impl;",
         "#[cfg(windows)]\n#[path = \"workspace_windows_entry.rs\"]\nmod workspace_impl;",
     ] {
-        assert!(nxb.contains(marker), "{NXB_PATH}: missing platform workspace route: {marker}");
+        assert!(
+            nxb.contains(marker),
+            "{NXB_PATH}: missing platform workspace route: {marker}"
+        );
     }
 
     for marker in [
@@ -81,7 +98,10 @@ fn windows_workspace_routes_migration_replacement_through_the_safe_handle_author
         "workspace_authority_replacement_windows::replace_document(path, bytes)",
         "#[path = \"workspace/migration.rs\"]\npub(crate) mod migration;",
     ] {
-        assert!(entry.contains(marker), "{ENTRY_PATH}: missing Windows workspace facade marker: {marker}");
+        assert!(
+            entry.contains(marker),
+            "{ENTRY_PATH}: missing Windows workspace facade marker: {marker}"
+        );
     }
 }
 
@@ -107,7 +127,10 @@ fn windows_replacement_retains_parent_current_and_prepared_authorities_through_f
         "prepared.validate_destination_binding(&destination)?;",
         "parent.validate_named_binding()?;",
     ] {
-        assert!(replacement.contains(marker), "{REPLACEMENT_PATH}: missing retained-authority marker: {marker}");
+        assert!(
+            replacement.contains(marker),
+            "{REPLACEMENT_PATH}: missing retained-authority marker: {marker}"
+        );
     }
 
     let production = replacement
@@ -115,7 +138,10 @@ fn windows_replacement_retains_parent_current_and_prepared_authorities_through_f
         .next()
         .expect("Windows replacement production section is missing");
     for forbidden in ["fs::rename(", "remove_file(", "remove_regular("] {
-        assert!(!production.contains(forbidden), "{REPLACEMENT_PATH}: production replacement must not use pathname-destructive primitive: {forbidden}");
+        assert!(
+            !production.contains(forbidden),
+            "{REPLACEMENT_PATH}: production replacement must not use pathname-destructive primitive: {forbidden}"
+        );
     }
 }
 
@@ -129,7 +155,10 @@ fn windows_replacement_regressions_cover_identity_observation_and_namespace_race
         "fn retained_ancestor_chain_denies_parent_replacement()",
         "fn expected_missing_destination_uses_create_only_claim()",
     ] {
-        assert!(replacement.contains(marker), "{REPLACEMENT_PATH}: missing Windows replacement regression: {marker}");
+        assert!(
+            replacement.contains(marker),
+            "{REPLACEMENT_PATH}: missing Windows replacement regression: {marker}"
+        );
     }
 
     let platform = source(PLATFORM_PATH);
@@ -138,6 +167,9 @@ fn windows_replacement_regressions_cover_identity_observation_and_namespace_race
         "fn no_replace_rename_preserves_existing_destination()",
         "fn source_handle_denies_rename_until_retained_authority_is_released()",
     ] {
-        assert!(platform.contains(marker), "{PLATFORM_PATH}: missing Win32 primitive regression: {marker}");
+        assert!(
+            platform.contains(marker),
+            "{PLATFORM_PATH}: missing Win32 primitive regression: {marker}"
+        );
     }
 }

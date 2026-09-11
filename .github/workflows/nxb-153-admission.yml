@@ -52,19 +52,41 @@ jobs:
           fi
           grep -F 'ambient Git authority variables are not admitted before exact-head resolution' /tmp/nxb-git.err >/dev/null
 
-      - name: Prepare sealed tools and run canonical Linux validator
+      - name: Verify hosted privileged user namespace support
         shell: bash
         run: |
           set -euo pipefail
-          env -i \
-            HOME="$HOME" \
-            USER="${USER:-runner}" \
-            LOGNAME="${LOGNAME:-runner}" \
+          sudo env -i HOME=/root PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+            /usr/bin/unshare --user --map-root-user --mount --pid --fork /bin/true
+
+      - name: Transfer checkout ownership to the privileged validation principal
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo chown -R root:root "$GITHUB_WORKSPACE"
+          sudo env -i HOME=/root PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+            /usr/bin/git -C "$GITHUB_WORKSPACE" rev-parse HEAD | grep -Fx "$GITHUB_SHA" >/dev/null
+          test -z "$(sudo env -i HOME=/root PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+            /usr/bin/git -C "$GITHUB_WORKSPACE" status --porcelain=v1 --untracked-files=all)"
+
+      - name: Prepare sealed tools, validate, and review Linux evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo env -i \
+            HOME=/root \
+            USER=root \
+            LOGNAME=root \
             PATH="$PATH" \
             LANG=C.UTF-8 \
             LC_ALL=C.UTF-8 \
             TMPDIR="$RUNNER_TEMP" \
-            /bin/bash -p scripts/prepare-and-validate-nxb-153-linux.sh .
+            /bin/bash -p -c '
+              set -euo pipefail
+              cd "$1"
+              /bin/bash -p scripts/prepare-and-validate-nxb-153-linux.sh .
+              /bin/bash -p scripts/review-nxb-153-evidence-linux.sh . "$PWD/target/nxb-validation"
+            ' bash "$GITHUB_WORKSPACE"
 
   windows-validation:
     name: Windows canonical validation
@@ -88,13 +110,53 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $env:GIT_DIR = Join-Path $env:RUNNER_TEMP 'nxb-hostile-git'
-          & pwsh -NoLogo -NoProfile -NonInteractive -File .\scripts\prepare-and-validate-nxb-153-windows.ps1 -RepoRoot .
-          $code = $LASTEXITCODE
-          Remove-Item Env:GIT_DIR -ErrorAction SilentlyContinue
-          if ($code -eq 0) { throw 'ambient GIT_DIR Windows preparation unexpectedly succeeded' }
+          $pwshPath = (Get-Command pwsh -CommandType Application -ErrorAction Stop).Source
+          $start = [Diagnostics.ProcessStartInfo]::new()
+          $start.FileName = $pwshPath
+          $start.UseShellExecute = $false
+          $start.RedirectStandardOutput = $true
+          $start.RedirectStandardError = $true
+          $start.CreateNoWindow = $true
+          foreach ($argument in @(
+            '-NoLogo', '-NoProfile', '-NonInteractive',
+            '-File', '.\scripts\prepare-and-validate-nxb-153-windows.ps1',
+            '-RepoRoot', '.'
+          )) {
+            [void]$start.ArgumentList.Add($argument)
+          }
+          $start.Environment['GIT_DIR'] = Join-Path $env:RUNNER_TEMP 'nxb-hostile-git'
 
-      - name: Remove non-admitted compiler and Git authority variables
+          $process = [Diagnostics.Process]::new()
+          try {
+            $process.StartInfo = $start
+            if (-not $process.Start()) { throw 'hostile-environment child PowerShell could not start' }
+            $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+            $stderrTask = $process.StandardError.ReadToEndAsync()
+            if (-not $process.WaitForExit(30000)) {
+              $process.Kill($true)
+              [void]$process.WaitForExit(30000)
+              throw 'hostile-environment child PowerShell did not exit within 30000 ms'
+            }
+            $stdout = $stdoutTask.GetAwaiter().GetResult()
+            $stderr = $stderrTask.GetAwaiter().GetResult()
+            if ($stdout.Length -gt 8192 -or $stderr.Length -gt 8192) {
+              throw 'hostile-environment child output exceeded the 8192-character diagnostic envelope'
+            }
+            if ($process.ExitCode -eq 0) {
+              throw 'ambient GIT_DIR Windows preparation unexpectedly succeeded'
+            }
+            if (-not $stderr.Contains('ambient Git authority variables are not admitted before exact-head resolution')) {
+              throw "ambient GIT_DIR rejection did not emit the expected guard diagnostic: $stderr"
+            }
+          }
+          finally {
+            if (-not $process.HasExited) {
+              try { $process.Kill($true) } catch {}
+            }
+            $process.Dispose()
+          }
+
+      - name: Prepare sealed tools, validate, record process evidence, and review Windows admission
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -116,11 +178,15 @@ jobs:
             $remove = $name.StartsWith('GIT_', [StringComparison]::OrdinalIgnoreCase) -or $exact.Contains($name)
             if (-not $remove) {
               foreach ($prefix in $prefixes) {
-                if ($name.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { $remove = $true; break }
+                if ($name.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+                  $remove = $true
+                  break
+                }
               }
             }
             if ($remove) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
           }
 
           & .\scripts\prepare-and-validate-nxb-153-windows.ps1 -RepoRoot .
-          if ($LASTEXITCODE -ne 0) { throw "Windows canonical validation failed with exit code $LASTEXITCODE" }
+          & .\scripts\record-nxb-153-windows-process-lifecycle-evidence.ps1 -RepoRoot .
+          & .\scripts\review-nxb-153-windows-admission-complete.ps1 -RepoRoot .

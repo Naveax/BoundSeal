@@ -1,4 +1,7 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 const ENTRY_PATH: &str = "crates/nxb-core/src/workspace_authority_entry.rs";
 const WINDOWS_ENTRY_PATH: &str = "crates/nxb-core/src/workspace_windows_entry.rs";
