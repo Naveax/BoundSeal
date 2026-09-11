@@ -1,100 +1,92 @@
 # NXB-153 destructive cleanup authority
 
-Status: **partial source fix staged / remaining Windows replacement, doctor-probe and legacy base-writer cleanup pending / not admitted**.
+Status: **reachable destructive production routes source-reduced / legacy compiled quarantine + lockfile refresh + runtime-platform proof pending / not admitted**.
 
-This note records the NXB-153 / issue #112 destructive-cleanup authority boundary. It is intentionally narrower than a closure claim.
+This note records the NXB-153 / issue #112 destructive-cleanup boundary. It deliberately distinguishes a reachable production mutation route from older compiled helpers that are shadowed by the composed workspace entry.
 
 ## Threat model
 
-The relevant adversary is a same-user namespace actor that can replace a pathname after validation but before a destructive filesystem mutation. Matching permissions, regular-file type, or a final pathname stat do not prove that the object being deleted is the object that was admitted earlier.
+A same-user namespace actor can replace a pathname after validation but before a destructive filesystem mutation. Matching permissions, regular-file type, or a final pathname stat do not prove that the object being deleted or moved is the object admitted earlier.
 
-On Linux, retaining the parent directory authority prevents ancestor substitution but does not make a final-component `unlink` object-bound. Linux does not provide an unlink-by-open-file-descriptor equivalent that would make a prior file-object admission sufficient for a later pathname unlink.
+NXB therefore either binds mutation to retained object/parent authority or removes physical cleanup from the reachable production route. A later pathname `remove_file` is not accepted as object authority.
 
-On Windows, a retained handle can deny delete/rename sharing while it remains live. Object-bound physical deletion requires same-handle lifetime semantics such as delete-on-close/delete-disposition rather than reopening a pathname. The `nxb` binary retains `#![forbid(unsafe_code)]`; this work does not relax that boundary.
+## Migration committed-state cleanup
 
-## Staged migration cleanup model
+Committed migration state is retired by verification instead of physical pathname deletion. `migration-active.json`, `migration-source.json`, and `migration-applied.json` may remain present.
 
-Committed migration state is retired by verification instead of physical pathname deletion.
+They are reported as stable only when journal, deterministic receipt, published manifest, source backup, rebuilt plan and applied marker remain mutually consistent. Malformed or substituted residue fails closed and remains untouched.
 
-The canonical migration files may remain present:
-
-- `state/migration-active.json`
-- `state/migration-source.json`
-- `state/migration-applied.json`
-
-They are reported as stable only when all of the following remain mutually consistent:
-
-1. the prepared journal is structurally valid;
-2. the deterministic migration receipt exists and matches the journal;
-3. the published workspace manifest hashes to the journal target;
-4. the source backup exists and hashes to the journal source;
-5. rebuilding the migration plan from the backup matches the journal;
-6. the applied marker exists and matches that plan.
-
-A committed residue that fails any of those checks is not silently ignored and is not deleted. The operation fails closed.
-
-This removes the old `validate/check -> remove_file(path)` race from committed migration cleanup while preserving `pending_files = 0` for fully verified committed state.
+This removes the old check-then-delete race from committed migration cleanup while preserving zero pending files for verified retired state.
 
 ## Create-only publication cleanup
 
-Target publication, migration metadata create-only publication, and the generic `workspace_impl::create_document` production path now retain `PreparedFileAuthority` through create/write/sync, namespace claim and post-claim validation.
+Target publication, migration metadata publication and the generic `workspace_impl::create_document` production path retain `PreparedFileAuthority` through create/write/sync, namespace claim and post-claim validation.
 
-Production create-only paths deliberately keep private temporary residue instead of re-resolving and deleting a reusable temporary pathname. The historical pathname-cleanup fault-injection helper in `workspace/mod.rs` is `#[cfg(test)]` only.
+Reachable create-only publication deliberately keeps private transport residue instead of re-resolving and deleting a reusable temporary pathname. The historical injected cleanup helper in `workspace/mod.rs` is `#[cfg(test)]` only. Recognized private transport names are quarantined from target/receipt enumeration.
 
-Exact create-document transient names are quarantined by `create_document_temporary_destination` in record/readiness enumeration. The residue is transport state, not additional target or receipt authority.
+## Linux migration replacement
 
-## Linux migration replacement cleanup
+Linux replacement retains the parent directory, previous manifest and prepared candidate. It quarantines the previous canonical name with no-clobber semantics under the retained `/proc/<pid>/fd/<parent-fd>` namespace, proves the retired name still binds the retained inode, then claims the canonical name from the exact prepared FD and proves the final inode.
 
-Linux migration replacement no longer deletes its prepared or prior-manifest transport objects.
+The production Linux replacement module performs no `remove_file`, `remove_regular`, recursive deletion or plain `fs::rename` cleanup. Failure may leave private retired/prepared residue; it must not delete an unrelated replacement.
 
-The retained parent namespace is used to move the previous canonical manifest to a random private retired name with no-clobber semantics. The retired name is then proven to reference the exact previously retained inode. The new canonical manifest is claimed from the exact retained prepared file descriptor and proven by device/inode before success.
+## Windows migration replacement
 
-A same-permission final-component substitution or parent-directory substitution fails closed. Substituted objects are not pathname-deleted. Previous manifests and prepared candidates may remain as private residue.
+Windows replacement no longer routes through the historical non-Unix `replace_file` production path.
 
-This source slice is covered by `workspace_replacement_authority_source_contract.rs` and remains subject to Linux runtime race proof.
+`workspace_windows_entry.rs` is selected as `workspace_impl` on Windows and shadows the base `replace_document` plus base migration module. The active replacement implementation:
+
+- retains the canonical parent ancestor handle chain without delete sharing;
+- retains the current manifest with `GENERIC_READ | DELETE`, `FILE_SHARE_READ` only and reparse-point-open semantics;
+- retains observed bytes and Win32 volume/file-index identity;
+- creates the candidate through `PreparedFileAuthority`;
+- renames the exact retained old handle to a random retired child through `SetFileInformationByHandle(FileRenameInfo)` with no replacement;
+- verifies the retired name against the exact retained Win32 identity while keeping the old handle alive;
+- claims the canonical destination create-only from the retained prepared object;
+- validates the destination and parent binding before success.
+
+The Win32 unsafe ABI is isolated in `nxb-win32-fs-authority`; the `nxb` binary remains `#![forbid(unsafe_code)]`.
+
+This removes the historical Windows `remove_regular(destination) -> rename(source, destination)` path from the selected production migration route.
+
+## Doctor probe cleanup
+
+The public workspace entry overrides the historical named doctor write-probe.
+
+Linux uses an unnamed `O_TMPFILE` object; Windows uses `FILE_FLAG_DELETE_ON_CLOSE`. Probe write/sync occurs on the opened object and cleanup follows object lifetime rather than a later pathname delete. The source contract is `workspace_doctor_probe_source_contract.rs`.
+
+## Legacy compiled mutation quarantine
+
+`workspace/mod.rs` and `workspace_authority.rs` still contain older pathname mutation helpers for historical/tests/base compatibility. They are not treated as active authority merely because they compile.
+
+The selected public routes are locked by `workspace_legacy_mutation_quarantine_source_contract.rs`:
+
+- public workspace calls go through `workspace_authority_entry.rs`;
+- entry-local `create_document` shadows the base authority writer;
+- entry-local `doctor_value` shadows the historical named doctor probe;
+- Windows selects `workspace_windows_entry.rs`, whose local `replace_document` and local migration module shadow the historical base replacement route;
+- the legacy authority create writer has no internal production call site beyond its own wrapper definition.
+
+Removal/refactoring of those quarantined helpers remains desirable maintenance, but they are no longer the selected Linux/Windows target/workspace mutation authority.
 
 ## Source regressions staged
 
-The source tests require that:
+Source contracts cover:
 
-- committed migration `cleanup()` performs verification only and contains no pathname delete/rename;
-- retired state is verified before `transient_state()` reports zero pending files;
-- receipt, manifest, backup, deterministic plan, and applied marker are checked together;
-- migration journal/receipt creation routes through prepared-authority publication;
-- generic create-only production publication uses retained prepared-file authority and does not pathname-delete transport residue;
-- receipt/record counters ignore only the exact recognized create-document temporary shape;
-- a same-permission replacement of a retired canonical journal causes an error and is not deleted;
-- Linux replacement covers exact old/new inode binding, final-component substitution, parent substitution and missing-manifest publication.
+- verification-only committed migration retirement;
+- create-only retained prepared-object publication;
+- Linux exact old/new inode replacement and namespace substitution;
+- Windows exact-handle identity, no-replace rename, sharing denial, expected-current mismatch, final-component swap and parent replacement;
+- object-lifetime doctor probe cleanup;
+- legacy mutation route quarantine/shadowing.
 
-## Still open under #112
+## Still pending under #112
 
-The remaining destructive production surface is narrower but not zero:
+This issue remains open because source staging is not runtime/platform admission.
 
-- Windows/non-Unix migration still reaches the historical `workspace_impl::replace_document` / `replace_file` path; on Windows that can call `remove_regular(destination)` before rename;
-- `workspace_impl::write_probe` still creates a named doctor probe and later `remove_file(path)`s it;
-- `workspace_impl::remove_regular` remains compiled because the unresolved non-Unix replacement path still uses it;
-- `workspace_authority_base` still contains its older create-authority writer with pathname temporary cleanup, even though `workspace_authority_entry` overrides normal target publication with `workspace_authority_publication`.
+- `Cargo.lock` still needs canonical regeneration for the new `nxb-win32-fs-authority` workspace package;
+- legacy compiled pathname helpers should eventually be physically removed or reduced after compatibility checks;
+- Linux adversarial namespace execution and Windows/NTFS sharing/reparse execution are not yet proven on this head;
+- pinned Rust 1.97.1 build/check/clippy/test/doc/dependency-policy evidence is absent.
 
-The previously listed generic production `create_document` cleanup is no longer an open #112 surface.
-
-## Coupled #111 replacement blocker
-
-Generic create-only prepared-object binding and Linux migration replacement are source-staged under #111. Windows migration replacement remains the coupled blocker.
-
-Windows closure must keep the exact prepared source and intended destination/parent authority across the NT namespace mutation. Reopening or deleting a pathname after admission is insufficient. Until that is solved, the historical Windows replacement path and its cleanup remain unapproved.
-
-## Doctor probe direction
-
-The doctor write-probe can be removed from pathname cleanup without weakening the write test by using object-lifetime cleanup primitives: Linux `O_TMPFILE` creates an unnamed inode that disappears at last close, while Windows exposes `FILE_FLAG_DELETE_ON_CLOSE`. This direction is not yet claimed implemented; platform ACL/share behavior and supported-filesystem behavior still require source and runtime validation.
-
-## Admission requirements
-
-NXB-153 is not admitted on the basis of this source work. Closure still requires, at minimum:
-
-- Windows replacement object-binding closure under #111;
-- elimination or object-lifetime treatment of the remaining #112 destructive paths;
-- Linux and Windows adversarial replacement/swap tests;
-- pinned Rust 1.97.1 build, clippy, test, documentation and dependency-policy evidence required by the repository;
-- same-head runtime/CI evidence before PR #89 can be treated as merge-ready.
-
-Until those conditions are satisfied, the correct status is **source work staged, runtime/platform proof pending**.
+No runtime PASS is claimed. PR #89 remains draft/not admitted, and NXB-154 must not use NXB-153 as an admitted base until exact same-head closure.
