@@ -28,11 +28,20 @@ pub(crate) fn validate_target_readiness_receipts(root: &Path) -> Result<usize> {
     for entry in fs::read_dir(&receipts)
         .with_context(|| format!("could not enumerate {}", receipts.display()))?
     {
-        let path = entry?.path();
+        let entry = entry?;
+        let path = entry.path();
         crate::workspace::reject_path_indirections(&path, "migration receipt")?;
         let metadata = fs::symlink_metadata(&path)?;
         if !metadata.is_file() {
             bail!("migration receipts directory contains a non-file entry");
+        }
+        let file_name = entry.file_name();
+        if file_name
+            .to_str()
+            .and_then(crate::workspace_impl::create_document_temporary_destination)
+            .is_some()
+        {
+            continue;
         }
         crate::workspace_impl::validate_private_permissions(&path, false)?;
         count = count
@@ -53,5 +62,15 @@ mod tests {
     #[test]
     fn receipt_limit_matches_workspace_migration_contract() {
         assert_eq!(MAX_RECEIPTS, 1_024);
+    }
+
+    #[test]
+    fn prepared_publication_residue_uses_the_quarantined_temp_shape() {
+        assert_eq!(
+            crate::workspace_impl::create_document_temporary_destination(
+                ".nxb-migration-0-1-example.json.0123456789abcdef01234567.tmp"
+            ),
+            Some("nxb-migration-0-1-example.json")
+        );
     }
 }
