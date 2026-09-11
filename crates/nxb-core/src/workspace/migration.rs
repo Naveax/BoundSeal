@@ -8,11 +8,15 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[cfg(target_os = "linux")]
+use crate::workspace_authority_replacement::replace_document;
+#[cfg(not(target_os = "linux"))]
+use super::replace_document;
 use super::{
-    create_document, manifest_schema, now, read_document, remove_regular, replace_document,
-    safe_exists, set_private_directory_permissions, sha256, validate_common, validate_identifier,
-    validate_manifest_v1, validate_private_permissions, validate_sha, validate_workspace_root,
-    LegacyManifestV0, ManifestV1, SecretStorageBoundary, CURRENT_SCHEMA_VERSION, MANIFEST_FILE,
+    manifest_schema, now, read_document, safe_exists, set_private_directory_permissions, sha256,
+    validate_common, validate_identifier, validate_manifest_v1, validate_private_permissions,
+    validate_sha, validate_workspace_root, LegacyManifestV0, ManifestV1, SecretStorageBoundary,
+    CURRENT_SCHEMA_VERSION, MANIFEST_FILE,
 };
 
 const JOURNAL_VERSION: u32 = 1;
@@ -226,17 +230,27 @@ fn validate_state_directory(paths: &MigrationPaths) -> Result<()> {
 
 fn transient_state(paths: &MigrationPaths) -> Result<usize> {
     validate_state_directory(paths)?;
-    [
-        safe_exists(&paths.active)?,
-        safe_exists(&paths.backup)?,
-        safe_exists(&paths.applied)?,
-    ]
-    .into_iter()
-    .try_fold(0_usize, |count, present| {
-        count
-            .checked_add(usize::from(present))
-            .ok_or_else(|| anyhow::anyhow!("transient count overflow"))
-    })
+    let active = safe_exists(&paths.active)?;
+    let backup = safe_exists(&paths.backup)?;
+    let applied = safe_exists(&paths.applied)?;
+
+    if active {
+        let journal: PreparedJournal = read_json(&paths.active, "prepared journal")?;
+        validate_journal(&journal)?;
+        let receipt_path = paths.receipt(&journal.migration_id);
+        if safe_exists(&receipt_path)? {
+            verify_retired_state(paths, &journal, &receipt_path)?;
+            return Ok(0);
+        }
+    }
+
+    [active, backup, applied]
+        .into_iter()
+        .try_fold(0_usize, |count, present| {
+            count
+                .checked_add(usize::from(present))
+                .ok_or_else(|| anyhow::anyhow!("transient count overflow"))
+        })
 }
 
 fn receipt_count(paths: &MigrationPaths) -> Result<usize> {
@@ -248,11 +262,20 @@ fn receipt_count(paths: &MigrationPaths) -> Result<usize> {
     validate_private_permissions(&paths.receipts, true)?;
     let mut count = 0_usize;
     for entry in fs::read_dir(&paths.receipts)? {
-        let path = entry?.path();
+        let entry = entry?;
+        let path = entry.path();
         super::reject_path_indirections(&path, "migration receipt")?;
         let metadata = fs::symlink_metadata(&path)?;
         if !metadata.is_file() {
             bail!("migration receipts directory contains a non-file entry");
+        }
+        let file_name = entry.file_name();
+        if file_name
+            .to_str()
+            .and_then(super::create_document_temporary_destination)
+            .is_some()
+        {
+            continue;
         }
         validate_private_permissions(&path, false)?;
         count = count
@@ -291,21 +314,17 @@ fn read_optional_document(path: &Path, label: &str) -> Result<Vec<u8>> {
 fn create_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     let mut bytes = serde_json::to_vec_pretty(value)?;
     bytes.push(b'\n');
-    create_document(path, &bytes)
+    crate::workspace_authority_publication::create_document(path, &bytes)
 }
 
 fn cleanup(paths: &MigrationPaths) -> Result<()> {
-    remove_if_exists(&paths.applied)?;
-    remove_if_exists(&paths.active)?;
-    remove_if_exists(&paths.backup)
-}
-
-fn remove_if_exists(path: &Path) -> Result<()> {
-    if safe_exists(path)? {
-        remove_regular(path)
-    } else {
-        Ok(())
+    let journal: PreparedJournal = read_json(&paths.active, "prepared journal")?;
+    validate_journal(&journal)?;
+    let receipt_path = paths.receipt(&journal.migration_id);
+    if !safe_exists(&receipt_path)? {
+        bail!("migration cleanup requires a committed receipt");
     }
+    verify_retired_state(paths, &journal, &receipt_path)
 }
 
 fn plan(source: &[u8]) -> Result<MigrationPlan> {
@@ -350,7 +369,7 @@ fn prepare(paths: &MigrationPaths, plan: &MigrationPlan, source: &[u8]) -> Resul
     if sha256(source) != plan.source_sha256 {
         bail!("migration source does not match its plan");
     }
-    create_document(&paths.backup, source)?;
+    crate::workspace_authority_publication::create_document(&paths.backup, source)?;
     let journal = PreparedJournal {
         journal_version: JOURNAL_VERSION,
         migration_id: plan.migration_id.clone(),
@@ -360,10 +379,7 @@ fn prepare(paths: &MigrationPaths, plan: &MigrationPlan, source: &[u8]) -> Resul
         target_sha256: plan.target_sha256.clone(),
         prepared_at: now(),
     };
-    if let Err(error) = create_json(&paths.active, &journal) {
-        let _ = remove_regular(&paths.backup);
-        return Err(error);
-    }
+    create_json(&paths.active, &journal)?;
     Ok(())
 }
 
@@ -383,7 +399,7 @@ fn recover_engine(paths: &MigrationPaths) -> Result<RecoveryDisposition> {
         validate_journal(&journal)?;
         let receipt_path = paths.receipt(&journal.migration_id);
         if safe_exists(&receipt_path)? {
-            verify_committed(paths, &journal, &receipt_path)?;
+            verify_retired_state(paths, &journal, &receipt_path)?;
             cleanup(paths)?;
             return Ok(RecoveryDisposition::Cleanup);
         }
@@ -530,6 +546,27 @@ fn verify_committed(
     Ok(())
 }
 
+fn verify_retired_state(
+    paths: &MigrationPaths,
+    journal: &PreparedJournal,
+    receipt_path: &Path,
+) -> Result<()> {
+    verify_committed(paths, journal, receipt_path)?;
+    if !safe_exists(&paths.backup)? || !safe_exists(&paths.applied)? {
+        bail!("committed migration residue is incomplete");
+    }
+
+    let source = read_document(&paths.backup, "retired source backup")?;
+    if sha256(&source) != journal.source_sha256 {
+        bail!("retired source backup digest mismatch");
+    }
+    let plan = plan(&source)?;
+    validate_journal_plan(journal, &plan)?;
+
+    let marker: AppliedMarker = read_json(&paths.applied, "retired applied marker")?;
+    validate_marker(&marker, &plan)
+}
+
 fn validate_receipt(value: &MigrationReceipt) -> Result<()> {
     if value.receipt_version != RECEIPT_VERSION
         || value.from_schema != 0
@@ -610,11 +647,48 @@ mod tests {
     }
 
     #[test]
+    fn committed_migration_retires_journals_without_pathname_deletion() {
+        let root = workspace("retired", 0);
+        apply_value(&root).unwrap();
+        let paths = paths(&root);
+
+        assert!(paths.active.is_file());
+        assert!(paths.backup.is_file());
+        assert!(paths.applied.is_file());
+        assert_eq!(transient_state(&paths).unwrap(), 0);
+
+        let value = recover_value(&root).unwrap();
+        assert_eq!(
+            value.get("recovery").and_then(Value::as_str),
+            Some("committed_cleanup")
+        );
+        assert_eq!(transient_state(&paths).unwrap(), 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn retired_migration_rejects_same_permission_replacement() {
+        let root = workspace("retired-replacement", 0);
+        apply_value(&root).unwrap();
+        let paths = paths(&root);
+        let original = paths.state.join("migration-active.original.json");
+
+        fs::rename(&paths.active, &original).unwrap();
+        fs::write(&paths.active, b"{}\n").unwrap();
+        set_private_file_permissions(&paths.active).unwrap();
+
+        assert!(transient_state(&paths).is_err());
+        assert_eq!(fs::read(&paths.active).unwrap(), b"{}\n");
+        assert!(original.is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn recovers_orphan_backup_before_journal() {
         let root = workspace("orphan", 0);
         let paths = ensure_state_layout(&root).unwrap();
         let source = read_document(&paths.manifest, "manifest").unwrap();
-        create_document(&paths.backup, &source).unwrap();
+        crate::workspace_authority_publication::create_document(&paths.backup, &source).unwrap();
         recover_value(&root).unwrap();
         assert_eq!(optional_manifest_schema(&paths.manifest).unwrap(), Some(1));
         assert_eq!(transient_state(&paths).unwrap(), 0);

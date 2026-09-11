@@ -1,0 +1,250 @@
+name: NXB-153 Exact Head Admission
+
+on:
+  push:
+    branches:
+      - nxb-153-guided-target-setup
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nxb-153-admission-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  linux-validation:
+    name: Linux canonical validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact event head without action indirection
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -c protocol.version=2 fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Reject non-privileged Bash entry
+        shell: bash
+        run: |
+          set -euo pipefail
+          if env -i HOME="$HOME" PATH="$PATH" LANG=C.UTF-8 \
+            /bin/bash scripts/prepare-and-validate-nxb-153-linux.sh . >/tmp/nxb-nonpriv.out 2>/tmp/nxb-nonpriv.err; then
+            echo 'non-privileged Linux preparation unexpectedly succeeded' >&2
+            exit 1
+          fi
+          grep -F 'canonical Linux preparation requires privileged Bash mode (-p)' /tmp/nxb-nonpriv.err >/dev/null
+
+      - name: Reject ambient Git authority before exact-head resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          if env -i HOME="$HOME" PATH="$PATH" LANG=C.UTF-8 GIT_DIR=/tmp/nxb-hostile-git \
+            /bin/bash -p scripts/prepare-and-validate-nxb-153-linux.sh . >/tmp/nxb-git.out 2>/tmp/nxb-git.err; then
+            echo 'ambient GIT_DIR Linux preparation unexpectedly succeeded' >&2
+            exit 1
+          fi
+          grep -F 'ambient Git authority variables are not admitted before exact-head resolution' /tmp/nxb-git.err >/dev/null
+
+      - name: Verify hosted privileged user namespace support
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo env -i HOME="$HOME" PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+            /usr/bin/unshare --user --map-root-user --mount --pid --fork /bin/true
+
+      - name: Transfer checkout ownership to the privileged validation principal
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo chown -R root:root "$GITHUB_WORKSPACE"
+          sudo env -i HOME="$HOME" PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+            /usr/bin/git -C "$GITHUB_WORKSPACE" rev-parse HEAD | grep -Fx "$GITHUB_SHA" >/dev/null
+          test -z "$(sudo env -i HOME="$HOME" PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+            /usr/bin/git -C "$GITHUB_WORKSPACE" status --porcelain=v1 --untracked-files=all)"
+
+      - name: Prepare sealed tools, validate, and review Linux evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo env -i \
+            HOME="$HOME" \
+            USER=root \
+            LOGNAME=root \
+            PATH="$PATH" \
+            LANG=C.UTF-8 \
+            LC_ALL=C.UTF-8 \
+            TMPDIR="$RUNNER_TEMP" \
+            /bin/bash -p -c '
+              set -euo pipefail
+              cd "$1"
+              /bin/bash -p scripts/prepare-and-validate-nxb-153-linux.sh .
+              /bin/bash -p scripts/review-nxb-153-evidence-linux.sh . "$PWD/target/nxb-validation"
+            ' bash "$GITHUB_WORKSPACE"
+
+  windows-validation:
+    name: Windows canonical validation
+    runs-on: windows-2025
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact event head without action indirection
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git init .
+          git remote add origin "https://github.com/$env:GITHUB_REPOSITORY.git"
+          git -c protocol.version=2 fetch --no-tags --depth=1 origin $env:GITHUB_SHA
+          git checkout --detach FETCH_HEAD
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -cne $env:GITHUB_SHA) { throw "checkout head mismatch: $head" }
+          $status = git status --porcelain=v1 --untracked-files=all
+          if ($LASTEXITCODE -ne 0 -or $status) { throw 'checkout is not clean' }
+
+      - name: Reject ambient Git authority before exact-head resolution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pwshPath = (Get-Command pwsh -CommandType Application -ErrorAction Stop).Source
+          $start = [Diagnostics.ProcessStartInfo]::new()
+          $start.FileName = $pwshPath
+          $start.UseShellExecute = $false
+          $start.RedirectStandardOutput = $true
+          $start.RedirectStandardError = $true
+          $start.CreateNoWindow = $true
+          foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command')) {
+            [void]$start.ArgumentList.Add($argument)
+          }
+          $childCommand = 'try { & ''.\scripts\prepare-and-validate-nxb-153-windows.ps1'' -RepoRoot ''.''; exit 0 } catch { [Console]::Error.WriteLine([string]$_.Exception.Message); exit 97 }'
+          [void]$start.ArgumentList.Add($childCommand)
+          $start.Environment['GIT_DIR'] = Join-Path $env:RUNNER_TEMP 'nxb-hostile-git'
+
+          $process = [Diagnostics.Process]::new()
+          try {
+            $process.StartInfo = $start
+            if (-not $process.Start()) { throw 'hostile-environment child PowerShell could not start' }
+            $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+            $stderrTask = $process.StandardError.ReadToEndAsync()
+            if (-not $process.WaitForExit(30000)) {
+              $process.Kill($true)
+              [void]$process.WaitForExit(30000)
+              throw 'hostile-environment child PowerShell did not exit within 30000 ms'
+            }
+            $stdout = $stdoutTask.GetAwaiter().GetResult()
+            $stderr = $stderrTask.GetAwaiter().GetResult()
+            if ($stdout.Length -gt 8192 -or $stderr.Length -gt 8192) {
+              throw 'hostile-environment child output exceeded the 8192-character diagnostic envelope'
+            }
+            if ($process.ExitCode -eq 0) {
+              throw 'ambient GIT_DIR Windows preparation unexpectedly succeeded'
+            }
+            if (-not $stderr.Contains('ambient Git authority variables are not admitted before exact-head resolution')) {
+              throw "ambient GIT_DIR rejection did not emit the expected guard diagnostic: $stderr"
+            }
+            if (-not $stderr.Contains('GIT_DIR')) {
+              throw "ambient GIT_DIR rejection did not identify GIT_DIR: $stderr"
+            }
+          }
+          finally {
+            if (-not $process.HasExited) {
+              try { $process.Kill($true) } catch {}
+            }
+            $process.Dispose()
+          }
+
+      - name: Prepare sealed tools, validate, record process evidence, and review Windows admission
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exact = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+          foreach ($name in @(
+            'AR','BINDGEN_EXTRA_CLANG_ARGS','CARGO','CARGO_ENCODED_RUSTFLAGS','CARGO_ENCODED_RUSTDOCFLAGS',
+            'CARGO_HOME','CARGO_INCREMENTAL','CARGO_NET_OFFLINE','CARGO_TARGET_DIR','CC','CC_ENABLE_DEBUG_OUTPUT',
+            'CFLAGS','CL','CPP','CPPFLAGS','CRATE_CC_NO_DEFAULTS','CXX','CXXFLAGS','LD','LDFLAGS','PYTHONHOME',
+            'PYTHONINSPECT','PYTHONPATH','PYTHONSTARTUP','RANLIB','RANLIBFLAGS','RUSTC','RUSTC_BOOTSTRAP',
+            'RUSTC_WORKSPACE_WRAPPER','RUSTC_WRAPPER','RUSTDOC','RUSTDOCFLAGS','RUSTFLAGS','_CL_'
+          )) { [void]$exact.Add($name) }
+          $prefixes = @(
+            'AR_','BINDGEN_EXTRA_CLANG_ARGS_','CARGO_ALIAS_','CARGO_BUILD_','CARGO_NET_','CARGO_PROFILE_',
+            'CARGO_REGISTRIES_','CARGO_REGISTRY_','CARGO_SOURCE_','CARGO_TARGET_','CC_','CFLAGS_','CPPFLAGS_',
+            'CXX_','CXXFLAGS_','LD_','LDFLAGS_','RANLIB_','RUSTC_','RUSTDOC_','RUSTUP_'
+          )
+          foreach ($entry in @(Get-ChildItem Env:)) {
+            $name = $entry.Name
+            $remove = $name.StartsWith('GIT_', [StringComparison]::OrdinalIgnoreCase) -or $exact.Contains($name)
+            if (-not $remove) {
+              foreach ($prefix in $prefixes) {
+                if ($name.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+                  $remove = $true
+                  break
+                }
+              }
+            }
+            if ($remove) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
+          }
+
+          $normalizedPath = [Collections.Generic.List[string]]::new()
+          $gitDirectorySeen = $false
+          foreach ($pathEntry in @($env:PATH -split [IO.Path]::PathSeparator)) {
+            if ([string]::IsNullOrWhiteSpace($pathEntry)) { continue }
+            $gitCandidate = Join-Path $pathEntry 'git.exe'
+            if (Test-Path -LiteralPath $gitCandidate -PathType Leaf) {
+              if ($gitDirectorySeen) { continue }
+              $gitDirectorySeen = $true
+            }
+            $normalizedPath.Add($pathEntry)
+          }
+          if (-not $gitDirectorySeen) { throw 'hosted Windows PATH contains no Git application directory' }
+          $env:PATH = $normalizedPath -join [IO.Path]::PathSeparator
+          $gitApplications = @(Get-Command git -CommandType Application -ErrorAction Stop)
+          if ($gitApplications.Count -ne 1) {
+            throw "hosted Windows PATH did not normalize to one Git application: $($gitApplications.Count)"
+          }
+
+          $pythonNormalizedPath = [Collections.Generic.List[string]]::new()
+          $pythonDirectorySeen = $false
+          foreach ($pathEntry in @($env:PATH -split [IO.Path]::PathSeparator)) {
+            if ([string]::IsNullOrWhiteSpace($pathEntry)) { continue }
+            $pythonCandidate = Join-Path $pathEntry 'python3.exe'
+            if (Test-Path -LiteralPath $pythonCandidate -PathType Leaf) {
+              if ($pythonDirectorySeen) { continue }
+              $pythonDirectorySeen = $true
+            }
+            $pythonNormalizedPath.Add($pathEntry)
+          }
+          if (-not $pythonDirectorySeen) { throw 'hosted Windows PATH contains no Python 3 application directory' }
+          $env:PATH = $pythonNormalizedPath -join [IO.Path]::PathSeparator
+          $pythonApplications = @(Get-Command python3 -CommandType Application -ErrorAction Stop)
+          if ($pythonApplications.Count -ne 1) {
+            throw "hosted Windows PATH did not normalize to one Python 3 application: $($pythonApplications.Count)"
+          }
+
+          $convertFromJsonCommand = Get-Command ConvertFrom-Json -CommandType Cmdlet -ErrorAction Stop
+          if (-not $convertFromJsonCommand.Parameters.ContainsKey('DateKind')) {
+            throw 'PowerShell 7.5 or newer is required so canonical JSON timestamps remain strings'
+          }
+          $dateKindDefaultKey = 'ConvertFrom-Json:DateKind'
+          $hadDateKindDefault = $PSDefaultParameterValues.ContainsKey($dateKindDefaultKey)
+          $previousDateKindDefault = if ($hadDateKindDefault) {
+            $PSDefaultParameterValues[$dateKindDefaultKey]
+          } else {
+            $null
+          }
+          $PSDefaultParameterValues[$dateKindDefaultKey] = 'String'
+          try {
+            & .\scripts\prepare-and-validate-nxb-153-windows.ps1 -RepoRoot .
+            & .\scripts\record-nxb-153-windows-process-lifecycle-evidence.ps1 -RepoRoot .
+            & .\scripts\review-nxb-153-windows-admission-complete.ps1 -RepoRoot .
+          }
+          finally {
+            if ($hadDateKindDefault) {
+              $PSDefaultParameterValues[$dateKindDefaultKey] = $previousDateKindDefault
+            } else {
+              [void]$PSDefaultParameterValues.Remove($dateKindDefaultKey)
+            }
+          }
