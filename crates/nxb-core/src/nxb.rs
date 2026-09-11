@@ -2,6 +2,7 @@
 
 mod diagnostic;
 mod directory_authority;
+mod prepared_file_authority;
 mod release_manifest;
 mod target;
 #[path = "workspace/mod.rs"]
