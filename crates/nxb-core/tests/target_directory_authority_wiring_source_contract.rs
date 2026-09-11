@@ -6,6 +6,7 @@ use std::{
 const NXB_PATH: &str = "crates/nxb-core/src/nxb.rs";
 const FACADE_PATH: &str = "crates/nxb-core/src/workspace_authority.rs";
 const ENTRY_PATH: &str = "crates/nxb-core/src/workspace_authority_entry.rs";
+const PUBLICATION_PATH: &str = "crates/nxb-core/src/workspace_authority_publication.rs";
 const RECEIPTS_PATH: &str = "crates/nxb-core/src/workspace_authority_receipts.rs";
 const RECORDS_PATH: &str = "crates/nxb-core/src/workspace_authority_records.rs";
 const TARGET_PATH: &str = "crates/nxb-core/src/target.rs";
@@ -39,6 +40,7 @@ fn crate_routes_target_workspace_calls_through_the_composed_authority_facade() {
         "#[path = \"workspace/mod.rs\"]\nmod workspace_impl;",
         "#[path = \"workspace_authority.rs\"]\nmod workspace_authority_base;",
         "#[path = \"workspace_authority_entry.rs\"]\nmod workspace;",
+        "mod workspace_authority_publication;",
         "mod workspace_authority_receipts;",
         "mod workspace_authority_records;",
     ] {
@@ -202,12 +204,34 @@ fn facade_retains_authorities_and_binds_reads_publications_and_migration_state_t
         "pub(crate) use crate::workspace_authority_base::*;",
         "workspace_authority_base::status_value(workspace)?",
         "workspace_authority_records::count_target_readiness_records(workspace)?",
+        "workspace_authority_publication::create_document(path, bytes)",
+        "workspace_authority_publication::error_published(error)",
         "object.insert(",
         "\"records\".to_owned()",
     ] {
         assert!(
             entry.contains(marker),
-            "{ENTRY_PATH}: composed readiness marker missing: {marker}"
+            "{ENTRY_PATH}: composed authority marker missing: {marker}"
+        );
+    }
+
+    let publication = source(PUBLICATION_PATH);
+    for marker in [
+        "PreparedFileAuthority::create_named(&temporary, bytes)",
+        ".claim_create_only(path)",
+        "prepared.validate_destination_binding(path)?;",
+        "sync_parent(parent)",
+        "Exact checked-object cleanup belongs to #112",
+    ] {
+        assert!(
+            publication.contains(marker),
+            "{PUBLICATION_PATH}: active target publication authority marker missing: {marker}"
+        );
+    }
+    for forbidden in ["remove_file(", "remove_regular(", "fs::rename("] {
+        assert!(
+            !publication.contains(forbidden),
+            "{PUBLICATION_PATH}: active target publication must not perform pathname cleanup/mutation: {forbidden}"
         );
     }
 
@@ -265,24 +289,6 @@ fn facade_retains_authorities_and_binds_reads_publications_and_migration_state_t
         read.contains("read_authority_document(path, label)"),
         "{FACADE_PATH}: workspace record reads under target scope must use authority-bound reads"
     );
-
-    let create = section(
-        &facade,
-        FACADE_PATH,
-        "fn create_authority_document(",
-        "\nfn remove_authority_temporary(",
-    );
-    for marker in [
-        "if !authority_exact_directory(parent)",
-        "create_new(true)",
-        "fs::hard_link(&temporary, path)",
-        "sync_authority_directory(parent)",
-    ] {
-        assert!(
-            create.contains(marker),
-            "{FACADE_PATH}: authority-bound create-only publication marker missing: {marker}"
-        );
-    }
 }
 
 #[test]
