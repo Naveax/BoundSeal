@@ -1,4 +1,8 @@
-use std::{fs, io::Write, path::{Path, PathBuf}};
+use std::{
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{bail, Context, Result};
 
@@ -71,13 +75,8 @@ impl PreparedFileAuthority {
         let metadata = file
             .metadata()
             .with_context(|| format!("could not inspect prepared file {}", path.display()))?;
-        if !metadata.is_file() {
-            bail!("prepared workspace object is not a regular file");
-        }
-
-        #[cfg(windows)]
-        if crate::workspace_impl::windows::is_reparse_point(&metadata) {
-            bail!("prepared workspace object is a reparse point");
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            bail!("prepared workspace object is not a regular file authority");
         }
 
         #[cfg(unix)]
@@ -116,15 +115,11 @@ impl PreparedFileAuthority {
     }
 
     pub(crate) fn validate_named_binding(&self) -> Result<()> {
+        crate::workspace_impl::reject_path_indirections(&self.path, "prepared file")?;
         let named = fs::symlink_metadata(&self.path)
             .with_context(|| format!("could not inspect prepared path {}", self.path.display()))?;
         if named.file_type().is_symlink() || !named.is_file() {
             bail!("prepared pathname no longer names a regular file");
-        }
-
-        #[cfg(windows)]
-        if crate::workspace_impl::windows::is_reparse_point(&named) {
-            bail!("prepared pathname became a reparse point");
         }
 
         #[cfg(unix)]
@@ -139,6 +134,7 @@ impl PreparedFileAuthority {
     }
 
     pub(crate) fn validate_destination_binding(&self, destination: &Path) -> Result<()> {
+        crate::workspace_impl::reject_path_indirections(destination, "published prepared destination")?;
         let destination_metadata = fs::symlink_metadata(destination).with_context(|| {
             format!(
                 "could not inspect published prepared destination {}",
@@ -147,11 +143,6 @@ impl PreparedFileAuthority {
         })?;
         if destination_metadata.file_type().is_symlink() || !destination_metadata.is_file() {
             bail!("published destination is not a regular prepared file");
-        }
-
-        #[cfg(windows)]
-        if crate::workspace_impl::windows::is_reparse_point(&destination_metadata) {
-            bail!("published destination is a reparse point");
         }
 
         #[cfg(unix)]
@@ -191,7 +182,7 @@ mod linux_tests {
         fs::rename(&replacement, &prepared).unwrap();
 
         assert!(authority.validate_named_binding().is_err());
-        assert_eq!(fs::read(authority.file()).unwrap(), b"prepared\n");
+        assert_eq!(fs::read(&moved).unwrap(), b"prepared\n");
 
         drop(authority);
         fs::remove_dir_all(root).unwrap();
