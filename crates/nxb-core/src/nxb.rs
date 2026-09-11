@@ -5,7 +5,11 @@ mod directory_authority;
 mod prepared_file_authority;
 mod release_manifest;
 mod target;
+#[cfg(not(windows))]
 #[path = "workspace/mod.rs"]
+mod workspace_impl;
+#[cfg(windows)]
+#[path = "workspace_windows_entry.rs"]
 mod workspace_impl;
 #[path = "workspace_authority.rs"]
 mod workspace_authority_base;
