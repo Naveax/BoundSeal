@@ -5,7 +5,9 @@ use std::{
 
 const NXB_PATH: &str = "crates/nxb-core/src/nxb.rs";
 const FACADE_PATH: &str = "crates/nxb-core/src/workspace_authority.rs";
+const ENTRY_PATH: &str = "crates/nxb-core/src/workspace_authority_entry.rs";
 const RECEIPTS_PATH: &str = "crates/nxb-core/src/workspace_authority_receipts.rs";
+const RECORDS_PATH: &str = "crates/nxb-core/src/workspace_authority_records.rs";
 const TARGET_PATH: &str = "crates/nxb-core/src/target.rs";
 const ACTIVATION_PATH: &str = "crates/nxb-core/src/target/activation.rs";
 
@@ -31,12 +33,14 @@ fn section<'a>(text: &'a str, path: &str, start: &str, end: &str) -> &'a str {
 }
 
 #[test]
-fn crate_routes_target_workspace_calls_through_the_authority_facade() {
+fn crate_routes_target_workspace_calls_through_the_composed_authority_facade() {
     let nxb = source(NXB_PATH);
     for marker in [
         "#[path = \"workspace/mod.rs\"]\nmod workspace_impl;",
-        "#[path = \"workspace_authority.rs\"]\nmod workspace;",
+        "#[path = \"workspace_authority.rs\"]\nmod workspace_authority_base;",
+        "#[path = \"workspace_authority_entry.rs\"]\nmod workspace;",
         "mod workspace_authority_receipts;",
+        "mod workspace_authority_records;",
     ] {
         assert!(
             nxb.contains(marker),
@@ -192,6 +196,34 @@ fn facade_retains_authorities_and_binds_reads_publications_and_migration_state_t
         status.contains("root_child_path(crate::workspace_impl::MANIFEST_FILE"),
         "{FACADE_PATH}: manifest readiness read must be rooted in the retained workspace authority"
     );
+
+    let entry = source(ENTRY_PATH);
+    for marker in [
+        "pub(crate) use crate::workspace_authority_base::*;",
+        "workspace_authority_base::status_value(workspace)?",
+        "workspace_authority_records::count_target_readiness_records(workspace)?",
+        "object.insert(",
+        "\"records\".to_owned()",
+    ] {
+        assert!(
+            entry.contains(marker),
+            "{ENTRY_PATH}: composed readiness marker missing: {marker}"
+        );
+    }
+
+    let records = source(RECORDS_PATH);
+    for marker in [
+        "[\"targets\", \"sessions\", \"runs\", \"evidence\", \"reports\"]",
+        "workspace::pin_private_child_path(",
+        "workspace::reject_path_indirections(&path, \"workspace record\")?",
+        "workspace_impl::create_document_temporary_destination",
+        "record directory contains a symbolic link or reparse point",
+    ] {
+        assert!(
+            records.contains(marker),
+            "{RECORDS_PATH}: preserved workspace-record readiness marker missing: {marker}"
+        );
+    }
 
     let migration = section(
         &facade,
