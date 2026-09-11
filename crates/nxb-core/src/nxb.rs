@@ -1,10 +1,12 @@
 #![forbid(unsafe_code)]
 
 mod diagnostic;
-#[allow(dead_code, unused_imports)] // NXB-153/#108 staging; remove when target wiring lands.
 mod directory_authority;
 mod release_manifest;
 mod target;
+#[path = "workspace/mod.rs"]
+mod workspace_impl;
+#[path = "workspace_authority.rs"]
 mod workspace;
 
 include!("main.rs");
