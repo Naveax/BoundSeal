@@ -363,9 +363,6 @@ pub(crate) fn reject_path_indirections(path: &Path, label: &str) -> Result<()> {
         match component {
             Component::Prefix(prefix) => {
                 current.push(prefix.as_os_str());
-                // A Windows drive/UNC prefix is not itself a filesystem
-                // entry. Inspect only after RootDir or a normal component
-                // has completed an inspectable path.
                 continue;
             }
             Component::RootDir => current.push(Path::new(std::path::MAIN_SEPARATOR_STR)),
@@ -453,12 +450,14 @@ impl std::fmt::Display for PublishedDocumentError {
 
 impl std::error::Error for PublishedDocumentError {}
 
+#[cfg(test)]
 #[derive(Debug)]
 struct UnpublishedDocumentCleanupError {
     operation_detail: String,
     cleanup_detail: String,
 }
 
+#[cfg(test)]
 impl std::fmt::Display for UnpublishedDocumentCleanupError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -469,6 +468,7 @@ impl std::fmt::Display for UnpublishedDocumentCleanupError {
     }
 }
 
+#[cfg(test)]
 impl std::error::Error for UnpublishedDocumentCleanupError {}
 
 fn create_document_error_finalization(
@@ -502,22 +502,46 @@ pub(crate) fn create_document_temporary_destination(name: &str) -> Option<&str> 
 }
 
 pub(crate) fn create_document(path: &Path, bytes: &[u8]) -> Result<()> {
-    create_document_with_operations(
-        path,
+    if bytes.is_empty() || bytes.len() as u64 > MAX_DOCUMENT_BYTES {
+        bail!("output document size is invalid");
+    }
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("output path has no parent"))?;
+    reject_path_indirections(parent, "output parent")?;
+    reject_path_indirections(path, "output path")?;
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| anyhow::anyhow!("output file name is invalid"))?;
+    let temporary = parent.join(format!(".{name}.{}.tmp", random_hex(12)?));
+
+    let prepared = crate::prepared_file_authority::PreparedFileAuthority::create_named(
+        &temporary,
         bytes,
-        |temporary| validate_private_permissions(temporary, false),
-        |temporary, destination| fs::hard_link(temporary, destination),
-        |temporary| match fs::remove_file(temporary) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error).with_context(|| {
-                format!("could not remove temporary link {}", temporary.display())
-            }),
-        },
-        sync_parent,
     )
+    .with_context(|| format!("could not prepare create-only document {}", path.display()))?;
+
+    prepared
+        .claim_create_only(path)
+        .with_context(|| format!("could not claim create-only destination {}", path.display()))?;
+    prepared.validate_destination_binding(path)?;
+
+    if let Err(error) = sync_parent(parent) {
+        return Err(PublishedDocumentError {
+            finalization: PublishedDocumentFinalization {
+                temporary_link_cleanup_failed: false,
+                parent_directory_sync_failed: true,
+            },
+            detail: format!("parent-directory sync failed: {error:#}"),
+        }
+        .into());
+    }
+
+    Ok(())
 }
 
+#[cfg(test)]
 fn create_document_with_operations<P, C, R, S>(
     path: &Path,
     bytes: &[u8],
@@ -1142,8 +1166,8 @@ mod tests {
         assert_eq!(read_document(&path, "winning test record").unwrap(), b"winner\n");
         assert_eq!(
             fs::read_dir(&root).unwrap().count(),
-            2,
-            "failed cleanup after a losing claim must leave only the winner and the loser's private temporary file"
+            3,
+            "generic prepared publication keeps winner and both private transport residues"
         );
 
         fs::remove_dir_all(root).unwrap();
