@@ -1,7 +1,7 @@
 use std::{
     ffi::{OsStr, OsString},
     fs::{self, File, OpenOptions},
-    io::Write,
+    io::{Read, Write},
     os::{
         fd::AsRawFd,
         unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
@@ -228,6 +228,30 @@ struct RetainedFileAuthority {
     ino: u64,
 }
 
+impl RetainedFileAuthority {
+    fn read_bounded(&self, label: &str) -> Result<Vec<u8>> {
+        let metadata = self
+            .file
+            .metadata()
+            .with_context(|| format!("could not inspect retained {label}"))?;
+        if metadata.len() > crate::workspace_impl::MAX_DOCUMENT_BYTES {
+            bail!("retained {label} exceeds the supported document size");
+        }
+        let mut reader = self
+            .file
+            .try_clone()
+            .with_context(|| format!("could not clone retained {label} handle"))?;
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        reader
+            .read_to_end(&mut bytes)
+            .with_context(|| format!("could not read retained {label}"))?;
+        if bytes.len() as u64 > crate::workspace_impl::MAX_DOCUMENT_BYTES {
+            bail!("retained {label} exceeded the supported document size while reading");
+        }
+        Ok(bytes)
+    }
+}
+
 fn trusted_tool(path: &'static str, label: &str) -> Result<&'static Path> {
     let tool = Path::new(path);
     crate::workspace_impl::reject_path_indirections(tool, label)?;
@@ -248,10 +272,30 @@ fn bounded_stderr(bytes: &[u8]) -> String {
 }
 
 pub(crate) fn replace_document(path: &Path, bytes: &[u8]) -> Result<()> {
-    replace_document_with_hook(path, bytes, || Ok(()))
+    replace_document_with_hook_expected(path, bytes, None, || Ok(()))
+}
+
+pub(crate) fn replace_document_if_current(
+    path: &Path,
+    bytes: &[u8],
+    expected_current: &[u8],
+) -> Result<()> {
+    replace_document_with_hook_expected(path, bytes, Some(expected_current), || Ok(()))
 }
 
 fn replace_document_with_hook<F>(path: &Path, bytes: &[u8], before_quarantine: F) -> Result<()>
+where
+    F: FnOnce() -> Result<()>,
+{
+    replace_document_with_hook_expected(path, bytes, None, before_quarantine)
+}
+
+fn replace_document_with_hook_expected<F>(
+    path: &Path,
+    bytes: &[u8],
+    expected_current: Option<&[u8]>,
+    before_quarantine: F,
+) -> Result<()>
 where
     F: FnOnce() -> Result<()>,
 {
@@ -272,6 +316,22 @@ where
     let quarantine_name = OsString::from(format!(".workspace.retired.{nonce}.json"));
     let prepared = parent.create_prepared(&prepared_name, bytes)?;
     let previous = parent.open_regular(destination, "replacement destination")?;
+
+    if let Some(expected) = expected_current {
+        match (expected.is_empty(), previous.as_ref()) {
+            (true, None) => {}
+            (true, Some(_)) => {
+                bail!("replacement destination appeared after the migration observation")
+            }
+            (false, None) => {
+                bail!("replacement destination disappeared after the migration observation")
+            }
+            (false, Some(actual)) if actual.read_bounded("replacement destination")? == expected => {}
+            (false, Some(_)) => {
+                bail!("replacement destination bytes changed after the migration observation")
+            }
+        }
+    }
 
     if let Some(previous) = previous.as_ref() {
         before_quarantine()?;
@@ -326,6 +386,38 @@ mod tests {
         assert_eq!(retired_metadata.dev(), old.dev());
         assert_eq!(retired_metadata.ino(), old.ino());
         assert_eq!(fs::read(retired.path()).unwrap(), b"old\n");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn expected_current_mismatch_fails_before_namespace_mutation() {
+        let root = root("expected-mismatch");
+        let destination = root.join("workspace.json");
+        fs::write(&destination, b"changed\n").unwrap();
+        fs::set_permissions(&destination, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let error = replace_document_if_current(&destination, b"candidate\n", b"expected\n")
+            .unwrap_err();
+        assert!(error.to_string().contains("bytes changed"));
+        assert_eq!(fs::read(&destination).unwrap(), b"changed\n");
+        assert!(!fs::read_dir(&root).unwrap().filter_map(|entry| entry.ok()).any(|entry| {
+            entry.file_name().to_string_lossy().starts_with(".workspace.retired.")
+        }));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn expected_missing_destination_rejects_late_creation() {
+        let root = root("expected-missing");
+        let destination = root.join("workspace.json");
+        fs::write(&destination, b"late\n").unwrap();
+        fs::set_permissions(&destination, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let error = replace_document_if_current(&destination, b"candidate\n", b"").unwrap_err();
+        assert!(error.to_string().contains("appeared"));
+        assert_eq!(fs::read(&destination).unwrap(), b"late\n");
 
         fs::remove_dir_all(root).unwrap();
     }
