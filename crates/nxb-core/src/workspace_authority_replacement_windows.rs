@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use nxb_win32_fs_authority::{file_identity, rename_handle_relative_no_replace, FileIdentity};
+use nxb_core_win32_authority::{file_identity, rename_handle_relative_no_replace, FileIdentity};
 
 const DELETE: u32 = 0x0001_0000;
 const FILE_READ_ATTRIBUTES: u32 = 0x0000_0080;
