@@ -7,13 +7,17 @@ mod windows {
         fs::File,
         io,
         mem::{size_of, size_of_val},
-        os::windows::{ffi::OsStrExt, io::{AsRawHandle, RawHandle}},
+        os::windows::{
+            ffi::OsStrExt,
+            io::{AsRawHandle, RawHandle},
+        },
         path::{Component, Path},
         ptr,
     };
 
     const FILE_RENAME_INFO_CLASS: i32 = 3;
 
+    #[allow(dead_code)]
     #[repr(C)]
     #[derive(Clone, Copy, Default)]
     struct FileTime {
@@ -21,6 +25,7 @@ mod windows {
         high_date_time: u32,
     }
 
+    #[allow(dead_code)]
     #[repr(C)]
     #[derive(Clone, Copy, Default)]
     struct ByHandleFileInformation {
@@ -38,9 +43,10 @@ mod windows {
 
     /// ABI-compatible `FILE_RENAME_INFO` for `FileRenameInfo`.
     ///
-    /// The first DWORD occupies the union containing `BOOLEAN ReplaceIfExists`
+    /// The first DWORD occupies the C union containing `BOOLEAN ReplaceIfExists`
     /// and `DWORD Flags`. The backing buffer is zero-initialized, therefore
     /// `ReplaceIfExists` is FALSE for this no-replace operation.
+    #[allow(dead_code)]
     #[repr(C)]
     struct FileRenameInfo {
         replace_or_flags: u32,
