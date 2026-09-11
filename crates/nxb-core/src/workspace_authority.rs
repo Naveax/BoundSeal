@@ -185,6 +185,37 @@ fn authority_base(path: &Path) -> Option<(PathBuf, PathBuf)> {
     })
 }
 
+fn logical_authority_contains(path: &Path) -> bool {
+    if !target_authority_active() {
+        return false;
+    }
+
+    TARGET_AUTHORITY.with(|state| {
+        let state = state.borrow();
+        if state
+            .children
+            .values()
+            .any(|child| path.strip_prefix(child.display_path()).is_ok())
+        {
+            return true;
+        }
+        state
+            .root
+            .as_ref()
+            .is_some_and(|root| path.strip_prefix(root.display_path()).is_ok())
+    })
+}
+
+fn reject_logical_authority_fallback(path: &Path, label: &str) -> Result<()> {
+    if logical_authority_contains(path) {
+        bail!(
+            "{label} attempted pathname fallback beneath an admitted workspace authority: {}",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
 fn authority_exact_directory(path: &Path) -> bool {
     if !target_authority_active() {
         return false;
@@ -201,6 +232,7 @@ fn authority_exact_directory(path: &Path) -> bool {
 
 pub(crate) fn status_value(workspace: &Path) -> Result<Value> {
     if authority_base(workspace).is_none() {
+        reject_logical_authority_fallback(workspace, "workspace status")?;
         return crate::workspace_impl::status_value(workspace);
     }
 
@@ -238,6 +270,7 @@ pub(crate) mod migration {
 
     pub(crate) fn status_value(workspace: &Path) -> Result<Value> {
         if authority_base(workspace).is_none() {
+            reject_logical_authority_fallback(workspace, "migration status")?;
             return crate::workspace_impl::migration::status_value(workspace);
         }
 
@@ -269,6 +302,7 @@ pub(crate) mod migration {
 
 pub(crate) fn reject_path_indirections(path: &Path, label: &str) -> Result<()> {
     let Some((base, _logical)) = authority_base(path) else {
+        reject_logical_authority_fallback(path, label)?;
         return crate::workspace_impl::reject_path_indirections(path, label);
     };
 
@@ -317,6 +351,7 @@ fn metadata_is_indirection(metadata: &fs::Metadata) -> bool {
 
 pub(crate) fn safe_exists(path: &Path) -> Result<bool> {
     if authority_base(path).is_none() {
+        reject_logical_authority_fallback(path, "workspace authority existence check")?;
         return crate::workspace_impl::safe_exists(path);
     }
     reject_path_indirections(path, "workspace authority path")?;
@@ -334,6 +369,7 @@ pub(crate) fn safe_exists(path: &Path) -> Result<bool> {
 
 pub(crate) fn read_document(path: &Path, label: &str) -> Result<Vec<u8>> {
     if authority_base(path).is_none() {
+        reject_logical_authority_fallback(path, label)?;
         return crate::workspace_impl::read_document(path, label);
     }
     read_authority_document(path, label)
@@ -571,6 +607,7 @@ pub(crate) fn create_document_error_published(error: &anyhow::Error) -> bool {
 
 pub(crate) fn create_document(path: &Path, bytes: &[u8]) -> Result<()> {
     if authority_base(path).is_none() {
+        reject_logical_authority_fallback(path, "workspace create-only publication")?;
         return crate::workspace_impl::create_document(path, bytes);
     }
     create_authority_document(path, bytes)
