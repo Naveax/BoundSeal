@@ -46,15 +46,6 @@ impl DirectoryAuthority {
         Ok(self.stable_path.join(name))
     }
 
-    pub(crate) fn read_dir(&self, label: &str) -> Result<fs::ReadDir> {
-        fs::read_dir(&self.stable_path).with_context(|| {
-            format!(
-                "could not enumerate pinned {label} directory {}",
-                self.logical_path.display()
-            )
-        })
-    }
-
     #[cfg(target_os = "linux")]
     pub(crate) fn sync(&self, label: &str) -> Result<()> {
         self._handle.sync_all().with_context(|| {
@@ -91,16 +82,16 @@ fn validate_child_name(name: &str, label: &str) -> Result<()> {
 fn pin_private_directory(path: &Path, label: &str) -> Result<DirectoryAuthority> {
     use std::os::{
         fd::AsRawFd,
-        unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
+        unix::fs::{MetadataExt, OpenOptionsExt},
     };
 
     const O_DIRECTORY: i32 = 0o200000;
     const O_NOFOLLOW: i32 = 0o400000;
 
-    crate::workspace::reject_path_indirections(path, label)?;
+    crate::workspace_impl::reject_path_indirections(path, label)?;
     let canonical = fs::canonicalize(path)
         .with_context(|| format!("could not canonicalize {label} {}", path.display()))?;
-    crate::workspace::reject_path_indirections(&canonical, label)?;
+    crate::workspace_impl::reject_path_indirections(&canonical, label)?;
 
     let expected = fs::symlink_metadata(&canonical)
         .with_context(|| format!("could not inspect admitted {label} {}", canonical.display()))?;
@@ -254,10 +245,10 @@ fn pin_private_directory(path: &Path, label: &str) -> Result<DirectoryAuthority>
     const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
     const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
 
-    crate::workspace::reject_path_indirections(path, label)?;
+    crate::workspace_impl::reject_path_indirections(path, label)?;
     let canonical = fs::canonicalize(path)
         .with_context(|| format!("could not canonicalize {label} {}", path.display()))?;
-    crate::workspace::reject_path_indirections(&canonical, label)?;
+    crate::workspace_impl::reject_path_indirections(&canonical, label)?;
 
     let mut ancestors = canonical
         .ancestors()
@@ -306,7 +297,7 @@ fn pin_private_directory(path: &Path, label: &str) -> Result<DirectoryAuthority>
     if !named.is_dir() || metadata_is_reparse_point(&named) {
         bail!("{label} is no longer a regular non-reparse directory");
     }
-    crate::workspace::validate_private_permissions(&canonical, true)?;
+    crate::workspace_impl::validate_private_permissions(&canonical, true)?;
 
     Ok(DirectoryAuthority {
         logical_path: canonical.clone(),
@@ -360,7 +351,7 @@ fn pin_private_child(
     if !opened.is_dir() || metadata_is_reparse_point(&opened) {
         bail!("pinned {label} child is a reparse point or non-directory");
     }
-    crate::workspace::validate_private_permissions(&candidate, true)?;
+    crate::workspace_impl::validate_private_permissions(&candidate, true)?;
 
     let mut handles = Vec::with_capacity(parent._handles.len() + 1);
     for handle in &parent._handles {
@@ -516,7 +507,7 @@ mod windows_tests {
     fn pinned_windows_root_denies_rename_until_authority_is_released() {
         let root = temporary_root("root-rename");
         fs::create_dir(&root).unwrap();
-        crate::workspace::set_private_directory_permissions(&root).unwrap();
+        crate::workspace_impl::set_private_directory_permissions(&root).unwrap();
         let moved = root.with_extension("moved");
 
         let authority = DirectoryAuthority::pin_private(&root, "test root", true).unwrap();
@@ -531,10 +522,10 @@ mod windows_tests {
     fn pinned_windows_child_denies_rename_until_child_authority_is_released() {
         let root = temporary_root("child-rename");
         fs::create_dir(&root).unwrap();
-        crate::workspace::set_private_directory_permissions(&root).unwrap();
+        crate::workspace_impl::set_private_directory_permissions(&root).unwrap();
         let targets = root.join("targets");
         fs::create_dir(&targets).unwrap();
-        crate::workspace::set_private_directory_permissions(&targets).unwrap();
+        crate::workspace_impl::set_private_directory_permissions(&targets).unwrap();
         let moved = root.join("targets-moved");
 
         let root_authority = DirectoryAuthority::pin_private(&root, "test root", true).unwrap();
