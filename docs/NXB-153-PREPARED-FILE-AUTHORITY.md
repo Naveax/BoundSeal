@@ -1,6 +1,6 @@
 # NXB-153 Prepared File Authority
 
-Status: **Linux + Windows source fixes staged / lockfile refresh + runtime-platform proof pending / not admitted**.
+Status: **Linux + Windows source fixes staged / Rust 1.97.1 + runtime-platform proof pending / not admitted**.
 
 This note records the source boundary staged for blocker #111. It does not claim canonical runtime proof and it does not close #111.
 
@@ -38,7 +38,7 @@ The production Linux replacement module contains no pathname deletion and no pla
 
 ## Windows migration replacement
 
-Windows migration replacement now routes through `workspace_windows_entry.rs` to `workspace_authority_replacement_windows.rs`; it no longer uses the historical Windows `workspace_impl::replace_document` production route.
+Windows migration replacement routes through `workspace_windows_entry.rs` to `workspace_authority_replacement_windows.rs`; it no longer uses the historical Windows `workspace_impl::replace_document` production route.
 
 The source contract is:
 
@@ -52,7 +52,9 @@ The source contract is:
 8. create-only claim the canonical destination from the retained prepared object and validate the final destination binding;
 9. revalidate the retained parent logical binding before success.
 
-The unsafe Win32 ABI is isolated in the small `nxb-win32-fs-authority` crate. The `nxb` binary keeps `#![forbid(unsafe_code)]`; `nxb-core` calls only the safe wrapper API. The platform crate wraps only `GetFileInformationByHandle` and `SetFileInformationByHandle(FileRenameInfo)` needed for exact identity and handle-relative no-replace rename.
+The unsafe Win32 ABI is isolated in the `nxb_core_win32_authority` library crate target defined by the existing `nxb-core` package. The `nxb` binary remains a separate crate and keeps `#![forbid(unsafe_code)]`; its Windows replacement module consumes only the library's safe `file_identity` and handle-relative no-replace rename API.
+
+The helper is dependency-free. It declares only the two Kernel32 ABI calls required by this boundary, `GetFileInformationByHandle` and `SetFileInformationByHandle`, and models the documented `BY_HANDLE_FILE_INFORMATION` / `FILE_RENAME_INFO` layouts locally. Therefore this source fix does not add a workspace package or registry/path dependency and does not require a `Cargo.lock` graph change.
 
 Regression coverage includes exact identity preservation, no-replace quarantine collision, retained-source rename denial, expected-current mismatch before mutation, same-permission final-component swap denial, ancestor/root replacement denial and missing-destination create-only publication.
 
@@ -70,7 +72,7 @@ The older pathname mutation helpers remain compiled as quarantined legacy implem
 - `crates/nxb-core/src/workspace_authority_replacement.rs`
 - `crates/nxb-core/src/workspace_authority_replacement_windows.rs`
 - `crates/nxb-core/src/workspace_windows_entry.rs`
-- `crates/nxb-win32-fs-authority/src/lib.rs`
+- `crates/nxb-core/src/win32_fs_authority_lib.rs`
 - `crates/nxb-core/tests/target_prepared_file_authority_source_contract.rs`
 - `crates/nxb-core/tests/workspace_create_publication_source_contract.rs`
 - `crates/nxb-core/tests/workspace_replacement_authority_source_contract.rs`
@@ -79,6 +81,6 @@ The older pathname mutation helpers remain compiled as quarantined legacy implem
 
 ## Still pending
 
-`Cargo.lock` has not yet been regenerated for the new workspace path package. The already-locked registry dependency `windows-sys 0.61.2` is reused, but the path-package records still need a canonical Cargo-generated lock refresh before admission.
+The source manifest changes no longer require a lockfile mutation: the standalone Win32 helper package/dependency experiment was removed and `Cargo.lock` remains byte-identical to the pre-Windows-helper canonical blob. This is a source-graph observation, not a substitute for Cargo verification.
 
 Required closure remains pinned Rust 1.97.1 build/check/clippy/test/doc/dependency-policy gates plus supported Linux and Windows/NTFS race/lifetime injection on one exact final head. No runtime PASS is claimed by this document.
