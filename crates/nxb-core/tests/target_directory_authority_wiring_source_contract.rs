@@ -5,6 +5,7 @@ use std::{
 
 const NXB_PATH: &str = "crates/nxb-core/src/nxb.rs";
 const FACADE_PATH: &str = "crates/nxb-core/src/workspace_authority.rs";
+const RECEIPTS_PATH: &str = "crates/nxb-core/src/workspace_authority_receipts.rs";
 const TARGET_PATH: &str = "crates/nxb-core/src/target.rs";
 const ACTIVATION_PATH: &str = "crates/nxb-core/src/target/activation.rs";
 
@@ -35,6 +36,7 @@ fn crate_routes_target_workspace_calls_through_the_authority_facade() {
     for marker in [
         "#[path = \"workspace/mod.rs\"]\nmod workspace_impl;",
         "#[path = \"workspace_authority.rs\"]\nmod workspace;",
+        "mod workspace_authority_receipts;",
     ] {
         assert!(
             nxb.contains(marker),
@@ -186,6 +188,10 @@ fn facade_retains_authorities_and_binds_reads_publications_and_migration_state_t
         status.contains("for directory in TARGET_READY_DIRECTORIES"),
         "{FACADE_PATH}: target readiness must pin the canonical workspace children"
     );
+    assert!(
+        status.contains("root_child_path(crate::workspace_impl::MANIFEST_FILE"),
+        "{FACADE_PATH}: manifest readiness read must be rooted in the retained workspace authority"
+    );
 
     let migration = section(
         &facade,
@@ -193,10 +199,29 @@ fn facade_retains_authorities_and_binds_reads_publications_and_migration_state_t
         "pub(crate) mod migration",
         "\npub(crate) fn reject_path_indirections(",
     );
-    assert!(
-        migration.contains("pin_private_child_path(workspace, \"state\", \"migration state directory\")?"),
-        "{FACADE_PATH}: migration readiness must observe transient state through pinned state authority"
-    );
+    for marker in [
+        "pin_private_child_path(workspace, \"state\", \"migration state directory\")?",
+        "workspace_authority_receipts::validate_target_readiness_receipts(workspace)?",
+    ] {
+        assert!(
+            migration.contains(marker),
+            "{FACADE_PATH}: migration readiness marker missing: {marker}"
+        );
+    }
+
+    let receipts = source(RECEIPTS_PATH);
+    for marker in [
+        "const MAX_RECEIPTS: usize = 1_024;",
+        "migration receipts directory contains a non-file entry",
+        "workspace_impl::validate_private_permissions(&receipts, true)?",
+        "workspace_impl::validate_private_permissions(&path, false)?",
+        "count > MAX_RECEIPTS",
+    ] {
+        assert!(
+            receipts.contains(marker),
+            "{RECEIPTS_PATH}: preserved migration receipt readiness marker missing: {marker}"
+        );
+    }
 
     let read = section(
         &facade,
@@ -234,6 +259,10 @@ fn authority_paths_fail_closed_instead_of_silently_falling_back_to_unpinned_name
     for marker in [
         "target operation attempted to switch workspace authority after admission",
         "child directory request is not rooted in the admitted workspace authority",
+        "attempted pathname fallback beneath an admitted workspace authority",
+        "reject_logical_authority_fallback(path, label)?;",
+        "reject_logical_authority_fallback(path, \"workspace authority existence check\")?;",
+        "reject_logical_authority_fallback(path, \"workspace create-only publication\")?;",
         "create-only publication parent is not the retained directory authority",
         "publication parent directory authority is no longer retained",
         "live workspace document authority is unsupported on this Unix platform",
