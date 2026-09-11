@@ -14,5 +14,7 @@ mod workspace;
 mod workspace_authority_publication;
 mod workspace_authority_receipts;
 mod workspace_authority_records;
+#[cfg(target_os = "linux")]
+mod workspace_authority_replacement;
 
 include!("main.rs");
