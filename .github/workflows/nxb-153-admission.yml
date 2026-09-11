@@ -206,6 +206,27 @@ jobs:
             throw "hosted Windows PATH did not normalize to one Git application: $($gitApplications.Count)"
           }
 
-          & .\scripts\prepare-and-validate-nxb-153-windows.ps1 -RepoRoot .
-          & .\scripts\record-nxb-153-windows-process-lifecycle-evidence.ps1 -RepoRoot .
-          & .\scripts\review-nxb-153-windows-admission-complete.ps1 -RepoRoot .
+          $convertFromJsonCommand = Get-Command ConvertFrom-Json -CommandType Cmdlet -ErrorAction Stop
+          if (-not $convertFromJsonCommand.Parameters.ContainsKey('DateKind')) {
+            throw 'PowerShell 7.5 or newer is required so canonical JSON timestamps remain strings'
+          }
+          $dateKindDefaultKey = 'ConvertFrom-Json:DateKind'
+          $hadDateKindDefault = $PSDefaultParameterValues.ContainsKey($dateKindDefaultKey)
+          $previousDateKindDefault = if ($hadDateKindDefault) {
+            $PSDefaultParameterValues[$dateKindDefaultKey]
+          } else {
+            $null
+          }
+          $PSDefaultParameterValues[$dateKindDefaultKey] = 'String'
+          try {
+            & .\scripts\prepare-and-validate-nxb-153-windows.ps1 -RepoRoot .
+            & .\scripts\record-nxb-153-windows-process-lifecycle-evidence.ps1 -RepoRoot .
+            & .\scripts\review-nxb-153-windows-admission-complete.ps1 -RepoRoot .
+          }
+          finally {
+            if ($hadDateKindDefault) {
+              $PSDefaultParameterValues[$dateKindDefaultKey] = $previousDateKindDefault
+            } else {
+              [void]$PSDefaultParameterValues.Remove($dateKindDefaultKey)
+            }
+          }

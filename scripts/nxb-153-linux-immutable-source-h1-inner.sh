@@ -38,6 +38,42 @@ run_bash_blob() {
     local repo_anchor="$1"
     local object="$2"
     shift 2
+
+    if [[ "$(id -u)" -eq 0 ]]; then
+        local real_unshare
+        local adapter_status
+        real_unshare="$(type -P unshare)" || fail 'root namespace adapter could not resolve host unshare'
+        [[ "$real_unshare" == /* && -x "$real_unshare" ]] ||
+            fail 'root namespace adapter resolved an unsupported host unshare authority'
+
+        export NXB153_REAL_UNSHARE="$real_unshare"
+        unshare() {
+            if [[ "$#" -lt 6 ||
+                  "$1" != '--user' ||
+                  "$2" != '--map-root-user' ||
+                  "$3" != '--mount' ||
+                  "$4" != '--pid' ||
+                  "$5" != '--fork' ]]; then
+                printf 'NXB-153 root namespace adapter rejected unexpected unshare arguments\n' >&2
+                return 97
+            fi
+            shift 5
+            command "$NXB153_REAL_UNSHARE" --mount --pid --fork "$@"
+        }
+        export -f unshare
+
+        if git -C "$repo_anchor" cat-file blob "$object" | bash -s -- "$@"; then
+            adapter_status=0
+        else
+            adapter_status=$?
+        fi
+
+        export -n -f unshare 2>/dev/null || true
+        unset -f unshare 2>/dev/null || true
+        unset NXB153_REAL_UNSHARE
+        return "$adapter_status"
+    fi
+
     git -C "$repo_anchor" cat-file blob "$object" | bash -s -- "$@"
 }
 
@@ -81,7 +117,7 @@ rust_toolchain="$4"
 repo_anchor="/proc/self/fd/$repo_fd"
 [[ -d "$repo_anchor" ]] || fail 'inherited repository descriptor is unavailable'
 
-for required_command in git rustup python3 bash; do
+for required_command in git rustup python3 bash id unshare; do
     command -v "$required_command" >/dev/null 2>&1 || fail "$required_command is unavailable"
 done
 
