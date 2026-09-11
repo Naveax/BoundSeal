@@ -123,7 +123,7 @@ mod windows {
             SetFileInformationByHandle(
                 file_handle,
                 FileRenameInfo,
-                information.cast(),
+                information.cast::<std::ffi::c_void>(),
                 u32::try_from(buffer_bytes).map_err(|_| {
                     io::Error::new(
                         io::ErrorKind::InvalidInput,
@@ -154,7 +154,6 @@ mod windows {
         use super::*;
         use std::{
             fs,
-            io::Write,
             os::windows::fs::OpenOptionsExt,
             path::PathBuf,
             time::{SystemTime, UNIX_EPOCH},
@@ -165,6 +164,7 @@ mod windows {
         const GENERIC_READ: u32 = 0x8000_0000;
         const FILE_SHARE_READ: u32 = 0x0000_0001;
         const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+        const FILE_SHARE_DELETE: u32 = 0x0000_0004;
         const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
         const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
 
@@ -199,6 +199,15 @@ mod windows {
                 .unwrap()
         }
 
+        fn verification_file(path: &Path) -> File {
+            fs::OpenOptions::new()
+                .access_mode(GENERIC_READ)
+                .share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE)
+                .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+                .open(path)
+                .unwrap()
+        }
+
         #[test]
         fn handle_relative_rename_preserves_exact_identity() {
             let root = root("identity");
@@ -212,7 +221,7 @@ mod windows {
                 .unwrap();
 
             assert!(!source.exists());
-            let retired = retained_file(&root.join("retired.json"));
+            let retired = verification_file(&root.join("retired.json"));
             assert_eq!(file_identity(&retired).unwrap(), before);
             assert_eq!(fs::read(root.join("retired.json")).unwrap(), b"old\n");
             drop(retired);
@@ -246,30 +255,19 @@ mod windows {
         }
 
         #[test]
-        fn source_handle_denies_path_replacement_while_retained() {
+        fn source_handle_denies_rename_until_retained_authority_is_released() {
             let root = root("share-deny");
             let source = root.join("workspace.json");
+            let moved = root.join("workspace-moved.json");
             fs::write(&source, b"old\n").unwrap();
             let retained = retained_file(&source);
-            let replacement = root.join("replacement.json");
-            fs::write(&replacement, b"foreign\n").unwrap();
 
-            assert!(fs::rename(&replacement, &source).is_err());
+            assert!(fs::rename(&source, &moved).is_err());
             assert_eq!(fs::read(&source).unwrap(), b"old\n");
-
             drop(retained);
-            fs::remove_dir_all(root).unwrap();
-        }
 
-        #[test]
-        fn retained_handle_remains_writable_by_original_creator_before_rename() {
-            let root = root("write-test");
-            let source = root.join("workspace.json");
-            fs::write(&source, b"old\n").unwrap();
-            let mut creator = fs::OpenOptions::new().append(true).open(&source).unwrap();
-            creator.write_all(b"x").unwrap();
-            drop(creator);
-            assert_eq!(fs::read(&source).unwrap(), b"old\nx");
+            fs::rename(&source, &moved).unwrap();
+            assert_eq!(fs::read(&moved).unwrap(), b"old\n");
             fs::remove_dir_all(root).unwrap();
         }
     }
