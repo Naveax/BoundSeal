@@ -11,6 +11,7 @@ mod workspace_impl;
 mod workspace_authority_base;
 #[path = "workspace_authority_entry.rs"]
 mod workspace;
+mod workspace_authority_publication;
 mod workspace_authority_receipts;
 mod workspace_authority_records;
 
