@@ -33,16 +33,21 @@ self_test() {
         printf trusted > "$mountpoint/trusted.txt"
         for runtime_path in target tmp fetch-home vendor cargo-home config; do
             mkdir "$mountpoint/$runtime_path"
+        done
+        mount --bind "$mountpoint" "$mountpoint"
+        mount -o remount,bind,ro,nosuid,nodev "$mountpoint"
+        for runtime_path in target tmp fetch-home vendor cargo-home config; do
             mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$mountpoint/$runtime_path"
         done
         printf dependency > "$mountpoint/vendor/dependency.txt"
         printf "[source.crates-io]\nreplace-with = \"nxb-vendored-sources\"\n" > "$mountpoint/config/config.toml"
-        mount -o remount,ro,nosuid,nodev "$mountpoint/vendor"
-        mount -o remount,ro,nosuid,nodev "$mountpoint/config"
+        mount --bind "$mountpoint/vendor" "$mountpoint/vendor"
+        mount -o remount,bind,ro,nosuid,nodev "$mountpoint/vendor"
+        mount --bind "$mountpoint/config" "$mountpoint/config"
+        mount -o remount,bind,ro,nosuid,nodev "$mountpoint/config"
         touch "$mountpoint/cargo-home/config.toml"
         mount --bind "$mountpoint/config/config.toml" "$mountpoint/cargo-home/config.toml"
         mount -o remount,bind,ro "$mountpoint/cargo-home/config.toml"
-        mount -o remount,ro,nosuid,nodev "$mountpoint"
 
         [[ "$(cat "$mountpoint/trusted.txt")" == trusted ]]
         if printf changed > "$mountpoint/trusted.txt" 2>/dev/null; then
@@ -358,12 +363,22 @@ finally:
                 [[ ! -e "$source_root/$runtime_path" ]] ||
                     die "exact-head tree already contains reserved runtime path $runtime_path"
                 mkdir "$source_root/$runtime_path"
+            done
+            mount --bind "$source_root" "$source_root"
+            mount -o remount,bind,ro,nosuid,nodev "$source_root"
+            for runtime_path in \
+                target \
+                .nxb-153-tmp \
+                .nxb-153-fetch-home \
+                .nxb-153-vendor \
+                .nxb-153-cargo-home \
+                .nxb-153-config
+            do
                 mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$source_root/$runtime_path"
             done
-            mount -o remount,ro,nosuid,nodev "$source_root"
 
             if touch "$source_root/.nxb-153-write-probe" 2>/dev/null; then
-                die "immutable source root remained writable after remount"
+                die "immutable source root remained writable after read-only bind"
             fi
             for runtime_path in \
                 target \
@@ -404,9 +419,10 @@ finally:
                 die "vendored dependency snapshot differs from Cargo.lock/checksum authority"
             [[ -n "$vendor_summary" ]] || die "vendored dependency authority summary is empty"
 
-            mount -o remount,ro,nosuid,nodev "$vendor_root"
+            mount --bind "$vendor_root" "$vendor_root"
+            mount -o remount,bind,ro,nosuid,nodev "$vendor_root"
             if touch "$vendor_root/.nxb-153-vendor-write-probe" 2>/dev/null; then
-                die "vendored dependency snapshot remained writable after remount"
+                die "vendored dependency snapshot remained writable after read-only bind"
             fi
 
             cat > "$config_root/config.toml" <<EOF
@@ -418,9 +434,10 @@ directory = "$vendor_root"
 EOF
             config_sha256="$(sha256sum "$config_root/config.toml" | awk "{print \$1}")"
             [[ "$config_sha256" =~ ^[0-9a-f]{64}$ ]] || die "gate Cargo config SHA-256 is invalid"
-            mount -o remount,ro,nosuid,nodev "$config_root"
+            mount --bind "$config_root" "$config_root"
+            mount -o remount,bind,ro,nosuid,nodev "$config_root"
             if printf changed > "$config_root/config.toml" 2>/dev/null; then
-                die "gate Cargo config root remained writable after remount"
+                die "gate Cargo config root remained writable after read-only bind"
             fi
 
             touch "$gate_home/config.toml"
