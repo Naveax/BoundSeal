@@ -206,6 +206,24 @@ jobs:
             throw "hosted Windows PATH did not normalize to one Git application: $($gitApplications.Count)"
           }
 
+          $pythonNormalizedPath = [Collections.Generic.List[string]]::new()
+          $pythonDirectorySeen = $false
+          foreach ($pathEntry in @($env:PATH -split [IO.Path]::PathSeparator)) {
+            if ([string]::IsNullOrWhiteSpace($pathEntry)) { continue }
+            $pythonCandidate = Join-Path $pathEntry 'python3.exe'
+            if (Test-Path -LiteralPath $pythonCandidate -PathType Leaf) {
+              if ($pythonDirectorySeen) { continue }
+              $pythonDirectorySeen = $true
+            }
+            $pythonNormalizedPath.Add($pathEntry)
+          }
+          if (-not $pythonDirectorySeen) { throw 'hosted Windows PATH contains no Python 3 application directory' }
+          $env:PATH = $pythonNormalizedPath -join [IO.Path]::PathSeparator
+          $pythonApplications = @(Get-Command python3 -CommandType Application -ErrorAction Stop)
+          if ($pythonApplications.Count -ne 1) {
+            throw "hosted Windows PATH did not normalize to one Python 3 application: $($pythonApplications.Count)"
+          }
+
           $convertFromJsonCommand = Get-Command ConvertFrom-Json -CommandType Cmdlet -ErrorAction Stop
           if (-not $convertFromJsonCommand.Parameters.ContainsKey('DateKind')) {
             throw 'PowerShell 7.5 or newer is required so canonical JSON timestamps remain strings'

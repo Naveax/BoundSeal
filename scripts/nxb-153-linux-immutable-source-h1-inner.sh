@@ -41,12 +41,17 @@ run_bash_blob() {
 
     if [[ "$(id -u)" -eq 0 ]]; then
         local real_unshare
+        local real_mount
         local adapter_status
         real_unshare="$(type -P unshare)" || fail 'root namespace adapter could not resolve host unshare'
+        real_mount="$(type -P mount)" || fail 'root namespace adapter could not resolve host mount'
         [[ "$real_unshare" == /* && -x "$real_unshare" ]] ||
             fail 'root namespace adapter resolved an unsupported host unshare authority'
+        [[ "$real_mount" == /* && -x "$real_mount" ]] ||
+            fail 'root namespace adapter resolved an unsupported host mount authority'
 
         export NXB153_REAL_UNSHARE="$real_unshare"
+        export NXB153_REAL_MOUNT="$real_mount"
         unshare() {
             if [[ "$#" -lt 6 ||
                   "$1" != '--user' ||
@@ -60,7 +65,24 @@ run_bash_blob() {
             shift 5
             command "$NXB153_REAL_UNSHARE" --mount --pid --fork "$@"
         }
-        export -f unshare
+        mount() {
+            if [[ "$#" -eq 3 && "$1" == '--bind' && "$2" == "$3" ]]; then
+                NXB153_PENDING_SELF_BIND="$2"
+                return 0
+            fi
+            if [[ "$#" -eq 3 &&
+                  "$1" == '-o' &&
+                  "$2" == 'remount,bind,ro' &&
+                  -n "${NXB153_PENDING_SELF_BIND:-}" &&
+                  "$3" == "$NXB153_PENDING_SELF_BIND" ]]; then
+                unset NXB153_PENDING_SELF_BIND
+                command "$NXB153_REAL_MOUNT" -o remount,ro,nosuid,nodev "$3"
+                return
+            fi
+            unset NXB153_PENDING_SELF_BIND 2>/dev/null || true
+            command "$NXB153_REAL_MOUNT" "$@"
+        }
+        export -f unshare mount
 
         if git -C "$repo_anchor" cat-file blob "$object" | bash -s -- "$@"; then
             adapter_status=0
@@ -68,9 +90,11 @@ run_bash_blob() {
             adapter_status=$?
         fi
 
-        export -n -f unshare 2>/dev/null || true
-        unset -f unshare 2>/dev/null || true
+        export -n -f unshare mount 2>/dev/null || true
+        unset -f unshare mount 2>/dev/null || true
+        unset NXB153_PENDING_SELF_BIND 2>/dev/null || true
         unset NXB153_REAL_UNSHARE
+        unset NXB153_REAL_MOUNT
         return "$adapter_status"
     fi
 
@@ -117,7 +141,7 @@ rust_toolchain="$4"
 repo_anchor="/proc/self/fd/$repo_fd"
 [[ -d "$repo_anchor" ]] || fail 'inherited repository descriptor is unavailable'
 
-for required_command in git rustup python3 bash id unshare; do
+for required_command in git rustup python3 bash id unshare mount; do
     command -v "$required_command" >/dev/null 2>&1 || fail "$required_command is unavailable"
 done
 
