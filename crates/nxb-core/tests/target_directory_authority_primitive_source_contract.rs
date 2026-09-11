@@ -28,15 +28,21 @@ fn section<'a>(text: &'a str, start: &str, end: &str) -> &'a str {
 }
 
 #[test]
-fn live_directory_authority_is_compiled_as_an_explicit_nxb153_staging_boundary() {
+fn live_directory_authority_is_compiled_through_the_workspace_authority_facade() {
     let nxb = source(NXB_PATH);
+    for marker in [
+        "mod directory_authority;",
+        "#[path = \"workspace/mod.rs\"]\nmod workspace_impl;",
+        "#[path = \"workspace_authority.rs\"]\nmod workspace;",
+    ] {
+        assert!(
+            nxb.contains(marker),
+            "{NXB_PATH}: wired directory authority marker is missing: {marker}"
+        );
+    }
     assert!(
-        nxb.contains("mod directory_authority;"),
-        "{NXB_PATH}: live directory authority primitive must be compiled"
-    );
-    assert!(
-        nxb.contains("NXB-153/#108 staging; remove when target wiring lands"),
-        "{NXB_PATH}: temporary dead-code staging must remain explicit until target wiring lands"
+        !nxb.contains("NXB-153/#108 staging") && !nxb.contains("allow(dead_code"),
+        "{NXB_PATH}: directory authority must not remain behind temporary staging/dead-code allowances"
     );
 }
 
@@ -58,6 +64,7 @@ fn linux_authority_uses_opened_directory_identity_and_handle_derived_namespace()
         "/proc/self/fd/",
         "handle.as_raw_fd()",
         "validate_private_linux_directory(&opened, label)?",
+        "crate::workspace_impl::reject_path_indirections",
     ] {
         assert!(
             linux_root.contains(marker),
@@ -111,7 +118,7 @@ fn windows_authority_holds_reparse_safe_ancestor_and_child_handles_without_delet
         ".ancestors()",
         ".share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)",
         "metadata_is_reparse_point(&metadata)",
-        "validate_private_permissions(&canonical, true)?",
+        "workspace_impl::validate_private_permissions(&canonical, true)?",
     ] {
         assert!(
             windows_root.contains(marker),
@@ -132,7 +139,7 @@ fn windows_authority_holds_reparse_safe_ancestor_and_child_handles_without_delet
         "let candidate = parent.stable_path.join(name);",
         ".share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)",
         "FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT",
-        "handle.try_clone()",
+        ".try_clone()",
         "handles.push(child);",
     ] {
         assert!(
@@ -152,6 +159,19 @@ fn windows_authority_holds_reparse_safe_ancestor_and_child_handles_without_delet
     assert!(
         authority.contains("pinned_windows_child_denies_rename_until_child_authority_is_released"),
         "{AUTHORITY_PATH}: Windows child lifetime regression is missing"
+    );
+}
+
+#[test]
+fn primitive_never_recurses_back_into_the_scoped_workspace_facade() {
+    let authority = source(AUTHORITY_PATH);
+    assert!(
+        !authority.contains("crate::workspace::"),
+        "{AUTHORITY_PATH}: primitive acquisition must not re-enter scoped facade state while its RefCell is borrowed"
+    );
+    assert!(
+        authority.contains("crate::workspace_impl::reject_path_indirections"),
+        "{AUTHORITY_PATH}: primitive path admission must use the unscoped workspace implementation"
     );
 }
 
