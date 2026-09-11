@@ -56,7 +56,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo env -i HOME=/root PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+          sudo env -i HOME="$HOME" PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
             /usr/bin/unshare --user --map-root-user --mount --pid --fork /bin/true
 
       - name: Transfer checkout ownership to the privileged validation principal
@@ -64,9 +64,9 @@ jobs:
         run: |
           set -euo pipefail
           sudo chown -R root:root "$GITHUB_WORKSPACE"
-          sudo env -i HOME=/root PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+          sudo env -i HOME="$HOME" PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
             /usr/bin/git -C "$GITHUB_WORKSPACE" rev-parse HEAD | grep -Fx "$GITHUB_SHA" >/dev/null
-          test -z "$(sudo env -i HOME=/root PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+          test -z "$(sudo env -i HOME="$HOME" PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
             /usr/bin/git -C "$GITHUB_WORKSPACE" status --porcelain=v1 --untracked-files=all)"
 
       - name: Prepare sealed tools, validate, and review Linux evidence
@@ -74,7 +74,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo env -i \
-            HOME=/root \
+            HOME="$HOME" \
             USER=root \
             LOGNAME=root \
             PATH="$PATH" \
@@ -117,13 +117,19 @@ jobs:
           $start.RedirectStandardOutput = $true
           $start.RedirectStandardError = $true
           $start.CreateNoWindow = $true
-          foreach ($argument in @(
-            '-NoLogo', '-NoProfile', '-NonInteractive',
-            '-File', '.\scripts\prepare-and-validate-nxb-153-windows.ps1',
-            '-RepoRoot', '.'
-          )) {
+          foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command')) {
             [void]$start.ArgumentList.Add($argument)
           }
+          [void]$start.ArgumentList.Add(@'
+try {
+    & '.\scripts\prepare-and-validate-nxb-153-windows.ps1' -RepoRoot '.'
+    exit 0
+}
+catch {
+    [Console]::Error.WriteLine([string]$_.Exception.Message)
+    exit 97
+}
+'@)
           $start.Environment['GIT_DIR'] = Join-Path $env:RUNNER_TEMP 'nxb-hostile-git'
 
           $process = [Diagnostics.Process]::new()
@@ -147,6 +153,9 @@ jobs:
             }
             if (-not $stderr.Contains('ambient Git authority variables are not admitted before exact-head resolution')) {
               throw "ambient GIT_DIR rejection did not emit the expected guard diagnostic: $stderr"
+            }
+            if (-not $stderr.Contains('GIT_DIR')) {
+              throw "ambient GIT_DIR rejection did not identify GIT_DIR: $stderr"
             }
           }
           finally {
