@@ -14,6 +14,7 @@ const FILE_READ_ATTRIBUTES: u32 = 0x0000_0080;
 const GENERIC_READ: u32 = 0x8000_0000;
 const FILE_SHARE_READ: u32 = 0x0000_0001;
 const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+const FILE_SHARE_DELETE: u32 = 0x0000_0004;
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
 const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
 const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
@@ -161,8 +162,36 @@ impl RetainedCurrent {
     }
 }
 
+fn verify_named_identity(path: &Path, label: &str, expected: FileIdentity) -> Result<()> {
+    crate::workspace_impl::reject_path_indirections(path, label)?;
+    let mut options = fs::OpenOptions::new();
+    options
+        .access_mode(GENERIC_READ)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    let file = options
+        .open(path)
+        .with_context(|| format!("could not verify {label} {}", path.display()))?;
+    let metadata = file
+        .metadata()
+        .with_context(|| format!("could not inspect verified {label} {}", path.display()))?;
+    if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        bail!("verified {label} is a reparse point or non-file");
+    }
+    let actual = file_identity(&file).context("could not read verified Win32 file identity")?;
+    if actual != expected {
+        bail!("{label} is not the retained Win32 file authority");
+    }
+    Ok(())
+}
+
 pub(crate) fn replace_document(path: &Path, bytes: &[u8]) -> Result<()> {
-    replace_document_with_hook(path, bytes, None, || Ok(()))
+    let observed = if crate::workspace_impl::safe_exists(path)? {
+        crate::workspace_impl::read_document(path, "workspace replacement observation")?
+    } else {
+        Vec::new()
+    };
+    replace_document_if_current(path, bytes, &observed)
 }
 
 pub(crate) fn replace_document_if_current(
@@ -235,11 +264,11 @@ where
                 destination.display()
             )
         })?;
-        let quarantined = RetainedCurrent::open(&quarantine_path, "quarantined previous document")?
-            .ok_or_else(|| anyhow::anyhow!("quarantined previous document is missing"))?;
-        if quarantined.identity != current.identity {
-            bail!("quarantined previous document is not the retained Win32 file authority");
-        }
+        verify_named_identity(
+            &quarantine_path,
+            "quarantined previous document",
+            current.identity,
+        )?;
     }
 
     prepared.claim_create_only(&destination)?;
