@@ -16,6 +16,8 @@ mod workspace_authority_receipts;
 mod workspace_authority_records;
 #[cfg(target_os = "linux")]
 mod workspace_authority_replacement;
+#[cfg(windows)]
+mod workspace_authority_replacement_windows;
 mod workspace_doctor_probe;
 
 include!("main.rs");
