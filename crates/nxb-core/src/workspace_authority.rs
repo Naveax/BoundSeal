@@ -127,6 +127,17 @@ pub(crate) fn pin_private_child_path(
     })
 }
 
+fn root_child_path(name: &str, label: &str) -> Result<PathBuf> {
+    TARGET_AUTHORITY.with(|state| {
+        let state = state.borrow();
+        let root = state
+            .root
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("workspace root authority was not admitted"))?;
+        root.child_path(name, label)
+    })
+}
+
 pub(crate) fn logical_authority_path(path: &Path) -> PathBuf {
     if !target_authority_active() {
         return path.to_path_buf();
@@ -193,7 +204,7 @@ pub(crate) fn status_value(workspace: &Path) -> Result<Value> {
         return crate::workspace_impl::status_value(workspace);
     }
 
-    let manifest_path = workspace.join(crate::workspace_impl::MANIFEST_FILE);
+    let manifest_path = root_child_path(crate::workspace_impl::MANIFEST_FILE, "workspace manifest")?;
     let manifest_bytes = read_document(&manifest_path, "workspace manifest")?;
     let manifest: crate::workspace_impl::ManifestV1 = serde_json::from_slice(&manifest_bytes)
         .context("workspace manifest is invalid")?;
@@ -239,6 +250,8 @@ pub(crate) mod migration {
                     .ok_or_else(|| anyhow::anyhow!("migration transient count overflow"))?;
             }
         }
+        let receipts =
+            crate::workspace_authority_receipts::validate_target_readiness_receipts(workspace)?;
 
         Ok(json!({
             "status": if pending == 0 { "stable" } else { "recovery_required" },
@@ -248,7 +261,7 @@ pub(crate) mod migration {
             "recovery": "none",
             "details": {
                 "pending_files": pending.to_string(),
-                "receipts": "authority_view"
+                "receipts": receipts.to_string()
             }
         }))
     }
