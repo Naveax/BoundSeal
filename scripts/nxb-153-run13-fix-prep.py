@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+from pathlib import Path
+
+
+def replace_once(text: str, old: str, new: str, label: str) -> str:
+    if old not in text:
+        raise SystemExit(f"missing patch anchor: {label}")
+    return text.replace(old, new, 1)
+
+
+def patch_toolchain_authority() -> None:
+    path = Path("scripts/nxb-153-rust-toolchain-authority.py")
+    text = path.read_text(encoding="utf-8")
+    old = '''            try:\n                entry = item.stat(follow_symlinks=False)\n            except OSError as error:\n                raise AuthorityError(\n                    f"could not inspect toolchain entry {relative}: {error}"\n                ) from error\n            if item.is_symlink() or is_reparse(entry):\n                raise AuthorityError(\n                    f"toolchain indirection is not admitted: {relative}"\n                )\n            child = current / item.name\n'''
+    new = '''            child = current / item.name\n            try:\n                entry = os.stat(child, follow_symlinks=False)\n            except OSError as error:\n                raise AuthorityError(\n                    f"could not inspect toolchain entry {relative}: {error}"\n                ) from error\n            if item.is_symlink() or is_reparse(entry):\n                raise AuthorityError(\n                    f"toolchain indirection is not admitted: {relative}"\n                )\n'''
+    text = replace_once(text, old, new, "Windows os.stat authority")
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+
+def patch_runtime_regression() -> None:
+    path = Path("crates/nxb-core/tests/nxb153_admission_runtime_regression_source_contract.rs")
+    text = path.read_text(encoding="utf-8")
+    insertion = r'''
+
+#[test]
+fn windows_toolchain_tree_uses_path_stat_before_handle_identity_comparison() {
+    let source = read_source("scripts/nxb-153-rust-toolchain-authority.py");
+    let start = required_offset(
+        &source,
+        "def windows_records(root, budget):",
+        "scripts/nxb-153-rust-toolchain-authority.py",
+    );
+    let end = start
+        + required_offset(
+            &source[start..],
+            "\ndef digest_tree(",
+            "scripts/nxb-153-rust-toolchain-authority.py",
+        );
+    let body = &source[start..end];
+
+    assert!(
+        body.contains("entry = os.stat(child, follow_symlinks=False)"),
+        "Windows path authority must use os.stat so st_dev/st_ino are populated before fstat identity comparison"
+    );
+    assert!(
+        !body.contains("entry = item.stat(follow_symlinks=False)"),
+        "DirEntry.stat on Windows does not provide the file identity fields required by the handle comparison"
+    );
+}
+'''
+    anchor = "\n#[test]\nfn rust_toolchain_authority_self_test_uses_native_platform_model()"
+    if "windows_toolchain_tree_uses_path_stat_before_handle_identity_comparison" not in text:
+        text = replace_once(text, anchor, insertion + anchor, "runtime regression insertion")
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+
+def patch_linux_replacement() -> None:
+    path = Path("crates/nxb-core/src/workspace_authority_replacement.rs")
+    text = path.read_text(encoding="utf-8")
+    text = replace_once(text, 'const TRUSTED_MV: &str = "/usr/bin/mv";\n', "", "TRUSTED_MV")
+    start = text.find("    fn quarantine_no_replace(")
+    end = text.find("    fn claim_prepared(", start)
+    if start < 0 or end < 0:
+        raise SystemExit("missing patch anchor: quarantine method")
+    text = text[:start] + text[end:]
+
+    old = '''    let nonce = crate::workspace_impl::random_hex(12)?;\n    let prepared_name = OsString::from(format!(".workspace.migrate.{nonce}.tmp"));\n    let quarantine_name = OsString::from(format!(".workspace.retired.{nonce}.json"));\n    let prepared = parent.create_prepared(&prepared_name, bytes)?;\n    let previous = parent.open_regular(destination, "replacement destination")?;\n\n    if let Some(previous) = previous.as_ref() {\n        before_quarantine()?;\n        parent.validate_named_binding()?;\n        parent.quarantine_no_replace(destination, &quarantine_name)?;\n        parent.validate_child_binding(\n            &quarantine_name,\n            previous,\n            "quarantined previous document",\n        )?;\n    }\n\n    parent.claim_prepared(&prepared, destination)?;\n'''
+    new = '''    let previous = parent.open_regular(destination, "replacement destination")?;\n    if let Some(previous) = previous.as_ref() {\n        before_quarantine()?;\n        parent.validate_named_binding()?;\n        parent.validate_child_binding(destination, previous, "replacement destination")?;\n        bail!(\n            "Linux replacement of an existing document is unsupported without exact-victim namespace mutation authority"\n        );\n    }\n\n    let nonce = crate::workspace_impl::random_hex(12)?;\n    let prepared_name = OsString::from(format!(".workspace.migrate.{nonce}.tmp"));\n    let prepared = parent.create_prepared(&prepared_name, bytes)?;\n    parent.claim_prepared(&prepared, destination)?;\n'''
+    text = replace_once(text, old, new, "Linux replacement flow")
+
+    start = text.find("    #[test]\n    fn replacement_publishes_exact_prepared_inode_and_retires_previous_inode()")
+    end = text.find("    #[test]\n    fn parent_directory_replacement_cannot_redirect_namespace_mutation()", start)
+    if start < 0 or end < 0:
+        raise SystemExit("missing patch anchor: replacement tests")
+    tests = '''    #[test]\n    fn existing_destination_fails_closed_without_victim_mutation() {\n        let root = root("existing-fail-closed");\n        let destination = root.join("workspace.json");\n        fs::write(&destination, b"old\\n").unwrap();\n        fs::set_permissions(&destination, fs::Permissions::from_mode(0o600)).unwrap();\n\n        let error = replace_document(&destination, b"new\\n").unwrap_err();\n\n        assert!(error.to_string().contains(\n            "Linux replacement of an existing document is unsupported without exact-victim namespace mutation authority"\n        ));\n        assert_eq!(fs::read(&destination).unwrap(), b"old\\n");\n        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);\n        fs::remove_dir_all(root).unwrap();\n    }\n\n    #[test]\n    fn same_permission_destination_substitution_is_left_untouched() {\n        let root = root("race");\n        let destination = root.join("workspace.json");\n        let admitted = root.join("admitted.json");\n        fs::write(&destination, b"admitted\\n").unwrap();\n        fs::set_permissions(&destination, fs::Permissions::from_mode(0o600)).unwrap();\n\n        let error = replace_document_with_hook(&destination, b"candidate\\n", || {\n            fs::rename(&destination, &admitted)?;\n            fs::write(&destination, b"substituted\\n")?;\n            fs::set_permissions(&destination, fs::Permissions::from_mode(0o600))?;\n            Ok(())\n        })\n        .unwrap_err();\n\n        assert!(error\n            .to_string()\n            .contains("replacement destination pathname is not the retained file authority"));\n        assert_eq!(fs::read(&admitted).unwrap(), b"admitted\\n");\n        assert_eq!(fs::read(&destination).unwrap(), b"substituted\\n");\n        assert_eq!(fs::read_dir(&root).unwrap().count(), 2);\n        fs::remove_dir_all(root).unwrap();\n    }\n\n'''
+    text = text[:start] + tests + text[end:]
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+
+def replace_replacement_contract() -> None:
+    path = Path("crates/nxb-core/tests/workspace_replacement_authority_source_contract.rs")
+    path.write_text(r'''use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+const NXB_PATH: &str = "crates/nxb-core/src/nxb.rs";
+const MIGRATION_PATH: &str = "crates/nxb-core/src/workspace/migration.rs";
+const REPLACEMENT_PATH: &str = "crates/nxb-core/src/workspace_authority_replacement.rs";
+const CARGO_PATH: &str = "crates/nxb-core/Cargo.toml";
+
+fn repository_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn source(path: &str) -> String {
+    let full = repository_root().join(path);
+    fs::read_to_string(&full)
+        .unwrap_or_else(|error| panic!("could not read {} as UTF-8: {error}", full.display()))
+}
+
+fn section<'a>(text: &'a str, path: &str, start: &str, end: &str) -> &'a str {
+    let start_index = text
+        .find(start)
+        .unwrap_or_else(|| panic!("{path}: missing section start: {start}"));
+    let tail = &text[start_index..];
+    let end_relative = tail
+        .find(end)
+        .unwrap_or_else(|| panic!("{path}: missing section end: {end}"));
+    &tail[..end_relative]
+}
+
+#[test]
+fn linux_replacement_authority_is_compiled_without_a_new_syscall_dependency() {
+    let nxb = source(NXB_PATH);
+    assert!(nxb.contains("#[cfg(target_os = \"linux\")]\nmod workspace_authority_replacement;"));
+    let cargo = source(CARGO_PATH);
+    assert!(!cargo.contains("rustix"));
+}
+
+#[test]
+fn migration_routes_linux_manifest_replacement_through_the_authority_module_only() {
+    let migration = source(MIGRATION_PATH);
+    for marker in [
+        "#[cfg(target_os = \"linux\")]",
+        "use crate::workspace_authority_replacement::replace_document;",
+        "#[cfg(not(target_os = \"linux\"))]",
+        "use super::replace_document;",
+        "replace_document(&paths.manifest, &plan.target_bytes)?;",
+    ] {
+        assert!(migration.contains(marker), "{MIGRATION_PATH}: missing marker: {marker}");
+    }
+}
+
+#[test]
+fn linux_existing_destination_fails_closed_before_victim_mutation() {
+    let replacement = source(REPLACEMENT_PATH);
+    let production = section(&replacement, REPLACEMENT_PATH, "struct ParentAuthority", "\n#[cfg(test)]");
+    for marker in [
+        "O_DIRECTORY | O_NOFOLLOW",
+        "parent.validate_named_binding()?;",
+        "parent.validate_child_binding(destination, previous, \"replacement destination\")?;",
+        "Linux replacement of an existing document is unsupported without exact-victim namespace mutation authority",
+        "prepared.file.as_raw_fd()",
+    ] {
+        assert!(production.contains(marker), "{REPLACEMENT_PATH}: missing marker: {marker}");
+    }
+    for forbidden in [
+        "TRUSTED_MV",
+        "quarantine_no_replace",
+        ".arg(\"-n\")",
+        ".arg(\"-T\")",
+        "remove_file(",
+        "remove_regular(",
+        "fs::rename(",
+        "remove_dir_all(",
+    ] {
+        assert!(!production.contains(forbidden), "{REPLACEMENT_PATH}: forbidden victim mutation marker: {forbidden}");
+    }
+}
+
+#[test]
+fn linux_missing_destination_publication_remains_exact_fd_create_only() {
+    let replacement = source(REPLACEMENT_PATH);
+    let production = section(&replacement, REPLACEMENT_PATH, "struct ParentAuthority", "\n#[cfg(test)]");
+    for marker in [
+        "const TRUSTED_LN: &str = \"/usr/bin/ln\";",
+        ".arg(\"-L\")",
+        ".arg(\"--\")",
+        ".env_clear()",
+        "prepared.file.as_raw_fd()",
+        "parent.claim_prepared(&prepared, destination)?;",
+        "parent.validate_child_binding(destination, &prepared, \"replacement destination\")?;",
+    ] {
+        assert!(production.contains(marker), "{REPLACEMENT_PATH}: missing create-only marker: {marker}");
+    }
+}
+
+#[test]
+fn replacement_regressions_preserve_existing_and_substituted_victims() {
+    let replacement = source(REPLACEMENT_PATH);
+    for marker in [
+        "existing_destination_fails_closed_without_victim_mutation",
+        "same_permission_destination_substitution_is_left_untouched",
+        "parent_directory_replacement_cannot_redirect_namespace_mutation",
+        "missing_destination_is_create_only_from_retained_prepared_fd",
+        "replacement destination pathname is not the retained file authority",
+        "replacement parent pathname no longer names the retained directory authority",
+    ] {
+        assert!(replacement.contains(marker), "{REPLACEMENT_PATH}: missing regression marker: {marker}");
+    }
+}
+''', encoding="utf-8", newline="\n")
+
+
+def patch_migration() -> None:
+    path = Path("crates/nxb-core/src/workspace/migration.rs")
+    text = path.read_text(encoding="utf-8")
+    helper = '''\n#[cfg(target_os = "linux")]\nfn reject_linux_existing_legacy_manifest_replacement(root: &Path) -> Result<()> {\n    let manifest = root.join(MANIFEST_FILE);\n    if !safe_exists(&manifest)? {\n        return Ok(());\n    }\n    let source = read_document(&manifest, "workspace manifest")?;\n    if manifest_schema(&source)? == 0 {\n        bail!(\n            "legacy workspace migration is unsupported on Linux while exact-victim namespace mutation authority is unavailable"\n        );\n    }\n    Ok(())\n}\n\n'''
+    anchor = "pub(crate) fn apply_value(workspace: &Path) -> Result<Value> {"
+    if "reject_linux_existing_legacy_manifest_replacement" not in text:
+        text = replace_once(text, anchor, helper + anchor, "migration helper insertion")
+
+    for marker in [
+        "fn apply_result(workspace: &Path) -> Result<CommandResult> {\n    let root = validate_workspace_root(workspace, true)?;\n",
+        "fn recover_result(workspace: &Path) -> Result<CommandResult> {\n    let root = validate_workspace_root(workspace, true)?;\n",
+    ]:
+        call = marker + '    #[cfg(target_os = "linux")]\n    reject_linux_existing_legacy_manifest_replacement(&root)?;\n'
+        text = replace_once(text, marker, call, f"migration call {marker[:20]}")
+
+    for name in [
+        "migrates_schema_zero_and_writes_receipt",
+        "committed_migration_retires_journals_without_pathname_deletion",
+        "retired_migration_rejects_same_permission_replacement",
+        "recovers_orphan_backup_before_journal",
+        "rejects_manifest_tamper_during_active_migration",
+    ]:
+        marker = f'    #[test]\n    fn {name}'
+        guarded = f'    #[cfg(not(target_os = "linux"))]\n    #[test]\n    fn {name}'
+        if guarded not in text:
+            text = replace_once(text, marker, guarded, f"guard migration test {name}")
+
+    linux_tests = r'''
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_apply_rejects_legacy_manifest_before_state_mutation() {
+        let root = workspace("linux-apply-fail-closed", 0);
+        let before = fs::read(root.join(MANIFEST_FILE)).unwrap();
+        let paths = paths(&root);
+        assert!(!paths.receipts.exists());
+        let error = apply_value(&root).unwrap_err();
+        assert!(error.to_string().contains(
+            "legacy workspace migration is unsupported on Linux while exact-victim namespace mutation authority is unavailable"
+        ));
+        assert_eq!(fs::read(root.join(MANIFEST_FILE)).unwrap(), before);
+        assert!(!paths.receipts.exists());
+        assert!(!paths.active.exists());
+        assert!(!paths.backup.exists());
+        assert!(!paths.applied.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_recover_rejects_existing_legacy_manifest_before_state_mutation() {
+        let root = workspace("linux-recover-fail-closed", 0);
+        let before = fs::read(root.join(MANIFEST_FILE)).unwrap();
+        let paths = paths(&root);
+        assert!(!paths.receipts.exists());
+        let error = recover_value(&root).unwrap_err();
+        assert!(error.to_string().contains(
+            "legacy workspace migration is unsupported on Linux while exact-victim namespace mutation authority is unavailable"
+        ));
+        assert_eq!(fs::read(root.join(MANIFEST_FILE)).unwrap(), before);
+        assert!(!paths.receipts.exists());
+        assert!(!paths.active.exists());
+        assert!(!paths.backup.exists());
+        assert!(!paths.applied.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+'''
+    if "linux_apply_rejects_legacy_manifest_before_state_mutation" not in text:
+        closing = text.rfind("\n}")
+        if closing < 0:
+            raise SystemExit("missing migration test module closing brace")
+        text = text[:closing] + linux_tests + text[closing:]
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+
+def patch_docs() -> None:
+    paragraph = '''\n\n## Linux existing-destination exact-victim boundary\n\nLinux create-only publication remains bound to the retained prepared file descriptor. Existing-destination replacement is deliberately fail-closed: after retaining and revalidating the current destination and parent authority, the route returns an unsupported-authority error before any rename, unlink, quarantine, overwrite, or candidate preparation. This avoids claiming a pathname rename as exact-victim authority. Legacy schema-0 migration on Linux therefore rejects before creating migration state while an existing `workspace.json` would require replacement. Windows keeps its separate retained-handle replacement authority.\n'''
+    for name in [
+        "docs/NXB-153-PREPARED-FILE-AUTHORITY.md",
+        "docs/NXB-153-DESTRUCTIVE-CLEANUP-AUTHORITY.md",
+    ]:
+        path = Path(name)
+        text = path.read_text(encoding="utf-8")
+        if "## Linux existing-destination exact-victim boundary" not in text:
+            path.write_text(text.rstrip() + paragraph, encoding="utf-8", newline="\n")
+
+
+def main() -> None:
+    patch_toolchain_authority()
+    patch_runtime_regression()
+    patch_linux_replacement()
+    replace_replacement_contract()
+    patch_migration()
+    patch_docs()
+
+
+if __name__ == "__main__":
+    main()
