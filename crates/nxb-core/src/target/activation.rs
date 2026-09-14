@@ -147,8 +147,7 @@ fn guided_path_uses_literal_rfc3986_bytes(path: &str) -> bool {
             byte.is_ascii_alphanumeric()
                 || matches!(
                     byte,
-                    b'/'
-                        | b'-'
+                    b'/' | b'-'
                         | b'.'
                         | b'_'
                         | b'~'
@@ -171,7 +170,9 @@ fn guided_path_uses_literal_rfc3986_bytes(path: &str) -> bool {
 fn enforce_persistence_envelope(label: &str, serialized_bytes: usize) -> Result<()> {
     let usable_bytes = workspace::MAX_DOCUMENT_BYTES
         .checked_sub(GUIDED_PERSISTENCE_MARGIN_BYTES)
-        .ok_or_else(|| anyhow::anyhow!("guided persistence margin exceeds workspace document cap"))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!("guided persistence margin exceeds workspace document cap")
+        })?;
     let serialized_bytes = serialized_bytes as u64;
     if serialized_bytes > usable_bytes {
         bail!(
@@ -260,17 +261,12 @@ pub(super) fn activate_value(
     let policy_snapshot_sha256 = build.policy.snapshot_sha256.clone();
     let root = workspace::validate_workspace_root(workspace_path, true)?;
     let targets = super::targets_directory(&root)?;
-    let state = workspace::pin_private_child_path(
-        &root,
-        "state",
-        "guided activation state directory",
-    )?;
+    let state =
+        workspace::pin_private_child_path(&root, "state", "guided activation state directory")?;
     let profile_path = targets.join(format!("{}.json", identity.target_id));
     let disable_path = targets.join(format!("{}.disabled.json", identity.target_id));
-    let artifact_relative_path = format!(
-        "state/target-{}.guided-activation.json",
-        identity.target_id
-    );
+    let artifact_relative_path =
+        format!("state/target-{}.guided-activation.json", identity.target_id);
     let artifact_path = state.join(format!(
         "target-{}.guided-activation.json",
         identity.target_id
@@ -283,7 +279,9 @@ pub(super) fn activate_value(
 
     if profile_exists {
         if !artifact_exists {
-            bail!("guided target profile already exists without exact guided activation continuity");
+            bail!(
+                "guided target profile already exists without exact guided activation continuity"
+            );
         }
         let (profile, artifact_sha256) = recover_inert_continuity(
             &artifact_path,
@@ -460,10 +458,8 @@ fn recover_inert_continuity(
     preview: &SetupPreview,
     policy_document: &str,
 ) -> Result<(TargetProfile, String)> {
-    let artifact_bytes = workspace::read_document(
-        artifact_path,
-        "guided activation inert continuity artifact",
-    )?;
+    let artifact_bytes =
+        workspace::read_document(artifact_path, "guided activation inert continuity artifact")?;
     let artifact: StoredGuidedActivationArtifact = serde_json::from_slice(&artifact_bytes)
         .context("guided activation inert continuity artifact is invalid JSON")?;
     if artifact_bytes != canonical_json(&artifact)? {
@@ -527,7 +523,12 @@ fn ensure_recovered_publication_durable(path: &Path) -> Result<()> {
         .parent()
         .ok_or_else(|| anyhow::anyhow!("recovered publication path has no parent"))?;
     File::open(parent)
-        .with_context(|| format!("could not open recovered publication parent {}", parent.display()))?
+        .with_context(|| {
+            format!(
+                "could not open recovered publication parent {}",
+                parent.display()
+            )
+        })?
         .sync_all()
         .with_context(|| {
             format!(
@@ -578,7 +579,11 @@ mod tests {
                     acknowledged: true,
                 },
                 automation: SetupAutomation {
-                    allowed_methods: vec!["GET".to_owned(), "HEAD".to_owned(), "OPTIONS".to_owned()],
+                    allowed_methods: vec![
+                        "GET".to_owned(),
+                        "HEAD".to_owned(),
+                        "OPTIONS".to_owned(),
+                    ],
                     allow_subdomains: false,
                     active_testing: false,
                     oob_callbacks: false,
@@ -614,10 +619,7 @@ mod tests {
             assert!(error.to_string().contains("RFC3986-safe ASCII"));
         }
 
-        let allowed = preview_with_paths(
-            vec!["/api/~user!$&'()+,;=:@-._".to_owned()],
-            Vec::new(),
-        );
+        let allowed = preview_with_paths(vec!["/api/~user!$&'()+,;=:@-._".to_owned()], Vec::new());
         validate_persistence_envelope(&allowed, "schema_version = 1\n").unwrap();
     }
 

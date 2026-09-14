@@ -8,8 +8,6 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[cfg(target_os = "linux")]
-use crate::workspace_authority_replacement::replace_document;
 #[cfg(not(target_os = "linux"))]
 use super::replace_document;
 use super::{
@@ -18,6 +16,8 @@ use super::{
     validate_sha, validate_workspace_root, LegacyManifestV0, ManifestV1, SecretStorageBoundary,
     CURRENT_SCHEMA_VERSION, MANIFEST_FILE,
 };
+#[cfg(target_os = "linux")]
+use crate::workspace_authority_replacement::replace_document;
 
 const JOURNAL_VERSION: u32 = 1;
 const RECEIPT_VERSION: u32 = 1;

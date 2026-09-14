@@ -60,7 +60,8 @@ fn read_bounded(
     validate_opened_metadata(&initial, label, maximum)?;
     validate_platform_authority(authority_path, &initial, label, permission)?;
 
-    let capacity = usize::try_from(initial.len()).context("pinned source size does not fit memory")?;
+    let capacity =
+        usize::try_from(initial.len()).context("pinned source size does not fit memory")?;
     let mut bytes = Vec::with_capacity(capacity);
     (&mut file)
         .take(maximum + 1)
@@ -77,13 +78,7 @@ fn read_bounded(
     if bytes.len() as u64 != initial.len() || final_metadata.len() != initial.len() {
         bail!("{label} changed size while being read");
     }
-    validate_platform_stability(
-        authority_path,
-        &initial,
-        &final_metadata,
-        label,
-        permission,
-    )?;
+    validate_platform_stability(authority_path, &initial, &final_metadata, label, permission)?;
     Ok(bytes)
 }
 
@@ -166,8 +161,9 @@ fn pin_parent_namespace(path: &Path, label: &str) -> Result<PinnedParentNamespac
     }
 
     let stable_parent = PathBuf::from(format!("/proc/self/fd/{}", parent_handle.as_raw_fd()));
-    let stable_metadata = fs::metadata(&stable_parent)
-        .with_context(|| format!("could not resolve pinned {label} parent through /proc/self/fd"))?;
+    let stable_metadata = fs::metadata(&stable_parent).with_context(|| {
+        format!("could not resolve pinned {label} parent through /proc/self/fd")
+    })?;
     if !stable_metadata.is_dir()
         || stable_metadata.dev() != opened.dev()
         || stable_metadata.ino() != opened.ino()
@@ -513,7 +509,8 @@ mod tests {
         fs::rename(&admitted, &moved).unwrap();
         fs::rename(&replacement, &admitted).unwrap();
 
-        let mut file = open_document_authority(parent.child_path(), "test operator source").unwrap();
+        let mut file =
+            open_document_authority(parent.child_path(), "test operator source").unwrap();
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes).unwrap();
         assert_eq!(bytes, b"admitted");

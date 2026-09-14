@@ -27,11 +27,18 @@ struct ParentAuthority {
 impl ParentAuthority {
     fn open(path: &Path) -> Result<Self> {
         crate::workspace_impl::reject_path_indirections(path, "replacement parent")?;
-        let canonical = fs::canonicalize(path)
-            .with_context(|| format!("could not canonicalize replacement parent {}", path.display()))?;
+        let canonical = fs::canonicalize(path).with_context(|| {
+            format!(
+                "could not canonicalize replacement parent {}",
+                path.display()
+            )
+        })?;
         crate::workspace_impl::reject_path_indirections(&canonical, "replacement parent")?;
 
-        let mut ancestors = canonical.ancestors().map(Path::to_path_buf).collect::<Vec<_>>();
+        let mut ancestors = canonical
+            .ancestors()
+            .map(Path::to_path_buf)
+            .collect::<Vec<_>>();
         ancestors.reverse();
         let mut handles = Vec::with_capacity(ancestors.len());
         for ancestor in ancestors {
@@ -55,8 +62,7 @@ impl ParentAuthority {
                     ancestor.display()
                 )
             })?;
-            if !metadata.is_dir()
-                || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
             {
                 bail!("replacement parent ancestor is a reparse point or non-directory");
             }
@@ -153,7 +159,8 @@ impl RetainedCurrent {
         if bytes.len() as u64 > crate::workspace_impl::MAX_DOCUMENT_BYTES {
             bail!("retained {label} exceeded the supported document size while reading");
         }
-        let identity = file_identity(&file).context("could not read retained Win32 file identity")?;
+        let identity =
+            file_identity(&file).context("could not read retained Win32 file identity")?;
         Ok(Some(Self {
             file,
             identity,
@@ -228,10 +235,8 @@ where
     let quarantine_name = format!(".workspace.retired.{nonce}.json");
     let prepared_path = parent.child(OsStr::new(&prepared_name))?;
     let quarantine_path = parent.child(OsStr::new(&quarantine_name))?;
-    let prepared = crate::prepared_file_authority::PreparedFileAuthority::create_named(
-        &prepared_path,
-        bytes,
-    )?;
+    let prepared =
+        crate::prepared_file_authority::PreparedFileAuthority::create_named(&prepared_path, bytes)?;
     let current = RetainedCurrent::open(&destination, "replacement destination")?;
 
     if let Some(expected) = expected_current {
@@ -306,10 +311,16 @@ mod tests {
         replace_document_if_current(&destination, b"new\n", b"old\n").unwrap();
 
         assert_eq!(fs::read(&destination).unwrap(), b"new\n");
-        assert!(fs::read_dir(&root).unwrap().filter_map(|entry| entry.ok()).any(|entry| {
-            entry.file_name().to_string_lossy().starts_with(".workspace.retired.")
-                && fs::read(entry.path()).ok().as_deref() == Some(b"old\n")
-        }));
+        assert!(fs::read_dir(&root)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .any(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".workspace.retired.")
+                    && fs::read(entry.path()).ok().as_deref() == Some(b"old\n")
+            }));
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -319,13 +330,18 @@ mod tests {
         let destination = root.join("workspace.json");
         private_file(&destination, b"changed\n");
 
-        let error = replace_document_if_current(&destination, b"new\n", b"expected\n")
-            .unwrap_err();
+        let error = replace_document_if_current(&destination, b"new\n", b"expected\n").unwrap_err();
         assert!(error.to_string().contains("bytes changed"));
         assert_eq!(fs::read(&destination).unwrap(), b"changed\n");
-        assert!(!fs::read_dir(&root).unwrap().filter_map(|entry| entry.ok()).any(|entry| {
-            entry.file_name().to_string_lossy().starts_with(".workspace.retired.")
-        }));
+        assert!(!fs::read_dir(&root)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .any(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".workspace.retired.")
+            }));
         fs::remove_dir_all(root).unwrap();
     }
 

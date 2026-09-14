@@ -139,12 +139,7 @@ fn path_scope_change_invalidates_preview_and_binds_active_identity() {
     let authorization = authorization_document(&root);
 
     let api_preview = run_json(&guided_arguments("setup", &root, &authorization, "/api"));
-    let admin_preview = run_json(&guided_arguments(
-        "setup",
-        &root,
-        &authorization,
-        "/admin",
-    ));
+    let admin_preview = run_json(&guided_arguments("setup", &root, &authorization, "/admin"));
 
     let api_sha = api_preview
         .get("preview_sha256")

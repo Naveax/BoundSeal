@@ -28,9 +28,7 @@ impl ParentAuthority {
     fn open(path: &Path) -> Result<Self> {
         crate::workspace_impl::reject_path_indirections(path, "replacement parent")?;
         let mut options = OpenOptions::new();
-        options
-            .read(true)
-            .custom_flags(O_DIRECTORY | O_NOFOLLOW);
+        options.read(true).custom_flags(O_DIRECTORY | O_NOFOLLOW);
         let file = options
             .open(path)
             .with_context(|| format!("could not pin replacement parent {}", path.display()))?;
@@ -65,10 +63,7 @@ impl ParentAuthority {
     }
 
     fn validate_named_binding(&self) -> Result<()> {
-        crate::workspace_impl::reject_path_indirections(
-            &self.logical_path,
-            "replacement parent",
-        )?;
+        crate::workspace_impl::reject_path_indirections(&self.logical_path, "replacement parent")?;
         let named = fs::symlink_metadata(&self.logical_path).with_context(|| {
             format!(
                 "could not inspect named replacement parent {}",
@@ -108,9 +103,8 @@ impl ParentAuthority {
                 }))
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(error).with_context(|| {
-                format!("could not open retained {label} in replacement parent")
-            }),
+            Err(error) => Err(error)
+                .with_context(|| format!("could not open retained {label} in replacement parent")),
         }
     }
 
@@ -188,11 +182,7 @@ impl ParentAuthority {
         Ok(())
     }
 
-    fn claim_prepared(
-        &self,
-        prepared: &RetainedFileAuthority,
-        destination: &OsStr,
-    ) -> Result<()> {
+    fn claim_prepared(&self, prepared: &RetainedFileAuthority, destination: &OsStr) -> Result<()> {
         let tool = trusted_tool(TRUSTED_LN, "Linux hard-link tool")?;
         let source = PathBuf::from(format!(
             "/proc/{}/fd/{}",
@@ -286,7 +276,10 @@ where
 
     parent.claim_prepared(&prepared, destination)?;
     parent.validate_child_binding(destination, &prepared, "replacement destination")?;
-    parent.file.sync_all().context("could not synchronize replacement parent")?;
+    parent
+        .file
+        .sync_all()
+        .context("could not synchronize replacement parent")?;
     parent.validate_named_binding()?;
     Ok(())
 }
@@ -320,7 +313,12 @@ mod tests {
         let retired = fs::read_dir(&root)
             .unwrap()
             .filter_map(|entry| entry.ok())
-            .find(|entry| entry.file_name().to_string_lossy().starts_with(".workspace.retired."))
+            .find(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".workspace.retired.")
+            })
             .expect("previous document quarantine is missing");
         let retired_metadata = retired.metadata().unwrap();
         assert_eq!(retired_metadata.dev(), old.dev());
@@ -351,10 +349,16 @@ mod tests {
             .contains("quarantined previous document pathname is not the retained file authority"));
         assert_eq!(fs::read(&admitted).unwrap(), b"admitted\n");
         assert!(!destination.exists());
-        assert!(fs::read_dir(&root).unwrap().filter_map(|entry| entry.ok()).any(|entry| {
-            entry.file_name().to_string_lossy().starts_with(".workspace.retired.")
-                && fs::read(entry.path()).ok().as_deref() == Some(b"substituted\n")
-        }));
+        assert!(fs::read_dir(&root)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .any(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".workspace.retired.")
+                    && fs::read(entry.path()).ok().as_deref() == Some(b"substituted\n")
+            }));
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -378,10 +382,13 @@ mod tests {
         })
         .unwrap_err();
 
-        assert!(error
-            .to_string()
-            .contains("replacement parent pathname no longer names the retained directory authority"));
-        assert_eq!(fs::read(root.join("workspace.json")).unwrap(), b"attacker\n");
+        assert!(error.to_string().contains(
+            "replacement parent pathname no longer names the retained directory authority"
+        ));
+        assert_eq!(
+            fs::read(root.join("workspace.json")).unwrap(),
+            b"attacker\n"
+        );
         assert_eq!(fs::read(moved.join("workspace.json")).unwrap(), b"old\n");
 
         fs::remove_dir_all(root).unwrap();

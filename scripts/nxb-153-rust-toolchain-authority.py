@@ -412,6 +412,7 @@ def require_sha256(value):
 def self_test():
     with tempfile.TemporaryDirectory(prefix="nxb-153-rust-tree-") as temporary:
         base = pathlib.Path(temporary)
+        native_model = "windows" if os.name == "nt" else "linux"
         first = base / "first"
         second = base / "second"
         first.mkdir()
@@ -425,14 +426,14 @@ def self_test():
         (second / "lib" / "core.rlib").write_bytes(b"core-bytes\n")
         (second / "bin" / "rustc").write_bytes(b"rustc-bytes\n")
 
-        first_linux = digest_tree(first, "linux")
-        second_linux = digest_tree(second, "linux")
-        if first_linux["tree_sha256"] != second_linux["tree_sha256"]:
+        first_native = digest_tree(first, native_model)
+        second_native = digest_tree(second, native_model)
+        if first_native["tree_sha256"] != second_native["tree_sha256"]:
             raise AuthorityError("self-test enumeration-order independence failed")
 
-        original = first_linux["tree_sha256"]
+        original = first_native["tree_sha256"]
         (first / "lib" / "core.rlib").write_bytes(b"mutated\n")
-        if digest_tree(first, "linux")["tree_sha256"] == original:
+        if digest_tree(first, native_model)["tree_sha256"] == original:
             raise AuthorityError("self-test mutation did not change tree identity")
 
         bounded = base / "bounded"
@@ -440,13 +441,13 @@ def self_test():
         (bounded / "one").write_bytes(b"1")
         (bounded / "two").write_bytes(b"2")
         try:
-            digest_tree(bounded, "linux", max_files=1)
+            digest_tree(bounded, native_model, max_files=1)
         except AuthorityError:
             pass
         else:
             raise AuthorityError("self-test file-count bound did not fail closed")
         try:
-            digest_tree(bounded, "linux", max_total_bytes=1)
+            digest_tree(bounded, native_model, max_total_bytes=1)
         except AuthorityError:
             pass
         else:
@@ -457,7 +458,7 @@ def self_test():
         (directory_bound / "child").mkdir()
         (directory_bound / "child" / "file").write_bytes(b"x")
         try:
-            digest_tree(directory_bound, "linux", max_directories=1)
+            digest_tree(directory_bound, native_model, max_directories=1)
         except AuthorityError:
             pass
         else:
@@ -465,18 +466,24 @@ def self_test():
                 "self-test directory-count bound did not fail closed"
             )
 
-        collision = base / "windows-collision"
-        collision.mkdir()
-        (collision / "Tool.exe").write_bytes(b"A")
-        (collision / "tool.exe").write_bytes(b"B")
-        try:
-            digest_tree(collision, "windows")
-        except AuthorityError:
-            pass
-        else:
-            raise AuthorityError(
-                "self-test Windows case collision was not rejected"
-            )
+        _, first_key = windows_relative_bytes("Tool.exe")
+        _, second_key = windows_relative_bytes("tool.exe")
+        if first_key != second_key:
+            raise AuthorityError("self-test Windows case-fold key mismatch")
+
+        if os.name != "nt":
+            collision = base / "windows-collision"
+            collision.mkdir()
+            (collision / "Tool.exe").write_bytes(b"A")
+            (collision / "tool.exe").write_bytes(b"B")
+            try:
+                digest_tree(collision, "windows")
+            except AuthorityError:
+                pass
+            else:
+                raise AuthorityError(
+                    "self-test Windows case collision was not rejected"
+                )
 
         symlink_root = base / "symlink"
         symlink_root.mkdir()
@@ -487,7 +494,7 @@ def self_test():
             pass
         else:
             try:
-                digest_tree(symlink_root, "linux")
+                digest_tree(symlink_root, native_model)
             except AuthorityError:
                 pass
             else:

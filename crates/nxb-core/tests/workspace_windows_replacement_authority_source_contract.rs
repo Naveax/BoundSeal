@@ -46,9 +46,7 @@ fn windows_unsafe_abi_is_isolated_in_a_separate_core_library_crate_without_lock_
     assert!(!lock.contains("name = \"nxb-win32-fs-authority\""));
 
     assert!(nxb.contains("#![forbid(unsafe_code)]"));
-    assert!(nxb.contains(
-        "#[cfg(windows)]\nmod workspace_authority_replacement_windows;"
-    ));
+    assert!(nxb.contains("#[cfg(windows)]\nmod workspace_authority_replacement_windows;"));
     assert!(!replacement.contains("unsafe {"));
     assert!(replacement.contains(
         "use nxb_core_win32_authority::{file_identity, rename_handle_relative_no_replace, FileIdentity};"

@@ -12,7 +12,10 @@ pub(crate) fn count_target_readiness_records(root: &Path) -> Result<BTreeMap<Str
             directory,
             "workspace record directory",
         )?;
-        records.insert((*directory).to_owned(), count_regular_files(&authority_path)?);
+        records.insert(
+            (*directory).to_owned(),
+            count_regular_files(&authority_path)?,
+        );
     }
     Ok(records)
 }
@@ -24,7 +27,10 @@ fn count_regular_files(directory: &Path) -> Result<u64> {
         crate::workspace::reject_path_indirections(&path, "workspace record")?;
         let metadata = fs::symlink_metadata(&path)?;
         if metadata.file_type().is_symlink() || metadata_is_windows_reparse(&metadata) {
-            bail!("record directory contains a symbolic link or reparse point: {}", path.display());
+            bail!(
+                "record directory contains a symbolic link or reparse point: {}",
+                path.display()
+            );
         }
         if !metadata.is_file() {
             continue;

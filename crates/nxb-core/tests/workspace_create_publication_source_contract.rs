@@ -1,4 +1,7 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 const WORKSPACE_PATH: &str = "crates/nxb-core/src/workspace/mod.rs";
 const PREPARED_PATH: &str = "crates/nxb-core/src/prepared_file_authority.rs";
@@ -42,7 +45,10 @@ fn generic_create_only_writer_retains_prepared_object_through_claim_and_finaliza
         "temporary_link_cleanup_failed: false",
         "parent_directory_sync_failed: true",
     ] {
-        assert!(create.contains(marker), "{WORKSPACE_PATH}: missing generic prepared-publication marker: {marker}");
+        assert!(
+            create.contains(marker),
+            "{WORKSPACE_PATH}: missing generic prepared-publication marker: {marker}"
+        );
     }
 
     for forbidden in [
@@ -62,7 +68,8 @@ fn generic_create_only_writer_retains_prepared_object_through_claim_and_finaliza
 fn legacy_cleanup_injection_helper_is_test_only() {
     let workspace = source(WORKSPACE_PATH);
     assert!(workspace.contains("#[cfg(test)]\nfn create_document_with_operations"));
-    assert!(workspace.contains("#[cfg(test)]\n#[derive(Debug)]\nstruct UnpublishedDocumentCleanupError"));
+    assert!(workspace
+        .contains("#[cfg(test)]\n#[derive(Debug)]\nstruct UnpublishedDocumentCleanupError"));
 }
 
 #[test]
@@ -75,6 +82,9 @@ fn generic_writer_composes_with_platform_specific_prepared_file_authority() {
         "create_only_claim_uses_retained_inode_after_prepared_path_replacement",
         "prepared_windows_handle_denies_rename_until_authority_is_released",
     ] {
-        assert!(prepared.contains(marker), "{PREPARED_PATH}: missing prepared authority marker: {marker}");
+        assert!(
+            prepared.contains(marker),
+            "{PREPARED_PATH}: missing prepared authority marker: {marker}"
+        );
     }
 }

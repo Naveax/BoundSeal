@@ -195,11 +195,16 @@ impl PreparedFileAuthority {
             .stderr(Stdio::piped())
             .env_clear()
             .output()
-            .with_context(|| format!("could not execute trusted Linux hard-link tool {TRUSTED_LN}"))?;
+            .with_context(|| {
+                format!("could not execute trusted Linux hard-link tool {TRUSTED_LN}")
+            })?;
 
         if !output.status.success() {
             if fs::symlink_metadata(destination).is_ok() {
-                bail!("create-new destination already exists: {}", destination.display());
+                bail!(
+                    "create-new destination already exists: {}",
+                    destination.display()
+                );
             }
             let detail = String::from_utf8_lossy(&output.stderr)
                 .chars()

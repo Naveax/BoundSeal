@@ -5,11 +5,8 @@ use anyhow::{bail, Context, Result};
 const MAX_RECEIPTS: usize = 1_024;
 
 pub(crate) fn validate_target_readiness_receipts(root: &Path) -> Result<usize> {
-    let state = crate::workspace::pin_private_child_path(
-        root,
-        "state",
-        "migration state directory",
-    )?;
+    let state =
+        crate::workspace::pin_private_child_path(root, "state", "migration state directory")?;
     let receipts = state.join("migrations");
 
     if !crate::workspace::safe_exists(&receipts)? {
