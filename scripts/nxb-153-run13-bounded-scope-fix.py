@@ -27,7 +27,7 @@ $brokerState.Process = $null
 $brokerState.SnapshotRoot = $null
 $primaryError = $null
 '''
-new_state = '''$copyState = @{
+new_state = r'''$copyState = @{
     Expected = $null
     SourceRoot = $null
     Destination = $null
@@ -58,7 +58,7 @@ copy_end = '''        }
 
     $innerParameters = @{}
 '''
-copy_closure = '''        }
+copy_closure = r'''        }
         $copyItemProxy = (Get-Command Copy-Item -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
         Set-Item -Path Function:\Copy-Item -Value $copyItemProxy -Force
     }

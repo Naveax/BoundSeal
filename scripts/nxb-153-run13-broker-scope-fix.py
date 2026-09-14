@@ -17,7 +17,7 @@ $brokerEntryState.HandoffEstablished = $false
 $brokerEntryState.Stopped = $false
 $primaryError = $null
 '''
-new_state = '''$brokerEntryState = @{
+new_state = r'''$brokerEntryState = @{
     DeferredSnapshotRoot = $null
     HandoffEstablished = $false
     Stopped = $false
@@ -30,13 +30,13 @@ if old_state not in text:
     raise SystemExit("missing broker-entry state initialization anchor")
 text = text.replace(old_state, new_state, 1)
 
-proxy_end = '''            Microsoft.PowerShell.Management\\Remove-Item @PSBoundParameters
+proxy_end = r'''            Microsoft.PowerShell.Management\Remove-Item @PSBoundParameters
         }
     }
 
     $innerParameters = @{}
 '''
-proxy_closure = '''            Microsoft.PowerShell.Management\\Remove-Item @PSBoundParameters
+proxy_closure = r'''            Microsoft.PowerShell.Management\Remove-Item @PSBoundParameters
         }
 
         $newItemProxy = (Get-Command New-Item -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()

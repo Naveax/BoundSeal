@@ -30,6 +30,12 @@ jobs:
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
 
+      - name: Compile patch helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/nxb-153-run13-*.py
+
       - name: Apply coherent run 13 closure patch set
         shell: bash
         run: |
