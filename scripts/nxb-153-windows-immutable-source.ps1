@@ -161,8 +161,10 @@ $innerStream = $null
 $scriptsHandle = $null
 $primaryError = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
-$script:NxbH2OutStringByteLimit = 67108864
-$script:NxbH2OutStringObjectLimit = 4096
+$script:NxbH2OutStringLimits = @{
+    Byte = 67108864
+    Objects = 4096
+}
 
 $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
 $gitApplication = $gitCommand.Source
@@ -179,26 +181,8 @@ if (Test-Path Function:\Out-String) {
     Fail-NxbH2StringGuard 'ambient Out-String function authority is not admitted'
 }
 
-function Get-NxbH2OutStringProbeText {
-    param([Parameter(Mandatory = $true)]$Value)
-
-    if ($Value -is [string]) {
-        return [string]$Value
-    }
-    if ($Value -is [System.Management.Automation.InformationRecord]) {
-        return [string]$Value.ToString()
-    }
-    if ($Value -is [System.Management.Automation.ErrorRecord]) {
-        return [string]$Value.ToString()
-    }
-
-    Fail-NxbH2StringGuard (
-        'Out-String received an unsupported pipeline object type: ' +
-        $Value.GetType().FullName
-    )
-}
-
-function Out-String {
+$outStringLimits = $script:NxbH2OutStringLimits
+$outStringProxy = {
     [CmdletBinding()]
     param(
         [Parameter(ValueFromPipeline = $true)]$InputObject
@@ -209,13 +193,25 @@ function Out-String {
         [Int64]$inputBytes = 0
     }
     process {
-        if ($items.Count + 1 -gt $script:NxbH2OutStringObjectLimit) {
-            Fail-NxbH2StringGuard "Out-String capture exceeds $($script:NxbH2OutStringObjectLimit) pipeline objects"
+        if ($items.Count + 1 -gt $outStringLimits.Objects) {
+            throw "NXB-153 Windows H2 string-capture guard failed: Out-String capture exceeds $($outStringLimits.Objects) pipeline objects"
         }
-        $probeText = Get-NxbH2OutStringProbeText -Value $InputObject
+        if ($InputObject -is [string]) {
+            $probeText = [string]$InputObject
+        }
+        elseif ($InputObject -is [System.Management.Automation.InformationRecord] -or
+                $InputObject -is [System.Management.Automation.ErrorRecord]) {
+            $probeText = [string]$InputObject.ToString()
+        }
+        else {
+            throw (
+                'NXB-153 Windows H2 string-capture guard failed: Out-String received an unsupported pipeline object type: ' +
+                $InputObject.GetType().FullName
+            )
+        }
         $inputBytes += $encoding.GetByteCount($probeText)
-        if ($inputBytes -gt $script:NxbH2OutStringByteLimit) {
-            Fail-NxbH2StringGuard "Out-String input exceeds $($script:NxbH2OutStringByteLimit) UTF-8 bytes"
+        if ($inputBytes -gt $outStringLimits.Byte) {
+            throw "NXB-153 Windows H2 string-capture guard failed: Out-String input exceeds $($outStringLimits.Byte) UTF-8 bytes"
         }
         $items.Add($InputObject)
     }
@@ -227,12 +223,13 @@ function Out-String {
             $formatted = ($items.ToArray() | Microsoft.PowerShell.Utility\Out-String)
         }
         $outputBytes = $encoding.GetByteCount($formatted)
-        if ($outputBytes -gt $script:NxbH2OutStringByteLimit) {
-            Fail-NxbH2StringGuard "Out-String output exceeds $($script:NxbH2OutStringByteLimit) UTF-8 bytes"
+        if ($outputBytes -gt $outStringLimits.Byte) {
+            throw "NXB-153 Windows H2 string-capture guard failed: Out-String output exceeds $($outStringLimits.Byte) UTF-8 bytes"
         }
         $formatted
     }
-}
+}.GetNewClosure()
+Set-Item -Path Function:\Out-String -Value $outStringProxy -Force
 
 function Invoke-NxbH2StringGuardSelfTest {
     $expectedStrings = (@('alpha', 'beta') | Microsoft.PowerShell.Utility\Out-String)
@@ -253,10 +250,10 @@ function Invoke-NxbH2StringGuardSelfTest {
         Fail-NxbH2StringGuard 'bounded Out-String changed redirected information-record formatting'
     }
 
-    $savedByteLimit = $script:NxbH2OutStringByteLimit
-    $savedObjectLimit = $script:NxbH2OutStringObjectLimit
+    $savedByteLimit = $script:NxbH2OutStringLimits.Byte
+    $savedObjectLimit = $script:NxbH2OutStringLimits.Objects
     try {
-        $script:NxbH2OutStringByteLimit = 4
+        $script:NxbH2OutStringLimits.Byte = 4
         $rejected = $false
         try {
             'abcdef' | Out-String | Out-Null
@@ -271,8 +268,8 @@ function Invoke-NxbH2StringGuardSelfTest {
             Fail-NxbH2StringGuard 'bounded Out-String self-test did not reject oversized input'
         }
 
-        $script:NxbH2OutStringByteLimit = $savedByteLimit
-        $script:NxbH2OutStringObjectLimit = 1
+        $script:NxbH2OutStringLimits.Byte = $savedByteLimit
+        $script:NxbH2OutStringLimits.Objects = 1
         $rejected = $false
         try {
             @('a', 'b') | Out-String | Out-Null
@@ -287,7 +284,7 @@ function Invoke-NxbH2StringGuardSelfTest {
             Fail-NxbH2StringGuard 'bounded Out-String self-test did not reject excess pipeline objects'
         }
 
-        $script:NxbH2OutStringObjectLimit = $savedObjectLimit
+        $script:NxbH2OutStringLimits.Objects = $savedObjectLimit
         $rejected = $false
         try {
             [pscustomobject]@{ value = 'unsupported' } | Out-String | Out-Null
@@ -303,8 +300,8 @@ function Invoke-NxbH2StringGuardSelfTest {
         }
     }
     finally {
-        $script:NxbH2OutStringByteLimit = $savedByteLimit
-        $script:NxbH2OutStringObjectLimit = $savedObjectLimit
+        $script:NxbH2OutStringLimits.Byte = $savedByteLimit
+        $script:NxbH2OutStringLimits.Objects = $savedObjectLimit
     }
 }
 

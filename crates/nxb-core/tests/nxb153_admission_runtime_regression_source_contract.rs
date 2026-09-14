@@ -6,6 +6,8 @@ use std::{
 const LINUX_INNER_PATH: &str = "scripts/nxb-153-linux-immutable-source-inner.sh";
 const LINUX_HOSTED_WRAPPER_PATH: &str =
     "scripts/nxb-153-linux-immutable-source-h1-inner.sh";
+const REGISTRY_SOURCE_PATH: &str = "scripts/nxb-153-registry-source.py";
+const WINDOWS_STRING_GUARD_PATH: &str = "scripts/nxb-153-windows-immutable-source.ps1";
 const WINDOWS_GIT_GUARD_PATH: &str =
     "scripts/nxb-153-windows-immutable-source-git-output-inner.ps1";
 const WINDOWS_H2_ENTRY_PATH: &str =
@@ -80,6 +82,52 @@ fn linux_hosted_namespace_adapters_stop_exporting_before_deeper_children() {
         mount_start < handoff && handoff < wrapper_export,
         "{LINUX_HOSTED_WRAPPER_PATH}: adapter de-export must stay inside mount() before the outer wrapper export"
     );
+}
+
+#[test]
+fn cargo_197_vendor_comment_is_bound_without_weakening_checksum_authority() {
+    let source = read_source(REGISTRY_SOURCE_PATH);
+    for marker in [
+        "CARGO_CHECKSUM_COMMENT = (",
+        r#"set(checksum_payload) != {"$comment", "files", "package"}"#,
+        r#"checksum_payload.get("$comment") != CARGO_CHECKSUM_COMMENT"#,
+        r#""$comment": CARGO_CHECKSUM_COMMENT"#,
+    ] {
+        assert!(
+            source.contains(marker),
+            "{REGISTRY_SOURCE_PATH}: missing Cargo 1.97 checksum-comment contract marker: {marker}"
+        );
+    }
+}
+
+#[test]
+fn windows_out_string_proxy_captures_limits_across_nested_script_scopes() {
+    let source = read_source(WINDOWS_STRING_GUARD_PATH);
+    for marker in [
+        "$script:NxbH2OutStringLimits = @{",
+        "$outStringLimits = $script:NxbH2OutStringLimits",
+        "$outStringProxy = {",
+        "}.GetNewClosure()",
+        r#"Set-Item -Path Function:\Out-String -Value $outStringProxy -Force"#,
+        "$items.Count + 1 -gt $outStringLimits.Objects",
+        "$inputBytes -gt $outStringLimits.Byte",
+        "$outputBytes -gt $outStringLimits.Byte",
+    ] {
+        assert!(
+            source.contains(marker),
+            "{WINDOWS_STRING_GUARD_PATH}: missing closure-bound Out-String marker: {marker}"
+        );
+    }
+    for forbidden in [
+        "$script:NxbH2OutStringByteLimit",
+        "$script:NxbH2OutStringObjectLimit",
+        "function Out-String {",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "{WINDOWS_STRING_GUARD_PATH}: caller-sensitive Out-String authority remains: {forbidden}"
+        );
+    }
 }
 
 #[test]

@@ -14,6 +14,10 @@ import tomllib
 from typing import NoReturn
 
 CRATES_IO_SOURCE = "registry+https://github.com/rust-lang/crates.io-index"
+CARGO_CHECKSUM_COMMENT = (
+    "This file only protects against accidental modifications. "
+    "It is not a security mechanism and does not protect against malicious changes."
+)
 MAX_LOCK_BYTES = 8 * 1024 * 1024
 MAX_METADATA_BYTES = 32 * 1024 * 1024
 MAX_CHECKSUM_BYTES = 16 * 1024 * 1024
@@ -288,8 +292,12 @@ def validate_vendor(lock_path: Path, vendor_root: Path) -> dict[str, object]:
             checksum_payload = json.loads(raw_checksum.decode("utf-8", errors="strict"))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             fail(f"invalid .cargo-checksum.json for {directory_name}: {error}")
-        if not isinstance(checksum_payload, dict) or set(checksum_payload) != {"files", "package"}:
-            fail(f"unexpected checksum schema for {directory_name}")
+        if (
+            not isinstance(checksum_payload, dict)
+            or set(checksum_payload) != {"$comment", "files", "package"}
+            or checksum_payload.get("$comment") != CARGO_CHECKSUM_COMMENT
+        ):
+            fail(f"unexpected Cargo 1.97 checksum schema for {directory_name}")
         if checksum_payload.get("package") != expected_package_checksum:
             fail(f"vendored package checksum does not match Cargo.lock for {name} {version}")
         files = checksum_payload.get("files")
@@ -413,6 +421,7 @@ def self_test() -> None:
         checksum_path.write_text(
             json.dumps(
                 {
+                    "$comment": CARGO_CHECKSUM_COMMENT,
                     "files": {"src/lib.rs": trusted_sha},
                     "package": package_checksum,
                 },
