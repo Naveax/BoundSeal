@@ -1,0 +1,38 @@
+name: NXB-153 Format Helper
+
+on:
+  push:
+    branches:
+      - nxb-153-format-helper-1959453
+
+permissions:
+  contents: read
+
+jobs:
+  rustfmt:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact helper head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -c protocol.version=2 fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
+          git checkout --detach FETCH_HEAD
+      - name: Generate rustfmt patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
+          cargo +1.97.1 fmt --all
+          git diff --binary -- . ':!.github/workflows/nxb-153-format-helper.yml' > /tmp/nxb-153-rustfmt.patch
+          test -s /tmp/nxb-153-rustfmt.patch
+      - name: Upload rustfmt patch
+        uses: actions/upload-artifact@v4
+        with:
+          name: nxb-153-rustfmt-patch
+          path: /tmp/nxb-153-rustfmt.patch
+          if-no-files-found: error
+          retention-days: 1
