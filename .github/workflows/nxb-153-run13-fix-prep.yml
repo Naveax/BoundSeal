@@ -56,6 +56,7 @@ jobs:
           python3 -I scripts/nxb-153-run13-activation-race-fix.py
           python3 -I scripts/nxb-153-run13-activation-race-clippy-fix.py
           python3 -I scripts/nxb-153-run13-prepared-facade-fix.py
+          python3 -I scripts/nxb-153-run13-linux-child-path-fix.py
           python3 -I scripts/nxb-153-run13-active-observation-race-fix.py
 
       - name: Parse modified PowerShell sources
@@ -120,6 +121,7 @@ jobs:
             scripts/nxb-153-run13-activation-race-fix.py \
             scripts/nxb-153-run13-activation-race-clippy-fix.py \
             scripts/nxb-153-run13-prepared-facade-fix.py \
+            scripts/nxb-153-run13-linux-child-path-fix.py \
             scripts/nxb-153-run13-active-observation-race-fix.py
           find scripts -type d -name __pycache__ -prune -exec rm -rf {} +
           git add -A
