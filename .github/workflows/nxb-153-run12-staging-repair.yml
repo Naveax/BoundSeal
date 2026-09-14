@@ -1,0 +1,153 @@
+name: NXB-153 Run12 Staging Repair
+
+on:
+  push:
+    branches:
+      - nxb-153-run12-staging
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb-153-run12-staging-repair-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Patch Windows-native authority self-test and bind regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          authority_path = Path('scripts/nxb-153-rust-toolchain-authority.py')
+          text = authority_path.read_text(encoding='utf-8')
+          start = text.index('def self_test():')
+          end = text.index('\ndef main():', start)
+          block = text[start:end]
+
+          insertion = '        base = pathlib.Path(temporary)\n'
+          replacement = insertion + '        native_model = "windows" if os.name == "nt" else "linux"\n'
+          if insertion not in block or 'native_model = "windows" if os.name == "nt" else "linux"' in block:
+              raise SystemExit('unexpected self-test native-model insertion state')
+          block = block.replace(insertion, replacement, 1)
+
+          replacements = {
+              '        first_linux = digest_tree(first, "linux")\n': '        first_native = digest_tree(first, native_model)\n',
+              '        second_linux = digest_tree(second, "linux")\n': '        second_native = digest_tree(second, native_model)\n',
+              '        if first_linux["tree_sha256"] != second_linux["tree_sha256"]:\n': '        if first_native["tree_sha256"] != second_native["tree_sha256"]:\n',
+              '        original = first_linux["tree_sha256"]\n': '        original = first_native["tree_sha256"]\n',
+              '        if digest_tree(first, "linux")["tree_sha256"] == original:\n': '        if digest_tree(first, native_model)["tree_sha256"] == original:\n',
+              '            digest_tree(bounded, "linux", max_files=1)\n': '            digest_tree(bounded, native_model, max_files=1)\n',
+              '            digest_tree(bounded, "linux", max_total_bytes=1)\n': '            digest_tree(bounded, native_model, max_total_bytes=1)\n',
+              '            digest_tree(directory_bound, "linux", max_directories=1)\n': '            digest_tree(directory_bound, native_model, max_directories=1)\n',
+              '                digest_tree(symlink_root, "linux")\n': '                digest_tree(symlink_root, native_model)\n',
+          }
+          for old, new in replacements.items():
+              if block.count(old) != 1:
+                  raise SystemExit(f'unexpected self-test replacement count for {old!r}: {block.count(old)}')
+              block = block.replace(old, new, 1)
+
+          old_collision = '''        collision = base / "windows-collision"\n        collision.mkdir()\n        (collision / "Tool.exe").write_bytes(b"A")\n        (collision / "tool.exe").write_bytes(b"B")\n        try:\n            digest_tree(collision, "windows")\n        except AuthorityError:\n            pass\n        else:\n            raise AuthorityError(\n                "self-test Windows case collision was not rejected"\n            )\n'''
+          new_collision = '''        _, first_key = windows_relative_bytes("Tool.exe")\n        _, second_key = windows_relative_bytes("tool.exe")\n        if first_key != second_key:\n            raise AuthorityError("self-test Windows case-fold key mismatch")\n\n        if os.name != "nt":\n            collision = base / "windows-collision"\n            collision.mkdir()\n            (collision / "Tool.exe").write_bytes(b"A")\n            (collision / "tool.exe").write_bytes(b"B")\n            try:\n                digest_tree(collision, "windows")\n            except AuthorityError:\n                pass\n            else:\n                raise AuthorityError(\n                    "self-test Windows case collision was not rejected"\n                )\n'''
+          if block.count(old_collision) != 1:
+              raise SystemExit('unexpected Windows collision self-test block')
+          block = block.replace(old_collision, new_collision, 1)
+
+          text = text[:start] + block + text[end:]
+          authority_path.write_text(text, encoding='utf-8', newline='\n')
+
+          regression_path = Path('crates/nxb-core/tests/nxb153_admission_runtime_regression_source_contract.rs')
+          regression = regression_path.read_text(encoding='utf-8')
+          test_name = 'rust_toolchain_authority_self_test_uses_native_platform_model'
+          if test_name not in regression:
+              regression += r'''
+
+#[test]
+fn rust_toolchain_authority_self_test_uses_native_platform_model() {
+    let source = read_source("scripts/nxb-153-rust-toolchain-authority.py");
+    let start = required_offset(
+        &source,
+        "def self_test():",
+        "scripts/nxb-153-rust-toolchain-authority.py",
+    );
+    let end = start
+        + required_offset(
+            &source[start..],
+            "\ndef main():",
+            "scripts/nxb-153-rust-toolchain-authority.py",
+        );
+    let body = &source[start..end];
+
+    for marker in [
+        r#"native_model = "windows" if os.name == "nt" else "linux""#,
+        "first_native = digest_tree(first, native_model)",
+        "second_native = digest_tree(second, native_model)",
+        "digest_tree(bounded, native_model, max_files=1)",
+        "digest_tree(bounded, native_model, max_total_bytes=1)",
+        "digest_tree(directory_bound, native_model, max_directories=1)",
+        "digest_tree(symlink_root, native_model)",
+        r#"_, first_key = windows_relative_bytes("Tool.exe")"#,
+        r#"_, second_key = windows_relative_bytes("tool.exe")"#,
+        r#"if os.name != "nt":"#,
+    ] {
+        assert!(
+            body.contains(marker),
+            "host Rust authority self-test missing platform-safe marker: {marker}"
+        );
+    }
+
+    for forbidden in [
+        r#"digest_tree(first, "linux")"#,
+        r#"digest_tree(second, "linux")"#,
+        r#"digest_tree(bounded, "linux""#,
+        r#"digest_tree(directory_bound, "linux""#,
+        r#"digest_tree(symlink_root, "linux")"#,
+    ] {
+        assert!(
+            !body.contains(forbidden),
+            "host Rust authority self-test retained Windows-hostile Linux traversal: {forbidden}"
+        );
+    }
+}
+'''
+              regression_path.write_text(regression, encoding='utf-8', newline='\n')
+          PY
+
+      - name: Format exact source with Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
+          cargo +1.97.1 fmt --all
+          cargo +1.97.1 fmt --all -- --check
+
+      - name: Exercise repaired helper and source contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I scripts/nxb-153-rust-toolchain-authority.py self-test
+          cargo +1.97.1 test -p nxb-core --test nxb153_admission_runtime_regression_source_contract --locked
+          git diff --check
+
+      - name: Commit staging repair without recursive CI
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Naveax'
+          git config user.email 'Omersevik095@gmail.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'staging repair produced no changes' >&2
+            exit 1
+          fi
+          git commit -m 'Stage NXB-153 run12 repair [skip ci]'
+          git push origin HEAD:nxb-153-run12-staging
