@@ -5,6 +5,9 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use serde_json::Value;
 
 fn nxb() -> &'static str {
@@ -119,7 +122,26 @@ fn workspace_status_and_migration_status_emit_stable_json_diagnostics() {
     ]);
     assert!(initialized.status.success());
 
-    fs::write(root.join("state").join("migration-active.json"), b"{}\n").unwrap();
+    let active = root.join("state").join("migration-active.json");
+    let journal = serde_json::json!({
+        "journal_version": 1,
+        "migration_id": "nxb-migration-diagnostic-0001",
+        "from_schema": 0,
+        "to_schema": 1,
+        "source_sha256": "1".repeat(64),
+        "target_sha256": "2".repeat(64),
+        "prepared_at": "2026-08-05T00:00:00Z"
+    });
+    let mut journal_bytes = serde_json::to_vec_pretty(&journal).unwrap();
+    journal_bytes.push(b'\n');
+    fs::write(&active, journal_bytes).unwrap();
+    #[cfg(unix)]
+    {
+        let mut permissions = fs::metadata(&active).unwrap().permissions();
+        permissions.set_mode(0o600);
+        fs::set_permissions(&active, permissions).unwrap();
+    }
+
     let output = run(&["workspace", "status", "--workspace", root_text, "--json"]);
     assert_diagnostic(
         &output,
