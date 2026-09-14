@@ -165,6 +165,51 @@ fn activation_arguments(root: &Path, authorization: &Path, preview_sha256: &str)
     arguments
 }
 
+fn assert_profile_and_transport_residue(root: &Path) {
+    let targets = root.join("targets");
+    let profile = targets.join("example-app.json");
+    let profile_bytes = fs::read(&profile).unwrap();
+    let mut names = fs::read_dir(&targets)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect::<Vec<_>>();
+    names.sort();
+
+    assert_eq!(names.len(), 2, "unexpected target namespace: {names:?}");
+    assert!(names.iter().any(|name| name == "example-app.json"));
+
+    let residue = names
+        .iter()
+        .find(|name| name.as_str() != "example-app.json")
+        .unwrap();
+    let nonce = residue
+        .strip_prefix(".example-app.json.")
+        .and_then(|value| value.strip_suffix(".tmp"))
+        .expect("guided profile transport residue is not canonically named");
+    assert_eq!(nonce.len(), 24);
+    assert!(
+        nonce
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+        "guided profile transport residue nonce is not canonical lowercase hex"
+    );
+    assert_eq!(fs::read(targets.join(residue)).unwrap(), profile_bytes);
+
+    let status = run_json(&[
+        "workspace".into(),
+        "status".into(),
+        "--workspace".into(),
+        root.to_string_lossy().into_owned(),
+        "--json".into(),
+    ]);
+    assert_eq!(
+        status
+            .pointer("/records/targets")
+            .and_then(Value::as_u64),
+        Some(1)
+    );
+}
+
 #[test]
 fn exact_preview_activation_creates_existing_profile_model_without_secret_persistence() {
     let root = temporary_workspace("success");
@@ -225,7 +270,7 @@ fn exact_preview_activation_creates_existing_profile_model_without_secret_persis
     assert!(profile_text.contains(preview_policy_sha256));
 
     assert_eq!(fs::read_dir(root.join("config")).unwrap().count(), 0);
-    assert_eq!(fs::read_dir(root.join("targets")).unwrap().count(), 1);
+    assert_profile_and_transport_residue(&root);
 
     let shown = run_json(&[
         "target".into(),
@@ -312,7 +357,7 @@ fn wrong_activation_acknowledgement_rejects_and_exact_retry_is_idempotent() {
     );
     assert_eq!(fs::read(&profile_path).unwrap(), profile_before);
     assert_eq!(fs::read(&artifact_path).unwrap(), artifact_before);
-    assert_eq!(fs::read_dir(root.join("targets")).unwrap().count(), 1);
+    assert_profile_and_transport_residue(&root);
 
     fs::remove_dir_all(root).unwrap();
 }
