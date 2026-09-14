@@ -60,7 +60,7 @@ text = text.replace(old, new, 1)
 
 insert = r'''
 
-    fn concurrency_fixture(name: &str, completed: bool) -> (PathBuf, PathBuf, String) {
+    fn concurrency_fixture(name: &str, completed: bool) -> (std::path::PathBuf, std::path::PathBuf, String) {
         let root = std::env::temp_dir().join(format!(
             "nxb153-activation-disable-race-{name}-{}-{}",
             std::process::id(),
