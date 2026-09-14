@@ -47,6 +47,12 @@ text = text.replace("$savedLimit = $script:NxbH2EnumerationLimit", "$savedLimit 
 text = text.replace("$script:NxbH2EnumerationLimit = 4", "$script:NxbH2EnumerationLimits.Count = 4", 1)
 text = text.replace("$script:NxbH2EnumerationLimit = 2", "$script:NxbH2EnumerationLimits.Count = 2", 1)
 text = text.replace("$script:NxbH2EnumerationLimit = $savedLimit", "$script:NxbH2EnumerationLimits.Count = $savedLimit", 1)
-if "$script:NxbH2EnumerationLimit" in text:
-    raise SystemExit("caller-sensitive enumeration scalar remains")
+for forbidden in [
+    "$script:NxbH2EnumerationLimit =",
+    "$script:NxbH2EnumerationLimit\n",
+    "$script:NxbH2EnumerationLimit)",
+    "$script:NxbH2EnumerationLimit]",
+]:
+    if forbidden in text:
+        raise SystemExit(f"caller-sensitive enumeration scalar remains: {forbidden}")
 path.write_text(text, encoding="utf-8", newline="\n")
