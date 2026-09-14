@@ -660,7 +660,7 @@ function Invoke-NxbSelfTest {
 
     $root = Join-Path ([IO.Path]::GetTempPath()) ("nxb-153-windows-source-selftest-" + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $root | Out-Null
-    $originalAcl = Get-Acl -LiteralPath $root
+    $sourceDirectoryAcls = [Collections.Generic.List[object]]::new()
     $cleanupErrors = [Collections.Generic.List[string]]::new()
     $primaryFailure = $null
     try {
@@ -670,7 +670,16 @@ function Invoke-NxbSelfTest {
         [IO.File]::WriteAllText($source, 'trusted', [Text.UTF8Encoding]::new($false))
         $runtime = Join-Path $root 'target'
         Protect-NxbRuntimeDirectory -Path $runtime
-        Set-NxbSourceWriteDeny -Path $root
+
+        foreach ($sourceDirectory in @($root, $nested)) {
+            $sourceDirectoryAcls.Add([pscustomobject]@{
+                Path = $sourceDirectory
+                Acl = Get-Acl -LiteralPath $sourceDirectory
+            })
+        }
+        foreach ($sourceDirectory in @($root, $nested)) {
+            Set-NxbSourceWriteDeny -Path $sourceDirectory
+        }
 
         Assert-NxbDirectoryCreateDenied -Path $root -Label 'self-test source root'
         Assert-NxbDirectoryCreateDenied -Path $nested -Label 'self-test nested source directory'
@@ -692,8 +701,13 @@ function Invoke-NxbSelfTest {
         $primaryFailure = $_
     }
     finally {
+        for ($index = $sourceDirectoryAcls.Count - 1; $index -ge 0; $index--) {
+            $snapshot = $sourceDirectoryAcls[$index]
+            if (Test-Path -LiteralPath $snapshot.Path) {
+                try { Set-Acl -LiteralPath $snapshot.Path -AclObject $snapshot.Acl -ErrorAction Stop } catch { $cleanupErrors.Add("self-test source ACL restore: $($_.Exception.Message)") }
+            }
+        }
         if (Test-Path -LiteralPath $root) {
-            try { Set-Acl -LiteralPath $root -AclObject $originalAcl -ErrorAction Stop } catch { $cleanupErrors.Add("self-test ACL restore: $($_.Exception.Message)") }
             try { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop } catch { $cleanupErrors.Add("self-test root removal: $($_.Exception.Message)") }
         }
     }
@@ -734,10 +748,10 @@ $archivePath = "$snapshotRoot.tar"
 $directoryHandles = [Collections.Generic.List[IDisposable]]::new()
 $fileStreams = [Collections.Generic.List[IO.FileStream]]::new()
 $sourceDirectories = [Collections.Generic.List[string]]::new()
+$sourceDirectoryAcls = [Collections.Generic.List[object]]::new()
 $archiveStream = $null
 $validationRootHandle = $null
 $repoRootHandle = $null
-$originalRootAcl = $null
 $primaryFailure = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
 $validationSucceeded = $false
@@ -847,8 +861,15 @@ try {
         Protect-NxbRuntimeDirectory -Path $runtime
     }
 
-    $originalRootAcl = Get-Acl -LiteralPath $snapshotRoot
-    Set-NxbSourceWriteDeny -Path $snapshotRoot
+    foreach ($sourceDirectory in $sourceDirectories) {
+        $sourceDirectoryAcls.Add([pscustomobject]@{
+            Path = $sourceDirectory
+            Acl = Get-Acl -LiteralPath $sourceDirectory
+        })
+    }
+    foreach ($sourceDirectory in $sourceDirectories) {
+        Set-NxbSourceWriteDeny -Path $sourceDirectory
+    }
 
     foreach ($sourceDirectory in $sourceDirectories) {
         Assert-NxbDirectoryCreateDenied -Path $sourceDirectory -Label "source directory $sourceDirectory"
@@ -909,8 +930,11 @@ catch {
     $primaryFailure = $_
 }
 finally {
-    if ($null -ne $originalRootAcl -and (Test-Path -LiteralPath $snapshotRoot)) {
-        try { Set-Acl -LiteralPath $snapshotRoot -AclObject $originalRootAcl -ErrorAction Stop } catch { $cleanupErrors.Add("snapshot ACL restore: $($_.Exception.Message)") }
+    for ($index = $sourceDirectoryAcls.Count - 1; $index -ge 0; $index--) {
+        $snapshot = $sourceDirectoryAcls[$index]
+        if (Test-Path -LiteralPath $snapshot.Path) {
+            try { Set-Acl -LiteralPath $snapshot.Path -AclObject $snapshot.Acl -ErrorAction Stop } catch { $cleanupErrors.Add("snapshot source ACL restore: $($_.Exception.Message)") }
+        }
     }
     for ($index = $fileStreams.Count - 1; $index -ge 0; $index--) {
         try { $fileStreams[$index].Dispose() } catch { $cleanupErrors.Add("tracked file handle disposal: $($_.Exception.Message)") }

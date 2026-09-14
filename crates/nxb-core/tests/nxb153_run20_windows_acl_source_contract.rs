@@ -3,8 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const WINDOWS_IMMUTABLE_SOURCE_PATH: &str =
-    "scripts/nxb-153-windows-immutable-source-inner.ps1";
+const WINDOWS_IMMUTABLE_SOURCE_PATH: &str = "scripts/nxb-153-windows-immutable-source-inner.ps1";
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")

@@ -176,7 +176,11 @@ impl ParentAuthority {
     fn claim_prepared(&self, prepared: &RetainedFileAuthority, destination: &OsStr) -> Result<()> {
         let tool = trusted_tool(TRUSTED_LN, "Linux hard-link tool")?;
         let proc_pid = linux_proc_visible_pid()?;
-        let source = PathBuf::from(format!("/proc/{}/fd/{}", proc_pid, prepared.file.as_raw_fd()));
+        let source = PathBuf::from(format!(
+            "/proc/{}/fd/{}",
+            proc_pid,
+            prepared.file.as_raw_fd()
+        ));
         let destination = self.external_stable_path(destination, &proc_pid);
         let output = Command::new(tool)
             .arg("-L")
