@@ -557,6 +557,26 @@ function Set-NxbSourceWriteDeny {
     Set-Acl -LiteralPath $Path -AclObject $acl
 }
 
+function Set-NxbSourceFileWriteDeny {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    if ($null -eq $identity) {
+        Fail-Nxb 'current Windows identity SID is unavailable'
+    }
+    $acl = Get-Acl -LiteralPath $Path
+    $rights = [Security.AccessControl.FileSystemRights]::Write -bor
+        [Security.AccessControl.FileSystemRights]::Delete
+    $rule = [Security.AccessControl.FileSystemAccessRule]::new(
+        $identity,
+        $rights,
+        [Security.AccessControl.InheritanceFlags]::None,
+        [Security.AccessControl.PropagationFlags]::None,
+        [Security.AccessControl.AccessControlType]::Deny
+    )
+    [void]$acl.AddAccessRule($rule)
+    Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
+}
+
 function Assert-NxbDirectoryCreateDenied {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -661,6 +681,7 @@ function Invoke-NxbSelfTest {
     $root = Join-Path ([IO.Path]::GetTempPath()) ("nxb-153-windows-source-selftest-" + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $root | Out-Null
     $sourceDirectoryAcls = [Collections.Generic.List[object]]::new()
+    $sourceFileAcls = [Collections.Generic.List[object]]::new()
     $cleanupErrors = [Collections.Generic.List[string]]::new()
     $primaryFailure = $null
     try {
@@ -670,6 +691,12 @@ function Invoke-NxbSelfTest {
         [IO.File]::WriteAllText($source, 'trusted', [Text.UTF8Encoding]::new($false))
         $runtime = Join-Path $root 'target'
         Protect-NxbRuntimeDirectory -Path $runtime
+
+        $sourceFileAcls.Add([pscustomobject]@{
+            Path = $source
+            Acl = Get-Acl -LiteralPath $source
+        })
+        Set-NxbSourceFileWriteDeny -Path $source
 
         foreach ($sourceDirectory in @($root, $nested)) {
             $sourceDirectoryAcls.Add([pscustomobject]@{
@@ -704,7 +731,13 @@ function Invoke-NxbSelfTest {
         for ($index = $sourceDirectoryAcls.Count - 1; $index -ge 0; $index--) {
             $snapshot = $sourceDirectoryAcls[$index]
             if (Test-Path -LiteralPath $snapshot.Path) {
-                try { Set-Acl -LiteralPath $snapshot.Path -AclObject $snapshot.Acl -ErrorAction Stop } catch { $cleanupErrors.Add("self-test source ACL restore: $($_.Exception.Message)") }
+                try { Set-Acl -LiteralPath $snapshot.Path -AclObject $snapshot.Acl -ErrorAction Stop } catch { $cleanupErrors.Add("self-test source directory ACL restore: $($_.Exception.Message)") }
+            }
+        }
+        for ($index = $sourceFileAcls.Count - 1; $index -ge 0; $index--) {
+            $snapshot = $sourceFileAcls[$index]
+            if (Test-Path -LiteralPath $snapshot.Path) {
+                try { Set-Acl -LiteralPath $snapshot.Path -AclObject $snapshot.Acl -ErrorAction Stop } catch { $cleanupErrors.Add("self-test source file ACL restore: $($_.Exception.Message)") }
             }
         }
         if (Test-Path -LiteralPath $root) {
@@ -749,6 +782,7 @@ $directoryHandles = [Collections.Generic.List[IDisposable]]::new()
 $fileStreams = [Collections.Generic.List[IO.FileStream]]::new()
 $sourceDirectories = [Collections.Generic.List[string]]::new()
 $sourceDirectoryAcls = [Collections.Generic.List[object]]::new()
+$sourceFileAcls = [Collections.Generic.List[object]]::new()
 $archiveStream = $null
 $validationRootHandle = $null
 $repoRootHandle = $null
@@ -861,6 +895,17 @@ try {
         Protect-NxbRuntimeDirectory -Path $runtime
     }
 
+    foreach ($entry in $manifest) {
+        $sourceFile = $actualFiles[$entry.Path]
+        $sourceFileAcls.Add([pscustomobject]@{
+            Path = $sourceFile
+            Acl = Get-Acl -LiteralPath $sourceFile
+        })
+    }
+    foreach ($entry in $manifest) {
+        Set-NxbSourceFileWriteDeny -Path $actualFiles[$entry.Path]
+    }
+
     foreach ($sourceDirectory in $sourceDirectories) {
         $sourceDirectoryAcls.Add([pscustomobject]@{
             Path = $sourceDirectory
@@ -933,7 +978,13 @@ finally {
     for ($index = $sourceDirectoryAcls.Count - 1; $index -ge 0; $index--) {
         $snapshot = $sourceDirectoryAcls[$index]
         if (Test-Path -LiteralPath $snapshot.Path) {
-            try { Set-Acl -LiteralPath $snapshot.Path -AclObject $snapshot.Acl -ErrorAction Stop } catch { $cleanupErrors.Add("snapshot source ACL restore: $($_.Exception.Message)") }
+            try { Set-Acl -LiteralPath $snapshot.Path -AclObject $snapshot.Acl -ErrorAction Stop } catch { $cleanupErrors.Add("snapshot source directory ACL restore: $($_.Exception.Message)") }
+        }
+    }
+    for ($index = $sourceFileAcls.Count - 1; $index -ge 0; $index--) {
+        $snapshot = $sourceFileAcls[$index]
+        if (Test-Path -LiteralPath $snapshot.Path) {
+            try { Set-Acl -LiteralPath $snapshot.Path -AclObject $snapshot.Acl -ErrorAction Stop } catch { $cleanupErrors.Add("snapshot source file ACL restore: $($_.Exception.Message)") }
         }
     }
     for ($index = $fileStreams.Count - 1; $index -ge 0; $index--) {

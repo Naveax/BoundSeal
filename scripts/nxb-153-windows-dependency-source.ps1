@@ -505,7 +505,7 @@ $fetchHomeHandle = $null
 $vendorRootHandle = $null
 $gateHomeHandle = $null
 $configStream = $null
-$vendorOriginalAcl = $null
+$vendorDirectoryAcls = [Collections.Generic.List[object]]::new()
 $primaryFailure = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
 
@@ -552,12 +552,20 @@ try {
             -Arguments @('validate-vendor', $lockPath, $vendorRoot) `
             -Label 'vendored registry dependency authority'
 
-        $vendorOriginalAcl = Get-Acl -LiteralPath $vendorRoot
-        Set-NxbDependencyWriteDeny -Path $vendorRoot
+        $vendorDirectories = @(Get-ChildItem -LiteralPath $vendorRoot -Directory -Force -Recurse | Sort-Object { $_.FullName.Length } | ForEach-Object { $_.FullName })
+        foreach ($directory in @($vendorRoot) + $vendorDirectories) {
+            $vendorDirectoryAcls.Add([pscustomobject]@{
+                Path = $directory
+                Acl = Get-Acl -LiteralPath $directory
+            })
+        }
+        foreach ($directory in @($vendorRoot) + $vendorDirectories) {
+            Set-NxbDependencyWriteDeny -Path $directory
+        }
 
         [Int64]$pinnedBytes = 0
         $pinnedFiles = 0
-        foreach ($directory in @(Get-ChildItem -LiteralPath $vendorRoot -Directory -Force -Recurse | Sort-Object { $_.FullName.Length } | ForEach-Object { $_.FullName })) {
+        foreach ($directory in $vendorDirectories) {
             Assert-NxbDependencyDirectoryDenied -Path $directory
             $vendorDirectoryHandles.Add((Open-NxbDependencyDirectory -Path $directory -Label 'vendored dependency directory'))
         }
@@ -695,8 +703,11 @@ finally {
     for ($index = $vendorDirectoryHandles.Count - 1; $index -ge 0; $index--) {
         try { $vendorDirectoryHandles[$index].Dispose() } catch { $cleanupErrors.Add("vendor directory handle dispose: $($_.Exception.Message)") }
     }
-    if ($null -ne $vendorOriginalAcl -and (Test-Path -LiteralPath $vendorRoot)) {
-        try { Set-Acl -LiteralPath $vendorRoot -AclObject $vendorOriginalAcl -ErrorAction Stop } catch { $cleanupErrors.Add("vendor ACL restore: $($_.Exception.Message)") }
+    for ($index = $vendorDirectoryAcls.Count - 1; $index -ge 0; $index--) {
+        $snapshot = $vendorDirectoryAcls[$index]
+        if (Test-Path -LiteralPath $snapshot.Path) {
+            try { Set-Acl -LiteralPath $snapshot.Path -AclObject $snapshot.Acl -ErrorAction Stop } catch { $cleanupErrors.Add("vendor directory ACL restore: $($_.Exception.Message)") }
+        }
     }
     foreach ($handleInfo in @(
         [pscustomobject]@{ Handle = $gateHomeHandle; Label = 'gate-home' },

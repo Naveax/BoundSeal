@@ -16,11 +16,15 @@ fn source(path: &str) -> String {
 }
 
 #[test]
-fn windows_source_deny_acl_is_staged_explicitly_per_retained_source_directory() {
+fn windows_source_deny_acl_is_staged_explicitly_per_retained_source_object() {
     let authority = source(WINDOWS_IMMUTABLE_SOURCE_PATH);
 
     for marker in [
         "$sourceDirectoryAcls = [Collections.Generic.List[object]]::new()",
+        "$sourceFileAcls = [Collections.Generic.List[object]]::new()",
+        "Set-NxbSourceFileWriteDeny -Path $source",
+        "Set-NxbSourceFileWriteDeny -Path $actualFiles[$entry.Path]",
+        "for ($index = $sourceFileAcls.Count - 1; $index -ge 0; $index--)",
         "Acl = Get-Acl -LiteralPath $sourceDirectory",
         "Set-NxbSourceWriteDeny -Path $sourceDirectory",
         "for ($index = $sourceDirectoryAcls.Count - 1; $index -ge 0; $index--)",
