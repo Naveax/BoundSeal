@@ -1,0 +1,68 @@
+name: NXB-153 Run 23 Windows Fix Prep
+
+on:
+  push:
+    branches:
+      - nxb-153-run23-windows-prep
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nxb-153-run23-windows-prep
+  cancel-in-progress: false
+
+jobs:
+  verify-and-seal:
+    runs-on: windows-2025
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nxb-153-run23-windows-prep
+          fetch-depth: 1
+
+      - name: Apply exact run 23 Windows patches
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python3 scripts/nxb-153-run23-windows-prep.py
+          if ($LASTEXITCODE -ne 0) { throw "prep patch failed with exit $LASTEXITCODE" }
+
+      - name: Verify formatting and focused regressions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
+          if ($LASTEXITCODE -ne 0) { throw "rustup install failed with exit $LASTEXITCODE" }
+          rustup run 1.97.1 cargo fmt --all
+          if ($LASTEXITCODE -ne 0) { throw "cargo fmt failed with exit $LASTEXITCODE" }
+          rustup run 1.97.1 cargo fmt --all -- --check
+          if ($LASTEXITCODE -ne 0) { throw "cargo fmt check failed with exit $LASTEXITCODE" }
+          rustup run 1.97.1 cargo test -p nxb-core --test product_diagnostics --locked -- --test-threads=1
+          if ($LASTEXITCODE -ne 0) { throw "product diagnostics failed with exit $LASTEXITCODE" }
+          rustup run 1.97.1 cargo test -p nxb-core --test nxb153_run23_windows_admission_gate_coverage_source_contract --locked -- --test-threads=1
+          if ($LASTEXITCODE -ne 0) { throw "Windows admission source contract failed with exit $LASTEXITCODE" }
+
+      - name: Prove Windows admission path
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\scripts\prepare-and-validate-nxb-153-windows.ps1 -RepoRoot .
+
+      - name: Seal verified prep branch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item -LiteralPath .github/workflows/nxb-153-run23-windows-prep.yml -Force
+          Remove-Item -LiteralPath scripts/nxb-153-run23-windows-prep.py -Force
+          git config user.name Naveax
+          git config user.email Omersevik095@gmail.com
+          git add -A
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m 'Harden NXB-153 Windows exact-head admission gates'
+            if ($LASTEXITCODE -ne 0) { throw "git commit failed with exit $LASTEXITCODE" }
+            git push origin HEAD:nxb-153-run23-windows-prep
+            if ($LASTEXITCODE -ne 0) { throw "git push failed with exit $LASTEXITCODE" }
+          }
