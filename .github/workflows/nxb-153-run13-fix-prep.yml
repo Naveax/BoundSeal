@@ -39,6 +39,7 @@ jobs:
           for name in [
               'scripts/nxb-153-run13-windows-cleanup-runtime-fix.py',
               'scripts/nxb-153-run13-windows-cleanup-admission-fix.py',
+              'scripts/nxb-153-run13-windows-cleanup-selftest-fix.py',
           ]:
               source = Path(name).read_text(encoding='utf-8')
               compile(source, name, 'exec')
@@ -49,6 +50,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -I scripts/nxb-153-run13-windows-cleanup-runtime-fix.py
+          python3 -I scripts/nxb-153-run13-windows-cleanup-selftest-fix.py
           python3 -I scripts/nxb-153-run13-windows-cleanup-admission-fix.py
 
       - name: Parse and exercise production cleanup arbitration
@@ -98,7 +100,8 @@ jobs:
           rm -f \
             .github/workflows/nxb-153-run13-fix-prep.yml \
             scripts/nxb-153-run13-windows-cleanup-runtime-fix.py \
-            scripts/nxb-153-run13-windows-cleanup-admission-fix.py
+            scripts/nxb-153-run13-windows-cleanup-admission-fix.py \
+            scripts/nxb-153-run13-windows-cleanup-selftest-fix.py
           find scripts -type d -name __pycache__ -prune -exec rm -rf {} +
           git add -A
           git diff --cached --check
