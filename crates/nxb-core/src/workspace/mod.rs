@@ -64,6 +64,7 @@ struct InitResult {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 struct DoctorResult {
     status: &'static str,
     workspace: String,
@@ -73,6 +74,7 @@ struct DoctorResult {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 struct DoctorCheck {
     name: String,
     status: CheckStatus,
@@ -81,6 +83,7 @@ struct DoctorCheck {
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 enum CheckStatus {
     Pass,
     Fail,
@@ -102,6 +105,7 @@ pub(crate) fn initialize_value(workspace: &Path, name: &str) -> Result<Value> {
         .context("could not serialize workspace initialization result")
 }
 
+#[allow(dead_code)]
 pub(crate) fn doctor_value(workspace: &Path) -> Result<Value> {
     serde_json::to_value(doctor_result(workspace))
         .context("could not serialize workspace doctor result")
@@ -176,6 +180,7 @@ fn initialize_inner(workspace: &Path, name: &str) -> Result<InitResult> {
     })
 }
 
+#[allow(dead_code)]
 fn doctor_result(workspace: &Path) -> DoctorResult {
     let mut checks = Vec::new();
     let canonical_root = match validate_workspace_root(workspace, false) {
@@ -650,6 +655,7 @@ where
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(crate) fn replace_document(path: &Path, bytes: &[u8]) -> Result<()> {
     if bytes.is_empty() || bytes.len() as u64 > MAX_DOCUMENT_BYTES {
         bail!("replacement document size is invalid");
@@ -687,6 +693,7 @@ pub(crate) fn read_bounded_source(path: &Path, label: &str, maximum: u64) -> Res
     read_authority::read_bounded_source(path, label, maximum)
 }
 
+#[allow(dead_code)]
 fn write_probe(workspace: &Path) -> Result<()> {
     let path = workspace
         .join("tmp")
@@ -806,6 +813,7 @@ pub(crate) fn random_hex(bytes: usize) -> Result<String> {
     Ok(encoded)
 }
 
+#[allow(dead_code)]
 fn pass_check(name: impl Into<String>, detail: impl Into<String>) -> DoctorCheck {
     DoctorCheck {
         name: name.into(),
@@ -814,6 +822,7 @@ fn pass_check(name: impl Into<String>, detail: impl Into<String>) -> DoctorCheck
     }
 }
 
+#[allow(dead_code)]
 fn fail_check(name: impl Into<String>, detail: impl Into<String>) -> DoctorCheck {
     DoctorCheck {
         name: name.into(),
@@ -854,6 +863,7 @@ pub(crate) fn safe_exists(path: &Path) -> Result<bool> {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn remove_regular(path: &Path) -> Result<()> {
     reject_path_indirections(path, "workspace transient file")?;
     let metadata = fs::symlink_metadata(path)?;
@@ -943,12 +953,14 @@ fn sync_parent(_parent: &Path) -> Result<()> {
 }
 
 #[cfg(unix)]
+#[allow(dead_code)]
 fn replace_file(source: &Path, destination: &Path) -> Result<()> {
     fs::rename(source, destination)?;
     Ok(())
 }
 
 #[cfg(not(unix))]
+#[allow(dead_code)]
 fn replace_file(source: &Path, destination: &Path) -> Result<()> {
     if destination.exists() {
         remove_regular(destination)?;

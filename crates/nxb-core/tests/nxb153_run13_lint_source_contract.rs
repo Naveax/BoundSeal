@@ -1,8 +1,7 @@
-#!/usr/bin/env python3
-from pathlib import Path
-
-path = Path("crates/nxb-core/tests/nxb153_run13_lint_source_contract.rs")
-path.write_text(r'''use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -31,16 +30,30 @@ fn concrete_run13_unused_imports_are_removed_without_crate_wide_suppression() {
         "crates/nxb-core/src/workspace_windows_entry.rs",
     ] {
         let text = source(path);
-        assert!(!text.contains("#![allow(warnings)]"), "{path}: broad warning suppression is forbidden");
-        assert!(!text.contains("#![allow(dead_code)]"), "{path}: crate/module-wide dead-code suppression is forbidden");
-        assert!(!text.contains("#![allow(unused)]"), "{path}: broad unused suppression is forbidden");
+        assert!(
+            !text.contains("#![allow(warnings)]"),
+            "{path}: broad warning suppression is forbidden"
+        );
+        assert!(
+            !text.contains("#![allow(dead_code)]"),
+            "{path}: crate/module-wide dead-code suppression is forbidden"
+        );
+        assert!(
+            !text.contains("#![allow(unused)]"),
+            "{path}: broad unused suppression is forbidden"
+        );
     }
 }
 
 #[test]
 fn intentionally_retained_compatibility_items_use_item_scoped_dead_code_exceptions() {
     let directory = source("crates/nxb-core/src/directory_authority.rs");
-    assert!(directory.matches("#[allow(dead_code)]\n    pub(crate) fn sync").count() >= 3);
+    assert!(
+        directory
+            .matches("#[allow(dead_code)]\n    pub(crate) fn sync")
+            .count()
+            >= 3
+    );
 
     let authority = source("crates/nxb-core/src/workspace_authority.rs");
     for marker in [
@@ -79,4 +92,3 @@ fn run13_clippy_needless_return_is_removed_at_the_platform_dispatch_boundary() {
     assert!(doctor.contains("run_linux(directory)"));
     assert!(doctor.contains("run_windows(directory)"));
 }
-''', encoding="utf-8", newline="\n")

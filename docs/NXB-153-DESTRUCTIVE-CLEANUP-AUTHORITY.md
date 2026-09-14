@@ -90,3 +90,7 @@ This issue remains open because source staging is not runtime/platform admission
 - pinned Rust 1.97.1 build/check/clippy/test/doc/dependency-policy evidence is absent.
 
 No runtime PASS is claimed. PR #89 remains draft/not admitted, and NXB-154 must not use NXB-153 as an admitted base until exact same-head closure.
+
+## Linux existing-destination exact-victim boundary
+
+Linux create-only publication remains bound to the retained prepared file descriptor. Existing-destination replacement is deliberately fail-closed: after retaining and revalidating the current destination and parent authority, the route returns an unsupported-authority error before any rename, unlink, quarantine, overwrite, or candidate preparation. This avoids claiming a pathname rename as exact-victim authority. Legacy schema-0 migration on Linux therefore rejects before creating migration state while an existing `workspace.json` would require replacement. Windows keeps its separate retained-handle replacement authority.

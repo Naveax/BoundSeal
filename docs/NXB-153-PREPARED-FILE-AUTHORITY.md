@@ -84,3 +84,7 @@ The older pathname mutation helpers remain compiled as quarantined legacy implem
 The source manifest changes no longer require a lockfile mutation: the standalone Win32 helper package/dependency experiment was removed and `Cargo.lock` remains byte-identical to the pre-Windows-helper canonical blob. This is a source-graph observation, not a substitute for Cargo verification.
 
 Required closure remains pinned Rust 1.97.1 build/check/clippy/test/doc/dependency-policy gates plus supported Linux and Windows/NTFS race/lifetime injection on one exact final head. No runtime PASS is claimed by this document.
+
+## Linux existing-destination exact-victim boundary
+
+Linux create-only publication remains bound to the retained prepared file descriptor. Existing-destination replacement is deliberately fail-closed: after retaining and revalidating the current destination and parent authority, the route returns an unsupported-authority error before any rename, unlink, quarantine, overwrite, or candidate preparation. This avoids claiming a pathname rename as exact-victim authority. Legacy schema-0 migration on Linux therefore rejects before creating migration state while an existing `workspace.json` would require replacement. Windows keeps its separate retained-handle replacement authority.

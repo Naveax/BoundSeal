@@ -47,6 +47,7 @@ impl DirectoryAuthority {
     }
 
     #[cfg(target_os = "linux")]
+    #[allow(dead_code)]
     pub(crate) fn sync(&self, label: &str) -> Result<()> {
         self._handle.sync_all().with_context(|| {
             format!(
@@ -57,11 +58,13 @@ impl DirectoryAuthority {
     }
 
     #[cfg(all(unix, not(target_os = "linux")))]
+    #[allow(dead_code)]
     pub(crate) fn sync(&self, _label: &str) -> Result<()> {
         bail!("live workspace directory authority is unsupported on this Unix platform")
     }
 
     #[cfg(not(unix))]
+    #[allow(dead_code)]
     pub(crate) fn sync(&self, _label: &str) -> Result<()> {
         Ok(())
     }

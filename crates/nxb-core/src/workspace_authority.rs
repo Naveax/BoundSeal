@@ -210,6 +210,7 @@ fn reject_logical_authority_fallback(path: &Path, label: &str) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn authority_exact_directory(path: &Path) -> bool {
     if !target_authority_active() {
         return false;
@@ -578,6 +579,7 @@ impl std::fmt::Display for AuthorityPublishedDocumentError {
 impl std::error::Error for AuthorityPublishedDocumentError {}
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct AuthorityUnpublishedCleanupError {
     operation: String,
     cleanup: String,
@@ -602,6 +604,7 @@ pub(crate) fn create_document_error_published(error: &anyhow::Error) -> bool {
         || crate::workspace_impl::create_document_error_published(error)
 }
 
+#[allow(dead_code)]
 pub(crate) fn create_document(path: &Path, bytes: &[u8]) -> Result<()> {
     if authority_base(path).is_none() {
         reject_logical_authority_fallback(path, "workspace create-only publication")?;
@@ -610,6 +613,7 @@ pub(crate) fn create_document(path: &Path, bytes: &[u8]) -> Result<()> {
     create_authority_document(path, bytes)
 }
 
+#[allow(dead_code)]
 fn create_authority_document(path: &Path, bytes: &[u8]) -> Result<()> {
     if bytes.is_empty() || bytes.len() as u64 > crate::workspace_impl::MAX_DOCUMENT_BYTES {
         bail!("output document size is invalid");
@@ -697,6 +701,7 @@ fn create_authority_document(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn remove_authority_temporary(path: &Path) -> Result<()> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),
@@ -706,6 +711,7 @@ fn remove_authority_temporary(path: &Path) -> Result<()> {
     }
 }
 
+#[allow(dead_code)]
 fn sync_authority_directory(path: &Path) -> Result<()> {
     TARGET_AUTHORITY.with(|state| {
         let state = state.borrow();

@@ -220,7 +220,7 @@ function Start-NxbH2DestinationBroker {
         [Parameter(Mandatory = $true)][string]$SourceRoot,
         [Parameter(Mandatory = $true)][string]$SnapshotRoot
     )
-    if ($null -ne $script:NxbH2BrokerProcess) {
+    if ($null -ne $brokerState.Process) {
         Fail-NxbH2CopyEntry 'destination broker is already active'
     }
     $sourceFull = [IO.Path]::GetFullPath($SourceRoot)
@@ -238,7 +238,7 @@ function Start-NxbH2DestinationBroker {
     }
 
     $start = [Diagnostics.ProcessStartInfo]::new()
-    $start.FileName = $script:NxbH2CopyPython
+    $start.FileName = $brokerState.Python
     $start.UseShellExecute = $false
     $start.RedirectStandardInput = $true
     $start.RedirectStandardOutput = $true
@@ -247,7 +247,7 @@ function Start-NxbH2DestinationBroker {
     $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false, $true)
     foreach ($argument in @(
         '-I',
-        $script:NxbH2BrokerHelperPath,
+        $brokerState.HelperPath,
         'broker',
         $sourceFull,
         $validationFull,
@@ -260,8 +260,8 @@ function Start-NxbH2DestinationBroker {
     if ($null -eq $process) {
         Fail-NxbH2CopyEntry 'could not start Windows H2 destination broker'
     }
-    $script:NxbH2BrokerProcess = $process
-    $script:NxbH2BrokerSnapshotRoot = $snapshotFull
+    $brokerState.Process = $process
+    $brokerState.SnapshotRoot = $snapshotFull
 
     try {
         $line = Read-NxbH2BrokerLine -Process $process -Label 'destination broker readiness' -TimeoutMilliseconds 1800000
@@ -298,22 +298,22 @@ function Start-NxbH2DestinationBroker {
         }
         catch {}
         try { $process.Dispose() } catch {}
-        $script:NxbH2BrokerProcess = $null
-        $script:NxbH2BrokerSnapshotRoot = $null
+        $brokerState.Process = $null
+        $brokerState.SnapshotRoot = $null
         throw
     }
 }
 
 function Assert-NxbH2DestinationBroker {
     param([Parameter(Mandatory = $true)][string]$SnapshotRoot)
-    $process = $script:NxbH2BrokerProcess
+    $process = $brokerState.Process
     if ($null -eq $process) {
         Fail-NxbH2CopyEntry 'destination broker is not active at authority handoff'
     }
     $snapshotFull = [IO.Path]::GetFullPath($SnapshotRoot)
     if (-not [string]::Equals(
         $snapshotFull,
-        $script:NxbH2BrokerSnapshotRoot,
+        $brokerState.SnapshotRoot,
         [StringComparison]::OrdinalIgnoreCase
     )) {
         Fail-NxbH2CopyEntry 'destination broker authority was requested for the wrong snapshot root'
@@ -344,7 +344,7 @@ function Stop-NxbH2DestinationBroker {
         [Parameter(Mandatory = $true)][string]$SnapshotRoot,
         [switch]$AllowMissing
     )
-    $process = $script:NxbH2BrokerProcess
+    $process = $brokerState.Process
     if ($null -eq $process) {
         if ($AllowMissing) { return }
         Fail-NxbH2CopyEntry 'destination broker is not active'
@@ -353,7 +353,7 @@ function Stop-NxbH2DestinationBroker {
     $snapshotFull = [IO.Path]::GetFullPath($SnapshotRoot)
     if (-not [string]::Equals(
         $snapshotFull,
-        $script:NxbH2BrokerSnapshotRoot,
+        $brokerState.SnapshotRoot,
         [StringComparison]::OrdinalIgnoreCase
     )) {
         Fail-NxbH2CopyEntry 'destination broker stop requested for the wrong snapshot root'
@@ -394,8 +394,8 @@ function Stop-NxbH2DestinationBroker {
         try { $process.StandardInput.Dispose() } catch {}
         try { $process.StandardOutput.Dispose() } catch {}
         try { $process.Dispose() } catch {}
-        $script:NxbH2BrokerProcess = $null
-        $script:NxbH2BrokerSnapshotRoot = $null
+        $brokerState.Process = $null
+        $brokerState.SnapshotRoot = $null
     }
     if ($null -ne $failure) {
         throw $failure
@@ -467,14 +467,26 @@ $brokerHelperPath = Join-Path $scriptsRoot 'nxb-153-windows-h2-destination-broke
 $entryInnerStream = $null
 $brokerHelperStream = $null
 $scriptsHandle = $null
-$script:NxbH2CopyExpected = $null
-$script:NxbH2CopySourceRoot = $null
-$script:NxbH2CopyDestination = $null
-$script:NxbH2CopyInvoked = $false
-$script:NxbH2CopyPython = $null
-$script:NxbH2BrokerHelperPath = $null
-$script:NxbH2BrokerProcess = $null
-$script:NxbH2BrokerSnapshotRoot = $null
+$copyState = @{
+    Expected = $null
+    SourceRoot = $null
+    Destination = $null
+    Invoked = $false
+}
+$brokerState = @{
+    Python = $null
+    HelperPath = $null
+    Process = $null
+    SnapshotRoot = $null
+}
+
+$startBrokerProxy = (Get-Command Start-NxbH2DestinationBroker -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
+$assertBrokerProxy = (Get-Command Assert-NxbH2DestinationBroker -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
+$stopBrokerProxy = (Get-Command Stop-NxbH2DestinationBroker -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
+Set-Item -Path Function:\Start-NxbH2DestinationBroker -Value $startBrokerProxy -Force
+Set-Item -Path Function:\Assert-NxbH2DestinationBroker -Value $assertBrokerProxy -Force
+Set-Item -Path Function:\Stop-NxbH2DestinationBroker -Value $stopBrokerProxy -Force
+
 $primaryError = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
 
@@ -489,9 +501,9 @@ try {
     [void](Assert-NxbH2CopyCommittedFile -Stream $entryInnerStream -RelativePath $entryInnerRelative -Label 'Windows H2 broker entry runner')
     [void](Assert-NxbH2CopyCommittedFile -Stream $brokerHelperStream -RelativePath $brokerHelperRelative -Label 'Windows H2 destination broker')
 
-    $script:NxbH2CopyPython = Resolve-NxbH2CopyPython
-    $script:NxbH2BrokerHelperPath = $brokerHelperPath
-    & $script:NxbH2CopyPython -I $script:NxbH2BrokerHelperPath self-test | Out-Null
+    $brokerState.Python = Resolve-NxbH2CopyPython
+    $brokerState.HelperPath = $brokerHelperPath
+    & $brokerState.Python -I $brokerState.HelperPath self-test | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Fail-NxbH2CopyEntry "Windows H2 destination broker self-test failed with exit $LASTEXITCODE"
     }
@@ -518,7 +530,7 @@ try {
             }
             $sourceRoot = [IO.Path]::GetFullPath($sourceRoot)
 
-            if ($null -eq $script:NxbH2CopyExpected) {
+            if ($null -eq $copyState.Expected) {
                 $expected = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
                 foreach ($item in Get-ChildItem -LiteralPath $sourceRoot -Force -ErrorAction Stop) {
                     [void]$expected.Add([IO.Path]::GetFullPath($item.FullName))
@@ -526,26 +538,28 @@ try {
                 if ($expected.Count -eq 0 -or -not $expected.Contains($sourceFull)) {
                     Fail-NxbH2CopyEntry 'bounded Copy-Item shim source enumeration disagrees with H2 capture loop'
                 }
-                $script:NxbH2CopyExpected = $expected
-                $script:NxbH2CopySourceRoot = $sourceRoot
-                $script:NxbH2CopyDestination = $destinationFull
+                $copyState.Expected = $expected
+                $copyState.SourceRoot = $sourceRoot
+                $copyState.Destination = $destinationFull
 
                 Start-NxbH2DestinationBroker -SourceRoot $sourceRoot -SnapshotRoot $destinationFull
-                $script:NxbH2CopyInvoked = $true
+                $copyState.Invoked = $true
             }
             else {
-                if (-not [string]::Equals($sourceRoot, $script:NxbH2CopySourceRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                if (-not [string]::Equals($sourceRoot, $copyState.SourceRoot, [StringComparison]::OrdinalIgnoreCase)) {
                     Fail-NxbH2CopyEntry 'bounded Copy-Item shim observed a second source root'
                 }
-                if (-not [string]::Equals($destinationFull, $script:NxbH2CopyDestination, [StringComparison]::OrdinalIgnoreCase)) {
+                if (-not [string]::Equals($destinationFull, $copyState.Destination, [StringComparison]::OrdinalIgnoreCase)) {
                     Fail-NxbH2CopyEntry 'bounded Copy-Item shim observed a second destination root'
                 }
             }
 
-            if (-not $script:NxbH2CopyExpected.Remove($sourceFull)) {
+            if (-not $copyState.Expected.Remove($sourceFull)) {
                 Fail-NxbH2CopyEntry "bounded Copy-Item shim observed duplicate/unexpected source entry: $sourceFull"
             }
         }
+        $copyItemProxy = (Get-Command Copy-Item -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
+        Set-Item -Path Function:\Copy-Item -Value $copyItemProxy -Force
     }
 
     $innerParameters = @{}
@@ -555,13 +569,13 @@ try {
     & $entryInnerPath @innerParameters
 
     if (-not $SelfTest) {
-        if (-not $script:NxbH2CopyInvoked) {
+        if (-not $copyState.Invoked) {
             Fail-NxbH2CopyEntry 'Windows H2 validation returned without invoking destination broker copy'
         }
-        if ($null -eq $script:NxbH2CopyExpected -or $script:NxbH2CopyExpected.Count -ne 0) {
+        if ($null -eq $copyState.Expected -or $copyState.Expected.Count -ne 0) {
             Fail-NxbH2CopyEntry 'Windows H2 capture loop did not consume the complete source enumeration'
         }
-        if ($null -ne $script:NxbH2BrokerProcess) {
+        if ($null -ne $brokerState.Process) {
             Fail-NxbH2CopyEntry 'Windows H2 returned before broker-to-PowerShell authority handoff completed'
         }
     }
@@ -581,9 +595,9 @@ catch {
     $primaryError = $_
 }
 finally {
-    if ($null -ne $script:NxbH2BrokerProcess) {
+    if ($null -ne $brokerState.Process) {
         try {
-            Stop-NxbH2DestinationBroker -SnapshotRoot $script:NxbH2BrokerSnapshotRoot -AllowMissing
+            Stop-NxbH2DestinationBroker -SnapshotRoot $brokerState.SnapshotRoot -AllowMissing
         }
         catch {
             $cleanupErrors.Add("destination broker cleanup failed: $($_.Exception.Message)")

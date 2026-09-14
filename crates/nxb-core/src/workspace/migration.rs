@@ -102,6 +102,21 @@ impl MigrationPaths {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn reject_linux_existing_legacy_manifest_replacement(root: &Path) -> Result<()> {
+    let manifest = root.join(MANIFEST_FILE);
+    if !safe_exists(&manifest)? {
+        return Ok(());
+    }
+    let source = read_document(&manifest, "workspace manifest")?;
+    if manifest_schema(&source)? == 0 {
+        bail!(
+            "legacy workspace migration is unsupported on Linux while exact-victim namespace mutation authority is unavailable"
+        );
+    }
+    Ok(())
+}
+
 pub(crate) fn apply_value(workspace: &Path) -> Result<Value> {
     serde_json::to_value(apply_result(workspace)?).context("could not serialize migration result")
 }
@@ -116,6 +131,8 @@ pub(crate) fn status_value(workspace: &Path) -> Result<Value> {
 
 fn apply_result(workspace: &Path) -> Result<CommandResult> {
     let root = validate_workspace_root(workspace, true)?;
+    #[cfg(target_os = "linux")]
+    reject_linux_existing_legacy_manifest_replacement(&root)?;
     let paths = ensure_state_layout(&root)?;
     let mut recovery = recover_engine(&paths)?;
     let source = read_document(&paths.manifest, "workspace manifest")?;
@@ -157,6 +174,8 @@ fn apply_result(workspace: &Path) -> Result<CommandResult> {
 
 fn recover_result(workspace: &Path) -> Result<CommandResult> {
     let root = validate_workspace_root(workspace, true)?;
+    #[cfg(target_os = "linux")]
+    reject_linux_existing_legacy_manifest_replacement(&root)?;
     let paths = ensure_state_layout(&root)?;
     let recovery = recover_engine(&paths)?;
     Ok(CommandResult {
@@ -635,6 +654,7 @@ mod tests {
         root
     }
 
+    #[cfg(not(target_os = "linux"))]
     #[test]
     fn migrates_schema_zero_and_writes_receipt() {
         let root = workspace("apply", 0);
@@ -646,6 +666,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(not(target_os = "linux"))]
     #[test]
     fn committed_migration_retires_journals_without_pathname_deletion() {
         let root = workspace("retired", 0);
@@ -666,6 +687,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(not(target_os = "linux"))]
     #[test]
     fn retired_migration_rejects_same_permission_replacement() {
         let root = workspace("retired-replacement", 0);
@@ -683,6 +705,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(not(target_os = "linux"))]
     #[test]
     fn recovers_orphan_backup_before_journal() {
         let root = workspace("orphan", 0);
@@ -695,6 +718,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(not(target_os = "linux"))]
     #[test]
     fn rejects_manifest_tamper_during_active_migration() {
         let root = workspace("tamper", 0);
@@ -719,6 +743,44 @@ mod tests {
     fn rejects_future_schema() {
         let root = workspace("future", CURRENT_SCHEMA_VERSION + 1);
         assert!(apply_value(&root).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_apply_rejects_legacy_manifest_before_state_mutation() {
+        let root = workspace("linux-apply-fail-closed", 0);
+        let before = fs::read(root.join(MANIFEST_FILE)).unwrap();
+        let paths = paths(&root);
+        assert!(!paths.receipts.exists());
+        let error = apply_value(&root).unwrap_err();
+        assert!(error.to_string().contains(
+            "legacy workspace migration is unsupported on Linux while exact-victim namespace mutation authority is unavailable"
+        ));
+        assert_eq!(fs::read(root.join(MANIFEST_FILE)).unwrap(), before);
+        assert!(!paths.receipts.exists());
+        assert!(!paths.active.exists());
+        assert!(!paths.backup.exists());
+        assert!(!paths.applied.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_recover_rejects_existing_legacy_manifest_before_state_mutation() {
+        let root = workspace("linux-recover-fail-closed", 0);
+        let before = fs::read(root.join(MANIFEST_FILE)).unwrap();
+        let paths = paths(&root);
+        assert!(!paths.receipts.exists());
+        let error = recover_value(&root).unwrap_err();
+        assert!(error.to_string().contains(
+            "legacy workspace migration is unsupported on Linux while exact-victim namespace mutation authority is unavailable"
+        ));
+        assert_eq!(fs::read(root.join(MANIFEST_FILE)).unwrap(), before);
+        assert!(!paths.receipts.exists());
+        assert!(!paths.active.exists());
+        assert!(!paths.backup.exists());
+        assert!(!paths.applied.exists());
         fs::remove_dir_all(root).unwrap();
     }
 }

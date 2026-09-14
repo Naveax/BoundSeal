@@ -10,11 +10,11 @@ pub(crate) fn run(directory: &Path) -> Result<()> {
 
     #[cfg(target_os = "linux")]
     {
-        return run_linux(directory);
+        run_linux(directory)
     }
     #[cfg(windows)]
     {
-        return run_windows(directory);
+        run_windows(directory)
     }
     #[cfg(not(any(target_os = "linux", windows)))]
     {

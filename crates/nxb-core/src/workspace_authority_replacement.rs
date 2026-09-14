@@ -15,7 +15,6 @@ use anyhow::{bail, Context, Result};
 const O_DIRECTORY: i32 = 0o200000;
 const O_NOFOLLOW: i32 = 0o400000;
 const TRUSTED_LN: &str = "/usr/bin/ln";
-const TRUSTED_MV: &str = "/usr/bin/mv";
 
 struct ParentAuthority {
     logical_path: PathBuf,
@@ -156,32 +155,6 @@ impl ParentAuthority {
         Ok(())
     }
 
-    fn quarantine_no_replace(&self, source: &OsStr, quarantine: &OsStr) -> Result<()> {
-        let tool = trusted_tool(TRUSTED_MV, "Linux no-clobber move tool")?;
-        let source = self.stable_path(source);
-        let quarantine = self.stable_path(quarantine);
-        let output = Command::new(tool)
-            .arg("-n")
-            .arg("-T")
-            .arg("--")
-            .arg(&source)
-            .arg(&quarantine)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .env_clear()
-            .output()
-            .context("could not execute trusted Linux no-clobber move tool")?;
-        if !output.status.success() {
-            bail!(
-                "trusted Linux no-clobber move failed with status {}: {}",
-                output.status,
-                bounded_stderr(&output.stderr)
-            );
-        }
-        Ok(())
-    }
-
     fn claim_prepared(&self, prepared: &RetainedFileAuthority, destination: &OsStr) -> Result<()> {
         let tool = trusted_tool(TRUSTED_LN, "Linux hard-link tool")?;
         let source = PathBuf::from(format!(
@@ -257,23 +230,19 @@ where
         .ok_or_else(|| anyhow::anyhow!("replacement document has no file name"))?;
     let parent = ParentAuthority::open(parent_path)?;
 
-    let nonce = crate::workspace_impl::random_hex(12)?;
-    let prepared_name = OsString::from(format!(".workspace.migrate.{nonce}.tmp"));
-    let quarantine_name = OsString::from(format!(".workspace.retired.{nonce}.json"));
-    let prepared = parent.create_prepared(&prepared_name, bytes)?;
     let previous = parent.open_regular(destination, "replacement destination")?;
-
     if let Some(previous) = previous.as_ref() {
         before_quarantine()?;
         parent.validate_named_binding()?;
-        parent.quarantine_no_replace(destination, &quarantine_name)?;
-        parent.validate_child_binding(
-            &quarantine_name,
-            previous,
-            "quarantined previous document",
-        )?;
+        parent.validate_child_binding(destination, previous, "replacement destination")?;
+        bail!(
+            "Linux replacement of an existing document is unsupported without exact-victim namespace mutation authority"
+        );
     }
 
+    let nonce = crate::workspace_impl::random_hex(12)?;
+    let prepared_name = OsString::from(format!(".workspace.migrate.{nonce}.tmp"));
+    let prepared = parent.create_prepared(&prepared_name, bytes)?;
     parent.claim_prepared(&prepared, destination)?;
     parent.validate_child_binding(destination, &prepared, "replacement destination")?;
     parent
@@ -300,36 +269,24 @@ mod tests {
     }
 
     #[test]
-    fn replacement_publishes_exact_prepared_inode_and_retires_previous_inode() {
-        let root = root("exact");
+    fn existing_destination_fails_closed_without_victim_mutation() {
+        let root = root("existing-fail-closed");
         let destination = root.join("workspace.json");
         fs::write(&destination, b"old\n").unwrap();
         fs::set_permissions(&destination, fs::Permissions::from_mode(0o600)).unwrap();
-        let old = fs::metadata(&destination).unwrap();
 
-        replace_document(&destination, b"new\n").unwrap();
+        let error = replace_document(&destination, b"new\n").unwrap_err();
 
-        assert_eq!(fs::read(&destination).unwrap(), b"new\n");
-        let retired = fs::read_dir(&root)
-            .unwrap()
-            .filter_map(|entry| entry.ok())
-            .find(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(".workspace.retired.")
-            })
-            .expect("previous document quarantine is missing");
-        let retired_metadata = retired.metadata().unwrap();
-        assert_eq!(retired_metadata.dev(), old.dev());
-        assert_eq!(retired_metadata.ino(), old.ino());
-        assert_eq!(fs::read(retired.path()).unwrap(), b"old\n");
-
+        assert!(error.to_string().contains(
+            "Linux replacement of an existing document is unsupported without exact-victim namespace mutation authority"
+        ));
+        assert_eq!(fs::read(&destination).unwrap(), b"old\n");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn same_permission_destination_replacement_is_quarantined_but_never_deleted_or_published() {
+    fn same_permission_destination_substitution_is_left_untouched() {
         let root = root("race");
         let destination = root.join("workspace.json");
         let admitted = root.join("admitted.json");
@@ -346,20 +303,10 @@ mod tests {
 
         assert!(error
             .to_string()
-            .contains("quarantined previous document pathname is not the retained file authority"));
+            .contains("replacement destination pathname is not the retained file authority"));
         assert_eq!(fs::read(&admitted).unwrap(), b"admitted\n");
-        assert!(!destination.exists());
-        assert!(fs::read_dir(&root)
-            .unwrap()
-            .filter_map(|entry| entry.ok())
-            .any(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(".workspace.retired.")
-                    && fs::read(entry.path()).ok().as_deref() == Some(b"substituted\n")
-            }));
-
+        assert_eq!(fs::read(&destination).unwrap(), b"substituted\n");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
         fs::remove_dir_all(root).unwrap();
     }
 
