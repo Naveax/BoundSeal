@@ -400,7 +400,7 @@ finally:
             done
             mount --bind "$source_root" "$source_root"
             mount -o remount,bind,ro "$source_root"
-            assert_readonly_mount "$source_root" 'immutable source root'
+            assert_readonly_mount "$source_root" "immutable source root"
             for runtime_path in \
                 target \
                 .nxb-153-tmp \
@@ -456,7 +456,7 @@ finally:
 
             mount --bind "$vendor_root" "$vendor_root"
             mount -o remount,bind,ro "$vendor_root"
-            assert_readonly_mount "$vendor_root" 'vendored dependency snapshot'
+            assert_readonly_mount "$vendor_root" "vendored dependency snapshot"
             if touch "$vendor_root/.nxb-153-vendor-write-probe" 2>/dev/null; then
                 die "vendored dependency snapshot remained writable after read-only bind"
             fi
@@ -472,7 +472,7 @@ EOF
             [[ "$config_sha256" =~ ^[0-9a-f]{64}$ ]] || die "gate Cargo config SHA-256 is invalid"
             mount --bind "$config_root" "$config_root"
             mount -o remount,bind,ro "$config_root"
-            assert_readonly_mount "$config_root" 'gate Cargo config root'
+            assert_readonly_mount "$config_root" "gate Cargo config root"
             if printf changed > "$config_root/config.toml" 2>/dev/null; then
                 die "gate Cargo config root remained writable after read-only bind"
             fi

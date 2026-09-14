@@ -152,19 +152,24 @@ $innerStream = $null
 $scriptsHandle = $null
 $primaryError = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
-$script:NxbH2GitOutputByteLimit = 67108864
-$script:NxbH2GitOutputLineLimit = 4096
-$script:NxbH2GitReadInactivityTimeoutMilliseconds = 300000
-$script:NxbH2GitExitTimeoutMilliseconds = 30000
+$script:NxbH2GitProxyLimits = @{
+    Byte = 67108864
+    Lines = 4096
+    ReadTimeoutMilliseconds = 300000
+    ExitTimeoutMilliseconds = 30000
+}
 
 $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
 $script:NxbH2GitApplication = $gitCommand.Source
 
-function git {
+$gitProxyApplication = [string]$script:NxbH2GitApplication
+$gitProxyWorkingDirectory = $RepoRoot
+$gitProxyLimits = $script:NxbH2GitProxyLimits
+$gitProxy = {
     $arguments = @($args | ForEach-Object { [string]$_ })
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $script:NxbH2GitApplication
-    $startInfo.WorkingDirectory = $RepoRoot
+    $startInfo.FileName = $gitProxyApplication
+    $startInfo.WorkingDirectory = $gitProxyWorkingDirectory
     $startInfo.UseShellExecute = $false
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $false
@@ -177,33 +182,33 @@ function git {
     try {
         $process.StartInfo = $startInfo
         if (-not $process.Start()) {
-            Fail-NxbH2GitGuard 'could not start bounded Git process'
+            throw 'NXB-153 Windows H2 Git-output guard failed: could not start bounded Git process'
         }
         $buffer = [byte[]]::new(65536)
         [Int64]$total = 0
         while ($true) {
             $readTask = $process.StandardOutput.BaseStream.ReadAsync($buffer, 0, $buffer.Length)
-            if (-not $readTask.Wait($script:NxbH2GitReadInactivityTimeoutMilliseconds)) {
+            if (-not $readTask.Wait($gitProxyLimits.ReadTimeoutMilliseconds)) {
                 try { $process.Kill($true) } catch {}
-                try { [void]$process.WaitForExit($script:NxbH2GitExitTimeoutMilliseconds) } catch {}
-                Fail-NxbH2GitGuard "Git stdout made no progress for $($script:NxbH2GitReadInactivityTimeoutMilliseconds) ms"
+                try { [void]$process.WaitForExit($gitProxyLimits.ExitTimeoutMilliseconds) } catch {}
+                throw "NXB-153 Windows H2 Git-output guard failed: Git stdout made no progress for $($gitProxyLimits.ReadTimeoutMilliseconds) ms"
             }
             $read = $readTask.Result
             if ($read -le 0) {
                 break
             }
             $total += $read
-            if ($total -gt $script:NxbH2GitOutputByteLimit) {
+            if ($total -gt $gitProxyLimits.Byte) {
                 try { $process.Kill($true) } catch {}
-                try { [void]$process.WaitForExit($script:NxbH2GitExitTimeoutMilliseconds) } catch {}
-                Fail-NxbH2GitGuard "Git stdout exceeds $($script:NxbH2GitOutputByteLimit) bytes"
+                try { [void]$process.WaitForExit($gitProxyLimits.ExitTimeoutMilliseconds) } catch {}
+                throw "NXB-153 Windows H2 Git-output guard failed: Git stdout exceeds $($gitProxyLimits.Byte) bytes"
             }
             $memory.Write($buffer, 0, $read)
         }
-        if (-not $process.WaitForExit($script:NxbH2GitExitTimeoutMilliseconds)) {
+        if (-not $process.WaitForExit($gitProxyLimits.ExitTimeoutMilliseconds)) {
             try { $process.Kill($true) } catch {}
-            try { [void]$process.WaitForExit($script:NxbH2GitExitTimeoutMilliseconds) } catch {}
-            Fail-NxbH2GitGuard 'Git process did not exit after stdout closed'
+            try { [void]$process.WaitForExit($gitProxyLimits.ExitTimeoutMilliseconds) } catch {}
+            throw 'NXB-153 Windows H2 Git-output guard failed: Git process did not exit after stdout closed'
         }
         $global:LASTEXITCODE = $process.ExitCode
 
@@ -212,7 +217,7 @@ function git {
             $text = $utf8.GetString($memory.ToArray())
         }
         catch {
-            Fail-NxbH2GitGuard "Git stdout is not strict UTF-8: $($_.Exception.Message)"
+            throw "NXB-153 Windows H2 Git-output guard failed: Git stdout is not strict UTF-8: $($_.Exception.Message)"
         }
 
         $reader = [IO.StringReader]::new($text)
@@ -220,8 +225,8 @@ function git {
             [Int64]$lineCount = 0
             while ($null -ne ($line = $reader.ReadLine())) {
                 $lineCount++
-                if ($lineCount -gt $script:NxbH2GitOutputLineLimit) {
-                    Fail-NxbH2GitGuard "Git stdout record count exceeds $($script:NxbH2GitOutputLineLimit)"
+                if ($lineCount -gt $gitProxyLimits.Lines) {
+                    throw "NXB-153 Windows H2 Git-output guard failed: Git stdout record count exceeds $($gitProxyLimits.Lines)"
                 }
                 $line
             }
@@ -234,7 +239,8 @@ function git {
         $memory.Dispose()
         $process.Dispose()
     }
-}
+}.GetNewClosure()
+Set-Item -Path Function:\git -Value $gitProxy -Force
 
 function Assert-NxbH2GitGuardCommittedFile {
     param(
@@ -263,10 +269,10 @@ function Invoke-NxbH2GitGuardSelfTest {
         Fail-NxbH2GitGuard 'generic bounded Git proxy self-test failed'
     }
 
-    $savedLineLimit = $script:NxbH2GitOutputLineLimit
-    $savedByteLimit = $script:NxbH2GitOutputByteLimit
+    $savedLineLimit = $script:NxbH2GitProxyLimits.Lines
+    $savedByteLimit = $script:NxbH2GitProxyLimits.Byte
     try {
-        $script:NxbH2GitOutputLineLimit = 1
+        $script:NxbH2GitProxyLimits.Lines = 1
         $rejected = $false
         try {
             @(& git -C $RepoRoot -c core.quotePath=false ls-tree -rl --full-tree $HeadSha) | Out-Null
@@ -281,8 +287,8 @@ function Invoke-NxbH2GitGuardSelfTest {
             Fail-NxbH2GitGuard 'bounded Git self-test did not reject exact-head ls-tree at a one-record limit'
         }
 
-        $script:NxbH2GitOutputLineLimit = $savedLineLimit
-        $script:NxbH2GitOutputByteLimit = 4
+        $script:NxbH2GitProxyLimits.Lines = $savedLineLimit
+        $script:NxbH2GitProxyLimits.Byte = 4
         $rejected = $false
         try {
             @(& git --version) | Out-Null
@@ -298,8 +304,8 @@ function Invoke-NxbH2GitGuardSelfTest {
         }
     }
     finally {
-        $script:NxbH2GitOutputLineLimit = $savedLineLimit
-        $script:NxbH2GitOutputByteLimit = $savedByteLimit
+        $script:NxbH2GitProxyLimits.Lines = $savedLineLimit
+        $script:NxbH2GitProxyLimits.Byte = $savedByteLimit
         $global:LASTEXITCODE = 0
     }
 }
