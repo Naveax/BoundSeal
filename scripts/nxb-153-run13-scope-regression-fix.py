@@ -17,27 +17,45 @@ tests = r'''
 #[test]
 fn windows_enumeration_proxy_captures_its_bound_across_nested_script_scopes() {
     let source = read_source(WINDOWS_ENUMERATION_GUARD_PATH);
+    for marker in [
+        "$script:NxbH2EnumerationLimits = @{",
+        "$enumerationLimits = $script:NxbH2EnumerationLimits",
+        r#"Set-Item -Path Function:\Get-ChildItem -Value $getChildItemProxy -Force"#,
+    ] {
+        assert!(
+            source.contains(marker),
+            "{WINDOWS_ENUMERATION_GUARD_PATH}: missing enumeration-state capture marker: {marker}"
+        );
+    }
+
     let start = required_offset(
         &source,
-        "$enumerationLimits = $script:NxbH2EnumerationLimits",
+        "$getChildItemProxy = {",
         WINDOWS_ENUMERATION_GUARD_PATH,
     );
+    let end_marker = "}.GetNewClosure()";
     let end = start
         + required_offset(
             &source[start..],
-            "\nfunction Invoke-NxbH2EnumerationSelfTest",
+            end_marker,
             WINDOWS_ENUMERATION_GUARD_PATH,
-        );
+        )
+        + end_marker.len();
     let proxy = &source[start..end];
     for marker in [
         "$getChildItemProxy = {",
         "$enumerationLimits.Count",
         "}.GetNewClosure()",
-        r#"Set-Item -Path Function:\Get-ChildItem -Value $getChildItemProxy -Force"#,
     ] {
-        assert!(proxy.contains(marker), "{WINDOWS_ENUMERATION_GUARD_PATH}: missing closure marker: {marker}");
+        assert!(
+            proxy.contains(marker),
+            "{WINDOWS_ENUMERATION_GUARD_PATH}: missing closure marker: {marker}"
+        );
     }
-    assert!(!proxy.contains("$script:"), "{WINDOWS_ENUMERATION_GUARD_PATH}: proxy body still reaches caller-sensitive script scope");
+    assert!(
+        !proxy.contains("$script:"),
+        "{WINDOWS_ENUMERATION_GUARD_PATH}: lexical proxy body still reaches caller-sensitive script scope"
+    );
 }
 
 #[test]
