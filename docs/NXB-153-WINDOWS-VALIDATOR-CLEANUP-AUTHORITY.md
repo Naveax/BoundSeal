@@ -1,105 +1,71 @@
 # NXB-153 Windows Validator Cleanup Authority
 
-## Status
+Status: **source + deterministic fault-harness closure staged / supported Windows exact-head admission pending / not admitted**.
 
-This document records the source-staged fix for NXB-153 blocker #104.
+This document records the NXB-153 blocker #104 authority boundary. It does not claim supported Windows/NTFS/PowerShell runtime PASS. PR #89 remains draft until the exact final head passes the canonical Linux + Windows admission workflow.
 
-It does **not** claim supported Windows/NTFS/PowerShell runtime PASS. PR #89 remains draft/not admitted and #104 remains open until exact-final-head failure-injection and cleanup/recovery behavior are proven on supported Windows.
+## Required invariant
 
-## Finding
+A Windows validation PASS is authoritative only after the protected validation body, evidence publication arbitration, every mandatory cleanup action, validation-lock release and caller-location restoration have all succeeded.
 
-The Windows validator previously emitted its PASS/HEAD/tool/evidence lines inside the protected validation body, before mandatory cleanup had completed. Its outer `finally` also performed raw sequential `Dispose()` operations followed by `Pop-Location`.
+A cleanup failure must never:
 
-A cleanup exception could therefore:
+- appear after PASS has already been emitted;
+- short-circuit later mandatory cleanup;
+- hide the primary validation/evidence-publication failure;
+- leave the validator in an implicit-success state.
 
-- occur after success text was already visible;
-- skip later stream/validation-lock/namespace cleanup;
-- skip caller-location restoration;
-- mask an earlier evidence publication failure if the evidence stream disposal also failed.
+## Production cleanup state machine
 
-That ordering was incompatible with fail-closed validation authority. PASS is not authoritative until mandatory cleanup and location restoration succeed.
+`scripts/validate-nxb-153-windows-inner.ps1` routes cleanup through one shared `Invoke-NxbValidationCleanup` state machine. It independently attempts cleanup for:
 
-## Current source authority
+- immutable-source stream;
+- Cargo.lock stream;
+- tooling-receipt stream;
+- cargo-deny stream;
+- cargo-audit stream;
+- validation lock;
+- retained namespace handles in reverse order;
+- pushed PowerShell location.
 
-Windows validator:
+Errors are accumulated rather than allowing the first disposal exception to skip later cleanup.
 
-`scripts/validate-nxb-153-windows-inner.ps1`
+`Assert-NxbValidationOutcome` then arbitrates the protected-body result:
 
-Current exact Git blob after the #104 source fix:
+1. preserve the primary validation failure and append cleanup diagnostics when both exist;
+2. fail closed when validation succeeded but any cleanup failed;
+3. require an explicit successful-validation state;
+4. allow PASS/HEAD/tool/evidence output only after those gates.
 
-`49e0bde20ab23e13b96747c1e621054be26f4909`
+Evidence publication uses the same primary-before-cleanup rule through `Assert-NxbEvidencePublicationOutcome`: a publication/write/read-back failure remains primary if evidence-handle disposal also fails.
 
-Source-fix commit:
+## Deterministic cleanup fault harness
 
-`8290c495a8f29905561a0c0eba12a9e18f37c280`
+The validator exposes only the bounded self-test selector `-SelfTest cleanup-faults`. The harness invokes the same production cleanup/arbitration helpers rather than a duplicate model.
 
-Cross-platform cleanup source regression:
+It proves that:
 
-`crates/nxb-core/tests/windows_validator_cleanup_source_contract.rs`
+- an injected early cleanup failure is retained while later stream/namespace cleanup still runs;
+- a real create-new `DeleteOnClose` validation-lock stream is released even after an earlier injected cleanup failure;
+- the original PowerShell location is restored;
+- an injected late cleanup failure cannot pass outcome arbitration;
+- evidence-publication failure remains primary when evidence cleanup also fails;
+- the clean arbitration path succeeds.
 
-Current exact Git blob:
+The fault probes are deterministic local objects and perform no network activity or external mutation.
 
-`efb90b97201b903a2311f6cd96689986dd0891d8`
+## Canonical admission wiring
 
-Regression commits:
+`.github/workflows/nxb-153-admission.yml` executes `Prove Windows validator cleanup fault arbitration` on the exact event head in the supported `windows-2025` job before the normal Windows preparation/validation/review path.
 
-- `42ca76826c13d36db910ecc6310cbe3601782b4d` — introduced the cleanup/PASS-withholding source contract;
-- `f977cc52576e503c558196de71b19be5a8814f1d` — corrected duplicate-marker accounting so the regression itself is fail-closed rather than producing a false failure.
+The normal path still performs exact-head checkout, pre-Git authority rejection, hosted Git/Python normalization, sealed-tool preparation, immutable-source validation, process lifecycle evidence and final admission review. The cleanup self-test is additive and does not replace those gates.
 
-## Cleanup and PASS contract
+## Source regression
 
-The current validator:
+`crates/nxb-core/tests/windows_validator_cleanup_source_contract.rs` binds the shared label-driven cleanup state machine, evidence-publication arbitration, deterministic fault harness, post-cleanup PASS ordering and canonical workflow wiring. The regression checks shared cleanup labels plus the single generic cleanup-error formatter rather than duplicating stale per-resource diagnostic strings.
 
-1. records whether repository location was successfully pushed;
-2. captures the primary validation failure instead of allowing cleanup to replace it;
-3. attempts every pinned-stream cleanup independently;
-4. attempts validation-lock cleanup independently;
-5. attempts every namespace-handle cleanup independently in reverse order;
-6. attempts `Pop-Location` independently;
-7. collects cleanup failures instead of allowing the first cleanup exception to skip later cleanup;
-8. if validation failed, returns the primary failure and includes any cleanup failures;
-9. if validation succeeded but cleanup failed, fails closed;
-10. requires an explicit successful-validation state after cleanup arbitration;
-11. emits PASS/HEAD/tool/evidence lines only after all mandatory cleanup and location restoration succeed.
+## Admission still pending
 
-Published create-only evidence is not pathname-deleted merely because later cleanup fails.
+Source/harness staging is not supported-platform admission. Blocker #104 remains open until the final canonical NXB-153 head runs the cleanup fault harness on supported Windows and the same head completes the rest of the Windows and Linux schema-v2 admission gates.
 
-## Evidence publication cleanup
-
-The create-only schema-v2 evidence handle has its own primary/cleanup failure arbitration.
-
-If evidence write/flush/read-back fails and `Dispose()` also fails, the publication failure remains the primary failure and the cleanup failure is appended. If publication succeeds but evidence-handle cleanup fails, validation fails before the validator can mark the run successful.
-
-This prevents a disposal failure from masking the more important evidence-integrity failure.
-
-## Cross-platform source regression
-
-The `std`-only Rust integration test checks committed PowerShell source without executing Windows APIs. It requires:
-
-- explicit primary-failure, cleanup-error, location and validation-success state;
-- independently guarded cleanup for every pinned stream and the validation lock;
-- independently guarded reverse-order namespace cleanup;
-- independently guarded `Pop-Location`;
-- removal of the legacy raw sequential cleanup shape;
-- evidence publication primary/cleanup arbitration before validation success;
-- validation success before post-cleanup error arbitration;
-- primary-failure arbitration before cleanup-only failure arbitration;
-- cleanup-only and explicit-success gates before PASS output.
-
-Canonical Linux immutable validation and Windows dependency validation both execute `cargo test --workspace --all-features --locked`, so this source regression participates in both full Rust test paths.
-
-This remains source-level evidence only.
-
-## Supported-Windows runtime proof still required
-
-Exact-final-head Windows execution must still prove at least:
-
-- an injected early cleanup failure does not prevent later cleanup attempts;
-- validation-lock release/recovery behavior after failure;
-- location restoration on validation and cleanup failure paths;
-- a late cleanup failure emits no PASS output;
-- evidence write/read-back failure remains primary if evidence-handle cleanup also fails;
-- successful cleanup preserves the existing create-only schema-v2 evidence behavior and PASS output;
-- no source/object/path authority is weakened while adding cleanup arbitration.
-
-Until those tests and the rest of NXB-153 same-head Linux + Windows admission succeed, #104 remains open and NXB-154 must not use NXB-153 as an admitted base.
+No runtime PASS is claimed by this document. NXB-154 must not use NXB-153 as an admitted base before that closure.

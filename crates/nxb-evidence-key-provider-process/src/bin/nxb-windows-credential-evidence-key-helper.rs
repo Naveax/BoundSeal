@@ -18,6 +18,7 @@ mod lifecycle;
 const PROVIDER_ID: &str = nxb_evidence_key_provider_process::WINDOWS_CREDENTIAL_PROVIDER_ID;
 const CAPABILITY_V1: &[u8] = nxb_evidence_key_provider_process::WINDOWS_CREDENTIAL_CAPABILITY_V1;
 const TARGET_PREFIX: &str = nxb_evidence_key_provider_process::WINDOWS_CREDENTIAL_TARGET_PREFIX;
+#[cfg(windows)]
 const VERSION_COMMENT_PREFIX: &str = "NXB_EVIDENCE_KEY_VERSION:";
 const SYNTHETIC_AUTHORITY: &str = "evidence-key-provider.invalid";
 const ADAPTER_WORKER_ID: &str = "evidence-key-process";

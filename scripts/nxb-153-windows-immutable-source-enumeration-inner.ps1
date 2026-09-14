@@ -173,9 +173,11 @@ $innerStream = $null
 $scriptsHandle = $null
 $primaryError = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
-$script:NxbH2EnumerationLimit = 131072
-
-function Get-ChildItem {
+$script:NxbH2EnumerationLimits = @{
+    Count = 131072
+}
+$enumerationLimits = $script:NxbH2EnumerationLimits
+$getChildItemProxy = {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][string]$LiteralPath,
@@ -186,7 +188,7 @@ function Get-ChildItem {
     )
 
     if ($Directory -and $File) {
-        Fail-NxbH2EnumerationGuard 'bounded Get-ChildItem proxy rejects simultaneous -Directory and -File'
+        throw 'NXB-153 Windows H2 enumeration guard failed: bounded Get-ChildItem proxy rejects simultaneous -Directory and -File'
     }
 
     $invoke = @{ LiteralPath = $LiteralPath }
@@ -198,18 +200,19 @@ function Get-ChildItem {
     [Int64]$count = 0
     Microsoft.PowerShell.Management\Get-ChildItem @invoke | ForEach-Object {
         $count++
-        if ($count -gt $script:NxbH2EnumerationLimit) {
-            Fail-NxbH2EnumerationGuard "Get-ChildItem enumeration-count bound exceeded for $LiteralPath"
+        if ($count -gt $enumerationLimits.Count) {
+            throw "NXB-153 Windows H2 enumeration guard failed: Get-ChildItem enumeration-count bound exceeded for $LiteralPath"
         }
         $_
     }
-}
+}.GetNewClosure()
+Set-Item -Path Function:\Get-ChildItem -Value $getChildItemProxy -Force
 
 function Invoke-NxbH2EnumerationSelfTest {
     param([Parameter(Mandatory = $true)][string]$Root)
 
     $probeRoot = Join-Path $Root ('.nxb-153-h2-enumeration-' + [Guid]::NewGuid().ToString('N'))
-    $savedLimit = $script:NxbH2EnumerationLimit
+    $savedLimit = $script:NxbH2EnumerationLimits.Count
     $primary = $null
     $cleanup = $null
     try {
@@ -218,13 +221,13 @@ function Invoke-NxbH2EnumerationSelfTest {
         [IO.File]::WriteAllText((Join-Path $probeRoot 'b'), 'b')
         [IO.File]::WriteAllText((Join-Path $probeRoot 'c'), 'c')
 
-        $script:NxbH2EnumerationLimit = 4
+        $script:NxbH2EnumerationLimits.Count = 4
         $normal = @(Get-ChildItem -LiteralPath $probeRoot -Force -ErrorAction Stop)
         if ($normal.Count -ne 3) {
             Fail-NxbH2EnumerationGuard 'enumeration self-test normal result count differs'
         }
 
-        $script:NxbH2EnumerationLimit = 2
+        $script:NxbH2EnumerationLimits.Count = 2
         $rejected = $false
         try {
             @(Get-ChildItem -LiteralPath $probeRoot -Force -ErrorAction Stop) | Out-Null
@@ -243,7 +246,7 @@ function Invoke-NxbH2EnumerationSelfTest {
         $primary = $_
     }
     finally {
-        $script:NxbH2EnumerationLimit = $savedLimit
+        $script:NxbH2EnumerationLimits.Count = $savedLimit
         if (Test-Path -LiteralPath $probeRoot) {
             try {
                 Microsoft.PowerShell.Management\Remove-Item -LiteralPath $probeRoot -Recurse -Force -ErrorAction Stop

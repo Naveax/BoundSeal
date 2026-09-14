@@ -120,9 +120,13 @@ $ValidationDirectory = [IO.Path]::GetFullPath($ValidationDirectory)
 $h2EntryRelative = 'scripts/nxb-153-windows-immutable-source-h2-entry-inner.ps1'
 $h2EntryPath = Join-Path (Join-Path $RepoRoot 'scripts') 'nxb-153-windows-immutable-source-h2-entry-inner.ps1'
 $h2EntryStream = $null
-$script:NxbH2DeferredSnapshotRoot = $null
-$script:NxbH2BrokerHandoffEstablished = $false
-$script:NxbH2BrokerStopped = $false
+$brokerEntryState = @{
+    DeferredSnapshotRoot = $null
+    HandoffEstablished = $false
+    Stopped = $false
+}
+$testSnapshotPathProxy = (Get-Command Test-NxbH2BrokerSnapshotPath -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
+Set-Item -Path Function:\Test-NxbH2BrokerSnapshotPath -Value $testSnapshotPathProxy -Force
 $primaryError = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
 
@@ -160,13 +164,13 @@ try {
                 (Test-NxbH2BrokerSnapshotPath -Path $Path)
             ) {
                 $full = [IO.Path]::GetFullPath($Path)
-                if ($null -ne $script:NxbH2DeferredSnapshotRoot) {
+                if ($null -ne $brokerEntryState.DeferredSnapshotRoot) {
                     Fail-NxbH2BrokerEntry 'H2 snapshot root creation was requested more than once'
                 }
                 if (Microsoft.PowerShell.Management\Test-Path -LiteralPath $full) {
                     Fail-NxbH2BrokerEntry 'deferred H2 snapshot root already exists'
                 }
-                $script:NxbH2DeferredSnapshotRoot = $full
+                $brokerEntryState.DeferredSnapshotRoot = $full
                 return
             }
             Microsoft.PowerShell.Management\New-Item @PSBoundParameters
@@ -188,12 +192,12 @@ try {
             }
 
             if (
-                -not $script:NxbH2BrokerHandoffEstablished -and
-                $null -ne $script:NxbH2DeferredSnapshotRoot -and
+                -not $brokerEntryState.HandoffEstablished -and
+                $null -ne $brokerEntryState.DeferredSnapshotRoot -and
                 -not [string]::IsNullOrWhiteSpace($candidate)
             ) {
                 $fullCandidate = [IO.Path]::GetFullPath($candidate)
-                $expectedRustc = Join-Path $script:NxbH2DeferredSnapshotRoot 'bin\rustc.exe'
+                $expectedRustc = Join-Path $brokerEntryState.DeferredSnapshotRoot 'bin\rustc.exe'
                 if ([string]::Equals(
                     $fullCandidate,
                     [IO.Path]::GetFullPath($expectedRustc),
@@ -203,8 +207,8 @@ try {
                     # staged its ACL before reaching the first required-rustc probe.
                     # Prove the creator broker observed no mutation, but deliberately
                     # keep it alive through the complete heavy-gate lifetime.
-                    Assert-NxbH2DestinationBroker -SnapshotRoot $script:NxbH2DeferredSnapshotRoot
-                    $script:NxbH2BrokerHandoffEstablished = $true
+                    Assert-NxbH2DestinationBroker -SnapshotRoot $brokerEntryState.DeferredSnapshotRoot
+                    $brokerEntryState.HandoffEstablished = $true
                 }
             }
 
@@ -228,8 +232,8 @@ try {
             }
 
             if (
-                -not $script:NxbH2BrokerStopped -and
-                $null -ne $script:NxbH2DeferredSnapshotRoot -and
+                -not $brokerEntryState.Stopped -and
+                $null -ne $brokerEntryState.DeferredSnapshotRoot -and
                 -not [string]::IsNullOrWhiteSpace($candidate)
             ) {
                 $fullCandidate = $null
@@ -238,7 +242,7 @@ try {
                     $null -ne $fullCandidate -and
                     [string]::Equals(
                         $fullCandidate,
-                        $script:NxbH2DeferredSnapshotRoot,
+                        $brokerEntryState.DeferredSnapshotRoot,
                         [StringComparison]::OrdinalIgnoreCase
                     )
                 ) {
@@ -247,16 +251,23 @@ try {
                     # broker watcher and creator-derived guards alive until this exact
                     # boundary, then require one final healthy observation before the
                     # snapshot namespace is allowed to disappear.
-                    if ($script:NxbH2BrokerHandoffEstablished) {
-                        Assert-NxbH2DestinationBroker -SnapshotRoot $script:NxbH2DeferredSnapshotRoot
+                    if ($brokerEntryState.HandoffEstablished) {
+                        Assert-NxbH2DestinationBroker -SnapshotRoot $brokerEntryState.DeferredSnapshotRoot
                     }
-                    Stop-NxbH2DestinationBroker -SnapshotRoot $script:NxbH2DeferredSnapshotRoot -AllowMissing
-                    $script:NxbH2BrokerStopped = $true
+                    Stop-NxbH2DestinationBroker -SnapshotRoot $brokerEntryState.DeferredSnapshotRoot -AllowMissing
+                    $brokerEntryState.Stopped = $true
                 }
             }
 
             Microsoft.PowerShell.Management\Remove-Item @PSBoundParameters
         }
+
+        $newItemProxy = (Get-Command New-Item -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
+        $testPathProxy = (Get-Command Test-Path -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
+        $removeItemProxy = (Get-Command Remove-Item -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
+        Set-Item -Path Function:\New-Item -Value $newItemProxy -Force
+        Set-Item -Path Function:\Test-Path -Value $testPathProxy -Force
+        Set-Item -Path Function:\Remove-Item -Value $removeItemProxy -Force
     }
 
     $innerParameters = @{}
@@ -266,13 +277,13 @@ try {
     & $h2EntryPath @innerParameters
 
     if (-not $SelfTest) {
-        if ($null -eq $script:NxbH2DeferredSnapshotRoot) {
+        if ($null -eq $brokerEntryState.DeferredSnapshotRoot) {
             Fail-NxbH2BrokerEntry 'H2 validation returned without requesting the broker-owned snapshot root'
         }
-        if (-not $script:NxbH2BrokerHandoffEstablished) {
+        if (-not $brokerEntryState.HandoffEstablished) {
             Fail-NxbH2BrokerEntry 'H2 validation returned without establishing creator-to-PowerShell authority overlap'
         }
-        if (-not $script:NxbH2BrokerStopped) {
+        if (-not $brokerEntryState.Stopped) {
             Fail-NxbH2BrokerEntry 'H2 validation returned without retaining and closing broker authority at final snapshot cleanup'
         }
     }
@@ -288,15 +299,15 @@ catch {
 }
 finally {
     if (
-        -not $script:NxbH2BrokerStopped -and
-        $null -ne $script:NxbH2DeferredSnapshotRoot
+        -not $brokerEntryState.Stopped -and
+        $null -ne $brokerEntryState.DeferredSnapshotRoot
     ) {
         try {
-            if ($script:NxbH2BrokerHandoffEstablished) {
-                Assert-NxbH2DestinationBroker -SnapshotRoot $script:NxbH2DeferredSnapshotRoot
+            if ($brokerEntryState.HandoffEstablished) {
+                Assert-NxbH2DestinationBroker -SnapshotRoot $brokerEntryState.DeferredSnapshotRoot
             }
-            Stop-NxbH2DestinationBroker -SnapshotRoot $script:NxbH2DeferredSnapshotRoot -AllowMissing
-            $script:NxbH2BrokerStopped = $true
+            Stop-NxbH2DestinationBroker -SnapshotRoot $brokerEntryState.DeferredSnapshotRoot -AllowMissing
+            $brokerEntryState.Stopped = $true
         }
         catch {
             $cleanupErrors.Add("destination broker final cleanup failed: $($_.Exception.Message)")

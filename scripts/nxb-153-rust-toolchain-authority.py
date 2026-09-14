@@ -310,8 +310,9 @@ def windows_records(root, budget):
                     "under the Windows platform model"
                 )
             seen_keys.add(sort_key)
+            child = current / item.name
             try:
-                entry = item.stat(follow_symlinks=False)
+                entry = os.stat(child, follow_symlinks=False)
             except OSError as error:
                 raise AuthorityError(
                     f"could not inspect toolchain entry {relative}: {error}"
@@ -320,7 +321,6 @@ def windows_records(root, budget):
                 raise AuthorityError(
                     f"toolchain indirection is not admitted: {relative}"
                 )
-            child = current / item.name
             if stat.S_ISDIR(entry.st_mode):
                 budget.directory(relative)
                 walk(child, relative)

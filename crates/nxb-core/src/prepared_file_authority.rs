@@ -20,18 +20,42 @@ pub(crate) struct PreparedFileAuthority {
     ino: u64,
 }
 
+#[cfg(target_os = "linux")]
+fn linux_external_process_path(path: &Path) -> Result<PathBuf> {
+    let proc_self_fd = Path::new("/proc/self/fd");
+    let Ok(relative) = path.strip_prefix(proc_self_fd) else {
+        return Ok(path.to_path_buf());
+    };
+    let mut components = relative.components();
+    let descriptor = components.next().ok_or_else(|| {
+        anyhow::anyhow!("Linux stable authority path is missing its directory descriptor")
+    })?;
+    let descriptor = descriptor.as_os_str().to_str().ok_or_else(|| {
+        anyhow::anyhow!("Linux stable authority descriptor is not canonical UTF-8")
+    })?;
+    if descriptor.is_empty() || !descriptor.bytes().all(|byte| byte.is_ascii_digit()) {
+        bail!("Linux stable authority descriptor is not a canonical decimal file descriptor");
+    }
+
+    let mut qualified = PathBuf::from(format!("/proc/{}/fd/{descriptor}", std::process::id()));
+    for component in components {
+        qualified.push(component.as_os_str());
+    }
+    Ok(qualified)
+}
+
 impl PreparedFileAuthority {
     pub(crate) fn create_named(path: &Path, bytes: &[u8]) -> Result<Self> {
         if bytes.is_empty() || bytes.len() as u64 > crate::workspace_impl::MAX_DOCUMENT_BYTES {
             bail!("prepared document size is invalid");
         }
 
-        crate::workspace_impl::reject_path_indirections(
+        crate::workspace::reject_path_indirections(
             path.parent()
                 .ok_or_else(|| anyhow::anyhow!("prepared file has no parent"))?,
             "prepared file parent",
         )?;
-        crate::workspace_impl::reject_path_indirections(path, "prepared file")?;
+        crate::workspace::reject_path_indirections(path, "prepared file")?;
 
         let mut options = fs::OpenOptions::new();
         options.write(true).read(true).create_new(true);
@@ -81,7 +105,7 @@ impl PreparedFileAuthority {
 
         #[cfg(unix)]
         {
-            use std::os::unix::fs::{MetadataExt, PermissionsExt};
+            use std::os::unix::fs::PermissionsExt;
             let mode = metadata.permissions().mode();
             if mode & 0o077 != 0 || mode & 0o600 != 0o600 {
                 bail!("prepared workspace object permissions are not private");
@@ -107,7 +131,7 @@ impl PreparedFileAuthority {
     }
 
     pub(crate) fn validate_named_binding(&self) -> Result<()> {
-        crate::workspace_impl::reject_path_indirections(&self.path, "prepared file")?;
+        crate::workspace::reject_path_indirections(&self.path, "prepared file")?;
         let named = fs::symlink_metadata(&self.path)
             .with_context(|| format!("could not inspect prepared path {}", self.path.display()))?;
         if named.file_type().is_symlink() || !named.is_file() {
@@ -126,10 +150,7 @@ impl PreparedFileAuthority {
     }
 
     pub(crate) fn validate_destination_binding(&self, destination: &Path) -> Result<()> {
-        crate::workspace_impl::reject_path_indirections(
-            destination,
-            "published prepared destination",
-        )?;
+        crate::workspace::reject_path_indirections(destination, "published prepared destination")?;
         let destination_metadata = fs::symlink_metadata(destination).with_context(|| {
             format!(
                 "could not inspect published prepared destination {}",
@@ -172,24 +193,25 @@ impl PreparedFileAuthority {
             bail!("trusted Linux hard-link tool authority is invalid: {TRUSTED_LN}");
         }
 
-        crate::workspace_impl::reject_path_indirections(
+        crate::workspace::reject_path_indirections(
             destination
                 .parent()
                 .ok_or_else(|| anyhow::anyhow!("create-only destination has no parent"))?,
             "create-only destination parent",
         )?;
-        crate::workspace_impl::reject_path_indirections(destination, "create-only destination")?;
+        crate::workspace::reject_path_indirections(destination, "create-only destination")?;
 
         let source = PathBuf::from(format!(
             "/proc/{}/fd/{}",
             std::process::id(),
             self.file.as_raw_fd()
         ));
+        let destination_for_child = linux_external_process_path(destination)?;
         let output = Command::new(tool)
             .arg("-L")
             .arg("--")
             .arg(&source)
-            .arg(destination)
+            .arg(&destination_for_child)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -248,6 +270,18 @@ impl PreparedFileAuthority {
 mod linux_tests {
     use super::*;
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    #[test]
+    fn external_process_path_qualifies_proc_self_fd_without_rewriting_normal_paths() {
+        let qualified =
+            linux_external_process_path(Path::new("/proc/self/fd/123/example.json")).unwrap();
+        assert_eq!(
+            qualified,
+            PathBuf::from(format!("/proc/{}/fd/123/example.json", std::process::id()))
+        );
+        let normal = Path::new("/tmp/example.json");
+        assert_eq!(linux_external_process_path(normal).unwrap(), normal);
+    }
 
     #[test]
     fn prepared_authority_detects_same_permission_path_replacement() {

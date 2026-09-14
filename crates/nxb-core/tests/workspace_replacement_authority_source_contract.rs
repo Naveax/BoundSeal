@@ -33,12 +33,8 @@ fn section<'a>(text: &'a str, path: &str, start: &str, end: &str) -> &'a str {
 fn linux_replacement_authority_is_compiled_without_a_new_syscall_dependency() {
     let nxb = source(NXB_PATH);
     assert!(nxb.contains("#[cfg(target_os = \"linux\")]\nmod workspace_authority_replacement;"));
-
     let cargo = source(CARGO_PATH);
-    assert!(
-        !cargo.contains("rustix"),
-        "{CARGO_PATH}: Linux replacement authority must not leave an unvalidated lockfile dependency"
-    );
+    assert!(!cargo.contains("rustix"));
 }
 
 #[test]
@@ -53,13 +49,13 @@ fn migration_routes_linux_manifest_replacement_through_the_authority_module_only
     ] {
         assert!(
             migration.contains(marker),
-            "{MIGRATION_PATH}: missing replacement routing marker: {marker}"
+            "{MIGRATION_PATH}: missing marker: {marker}"
         );
     }
 }
 
 #[test]
-fn linux_replacement_retains_parent_and_file_objects_across_namespace_mutation() {
+fn linux_existing_destination_fails_closed_before_victim_mutation() {
     let replacement = source(REPLACEMENT_PATH);
     let production = section(
         &replacement,
@@ -67,56 +63,20 @@ fn linux_replacement_retains_parent_and_file_objects_across_namespace_mutation()
         "struct ParentAuthority",
         "\n#[cfg(test)]",
     );
-
     for marker in [
         "O_DIRECTORY | O_NOFOLLOW",
-        "file: File",
-        "dev: u64",
-        "ino: u64",
-        "self.file.as_raw_fd()",
-        "\"/proc/{}/fd/{}\"",
-        "self.stable_path(source)",
-        "self.stable_path(quarantine)",
         "parent.validate_named_binding()?;",
-        "parent.validate_child_binding(\n            &quarantine_name,",
-        "parent.validate_child_binding(destination, &prepared, \"replacement destination\")?;",
-    ] {
-        assert!(
-            production.contains(marker),
-            "{REPLACEMENT_PATH}: missing retained-authority marker: {marker}"
-        );
-    }
-}
-
-#[test]
-fn linux_replacement_uses_trusted_no_clobber_quarantine_and_exact_fd_publication() {
-    let replacement = source(REPLACEMENT_PATH);
-    let production = section(
-        &replacement,
-        REPLACEMENT_PATH,
-        "struct ParentAuthority",
-        "\n#[cfg(test)]",
-    );
-
-    for marker in [
-        "const TRUSTED_MV: &str = \"/usr/bin/mv\";",
-        "const TRUSTED_LN: &str = \"/usr/bin/ln\";",
-        "metadata.uid() != 0",
-        "metadata.permissions().mode() & 0o022 != 0",
-        ".arg(\"-n\")",
-        ".arg(\"-T\")",
-        ".arg(\"-L\")",
-        ".arg(\"--\")",
-        ".env_clear()",
+        "parent.validate_child_binding(destination, previous, \"replacement destination\")?;",
+        "Linux replacement of an existing document is unsupported without exact-victim namespace mutation authority",
         "prepared.file.as_raw_fd()",
     ] {
-        assert!(
-            production.contains(marker),
-            "{REPLACEMENT_PATH}: missing namespace-mutation marker: {marker}"
-        );
+        assert!(production.contains(marker), "{REPLACEMENT_PATH}: missing marker: {marker}");
     }
-
     for forbidden in [
+        "TRUSTED_MV",
+        "quarantine_no_replace",
+        ".arg(\"-n\")",
+        ".arg(\"-T\")",
         "remove_file(",
         "remove_regular(",
         "fs::rename(",
@@ -124,20 +84,48 @@ fn linux_replacement_uses_trusted_no_clobber_quarantine_and_exact_fd_publication
     ] {
         assert!(
             !production.contains(forbidden),
-            "{REPLACEMENT_PATH}: replacement production path must not pathname-delete or plain-rename residue: {forbidden}"
+            "{REPLACEMENT_PATH}: forbidden victim mutation marker: {forbidden}"
         );
     }
 }
 
 #[test]
-fn replacement_regressions_cover_final_component_and_parent_namespace_substitution() {
+fn linux_missing_destination_publication_remains_exact_fd_create_only() {
+    let replacement = source(REPLACEMENT_PATH);
+    let production = section(
+        &replacement,
+        REPLACEMENT_PATH,
+        "struct ParentAuthority",
+        "\n#[cfg(test)]",
+    );
+    assert!(
+        replacement.contains("const TRUSTED_LN: &str = \"/usr/bin/ln\";"),
+        "{REPLACEMENT_PATH}: missing trusted hard-link application marker"
+    );
+    for marker in [
+        ".arg(\"-L\")",
+        ".arg(\"--\")",
+        ".env_clear()",
+        "prepared.file.as_raw_fd()",
+        "parent.claim_prepared(&prepared, destination)?;",
+        "parent.validate_child_binding(destination, &prepared, \"replacement destination\")?;",
+    ] {
+        assert!(
+            production.contains(marker),
+            "{REPLACEMENT_PATH}: missing create-only marker: {marker}"
+        );
+    }
+}
+
+#[test]
+fn replacement_regressions_preserve_existing_and_substituted_victims() {
     let replacement = source(REPLACEMENT_PATH);
     for marker in [
-        "replacement_publishes_exact_prepared_inode_and_retires_previous_inode",
-        "same_permission_destination_replacement_is_quarantined_but_never_deleted_or_published",
+        "existing_destination_fails_closed_without_victim_mutation",
+        "same_permission_destination_substitution_is_left_untouched",
         "parent_directory_replacement_cannot_redirect_namespace_mutation",
         "missing_destination_is_create_only_from_retained_prepared_fd",
-        "quarantined previous document pathname is not the retained file authority",
+        "replacement destination pathname is not the retained file authority",
         "replacement parent pathname no longer names the retained directory authority",
     ] {
         assert!(
