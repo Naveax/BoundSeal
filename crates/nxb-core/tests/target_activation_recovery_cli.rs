@@ -125,12 +125,7 @@ fn guided_arguments(
     ]
 }
 
-fn preview(
-    root: &Path,
-    authorization: &Path,
-    include_path: &str,
-    exclude_path: &str,
-) -> Value {
+fn preview(root: &Path, authorization: &Path, include_path: &str, exclude_path: &str) -> Value {
     run_json(&guided_arguments(
         "setup",
         root,
@@ -147,13 +142,8 @@ fn activation_arguments(
     exclude_path: &str,
     preview_sha256: &str,
 ) -> Vec<String> {
-    let mut arguments = guided_arguments(
-        "activate",
-        root,
-        authorization,
-        include_path,
-        exclude_path,
-    );
+    let mut arguments =
+        guided_arguments("activate", root, authorization, include_path, exclude_path);
     let json_index = arguments
         .iter()
         .position(|value| value == "--json")
@@ -186,17 +176,9 @@ fn exact_inert_continuity_is_reused_without_rewriting_artifact() {
     let authorization = authorization_document(&root);
 
     let setup = preview(&root, &authorization, "/api", "/api/logout");
-    let preview_sha256 = setup
-        .get("preview_sha256")
-        .and_then(Value::as_str)
-        .unwrap();
-    let arguments = activation_arguments(
-        &root,
-        &authorization,
-        "/api",
-        "/api/logout",
-        preview_sha256,
-    );
+    let preview_sha256 = setup.get("preview_sha256").and_then(Value::as_str).unwrap();
+    let arguments =
+        activation_arguments(&root, &authorization, "/api", "/api/logout", preview_sha256);
     let first = run_json(&arguments);
     let first_identity = first
         .get("identity_sha256")
@@ -256,13 +238,8 @@ fn inert_continuity_rejects_changed_preview_without_mutation() {
         .get("preview_sha256")
         .and_then(Value::as_str)
         .unwrap();
-    let original_arguments = activation_arguments(
-        &root,
-        &authorization,
-        "/api",
-        "/api/logout",
-        original_sha,
-    );
+    let original_arguments =
+        activation_arguments(&root, &authorization, "/api", "/api/logout", original_sha);
     run_json(&original_arguments);
 
     let artifact = artifact_path(&root);

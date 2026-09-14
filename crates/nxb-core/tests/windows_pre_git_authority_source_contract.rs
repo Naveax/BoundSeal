@@ -48,11 +48,7 @@ fn unique_index(text: &str, needle: &str, label: &str) -> usize {
 
 fn assert_pre_git_guard(surface: CanonicalSurface) {
     let text = read_text(surface.path);
-    let host_git_index = unique_index(
-        &text,
-        surface.host_git_resolution,
-        surface.path,
-    );
+    let host_git_index = unique_index(&text, surface.host_git_resolution, surface.path);
 
     for marker in AMBIENT_GIT_GUARD_MARKERS {
         let guard_index = unique_index(&text, marker, surface.path);
@@ -87,19 +83,23 @@ fn canonical_windows_surfaces_reject_ambient_git_authority_before_host_git_resol
         },
         CanonicalSurface {
             path: "scripts/record-nxb-153-windows-process-lifecycle-evidence.ps1",
-            host_git_resolution: "$git = Get-Command git -CommandType Application -ErrorAction Stop",
+            host_git_resolution:
+                "$git = Get-Command git -CommandType Application -ErrorAction Stop",
         },
         CanonicalSurface {
             path: "scripts/review-nxb-153-windows-admission.ps1",
-            host_git_resolution: "$git = Get-Command git -CommandType Application -ErrorAction Stop",
+            host_git_resolution:
+                "$git = Get-Command git -CommandType Application -ErrorAction Stop",
         },
         CanonicalSurface {
             path: "scripts/review-nxb-153-windows-admission-complete.ps1",
-            host_git_resolution: "$git = Get-Command git -CommandType Application -ErrorAction Stop",
+            host_git_resolution:
+                "$git = Get-Command git -CommandType Application -ErrorAction Stop",
         },
         CanonicalSurface {
             path: "scripts/nxb-153-windows-host-git-lifetime-probe.ps1",
-            host_git_resolution: "$git = Get-Command git -CommandType Application -ErrorAction Stop",
+            host_git_resolution:
+                "$git = Get-Command git -CommandType Application -ErrorAction Stop",
         },
     ];
 

@@ -271,11 +271,7 @@ fn interior_empty_path_segments_are_rejected() {
 
     let mut arguments = guided_arguments("setup", &root, &authorization);
     replace_flag_value(&mut arguments, "--include-path", "/api//admin");
-    replace_flag_value(
-        &mut arguments,
-        "--exclude-path",
-        "/api//admin/logout",
-    );
+    replace_flag_value(&mut arguments, "--exclude-path", "/api//admin/logout");
     let output = run(&arguments);
     assert_rejected(
         &output,
@@ -318,7 +314,11 @@ fn imported_scope_rejects_shadowing_and_interior_empty_segments() {
             &output,
             SETUP_EXIT_CODE,
             "NXB153-TARGET-SETUP-REJECTED",
-            if index == 0 { "shadow" } else { "not canonical" },
+            if index == 0 {
+                "shadow"
+            } else {
+                "not canonical"
+            },
         );
         assert_eq!(fs::read_dir(root.join("targets")).unwrap().count(), 0);
     }

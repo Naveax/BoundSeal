@@ -120,7 +120,8 @@ fn windows_validator_withholds_pass_until_all_cleanup_succeeds() {
     let evidence_primary_gate = unique_index(&text, "    if ($null -ne $evidencePrimaryFailure) {");
     let evidence_cleanup_gate = last_index(&text, "    if ($null -ne $evidenceCleanupFailure) {");
     assert_eq!(
-        text.matches("if ($null -ne $evidenceCleanupFailure) {").count(),
+        text.matches("if ($null -ne $evidenceCleanupFailure) {")
+            .count(),
         2,
         "{VALIDATOR_PATH}: expected combined-primary and cleanup-only evidence cleanup gates"
     );

@@ -80,7 +80,12 @@ fn sync_parent(parent: &Path) -> Result<()> {
     fs::File::open(parent)
         .with_context(|| format!("could not open publication parent {}", parent.display()))?
         .sync_all()
-        .with_context(|| format!("could not synchronize publication parent {}", parent.display()))
+        .with_context(|| {
+            format!(
+                "could not synchronize publication parent {}",
+                parent.display()
+            )
+        })
 }
 
 #[cfg(not(unix))]

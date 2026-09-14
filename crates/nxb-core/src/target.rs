@@ -1227,7 +1227,9 @@ fn list_value(workspace_path: &Path, include_disabled: bool) -> Result<Value> {
     }
     serde_json::to_value(TargetList {
         status: "ready",
-        workspace: workspace::logical_authority_path(&root).display().to_string(),
+        workspace: workspace::logical_authority_path(&root)
+            .display()
+            .to_string(),
         count: targets.len(),
         targets,
         network_activity: "none",

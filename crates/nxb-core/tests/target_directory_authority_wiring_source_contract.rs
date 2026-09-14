@@ -103,7 +103,8 @@ fn target_readiness_and_target_records_resolve_under_retained_authorities() {
         "\nfn load_profiles(",
     );
     assert!(
-        targets.contains("workspace::pin_private_child_path(root, \"targets\", \"target directory\")"),
+        targets
+            .contains("workspace::pin_private_child_path(root, \"targets\", \"target directory\")"),
         "{TARGET_PATH}: targets must resolve through the retained workspace root authority"
     );
     for forbidden in ["fs::metadata(", "root.join(\"targets\")"] {

@@ -1,4 +1,7 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 const NXB_PATH: &str = "crates/nxb-core/src/nxb.rs";
 const MIGRATION_PATH: &str = "crates/nxb-core/src/workspace/migration.rs";
@@ -48,7 +51,10 @@ fn migration_routes_linux_manifest_replacement_through_the_authority_module_only
         "use super::replace_document;",
         "replace_document(&paths.manifest, &plan.target_bytes)?;",
     ] {
-        assert!(migration.contains(marker), "{MIGRATION_PATH}: missing replacement routing marker: {marker}");
+        assert!(
+            migration.contains(marker),
+            "{MIGRATION_PATH}: missing replacement routing marker: {marker}"
+        );
     }
 }
 
@@ -75,7 +81,10 @@ fn linux_replacement_retains_parent_and_file_objects_across_namespace_mutation()
         "parent.validate_child_binding(\n            &quarantine_name,",
         "parent.validate_child_binding(destination, &prepared, \"replacement destination\")?;",
     ] {
-        assert!(production.contains(marker), "{REPLACEMENT_PATH}: missing retained-authority marker: {marker}");
+        assert!(
+            production.contains(marker),
+            "{REPLACEMENT_PATH}: missing retained-authority marker: {marker}"
+        );
     }
 }
 
@@ -101,10 +110,18 @@ fn linux_replacement_uses_trusted_no_clobber_quarantine_and_exact_fd_publication
         ".env_clear()",
         "prepared.file.as_raw_fd()",
     ] {
-        assert!(production.contains(marker), "{REPLACEMENT_PATH}: missing namespace-mutation marker: {marker}");
+        assert!(
+            production.contains(marker),
+            "{REPLACEMENT_PATH}: missing namespace-mutation marker: {marker}"
+        );
     }
 
-    for forbidden in ["remove_file(", "remove_regular(", "fs::rename(", "remove_dir_all("] {
+    for forbidden in [
+        "remove_file(",
+        "remove_regular(",
+        "fs::rename(",
+        "remove_dir_all(",
+    ] {
         assert!(
             !production.contains(forbidden),
             "{REPLACEMENT_PATH}: replacement production path must not pathname-delete or plain-rename residue: {forbidden}"
@@ -123,6 +140,9 @@ fn replacement_regressions_cover_final_component_and_parent_namespace_substituti
         "quarantined previous document pathname is not the retained file authority",
         "replacement parent pathname no longer names the retained directory authority",
     ] {
-        assert!(replacement.contains(marker), "{REPLACEMENT_PATH}: missing regression marker: {marker}");
+        assert!(
+            replacement.contains(marker),
+            "{REPLACEMENT_PATH}: missing regression marker: {marker}"
+        );
     }
 }

@@ -4,14 +4,12 @@ use std::{
 };
 
 const LINUX_INNER_PATH: &str = "scripts/nxb-153-linux-immutable-source-inner.sh";
-const LINUX_HOSTED_WRAPPER_PATH: &str =
-    "scripts/nxb-153-linux-immutable-source-h1-inner.sh";
+const LINUX_HOSTED_WRAPPER_PATH: &str = "scripts/nxb-153-linux-immutable-source-h1-inner.sh";
 const REGISTRY_SOURCE_PATH: &str = "scripts/nxb-153-registry-source.py";
 const WINDOWS_STRING_GUARD_PATH: &str = "scripts/nxb-153-windows-immutable-source.ps1";
 const WINDOWS_GIT_GUARD_PATH: &str =
     "scripts/nxb-153-windows-immutable-source-git-output-inner.ps1";
-const WINDOWS_H2_ENTRY_PATH: &str =
-    "scripts/nxb-153-windows-immutable-source-h2-entry-inner.ps1";
+const WINDOWS_H2_ENTRY_PATH: &str = "scripts/nxb-153-windows-immutable-source-h2-entry-inner.ps1";
 const WINDOWS_H2_INNER_PATH: &str = "scripts/nxb-153-windows-immutable-source-h2-inner.ps1";
 
 fn repository_root() -> PathBuf {
@@ -60,11 +58,7 @@ fn linux_nested_bash_labels_remain_inside_the_outer_script_argument() {
 #[test]
 fn linux_hosted_namespace_adapters_stop_exporting_before_deeper_children() {
     let source = read_source(LINUX_HOSTED_WRAPPER_PATH);
-    let mount_start = required_offset(
-        &source,
-        "        mount() {",
-        LINUX_HOSTED_WRAPPER_PATH,
-    );
+    let mount_start = required_offset(&source, "        mount() {", LINUX_HOSTED_WRAPPER_PATH);
     let handoff_marker = "builtin export -n -f unshare mount 2>/dev/null || true";
     let handoff = mount_start
         + required_offset(
@@ -191,5 +185,53 @@ fn windows_h2_acl_rights_use_the_access_control_enum_namespace() {
                 "{path}: missing canonical ACL right marker: {marker}"
             );
         }
+    }
+}
+
+#[test]
+fn rust_toolchain_authority_self_test_uses_native_platform_model() {
+    let source = read_source("scripts/nxb-153-rust-toolchain-authority.py");
+    let start = required_offset(
+        &source,
+        "def self_test():",
+        "scripts/nxb-153-rust-toolchain-authority.py",
+    );
+    let end = start
+        + required_offset(
+            &source[start..],
+            "\ndef main():",
+            "scripts/nxb-153-rust-toolchain-authority.py",
+        );
+    let body = &source[start..end];
+
+    for marker in [
+        r#"native_model = "windows" if os.name == "nt" else "linux""#,
+        "first_native = digest_tree(first, native_model)",
+        "second_native = digest_tree(second, native_model)",
+        "digest_tree(bounded, native_model, max_files=1)",
+        "digest_tree(bounded, native_model, max_total_bytes=1)",
+        "digest_tree(directory_bound, native_model, max_directories=1)",
+        "digest_tree(symlink_root, native_model)",
+        r#"_, first_key = windows_relative_bytes("Tool.exe")"#,
+        r#"_, second_key = windows_relative_bytes("tool.exe")"#,
+        r#"if os.name != "nt":"#,
+    ] {
+        assert!(
+            body.contains(marker),
+            "host Rust authority self-test missing platform-safe marker: {marker}"
+        );
+    }
+
+    for forbidden in [
+        r#"digest_tree(first, "linux")"#,
+        r#"digest_tree(second, "linux")"#,
+        r#"digest_tree(bounded, "linux""#,
+        r#"digest_tree(directory_bound, "linux""#,
+        r#"digest_tree(symlink_root, "linux")"#,
+    ] {
+        assert!(
+            !body.contains(forbidden),
+            "host Rust authority self-test retained Windows-hostile Linux traversal: {forbidden}"
+        );
     }
 }

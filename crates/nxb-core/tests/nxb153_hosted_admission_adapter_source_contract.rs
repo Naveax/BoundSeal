@@ -196,10 +196,7 @@ fn hosted_windows_json_timestamps_remain_strings_for_canonical_validation() {
 fn hosted_windows_exact_blob_checkout_pins_powershell_and_python_to_lf() {
     let attributes = read_source(ATTRIBUTES_PATH);
 
-    for marker in [
-        "/scripts/*.ps1 text eol=lf",
-        "/scripts/*.py text eol=lf",
-    ] {
+    for marker in ["/scripts/*.ps1 text eol=lf", "/scripts/*.py text eol=lf"] {
         assert!(
             attributes.lines().any(|line| line == marker),
             "{ATTRIBUTES_PATH}: missing exact-blob checkout authority marker: {marker}"

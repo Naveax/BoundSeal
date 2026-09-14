@@ -105,7 +105,11 @@ expires_at = 2099-01-01T00:00:00Z
 "#,
         )
         .unwrap();
-        fs::write(&authorization, b"authorized transient enumeration fixture\n").unwrap();
+        fs::write(
+            &authorization,
+            b"authorized transient enumeration fixture\n",
+        )
+        .unwrap();
 
         run_json(&[
             "target".into(),
@@ -139,9 +143,7 @@ expires_at = 2099-01-01T00:00:00Z
     }
 
     fn disable_receipt(&self) -> PathBuf {
-        self.root
-            .join("targets")
-            .join("example-app.disabled.json")
+        self.root.join("targets").join("example-app.disabled.json")
     }
 
     fn target_list(&self, include_disabled: bool) -> Output {
@@ -212,7 +214,10 @@ fn exact_profile_and_disable_transients_are_quarantined_without_mutation_or_coun
             .and_then(Value::as_u64),
         Some(1)
     );
-    assert_eq!(fs::read(&profile_transient).unwrap(), profile_transient_before);
+    assert_eq!(
+        fs::read(&profile_transient).unwrap(),
+        profile_transient_before
+    );
 
     run_json(&[
         "target".into(),
@@ -246,8 +251,14 @@ fn exact_profile_and_disable_transients_are_quarantined_without_mutation_or_coun
             .and_then(Value::as_u64),
         Some(2)
     );
-    assert_eq!(fs::read(&profile_transient).unwrap(), profile_transient_before);
-    assert_eq!(fs::read(&disable_transient).unwrap(), disable_transient_before);
+    assert_eq!(
+        fs::read(&profile_transient).unwrap(),
+        profile_transient_before
+    );
+    assert_eq!(
+        fs::read(&disable_transient).unwrap(),
+        disable_transient_before
+    );
 }
 
 #[test]

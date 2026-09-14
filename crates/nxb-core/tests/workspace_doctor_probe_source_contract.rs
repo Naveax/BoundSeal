@@ -1,4 +1,7 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 const NXB_PATH: &str = "crates/nxb-core/src/nxb.rs";
 const ENTRY_PATH: &str = "crates/nxb-core/src/workspace_authority_entry.rs";
@@ -47,7 +50,10 @@ fn workspace_cli_routes_doctor_through_the_entry_override() {
         "\"name\": \"atomic_write_probe\"",
         "object-lifetime create/write/sync/finalization succeeded",
     ] {
-        assert!(doctor.contains(marker), "{ENTRY_PATH}: missing doctor override marker: {marker}");
+        assert!(
+            doctor.contains(marker),
+            "{ENTRY_PATH}: missing doctor override marker: {marker}"
+        );
     }
     assert!(
         !doctor.contains("workspace_impl::doctor_value"),
@@ -74,7 +80,10 @@ fn linux_doctor_probe_uses_an_unnamed_tmpfile_object() {
         "initial.permissions().mode()",
         "final_metadata.len() != PROBE_BYTES.len() as u64",
     ] {
-        assert!(linux.contains(marker), "{PROBE_PATH}: missing Linux unnamed-probe marker: {marker}");
+        assert!(
+            linux.contains(marker),
+            "{PROBE_PATH}: missing Linux unnamed-probe marker: {marker}"
+        );
     }
 }
 
@@ -99,7 +108,10 @@ fn windows_doctor_probe_uses_delete_on_close_object_lifetime_cleanup() {
         "drop(file);",
         "ErrorKind::NotFound => Ok(())",
     ] {
-        assert!(windows.contains(marker), "{PROBE_PATH}: missing Windows delete-on-close marker: {marker}");
+        assert!(
+            windows.contains(marker),
+            "{PROBE_PATH}: missing Windows delete-on-close marker: {marker}"
+        );
     }
 }
 
@@ -133,6 +145,9 @@ fn platform_regressions_require_zero_probe_residue() {
         "delete_on_close_probe_leaves_no_directory_entry",
         "assert_eq!(fs::read_dir(&root).unwrap().count(), before);",
     ] {
-        assert!(probe.contains(marker), "{PROBE_PATH}: missing doctor-probe regression marker: {marker}");
+        assert!(
+            probe.contains(marker),
+            "{PROBE_PATH}: missing doctor-probe regression marker: {marker}"
+        );
     }
 }

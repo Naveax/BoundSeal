@@ -33,9 +33,12 @@ pub(super) fn open_document_read_authority(path: &Path) -> Result<fs::File> {
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
         .open(path)
         .with_context(|| format!("could not pin workspace document {}", path.display()))?;
-    let metadata = file
-        .metadata()
-        .with_context(|| format!("could not inspect pinned workspace document {}", path.display()))?;
+    let metadata = file.metadata().with_context(|| {
+        format!(
+            "could not inspect pinned workspace document {}",
+            path.display()
+        )
+    })?;
     if is_reparse_point(&metadata) || !metadata.is_file() {
         bail!(
             "pinned workspace document is a reparse point or non-file: {}",

@@ -516,11 +516,11 @@ pub(crate) fn create_document(path: &Path, bytes: &[u8]) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("output file name is invalid"))?;
     let temporary = parent.join(format!(".{name}.{}.tmp", random_hex(12)?));
 
-    let prepared = crate::prepared_file_authority::PreparedFileAuthority::create_named(
-        &temporary,
-        bytes,
-    )
-    .with_context(|| format!("could not prepare create-only document {}", path.display()))?;
+    let prepared =
+        crate::prepared_file_authority::PreparedFileAuthority::create_named(&temporary, bytes)
+            .with_context(|| {
+                format!("could not prepare create-only document {}", path.display())
+            })?;
 
     prepared
         .claim_create_only(path)
@@ -1122,11 +1122,9 @@ mod tests {
         .unwrap_err();
 
         assert!(!create_document_error_published(&error));
-        assert!(
-            error
-                .downcast_ref::<UnpublishedDocumentCleanupError>()
-                .is_some()
-        );
+        assert!(error
+            .downcast_ref::<UnpublishedDocumentCleanupError>()
+            .is_some());
         assert!(error.to_string().contains("temporary preparation failed"));
         assert!(!safe_exists(&path).unwrap());
         assert_eq!(
@@ -1157,13 +1155,14 @@ mod tests {
         .unwrap_err();
 
         assert!(!create_document_error_published(&error));
-        assert!(
-            error
-                .downcast_ref::<UnpublishedDocumentCleanupError>()
-                .is_some()
-        );
+        assert!(error
+            .downcast_ref::<UnpublishedDocumentCleanupError>()
+            .is_some());
         assert!(error.to_string().contains("was not published"));
-        assert_eq!(read_document(&path, "winning test record").unwrap(), b"winner\n");
+        assert_eq!(
+            read_document(&path, "winning test record").unwrap(),
+            b"winner\n"
+        );
         assert_eq!(
             fs::read_dir(&root).unwrap().count(),
             3,
@@ -1200,7 +1199,10 @@ mod tests {
             }
         }
         assert_eq!(winners.len(), 1);
-        assert_eq!(read_document(path.as_ref(), "race record").unwrap(), winners[0]);
+        assert_eq!(
+            read_document(path.as_ref(), "race record").unwrap(),
+            winners[0]
+        );
         validate_private_permissions(path.as_ref(), false).unwrap();
 
         fs::remove_dir_all(root).unwrap();
@@ -1228,7 +1230,10 @@ mod tests {
         let finalization = create_document_error_finalization(&error).unwrap();
         assert!(!finalization.temporary_link_cleanup_failed);
         assert!(finalization.parent_directory_sync_failed);
-        assert_eq!(read_document(&path, "published test record").unwrap(), b"owned\n");
+        assert_eq!(
+            read_document(&path, "published test record").unwrap(),
+            b"owned\n"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -1252,7 +1257,10 @@ mod tests {
         let finalization = create_document_error_finalization(&error).unwrap();
         assert!(finalization.temporary_link_cleanup_failed);
         assert!(!finalization.parent_directory_sync_failed);
-        assert_eq!(read_document(&path, "published test record").unwrap(), b"owned\n");
+        assert_eq!(
+            read_document(&path, "published test record").unwrap(),
+            b"owned\n"
+        );
         assert_eq!(
             fs::read_dir(&root).unwrap().count(),
             2,
@@ -1282,7 +1290,10 @@ mod tests {
         assert!(finalization.temporary_link_cleanup_failed);
         assert!(finalization.parent_directory_sync_failed);
         assert!(create_document_error_published(&error));
-        assert_eq!(read_document(&path, "published test record").unwrap(), b"owned\n");
+        assert_eq!(
+            read_document(&path, "published test record").unwrap(),
+            b"owned\n"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
