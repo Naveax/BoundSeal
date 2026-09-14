@@ -61,64 +61,67 @@ jobs:
           if block.count(old_collision) != 1:
               raise SystemExit('unexpected Windows collision self-test block')
           block = block.replace(old_collision, new_collision, 1)
-
-          text = text[:start] + block + text[end:]
-          authority_path.write_text(text, encoding='utf-8', newline='\n')
+          authority_path.write_text(text[:start] + block + text[end:], encoding='utf-8', newline='\n')
 
           regression_path = Path('crates/nxb-core/tests/nxb153_admission_runtime_regression_source_contract.rs')
           regression = regression_path.read_text(encoding='utf-8')
           test_name = 'rust_toolchain_authority_self_test_uses_native_platform_model'
           if test_name not in regression:
-              regression += r'''
+              test_block = r'''
 
-#[test]
-fn rust_toolchain_authority_self_test_uses_native_platform_model() {
-    let source = read_source("scripts/nxb-153-rust-toolchain-authority.py");
-    let start = required_offset(
-        &source,
-        "def self_test():",
-        "scripts/nxb-153-rust-toolchain-authority.py",
-    );
-    let end = start
-        + required_offset(
-            &source[start..],
-            "\ndef main():",
-            "scripts/nxb-153-rust-toolchain-authority.py",
-        );
-    let body = &source[start..end];
+          #[test]
+          fn rust_toolchain_authority_self_test_uses_native_platform_model() {
+              let source = read_source("scripts/nxb-153-rust-toolchain-authority.py");
+              let start = required_offset(
+                  &source,
+                  "def self_test():",
+                  "scripts/nxb-153-rust-toolchain-authority.py",
+              );
+              let end = start
+                  + required_offset(
+                      &source[start..],
+                      "\ndef main():",
+                      "scripts/nxb-153-rust-toolchain-authority.py",
+                  );
+              let body = &source[start..end];
 
-    for marker in [
-        r#"native_model = "windows" if os.name == "nt" else "linux""#,
-        "first_native = digest_tree(first, native_model)",
-        "second_native = digest_tree(second, native_model)",
-        "digest_tree(bounded, native_model, max_files=1)",
-        "digest_tree(bounded, native_model, max_total_bytes=1)",
-        "digest_tree(directory_bound, native_model, max_directories=1)",
-        "digest_tree(symlink_root, native_model)",
-        r#"_, first_key = windows_relative_bytes("Tool.exe")"#,
-        r#"_, second_key = windows_relative_bytes("tool.exe")"#,
-        r#"if os.name != "nt":"#,
-    ] {
-        assert!(
-            body.contains(marker),
-            "host Rust authority self-test missing platform-safe marker: {marker}"
-        );
-    }
+              for marker in [
+                  r#"native_model = "windows" if os.name == "nt" else "linux""#,
+                  "first_native = digest_tree(first, native_model)",
+                  "second_native = digest_tree(second, native_model)",
+                  "digest_tree(bounded, native_model, max_files=1)",
+                  "digest_tree(bounded, native_model, max_total_bytes=1)",
+                  "digest_tree(directory_bound, native_model, max_directories=1)",
+                  "digest_tree(symlink_root, native_model)",
+                  r#"_, first_key = windows_relative_bytes("Tool.exe")"#,
+                  r#"_, second_key = windows_relative_bytes("tool.exe")"#,
+                  r#"if os.name != "nt":"#,
+              ] {
+                  assert!(
+                      body.contains(marker),
+                      "host Rust authority self-test missing platform-safe marker: {marker}"
+                  );
+              }
 
-    for forbidden in [
-        r#"digest_tree(first, "linux")"#,
-        r#"digest_tree(second, "linux")"#,
-        r#"digest_tree(bounded, "linux""#,
-        r#"digest_tree(directory_bound, "linux""#,
-        r#"digest_tree(symlink_root, "linux")"#,
-    ] {
-        assert!(
-            !body.contains(forbidden),
-            "host Rust authority self-test retained Windows-hostile Linux traversal: {forbidden}"
-        );
-    }
-}
-'''
+              for forbidden in [
+                  r#"digest_tree(first, "linux")"#,
+                  r#"digest_tree(second, "linux")"#,
+                  r#"digest_tree(bounded, "linux""#,
+                  r#"digest_tree(directory_bound, "linux""#,
+                  r#"digest_tree(symlink_root, "linux")"#,
+              ] {
+                  assert!(
+                      !body.contains(forbidden),
+                      "host Rust authority self-test retained Windows-hostile Linux traversal: {forbidden}"
+                  );
+              }
+          }
+          '''
+              lines = test_block.splitlines()
+              normalized = []
+              for line in lines:
+                  normalized.append(line[10:] if line.startswith('          ') else line)
+              regression += '\n'.join(normalized)
               regression_path.write_text(regression, encoding='utf-8', newline='\n')
           PY
 
