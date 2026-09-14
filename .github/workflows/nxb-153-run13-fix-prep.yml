@@ -30,11 +30,16 @@ jobs:
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
 
-      - name: Compile patch helpers
+      - name: Parse patch helpers without bytecode residue
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile scripts/nxb-153-run13-*.py
+          python3 - <<'PY'
+          from pathlib import Path
+          for path in sorted(Path('scripts').glob('nxb-153-run13-*.py')):
+              source = path.read_text(encoding='utf-8')
+              compile(source, str(path), 'exec')
+          PY
 
       - name: Apply coherent run 13 closure patch set
         shell: bash
@@ -106,6 +111,7 @@ jobs:
             scripts/nxb-153-run13-bounded-scope-fix.py \
             scripts/nxb-153-run13-broker-scope-fix.py \
             scripts/nxb-153-run13-scope-regression-fix.py
+          find scripts -type d -name __pycache__ -prune -exec rm -rf {} +
           git add -A
           git diff --cached --check
           git config user.name "github-actions[bot]"

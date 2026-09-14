@@ -107,6 +107,13 @@ def main() -> None:
         "doctor probe needless return",
     )
 
+    replace_once(
+        "crates/nxb-evidence-key-provider-process/src/bin/nxb-windows-credential-evidence-key-helper.rs",
+        'const VERSION_COMMENT_PREFIX: &str = "NXB_EVIDENCE_KEY_VERSION:";',
+        '#[cfg(windows)]\nconst VERSION_COMMENT_PREFIX: &str = "NXB_EVIDENCE_KEY_VERSION:";',
+        "Windows-only credential version comment prefix",
+    )
+
 
 if __name__ == "__main__":
     main()
