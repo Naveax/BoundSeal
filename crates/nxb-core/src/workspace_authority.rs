@@ -82,7 +82,8 @@ pub(crate) fn validate_workspace_root(workspace: &Path, require_absolute: bool) 
             bail!("target operation attempted to switch workspace authority after admission");
         }
 
-        let authority = DirectoryAuthority::pin_private(workspace, "workspace root", require_absolute)?;
+        let authority =
+            DirectoryAuthority::pin_private(workspace, "workspace root", require_absolute)?;
         let stable = authority.path().to_path_buf();
         state.requested_root = Some(workspace.to_path_buf());
         state.root = Some(authority);
@@ -90,11 +91,7 @@ pub(crate) fn validate_workspace_root(workspace: &Path, require_absolute: bool) 
     })
 }
 
-pub(crate) fn pin_private_child_path(
-    root: &Path,
-    name: &str,
-    label: &str,
-) -> Result<PathBuf> {
+pub(crate) fn pin_private_child_path(root: &Path, name: &str, label: &str) -> Result<PathBuf> {
     if !target_authority_active() {
         let child = root.join(name);
         crate::workspace_impl::reject_path_indirections(&child, label)?;
@@ -175,12 +172,9 @@ fn authority_base(path: &Path) -> Option<(PathBuf, PathBuf)> {
             }
         }
         state.root.as_ref().and_then(|root| {
-            path.strip_prefix(root.path()).ok().map(|_| {
-                (
-                    root.path().to_path_buf(),
-                    root.display_path().to_path_buf(),
-                )
-            })
+            path.strip_prefix(root.path())
+                .ok()
+                .map(|_| (root.path().to_path_buf(), root.display_path().to_path_buf()))
         })
     })
 }
@@ -222,10 +216,7 @@ fn authority_exact_directory(path: &Path) -> bool {
     }
     TARGET_AUTHORITY.with(|state| {
         let state = state.borrow();
-        state
-            .root
-            .as_ref()
-            .is_some_and(|root| root.path() == path)
+        state.root.as_ref().is_some_and(|root| root.path() == path)
             || state.children.values().any(|child| child.path() == path)
     })
 }
@@ -236,10 +227,11 @@ pub(crate) fn status_value(workspace: &Path) -> Result<Value> {
         return crate::workspace_impl::status_value(workspace);
     }
 
-    let manifest_path = root_child_path(crate::workspace_impl::MANIFEST_FILE, "workspace manifest")?;
+    let manifest_path =
+        root_child_path(crate::workspace_impl::MANIFEST_FILE, "workspace manifest")?;
     let manifest_bytes = read_document(&manifest_path, "workspace manifest")?;
-    let manifest: crate::workspace_impl::ManifestV1 = serde_json::from_slice(&manifest_bytes)
-        .context("workspace manifest is invalid")?;
+    let manifest: crate::workspace_impl::ManifestV1 =
+        serde_json::from_slice(&manifest_bytes).context("workspace manifest is invalid")?;
     crate::workspace_impl::validate_manifest_v1(&manifest)?;
 
     for directory in TARGET_READY_DIRECTORIES {
@@ -383,7 +375,8 @@ fn read_authority_document(path: &Path, label: &str) -> Result<Vec<u8>> {
         .with_context(|| format!("could not inspect pinned {label}: {}", path.display()))?;
     validate_opened_document(path, &initial, label)?;
 
-    let capacity = usize::try_from(initial.len()).context("workspace document size does not fit memory")?;
+    let capacity =
+        usize::try_from(initial.len()).context("workspace document size does not fit memory")?;
     let mut bytes = Vec::with_capacity(capacity);
     (&mut file)
         .take(crate::workspace_impl::MAX_DOCUMENT_BYTES + 1)
@@ -466,7 +459,11 @@ fn validate_named_document_identity(path: &Path, opened: &fs::Metadata, label: &
 }
 
 #[cfg(windows)]
-fn validate_named_document_identity(path: &Path, _opened: &fs::Metadata, label: &str) -> Result<()> {
+fn validate_named_document_identity(
+    path: &Path,
+    _opened: &fs::Metadata,
+    label: &str,
+) -> Result<()> {
     let named = fs::symlink_metadata(path)
         .with_context(|| format!("could not inspect named {label}: {}", path.display()))?;
     if metadata_is_indirection(&named) || !named.is_file() {

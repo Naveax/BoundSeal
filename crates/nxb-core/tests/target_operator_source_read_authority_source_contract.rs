@@ -190,7 +190,9 @@ fn operator_inputs_keep_their_exact_existing_size_caps_and_do_not_require_worksp
     }
 
     assert!(
-        authority.contains("linux_operator_source_uses_exact_caller_cap_without_private_mode_requirement"),
+        authority.contains(
+            "linux_operator_source_uses_exact_caller_cap_without_private_mode_requirement"
+        ),
         "{AUTHORITY_PATH}: Linux exact-cap/non-private operator-source regression test is missing"
     );
     assert!(

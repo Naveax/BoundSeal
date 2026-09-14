@@ -26,36 +26,36 @@ pub(crate) fn create_document_error_published(error: &anyhow::Error) -> bool {
 
 pub(crate) fn doctor_value(workspace: &Path) -> Result<Value> {
     let mut checks = Vec::new();
-    let canonical_root = match crate::workspace_authority_base::validate_workspace_root(workspace, false) {
-        Ok(root) => {
-            checks.push(json!({
-                "name": "workspace_root",
-                "status": "pass",
-                "detail": format!("canonical root: {}", root.display()),
-            }));
-            Some(root)
-        }
-        Err(error) => {
-            checks.push(json!({
-                "name": "workspace_root",
-                "status": "fail",
-                "detail": error.to_string(),
-            }));
-            None
-        }
-    };
+    let canonical_root =
+        match crate::workspace_authority_base::validate_workspace_root(workspace, false) {
+            Ok(root) => {
+                checks.push(json!({
+                    "name": "workspace_root",
+                    "status": "pass",
+                    "detail": format!("canonical root: {}", root.display()),
+                }));
+                Some(root)
+            }
+            Err(error) => {
+                checks.push(json!({
+                    "name": "workspace_root",
+                    "status": "fail",
+                    "detail": error.to_string(),
+                }));
+                None
+            }
+        };
 
     let mut workspace_id = None;
     if let Some(root) = canonical_root.as_ref() {
         let manifest_path = root.join(crate::workspace_impl::MANIFEST_FILE);
         match crate::workspace_authority_base::read_document(&manifest_path, "workspace manifest")
             .and_then(|bytes| {
-                let manifest: crate::workspace_impl::ManifestV1 = serde_json::from_slice(&bytes)
-                    .context("workspace manifest is invalid")?;
+                let manifest: crate::workspace_impl::ManifestV1 =
+                    serde_json::from_slice(&bytes).context("workspace manifest is invalid")?;
                 crate::workspace_impl::validate_manifest_v1(&manifest)?;
                 Ok(manifest)
-            })
-        {
+            }) {
             Ok(manifest) => {
                 workspace_id = Some(manifest.workspace_id);
                 checks.push(json!({

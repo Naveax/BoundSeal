@@ -125,12 +125,7 @@ fn guided_arguments(
     ]
 }
 
-fn preview(
-    root: &Path,
-    authorization: &Path,
-    include_path: &str,
-    exclude_path: &str,
-) -> Value {
+fn preview(root: &Path, authorization: &Path, include_path: &str, exclude_path: &str) -> Value {
     run_json(&guided_arguments(
         "setup",
         root,
@@ -147,13 +142,8 @@ fn activation_arguments(
     exclude_path: &str,
     preview_sha256: &str,
 ) -> Vec<String> {
-    let mut arguments = guided_arguments(
-        "activate",
-        root,
-        authorization,
-        include_path,
-        exclude_path,
-    );
+    let mut arguments =
+        guided_arguments("activate", root, authorization, include_path, exclude_path);
     let json_index = arguments
         .iter()
         .position(|value| value == "--json")
@@ -196,17 +186,9 @@ fn completed_fixture(name: &str) -> CompletedFixture {
     initialize(&root);
     let authorization = authorization_document(&root);
     let setup = preview(&root, &authorization, "/api", "/api/logout");
-    let preview_sha256 = setup
-        .get("preview_sha256")
-        .and_then(Value::as_str)
-        .unwrap();
-    let arguments = activation_arguments(
-        &root,
-        &authorization,
-        "/api",
-        "/api/logout",
-        preview_sha256,
-    );
+    let preview_sha256 = setup.get("preview_sha256").and_then(Value::as_str).unwrap();
+    let arguments =
+        activation_arguments(&root, &authorization, "/api", "/api/logout", preview_sha256);
     run_json(&arguments);
     let profile_bytes = fs::read(profile_path(&root)).unwrap();
     let artifact_bytes = fs::read(artifact_path(&root)).unwrap();
@@ -226,7 +208,10 @@ fn existing_profile_without_guided_artifact_is_rejected_without_mutation() {
     fs::remove_file(&artifact).unwrap();
 
     assert_activation_rejection(&run(&fixture.arguments));
-    assert_eq!(fs::read(profile_path(&fixture.root)).unwrap(), fixture.profile_bytes);
+    assert_eq!(
+        fs::read(profile_path(&fixture.root)).unwrap(),
+        fixture.profile_bytes
+    );
     assert!(!artifact.exists());
 
     fs::remove_dir_all(fixture.root).unwrap();
@@ -255,7 +240,12 @@ fn existing_profile_bytes_must_match_exact_prospective_profile() {
 #[test]
 fn completed_activation_rejects_changed_confirmed_preview_without_mutation() {
     let fixture = completed_fixture("changed-preview");
-    let changed_setup = preview(&fixture.root, &fixture.authorization, "/admin", "/admin/logout");
+    let changed_setup = preview(
+        &fixture.root,
+        &fixture.authorization,
+        "/admin",
+        "/admin/logout",
+    );
     let changed_sha = changed_setup
         .get("preview_sha256")
         .and_then(Value::as_str)
@@ -338,7 +328,9 @@ fn visible_profile_with_leftover_publication_link_recovers_without_rollback_muta
     ]);
     assert_eq!(listed.get("count").and_then(Value::as_u64), Some(1));
     assert_eq!(
-        listed.pointer("/targets/0/target_id").and_then(Value::as_str),
+        listed
+            .pointer("/targets/0/target_id")
+            .and_then(Value::as_str),
         Some("example-app")
     );
 

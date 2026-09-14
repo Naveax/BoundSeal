@@ -83,9 +83,8 @@ mod windows {
 
         // SAFETY: `file` owns a live Windows handle for the complete call and
         // `information` is a valid writable ABI-compatible output structure.
-        let succeeded = unsafe {
-            get_file_information_by_handle(file.as_raw_handle(), &raw mut information)
-        };
+        let succeeded =
+            unsafe { get_file_information_by_handle(file.as_raw_handle(), &raw mut information) };
         if succeeded == 0 {
             return Err(io::Error::last_os_error());
         }

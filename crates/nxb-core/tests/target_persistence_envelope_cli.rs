@@ -71,12 +71,7 @@ fn scope_import(root: &Path, name: &str, value: &Value) -> PathBuf {
     path
 }
 
-fn import_arguments(
-    command: &str,
-    root: &Path,
-    authorization: &Path,
-    scope: &Path,
-) -> Vec<String> {
+fn import_arguments(command: &str, root: &Path, authorization: &Path, scope: &Path) -> Vec<String> {
     vec![
         "target".into(),
         command.into(),
@@ -163,7 +158,10 @@ fn setup_import_rejects_scope_that_parses_but_cannot_fit_persistence_envelope() 
         }),
     );
     let import_size = fs::metadata(&scope).unwrap().len();
-    assert!(import_size < 64 * 1024, "fixture must reach persistence preflight");
+    assert!(
+        import_size < 64 * 1024,
+        "fixture must reach persistence preflight"
+    );
 
     let output = run(&import_arguments(
         "setup-import",

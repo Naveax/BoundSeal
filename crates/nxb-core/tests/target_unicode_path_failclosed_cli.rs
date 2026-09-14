@@ -181,7 +181,9 @@ fn imported_guided_noncanonical_path_bytes_are_rejected() {
     let authorization = authorization_document(&root);
 
     for (index, path) in ["/café", "/api[admin]"].iter().enumerate() {
-        let scope = root.join("tmp").join(format!("invalid-path-scope-{index}.json"));
+        let scope = root
+            .join("tmp")
+            .join(format!("invalid-path-scope-{index}.json"));
         fs::write(
             &scope,
             serde_json::to_vec_pretty(&serde_json::json!({

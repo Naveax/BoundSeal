@@ -1,4 +1,7 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 const NXB_PATH: &str = "crates/nxb-core/src/nxb.rs";
 const PREPARED_PATH: &str = "crates/nxb-core/src/prepared_file_authority.rs";
@@ -33,7 +36,10 @@ fn prepared_authority_and_publication_writer_are_compiled_and_target_entry_overr
         "mod prepared_file_authority;",
         "mod workspace_authority_publication;",
     ] {
-        assert!(nxb.contains(marker), "{NXB_PATH}: missing source marker: {marker}");
+        assert!(
+            nxb.contains(marker),
+            "{NXB_PATH}: missing source marker: {marker}"
+        );
     }
 
     let entry = source(ENTRY_PATH);
@@ -43,7 +49,10 @@ fn prepared_authority_and_publication_writer_are_compiled_and_target_entry_overr
         "pub(crate) fn create_document_error_published(error: &anyhow::Error) -> bool",
         "workspace_authority_publication::error_published(error)",
     ] {
-        assert!(entry.contains(marker), "{ENTRY_PATH}: missing prepared publication override: {marker}");
+        assert!(
+            entry.contains(marker),
+            "{ENTRY_PATH}: missing prepared publication override: {marker}"
+        );
     }
 }
 
@@ -60,7 +69,10 @@ fn prepared_file_handle_stays_live_and_named_replacement_is_detected() {
         "published destination is not the retained prepared file authority",
         "prepared_authority_detects_same_permission_path_replacement",
     ] {
-        assert!(prepared.contains(marker), "{PREPARED_PATH}: missing retained prepared authority marker: {marker}");
+        assert!(
+            prepared.contains(marker),
+            "{PREPARED_PATH}: missing retained prepared authority marker: {marker}"
+        );
     }
 
     assert!(
@@ -90,7 +102,10 @@ fn linux_create_only_claim_uses_held_fd_not_the_reusable_temporary_pathname() {
         ".env_clear()",
         "self.validate_destination_binding(destination)",
     ] {
-        assert!(linux.contains(marker), "{PREPARED_PATH}: Linux exact-object claim marker missing: {marker}");
+        assert!(
+            linux.contains(marker),
+            "{PREPARED_PATH}: Linux exact-object claim marker missing: {marker}"
+        );
     }
     assert!(
         !linux.contains("fs::hard_link(&self.path"),
@@ -116,10 +131,19 @@ fn windows_prepared_handle_denies_namespace_replacement_through_claim() {
         ".share_mode(FILE_SHARE_READ)",
         "FILE_FLAG_OPEN_REPARSE_POINT",
     ] {
-        assert!(create.contains(marker), "{PREPARED_PATH}: Windows prepared handle marker missing: {marker}");
+        assert!(
+            create.contains(marker),
+            "{PREPARED_PATH}: Windows prepared handle marker missing: {marker}"
+        );
     }
-    assert!(!create.contains("FILE_SHARE_DELETE"), "{PREPARED_PATH}: Windows prepared handle must deny delete/rename sharing");
-    assert!(!create.contains("FILE_SHARE_WRITE"), "{PREPARED_PATH}: Windows prepared handle must deny write sharing");
+    assert!(
+        !create.contains("FILE_SHARE_DELETE"),
+        "{PREPARED_PATH}: Windows prepared handle must deny delete/rename sharing"
+    );
+    assert!(
+        !create.contains("FILE_SHARE_WRITE"),
+        "{PREPARED_PATH}: Windows prepared handle must deny write sharing"
+    );
 
     let claim = section(
         &prepared,
@@ -132,7 +156,10 @@ fn windows_prepared_handle_denies_namespace_replacement_through_claim() {
         "fs::hard_link(&self.path, destination)",
         "self.validate_destination_binding(destination)",
     ] {
-        assert!(claim.contains(marker), "{PREPARED_PATH}: Windows exact prepared claim marker missing: {marker}");
+        assert!(
+            claim.contains(marker),
+            "{PREPARED_PATH}: Windows exact prepared claim marker missing: {marker}"
+        );
     }
     assert!(prepared.contains("prepared_windows_handle_denies_rename_until_authority_is_released"));
 }
@@ -147,7 +174,10 @@ fn target_publication_never_pathname_deletes_prepared_residue_before_nxb112() {
         "Exact checked-object cleanup belongs to #112",
         "#106 quarantines this exact",
     ] {
-        assert!(publication.contains(marker), "{PUBLICATION_PATH}: missing prepared publication marker: {marker}");
+        assert!(
+            publication.contains(marker),
+            "{PUBLICATION_PATH}: missing prepared publication marker: {marker}"
+        );
     }
     for forbidden in ["remove_file(", "remove_regular(", "fs::rename("] {
         assert!(
@@ -166,6 +196,9 @@ fn unsupported_prepared_claim_platforms_fail_closed() {
         "prepared file create-only claim is unsupported on this Unix platform",
         "prepared file create-only claim is unsupported on this platform",
     ] {
-        assert!(prepared.contains(marker), "{PREPARED_PATH}: fail-closed marker missing: {marker}");
+        assert!(
+            prepared.contains(marker),
+            "{PREPARED_PATH}: fail-closed marker missing: {marker}"
+        );
     }
 }

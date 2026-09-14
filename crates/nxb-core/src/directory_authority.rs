@@ -287,13 +287,21 @@ fn pin_private_directory(path: &Path, label: &str) -> Result<DirectoryAuthority>
         handles.push(handle);
     }
 
-    let current = fs::canonicalize(path)
-        .with_context(|| format!("could not re-canonicalize pinned {label} {}", path.display()))?;
+    let current = fs::canonicalize(path).with_context(|| {
+        format!(
+            "could not re-canonicalize pinned {label} {}",
+            path.display()
+        )
+    })?;
     if current != canonical {
         bail!("{label} pathname changed while directory authority was acquired");
     }
-    let named = fs::symlink_metadata(&canonical)
-        .with_context(|| format!("could not re-inspect pinned {label} {}", canonical.display()))?;
+    let named = fs::symlink_metadata(&canonical).with_context(|| {
+        format!(
+            "could not re-inspect pinned {label} {}",
+            canonical.display()
+        )
+    })?;
     if !named.is_dir() || metadata_is_reparse_point(&named) {
         bail!("{label} is no longer a regular non-reparse directory");
     }
@@ -356,9 +364,9 @@ fn pin_private_child(
     let mut handles = Vec::with_capacity(parent._handles.len() + 1);
     for handle in &parent._handles {
         handles.push(
-            handle
-                .try_clone()
-                .with_context(|| format!("could not retain parent handle for pinned {label} child"))?,
+            handle.try_clone().with_context(|| {
+                format!("could not retain parent handle for pinned {label} child")
+            })?,
         );
     }
     handles.push(child);

@@ -4,14 +4,12 @@ use std::{
 };
 
 const LINUX_INNER_PATH: &str = "scripts/nxb-153-linux-immutable-source-inner.sh";
-const LINUX_HOSTED_WRAPPER_PATH: &str =
-    "scripts/nxb-153-linux-immutable-source-h1-inner.sh";
+const LINUX_HOSTED_WRAPPER_PATH: &str = "scripts/nxb-153-linux-immutable-source-h1-inner.sh";
 const REGISTRY_SOURCE_PATH: &str = "scripts/nxb-153-registry-source.py";
 const WINDOWS_STRING_GUARD_PATH: &str = "scripts/nxb-153-windows-immutable-source.ps1";
 const WINDOWS_GIT_GUARD_PATH: &str =
     "scripts/nxb-153-windows-immutable-source-git-output-inner.ps1";
-const WINDOWS_H2_ENTRY_PATH: &str =
-    "scripts/nxb-153-windows-immutable-source-h2-entry-inner.ps1";
+const WINDOWS_H2_ENTRY_PATH: &str = "scripts/nxb-153-windows-immutable-source-h2-entry-inner.ps1";
 const WINDOWS_H2_INNER_PATH: &str = "scripts/nxb-153-windows-immutable-source-h2-inner.ps1";
 
 fn repository_root() -> PathBuf {
@@ -60,11 +58,7 @@ fn linux_nested_bash_labels_remain_inside_the_outer_script_argument() {
 #[test]
 fn linux_hosted_namespace_adapters_stop_exporting_before_deeper_children() {
     let source = read_source(LINUX_HOSTED_WRAPPER_PATH);
-    let mount_start = required_offset(
-        &source,
-        "        mount() {",
-        LINUX_HOSTED_WRAPPER_PATH,
-    );
+    let mount_start = required_offset(&source, "        mount() {", LINUX_HOSTED_WRAPPER_PATH);
     let handoff_marker = "builtin export -n -f unshare mount 2>/dev/null || true";
     let handoff = mount_start
         + required_offset(

@@ -1,4 +1,7 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 const NXB_PATH: &str = "crates/nxb-core/src/nxb.rs";
 const ENTRY_PATH: &str = "crates/nxb-core/src/workspace_authority_entry.rs";
@@ -23,7 +26,10 @@ fn public_workspace_module_is_the_composed_entry_not_the_legacy_base() {
         "#[path = \"workspace_authority.rs\"]\nmod workspace_authority_base;",
         "#[path = \"workspace_authority_entry.rs\"]\nmod workspace;",
     ] {
-        assert!(nxb.contains(marker), "{NXB_PATH}: missing composed workspace route: {marker}");
+        assert!(
+            nxb.contains(marker),
+            "{NXB_PATH}: missing composed workspace route: {marker}"
+        );
     }
 
     let entry = source(ENTRY_PATH);
@@ -34,7 +40,10 @@ fn public_workspace_module_is_the_composed_entry_not_the_legacy_base() {
         "pub(crate) fn doctor_value(workspace: &Path) -> Result<Value>",
         "workspace_doctor_probe::run(&root.join(\"tmp\"))",
     ] {
-        assert!(entry.contains(marker), "{ENTRY_PATH}: missing local shadow for legacy mutation route: {marker}");
+        assert!(
+            entry.contains(marker),
+            "{ENTRY_PATH}: missing local shadow for legacy mutation route: {marker}"
+        );
     }
 }
 
@@ -57,7 +66,10 @@ fn windows_workspace_shadows_historical_replace_and_migration_modules() {
         "#[cfg(not(windows))]\n#[path = \"workspace/mod.rs\"]\nmod workspace_impl;",
         "#[cfg(windows)]\n#[path = \"workspace_windows_entry.rs\"]\nmod workspace_impl;",
     ] {
-        assert!(nxb.contains(marker), "{NXB_PATH}: missing Windows workspace selection: {marker}");
+        assert!(
+            nxb.contains(marker),
+            "{NXB_PATH}: missing Windows workspace selection: {marker}"
+        );
     }
 
     let entry = source(WINDOWS_ENTRY_PATH);
@@ -68,7 +80,10 @@ fn windows_workspace_shadows_historical_replace_and_migration_modules() {
         "workspace_authority_replacement_windows::replace_document(path, bytes)",
         "#[path = \"workspace/migration.rs\"]\npub(crate) mod migration;",
     ] {
-        assert!(entry.contains(marker), "{WINDOWS_ENTRY_PATH}: missing Windows local shadow: {marker}");
+        assert!(
+            entry.contains(marker),
+            "{WINDOWS_ENTRY_PATH}: missing Windows local shadow: {marker}"
+        );
     }
 }
 
@@ -78,13 +93,17 @@ fn historical_pathname_delete_helpers_are_not_mistaken_for_active_authority() {
     for marker in [
         "fn write_probe(workspace: &Path) -> Result<()>",
         "pub(crate) fn remove_regular(path: &Path) -> Result<()>",
-        "#[cfg(not(unix))]\nfn replace_file(source: &Path, destination: &Path) -> Result<()>"
+        "#[cfg(not(unix))]\nfn replace_file(source: &Path, destination: &Path) -> Result<()>",
     ] {
-        assert!(implementation.contains(marker), "{WORKSPACE_IMPL_PATH}: expected quarantined legacy marker missing: {marker}");
+        assert!(
+            implementation.contains(marker),
+            "{WORKSPACE_IMPL_PATH}: expected quarantined legacy marker missing: {marker}"
+        );
     }
 
     let entry = source(ENTRY_PATH);
     assert!(entry.contains("workspace_doctor_probe::run(&root.join(\"tmp\"))"));
     let windows_entry = source(WINDOWS_ENTRY_PATH);
-    assert!(windows_entry.contains("workspace_authority_replacement_windows::replace_document(path, bytes)"));
+    assert!(windows_entry
+        .contains("workspace_authority_replacement_windows::replace_document(path, bytes)"));
 }

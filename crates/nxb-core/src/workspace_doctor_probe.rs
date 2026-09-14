@@ -38,9 +38,12 @@ fn run_linux(directory: &Path) -> Result<()> {
         .write(true)
         .mode(0o600)
         .custom_flags(O_TMPFILE);
-    let mut file = options
-        .open(directory)
-        .with_context(|| format!("could not create unnamed doctor probe in {}", directory.display()))?;
+    let mut file = options.open(directory).with_context(|| {
+        format!(
+            "could not create unnamed doctor probe in {}",
+            directory.display()
+        )
+    })?;
 
     let initial = file
         .metadata()
@@ -90,9 +93,12 @@ fn run_windows(directory: &Path) -> Result<()> {
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
         .attributes(FILE_ATTRIBUTE_TEMPORARY)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_DELETE_ON_CLOSE);
-    let mut file = options
-        .open(&path)
-        .with_context(|| format!("could not create delete-on-close doctor probe {}", path.display()))?;
+    let mut file = options.open(&path).with_context(|| {
+        format!(
+            "could not create delete-on-close doctor probe {}",
+            path.display()
+        )
+    })?;
 
     let initial = file
         .metadata()
@@ -115,7 +121,9 @@ fn run_windows(directory: &Path) -> Result<()> {
     drop(file);
     match fs::symlink_metadata(&path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Ok(_) => bail!("delete-on-close doctor probe pathname remains populated after handle close"),
+        Ok(_) => {
+            bail!("delete-on-close doctor probe pathname remains populated after handle close")
+        }
         Err(error) => Err(error).with_context(|| {
             format!(
                 "could not verify delete-on-close doctor probe finalization {}",

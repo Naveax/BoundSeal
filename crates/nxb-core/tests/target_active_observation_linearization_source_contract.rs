@@ -114,11 +114,8 @@ fn every_active_observation_reconciles_disable_receipt_at_its_final_result_gate(
         "reconcile_effective_target(&targets, profile, None)?",
         "validate",
     );
-    let validate_serialize = required_index(
-        validate,
-        "serde_json::to_value(effective)",
-        "validate",
-    );
+    let validate_serialize =
+        required_index(validate, "serde_json::to_value(effective)", "validate");
     assert!(
         validate_policy < validate_reconcile && validate_reconcile < validate_serialize,
         "{TARGET_PATH}: validate must reconcile disable state after validation work and before result serialization"
