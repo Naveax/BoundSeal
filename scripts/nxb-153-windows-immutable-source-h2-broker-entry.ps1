@@ -125,8 +125,6 @@ $brokerEntryState = @{
     HandoffEstablished = $false
     Stopped = $false
 }
-$testSnapshotPathProxy = (Get-Command Test-NxbH2BrokerSnapshotPath -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
-Set-Item -Path Function:\Test-NxbH2BrokerSnapshotPath -Value $testSnapshotPathProxy -Force
 $primaryError = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
 
@@ -144,6 +142,9 @@ function Test-NxbH2BrokerSnapshotPath {
     $pattern = '^\.nxb-153-rust-h2-windows-' + [Regex]::Escape($HeadSha) + '-[0-9]+-[0-9a-f]{32}$'
     return ($leaf -cmatch $pattern)
 }
+
+$testSnapshotPathProxy = (Get-Command Test-NxbH2BrokerSnapshotPath -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
+Set-Item -Path Function:\Test-NxbH2BrokerSnapshotPath -Value $testSnapshotPathProxy -Force
 
 try {
     $h2EntryStream = Open-NxbH2BrokerEntryPinnedFile -Path $h2EntryPath -Label 'Windows H2 entry inner runner'
