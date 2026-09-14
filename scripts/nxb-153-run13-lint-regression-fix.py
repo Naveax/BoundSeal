@@ -20,8 +20,9 @@ fn concrete_run13_unused_imports_are_removed_without_crate_wide_suppression() {
     ));
 
     let prepared = source("crates/nxb-core/src/prepared_file_authority.rs");
-    assert!(prepared.contains("use std::os::unix::fs::PermissionsExt;"));
-    assert!(!prepared.contains("use std::os::unix::fs::{MetadataExt, PermissionsExt};"));
+    assert!(prepared.contains(
+        "#[cfg(unix)]\n        {\n            use std::os::unix::fs::PermissionsExt;\n            let mode = metadata.permissions().mode();"
+    ));
 
     for path in [
         "crates/nxb-core/src/nxb.rs",

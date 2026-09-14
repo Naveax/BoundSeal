@@ -53,6 +53,7 @@ jobs:
           python3 -I scripts/nxb-153-run13-bounded-scope-fix.py
           python3 -I scripts/nxb-153-run13-broker-scope-fix.py
           python3 -I scripts/nxb-153-run13-scope-regression-fix.py
+          python3 -I scripts/nxb-153-run13-activation-race-fix.py
 
       - name: Parse modified PowerShell sources
         shell: pwsh
@@ -90,6 +91,7 @@ jobs:
             --test workspace_replacement_authority_source_contract \
             --test workspace_destructive_cleanup_source_contract \
             --test workspace_facade_lint_source_contract
+          cargo +1.97.1 test -p nxb-core --locked target::activation::tests:: -- --test-threads=1
           cargo +1.97.1 test -p nxb-core --locked migration::tests -- --test-threads=1
           python3 -I scripts/nxb-153-rust-toolchain-authority.py self-test
           git diff --check
@@ -110,7 +112,8 @@ jobs:
             scripts/nxb-153-run13-enumeration-fix.py \
             scripts/nxb-153-run13-bounded-scope-fix.py \
             scripts/nxb-153-run13-broker-scope-fix.py \
-            scripts/nxb-153-run13-scope-regression-fix.py
+            scripts/nxb-153-run13-scope-regression-fix.py \
+            scripts/nxb-153-run13-activation-race-fix.py
           find scripts -type d -name __pycache__ -prune -exec rm -rf {} +
           git add -A
           git diff --cached --check
