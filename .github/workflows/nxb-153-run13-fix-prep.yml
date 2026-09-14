@@ -1,4 +1,4 @@
-name: NXB-153 Run 13 Fix Prep
+name: NXB-153 Run 13 Closure Prep
 
 on:
   push:
@@ -13,9 +13,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  patch-format-test:
+  patch-verify-commit:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Checkout exact helper head
         shell: bash
@@ -27,27 +27,82 @@ jobs:
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git -c protocol.version=2 fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
           git checkout --detach FETCH_HEAD
-      - name: Apply patch and verify
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Apply coherent run 13 closure patch set
         shell: bash
         run: |
           set -euo pipefail
           python3 -I scripts/nxb-153-run13-fix-prep.py
-          python3 -I scripts/nxb-153-rust-toolchain-authority.py self-test
-          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
+          python3 -I scripts/nxb-153-run13-contract-fix.py
+          python3 -I scripts/nxb-153-run13-lint-fix.py
+          python3 -I scripts/nxb-153-run13-lint-regression-fix.py
+          python3 -I scripts/nxb-153-run13-enumeration-fix.py
+          python3 -I scripts/nxb-153-run13-bounded-scope-fix.py
+          python3 -I scripts/nxb-153-run13-broker-scope-fix.py
+          python3 -I scripts/nxb-153-run13-scope-regression-fix.py
+
+      - name: Parse modified PowerShell sources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($path in @(
+            'scripts/nxb-153-windows-immutable-source-enumeration-inner.ps1',
+            'scripts/nxb-153-windows-immutable-source-bounded-inner.ps1',
+            'scripts/nxb-153-windows-immutable-source-h2-broker-entry.ps1'
+          )) {
+            $tokens = $null
+            $errors = $null
+            [void][Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $path),
+              [ref]$tokens,
+              [ref]$errors
+            )
+            if ($errors.Count -ne 0) {
+              throw "$path parse failed: $($errors | ForEach-Object Message | Out-String)"
+            }
+          }
+
+      - name: Verify Rust 1.97.1 source and regression gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
           cargo +1.97.1 fmt --all
-          cargo +1.97.1 test -p nxb-core --test nxb153_admission_runtime_regression_source_contract --test workspace_replacement_authority_source_contract --test workspace_destructive_cleanup_source_contract
-          cargo +1.97.1 test -p nxb-core migration::tests -- --test-threads=1
+          cargo +1.97.1 fmt --all -- --check
+          cargo +1.97.1 check --workspace --all-targets --all-features --locked
+          cargo +1.97.1 clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo +1.97.1 test -p nxb-core --locked \
+            --test nxb153_admission_runtime_regression_source_contract \
+            --test nxb153_run13_lint_source_contract \
+            --test workspace_replacement_authority_source_contract \
+            --test workspace_destructive_cleanup_source_contract \
+            --test workspace_facade_lint_source_contract
+          cargo +1.97.1 test -p nxb-core --locked migration::tests -- --test-threads=1
+          python3 -I scripts/nxb-153-rust-toolchain-authority.py self-test
           git diff --check
-      - name: Commit verified helper tree
+
+      - name: Publish verified candidate tree only
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          rm -f .github/workflows/nxb-153-run13-fix-prep.yml scripts/nxb-153-run13-fix-prep.py
-          git config user.name "nxb-153-helper"
-          git config user.email "nxb-153-helper@users.noreply.github.com"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          rm -f \
+            .github/workflows/nxb-153-run13-fix-prep.yml \
+            scripts/nxb-153-run13-fix-prep.py \
+            scripts/nxb-153-run13-contract-fix.py \
+            scripts/nxb-153-run13-lint-fix.py \
+            scripts/nxb-153-run13-lint-regression-fix.py \
+            scripts/nxb-153-run13-enumeration-fix.py \
+            scripts/nxb-153-run13-bounded-scope-fix.py \
+            scripts/nxb-153-run13-broker-scope-fix.py \
+            scripts/nxb-153-run13-scope-regression-fix.py
           git add -A
           git diff --cached --check
-          git commit -m "Prepare NXB-153 run 13 authority fixes"
-          git push origin HEAD:nxb-153-run13-fix-prep
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Prepare NXB-153 run 13 closure candidate"
+          git push origin "HEAD:refs/heads/nxb-153-run13-fix-prep"
