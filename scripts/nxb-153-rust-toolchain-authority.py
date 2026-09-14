@@ -42,6 +42,14 @@ def metadata_identity(metadata):
     )
 
 
+def same_file_object(first, second):
+    return (
+        first.st_dev == second.st_dev
+        and first.st_ino == second.st_ino
+        and first.st_ino != 0
+    )
+
+
 def require_plain_directory(path, label):
     try:
         metadata = os.lstat(path)
@@ -143,7 +151,10 @@ def read_fd_record(fd, expected, relative, platform_model):
     opened = os.fstat(fd)
     if not stat.S_ISREG(opened.st_mode):
         raise AuthorityError(f"toolchain entry is not a regular file: {relative}")
-    if metadata_identity(opened) != metadata_identity(expected):
+    if platform_model == "windows":
+        if not same_file_object(opened, expected) or opened.st_size != expected.st_size:
+            raise AuthorityError(f"toolchain file changed while opening: {relative}")
+    elif metadata_identity(opened) != metadata_identity(expected):
         raise AuthorityError(f"toolchain file changed while opening: {relative}")
     digest = hashlib.sha256()
     total = 0
@@ -152,14 +163,14 @@ def read_fd_record(fd, expected, relative, platform_model):
         if not chunk:
             break
         total += len(chunk)
-        if total > expected.st_size or total > MAX_FILE_BYTES:
+        if total > opened.st_size or total > MAX_FILE_BYTES:
             raise AuthorityError(f"toolchain file grew while hashing: {relative}")
         digest.update(chunk)
     after = os.fstat(fd)
-    if total != expected.st_size or metadata_identity(after) != metadata_identity(expected):
+    if total != opened.st_size or metadata_identity(after) != metadata_identity(opened):
         raise AuthorityError(f"toolchain file changed while hashing: {relative}")
     raw, sort_key = classify_relative(relative, platform_model)
-    mode_class = b"x" if platform_model == "linux" and expected.st_mode & 0o111 else b"f"
+    mode_class = b"x" if platform_model == "linux" and opened.st_mode & 0o111 else b"f"
     return (raw, sort_key, mode_class, total, digest.digest())
 
 
@@ -410,6 +421,24 @@ def require_sha256(value):
 
 
 def self_test():
+    class IdentityProbe:
+        pass
+
+    first_probe = IdentityProbe()
+    second_probe = IdentityProbe()
+    for probe in (first_probe, second_probe):
+        probe.st_dev = 7
+        probe.st_ino = 11
+        probe.st_size = 13
+        probe.st_mtime_ns = 17
+        probe.st_ctime_ns = 19
+    second_probe.st_mtime_ns = 23
+    second_probe.st_ctime_ns = 29
+    if not same_file_object(first_probe, second_probe):
+        raise AuthorityError("self-test same-object identity rejected timestamp normalization")
+    if metadata_identity(first_probe) == metadata_identity(second_probe):
+        raise AuthorityError("self-test metadata normalization probe is ineffective")
+
     with tempfile.TemporaryDirectory(prefix="nxb-153-rust-tree-") as temporary:
         base = pathlib.Path(temporary)
         native_model = "windows" if os.name == "nt" else "linux"

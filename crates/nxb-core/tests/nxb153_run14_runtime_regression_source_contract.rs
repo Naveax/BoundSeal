@@ -5,8 +5,7 @@ use std::{
 
 const WINDOWS_BROKER_ENTRY_PATH: &str =
     "scripts/nxb-153-windows-immutable-source-h2-broker-entry.ps1";
-const PREPARED_FILE_AUTHORITY_PATH: &str =
-    "crates/nxb-core/src/prepared_file_authority.rs";
+const PREPARED_FILE_AUTHORITY_PATH: &str = "crates/nxb-core/src/prepared_file_authority.rs";
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")

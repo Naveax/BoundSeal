@@ -16,6 +16,25 @@ const O_DIRECTORY: i32 = 0o200000;
 const O_NOFOLLOW: i32 = 0o400000;
 const TRUSTED_LN: &str = "/usr/bin/ln";
 
+fn linux_proc_visible_pid() -> Result<String> {
+    let target = fs::read_link("/proc/self")
+        .context("could not resolve replacement procfs-visible Linux process identity")?;
+    let mut components = target.components();
+    let pid = components.next().ok_or_else(|| {
+        anyhow::anyhow!("replacement procfs-visible Linux process identity is empty")
+    })?;
+    if components.next().is_some() {
+        bail!("replacement procfs-visible Linux process identity is not one path component");
+    }
+    let pid = pid.as_os_str().to_str().ok_or_else(|| {
+        anyhow::anyhow!("replacement procfs-visible Linux process identity is not UTF-8")
+    })?;
+    if pid.is_empty() || !pid.bytes().all(|byte| byte.is_ascii_digit()) {
+        bail!("replacement procfs-visible Linux process identity is not canonical decimal digits");
+    }
+    Ok(pid.to_owned())
+}
+
 struct ParentAuthority {
     logical_path: PathBuf,
     file: File,
@@ -53,12 +72,11 @@ impl ParentAuthority {
     }
 
     fn stable_path(&self, name: &OsStr) -> PathBuf {
-        PathBuf::from(format!(
-            "/proc/{}/fd/{}",
-            std::process::id(),
-            self.file.as_raw_fd()
-        ))
-        .join(name)
+        PathBuf::from(format!("/proc/self/fd/{}", self.file.as_raw_fd())).join(name)
+    }
+
+    fn external_stable_path(&self, name: &OsStr, proc_pid: &str) -> PathBuf {
+        PathBuf::from(format!("/proc/{}/fd/{}", proc_pid, self.file.as_raw_fd())).join(name)
     }
 
     fn validate_named_binding(&self) -> Result<()> {
@@ -157,12 +175,9 @@ impl ParentAuthority {
 
     fn claim_prepared(&self, prepared: &RetainedFileAuthority, destination: &OsStr) -> Result<()> {
         let tool = trusted_tool(TRUSTED_LN, "Linux hard-link tool")?;
-        let source = PathBuf::from(format!(
-            "/proc/{}/fd/{}",
-            std::process::id(),
-            prepared.file.as_raw_fd()
-        ));
-        let destination = self.stable_path(destination);
+        let proc_pid = linux_proc_visible_pid()?;
+        let source = PathBuf::from(format!("/proc/{}/fd/{}", proc_pid, prepared.file.as_raw_fd()));
+        let destination = self.external_stable_path(destination, &proc_pid);
         let output = Command::new(tool)
             .arg("-L")
             .arg("--")
@@ -266,6 +281,20 @@ mod tests {
         fs::create_dir(&path).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         path
+    }
+
+    #[test]
+    fn proc_visible_pid_resolves_retained_parent_fd_in_the_active_proc_mount() {
+        let root = root("proc-visible");
+        let authority = ParentAuthority::open(&root).unwrap();
+        let proc_pid = linux_proc_visible_pid().unwrap();
+        let retained_parent = PathBuf::from(format!(
+            "/proc/{}/fd/{}",
+            proc_pid,
+            authority.file.as_raw_fd()
+        ));
+        assert!(fs::metadata(retained_parent).unwrap().is_dir());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

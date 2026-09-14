@@ -224,11 +224,7 @@ impl PreparedFileAuthority {
         crate::workspace::reject_path_indirections(destination, "create-only destination")?;
 
         let proc_pid = linux_proc_visible_pid()?;
-        let source = PathBuf::from(format!(
-            "/proc/{}/fd/{}",
-            proc_pid,
-            self.file.as_raw_fd()
-        ));
+        let source = PathBuf::from(format!("/proc/{}/fd/{}", proc_pid, self.file.as_raw_fd()));
         let destination_for_child = linux_external_process_path(destination)?;
         let output = Command::new(tool)
             .arg("-L")
