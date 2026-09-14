@@ -4,8 +4,13 @@ use std::{
 };
 
 const LINUX_INNER_PATH: &str = "scripts/nxb-153-linux-immutable-source-inner.sh";
+const LINUX_HOSTED_WRAPPER_PATH: &str =
+    "scripts/nxb-153-linux-immutable-source-h1-inner.sh";
 const WINDOWS_GIT_GUARD_PATH: &str =
     "scripts/nxb-153-windows-immutable-source-git-output-inner.ps1";
+const WINDOWS_H2_ENTRY_PATH: &str =
+    "scripts/nxb-153-windows-immutable-source-h2-entry-inner.ps1";
+const WINDOWS_H2_INNER_PATH: &str = "scripts/nxb-153-windows-immutable-source-h2-inner.ps1";
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -15,6 +20,12 @@ fn read_source(relative_path: &str) -> String {
     let path = repository_root().join(relative_path);
     fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("could not read {} as UTF-8: {error}", path.display()))
+}
+
+fn required_offset(source: &str, marker: &str, path: &str) -> usize {
+    source
+        .find(marker)
+        .unwrap_or_else(|| panic!("{path}: missing source marker: {marker}"))
 }
 
 #[test]
@@ -42,6 +53,33 @@ fn linux_nested_bash_labels_remain_inside_the_outer_script_argument() {
             "{LINUX_INNER_PATH}: raw single-quoted label would terminate the outer bash -c source argument: {forbidden}"
         );
     }
+}
+
+#[test]
+fn linux_hosted_namespace_adapters_stop_exporting_before_deeper_children() {
+    let source = read_source(LINUX_HOSTED_WRAPPER_PATH);
+    let mount_start = required_offset(
+        &source,
+        "        mount() {",
+        LINUX_HOSTED_WRAPPER_PATH,
+    );
+    let handoff_marker = "builtin export -n -f unshare mount 2>/dev/null || true";
+    let handoff = mount_start
+        + required_offset(
+            &source[mount_start..],
+            handoff_marker,
+            LINUX_HOSTED_WRAPPER_PATH,
+        );
+    let wrapper_export = required_offset(
+        &source,
+        "        export -f unshare mount",
+        LINUX_HOSTED_WRAPPER_PATH,
+    );
+
+    assert!(
+        mount_start < handoff && handoff < wrapper_export,
+        "{LINUX_HOSTED_WRAPPER_PATH}: adapter de-export must stay inside mount() before the outer wrapper export"
+    );
 }
 
 #[test]
@@ -77,5 +115,33 @@ fn windows_git_proxy_captures_its_authority_across_nested_script_scopes() {
             !source.contains(forbidden),
             "{WINDOWS_GIT_GUARD_PATH}: nested Git proxy still depends on caller-sensitive script scope: {forbidden}"
         );
+    }
+}
+
+#[test]
+fn windows_h2_acl_rights_use_the_access_control_enum_namespace() {
+    for path in [WINDOWS_H2_ENTRY_PATH, WINDOWS_H2_INNER_PATH] {
+        let source = read_source(path);
+        assert!(
+            !source.contains("[IO.FileSystemRights]"),
+            "{path}: IO.FileSystemRights is not a valid PowerShell/.NET type name"
+        );
+
+        for right in [
+            "WriteData",
+            "AppendData",
+            "CreateFiles",
+            "CreateDirectories",
+            "Delete",
+            "DeleteSubdirectoriesAndFiles",
+            "WriteAttributes",
+            "WriteExtendedAttributes",
+        ] {
+            let marker = format!("[Security.AccessControl.FileSystemRights]::{right}");
+            assert!(
+                source.contains(&marker),
+                "{path}: missing canonical ACL right marker: {marker}"
+            );
+        }
     }
 }

@@ -225,14 +225,14 @@ function Invoke-NxbH2EntryPrimitiveSelfTest {
         $originalAcl = Get-Acl -LiteralPath $guardedDirectory -ErrorAction Stop
         $acl = Get-Acl -LiteralPath $guardedDirectory -ErrorAction Stop
         $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-        $denyRights = [IO.FileSystemRights]::WriteData -bor
-            [IO.FileSystemRights]::AppendData -bor
-            [IO.FileSystemRights]::CreateFiles -bor
-            [IO.FileSystemRights]::CreateDirectories -bor
-            [IO.FileSystemRights]::Delete -bor
-            [IO.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
-            [IO.FileSystemRights]::WriteAttributes -bor
-            [IO.FileSystemRights]::WriteExtendedAttributes
+        $denyRights = [Security.AccessControl.FileSystemRights]::WriteData -bor
+            [Security.AccessControl.FileSystemRights]::AppendData -bor
+            [Security.AccessControl.FileSystemRights]::CreateFiles -bor
+            [Security.AccessControl.FileSystemRights]::CreateDirectories -bor
+            [Security.AccessControl.FileSystemRights]::Delete -bor
+            [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+            [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
+            [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes
         $rule = [Security.AccessControl.FileSystemAccessRule]::new(
             $sid,
             $denyRights,

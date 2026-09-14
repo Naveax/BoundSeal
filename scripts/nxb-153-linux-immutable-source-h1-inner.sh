@@ -66,6 +66,10 @@ run_bash_blob() {
             command "$NXB153_REAL_UNSHARE" --mount --pid --fork "$@"
         }
         mount() {
+            # The nested validation shell needs these hosted-root adapters, but
+            # deeper Python/Cargo children must not inherit Bash function authority.
+            builtin export -n -f unshare mount 2>/dev/null || true
+
             if [[ "$#" -eq 3 && "$1" == '--bind' && "$2" == "$3" ]]; then
                 NXB153_PENDING_SELF_BIND="$2"
                 return 0
