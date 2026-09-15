@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 from ctypes import wintypes
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -68,9 +69,9 @@ FILE_NOTIFY_CHANGE_DIR_NAME = 0x00000002
 FILE_NOTIFY_CHANGE_ATTRIBUTES = 0x00000004
 FILE_NOTIFY_CHANGE_SIZE = 0x00000008
 FILE_NOTIFY_CHANGE_LAST_WRITE = 0x00000010
+NAMESPACE_FILTER = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME
 WATCH_FILTER = (
-    FILE_NOTIFY_CHANGE_FILE_NAME
-    | FILE_NOTIFY_CHANGE_DIR_NAME
+    NAMESPACE_FILTER
     | FILE_NOTIFY_CHANGE_ATTRIBUTES
     | FILE_NOTIFY_CHANGE_SIZE
     | FILE_NOTIFY_CHANGE_LAST_WRITE
@@ -79,6 +80,7 @@ WATCH_FILTER = (
 WAIT_OBJECT_0 = 0x00000000
 WAIT_TIMEOUT = 0x00000102
 WAIT_FAILED = 0xFFFFFFFF
+ERROR_NOT_FOUND = 1168
 
 INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 
@@ -110,7 +112,7 @@ def emit(value: dict[str, object]) -> None:
 def safe_component(component: str) -> None:
     try:
         component.encode("ascii", errors="strict")
-    except UnicodeEncodeError as error:
+    except UnicodeEncodeError:
         fail("Windows broker admits ASCII destination components only")
     if component in ("", ".", "..") or component.endswith((" ", ".")):
         fail(f"ambiguous Windows path component: {component!r}")
@@ -350,6 +352,13 @@ class Native:
         if not self.CloseHandle(wintypes.HANDLE(handle)):
             self.winerror("CloseHandle")
 
+    def cancel_io(self, handle: int) -> None:
+        if self.CancelIoEx(wintypes.HANDLE(handle), None):
+            return
+        error = ctypes.get_last_error()
+        if error != ERROR_NOT_FOUND:
+            raise OSError(error, "CancelIoEx failed", None, error)
+
     def information(self, handle: int) -> BY_HANDLE_FILE_INFORMATION:
         info = BY_HANDLE_FILE_INFORMATION()
         if not self.GetFileInformationByHandle(
@@ -368,11 +377,11 @@ class Native:
         ):
             self.winerror("SetFileTime suppress automatic file times")
 
-    def begin_change_notification(self, path: str) -> int:
+    def begin_change_notification(self, path: str, notify_filter: int) -> int:
         handle = self.FindFirstChangeNotificationW(
             path,
             True,
-            WATCH_FILTER,
+            notify_filter,
         )
         if handle == INVALID_HANDLE_VALUE:
             self.winerror(f"FindFirstChangeNotificationW {path}")
@@ -542,8 +551,34 @@ class Native:
             self.winerror("GetFileSizeEx")
         return int(value.value)
 
-    def copy_file(self, source: int, destination: int, expected_size: int) -> None:
+    def sha256_file(self, handle: int, expected_size: int) -> str:
         buffer = ctypes.create_string_buffer(READ_CHUNK)
+        digest = hashlib.sha256()
+        total = 0
+        while True:
+            read = wintypes.DWORD()
+            if not self.ReadFile(
+                wintypes.HANDLE(handle),
+                buffer,
+                READ_CHUNK,
+                ctypes.byref(read),
+                None,
+            ):
+                self.winerror("ReadFile digest")
+            count = int(read.value)
+            if count == 0:
+                break
+            total += count
+            if total > expected_size:
+                fail("destination guard grew while hashing")
+            digest.update(buffer.raw[:count])
+        if total != expected_size:
+            fail("destination guard size changed while hashing")
+        return digest.hexdigest()
+
+    def copy_file(self, source: int, destination: int, expected_size: int) -> str:
+        buffer = ctypes.create_string_buffer(READ_CHUNK)
+        digest = hashlib.sha256()
         total = 0
         while True:
             read = wintypes.DWORD()
@@ -561,6 +596,7 @@ class Native:
             total += count
             if total > expected_size or total > MAX_FILE_BYTES:
                 fail("source file grew during broker copy")
+            digest.update(buffer.raw[:count])
             offset = 0
             while offset < count:
                 written = wintypes.DWORD()
@@ -582,6 +618,7 @@ class Native:
             fail("source file changed size during broker copy")
         if not self.FlushFileBuffers(wintypes.HANDLE(destination)):
             self.winerror("FlushFileBuffers")
+        return digest.hexdigest()
 
     def watch_once(self, handle: int, stopping: threading.Event) -> tuple[bool, str]:
         buffer = ctypes.create_string_buffer(65536)
@@ -615,8 +652,10 @@ class Authority:
         self.budget = Budget()
         self.validation_handle: int | None = None
         self.directory_handles: list[int] = []
-        self.writer_records: list[tuple[int, Path, tuple[int, int, int, int]]] = []
+        self.writer_records: list[tuple[int, Path, tuple[int, int, int, int], str]] = []
         self.file_handles: list[int] = []
+        self.expected_entries: set[tuple[str, str]] = set()
+        self.transition_notification_handle: int | None = None
         self.change_notification_handle: int | None = None
         self.watcher_handle: int | None = None
         self.watcher_thread: threading.Thread | None = None
@@ -630,6 +669,14 @@ class Authority:
             if not self.violated.is_set():
                 self.violation_reason = reason
                 self.violated.set()
+
+    def _refresh_transition_notification_violation(self) -> None:
+        if self.transition_notification_handle is None:
+            return
+        if self.native.change_notification_signaled(self.transition_notification_handle):
+            self._set_violation(
+                "snapshot namespace changed during write-to-read guard transition"
+            )
 
     def _refresh_change_notification_violation(self) -> None:
         if self.change_notification_handle is None:
@@ -690,6 +737,7 @@ class Authority:
             metadata = self._source_metadata(source_child)
             if stat.S_ISDIR(metadata.st_mode):
                 self.budget.admit_directory(relative)
+                self.expected_entries.add(("directory", relative))
                 child_handle = self.native.create_relative(
                     destination_handle,
                     entry.name,
@@ -703,6 +751,7 @@ class Authority:
                 )
             elif stat.S_ISREG(metadata.st_mode):
                 self.budget.admit_file(relative, metadata.st_size)
+                self.expected_entries.add(("file", relative))
                 source_handle = self.native.open_source_file(str(source_child))
                 try:
                     before = self.native.information(source_handle)
@@ -713,7 +762,7 @@ class Authority:
                         entry.name,
                         directory=False,
                     )
-                    self.native.copy_file(
+                    expected_sha256 = self.native.copy_file(
                         source_handle,
                         destination_file,
                         metadata.st_size,
@@ -723,7 +772,12 @@ class Authority:
                         self.native.information(destination_file)
                     )
                     self.writer_records.append(
-                        (destination_file, destination_path, destination_identity)
+                        (
+                            destination_file,
+                            destination_path,
+                            destination_identity,
+                            expected_sha256,
+                        )
                     )
                     after = self.native.information(source_handle)
                     if info_identity(after) != info_identity(before):
@@ -733,9 +787,14 @@ class Authority:
             else:
                 fail(f"special source entry is not admitted: {relative}")
 
+    def _arm_transition_sentinel(self) -> None:
+        self.transition_notification_handle = self.native.begin_change_notification(
+            str(self.destination), NAMESPACE_FILTER
+        )
+
     def _arm_watcher(self) -> None:
         self.change_notification_handle = self.native.begin_change_notification(
-            str(self.destination)
+            str(self.destination), WATCH_FILTER
         )
         self.watcher_handle = self.native.open_directory(str(self.destination), watch=True)
         self.watcher_thread = threading.Thread(
@@ -748,20 +807,81 @@ class Authority:
     def _transition_writers_to_read_guards(self) -> None:
         records = list(self.writer_records)
         self.writer_records.clear()
-        for writer, path, expected_identity in records:
+        for writer, path, expected_identity, expected_sha256 in records:
             self.native.close(writer)
             guard = self.native.open_guard_file(str(path))
+            self.file_handles.append(guard)
             actual_identity = info_identity(self.native.information(guard))
             if actual_identity != expected_identity:
-                self.native.close(guard)
                 fail(f"destination object changed during write-to-read guard transition: {path}")
-            self.file_handles.append(guard)
-            self._refresh_change_notification_violation()
+            actual_sha256 = self.native.sha256_file(guard, expected_identity[2])
+            if actual_sha256 != expected_sha256:
+                fail(f"destination bytes changed during write-to-read guard transition: {path}")
+            self._refresh_transition_notification_violation()
             if self.violated.is_set():
                 fail(
                     "snapshot changed during write-to-read guard transition: "
                     + self.violation_reason
                 )
+
+    def _verify_destination_namespace(self) -> None:
+        observed: set[tuple[str, str]] = set()
+
+        def walk(directory: Path, relative_prefix: str) -> None:
+            try:
+                entries = sorted(
+                    os.scandir(directory),
+                    key=lambda entry: entry.name.lower(),
+                )
+            except OSError as error:
+                fail(f"could not enumerate frozen destination directory {directory}: {error}")
+
+            seen: set[str] = set()
+            for entry in entries:
+                safe_component(entry.name)
+                key = entry.name.lower()
+                if key in seen:
+                    fail(f"Windows case-insensitive destination collision: {entry.name}")
+                seen.add(key)
+                relative = (
+                    f"{relative_prefix}/{entry.name}"
+                    if relative_prefix
+                    else entry.name
+                )
+                try:
+                    metadata = entry.stat(follow_symlinks=False)
+                except OSError as error:
+                    fail(f"could not stat frozen destination entry {relative}: {error}")
+                if is_reparse(metadata) or entry.is_symlink():
+                    fail(f"frozen destination indirection is not admitted: {relative}")
+                if stat.S_ISDIR(metadata.st_mode):
+                    observed.add(("directory", relative))
+                    walk(Path(entry.path), relative)
+                elif stat.S_ISREG(metadata.st_mode):
+                    observed.add(("file", relative))
+                else:
+                    fail(f"frozen destination special entry is not admitted: {relative}")
+                if len(observed) > MAX_FILES + MAX_DIRECTORIES:
+                    fail("frozen destination entry count exceeds supported bounds")
+
+        walk(self.destination, "")
+        if observed != self.expected_entries:
+            missing = sorted(self.expected_entries - observed)[:8]
+            unexpected = sorted(observed - self.expected_entries)[:8]
+            fail(
+                "frozen destination namespace differs from broker copy authority: "
+                f"missing={missing!r} unexpected={unexpected!r}"
+            )
+
+    def _retire_transition_sentinel(self) -> None:
+        if self.transition_notification_handle is None:
+            return
+        self._refresh_transition_notification_violation()
+        if self.violated.is_set():
+            fail("snapshot changed before transition sentinel retirement: " + self.violation_reason)
+        handle = self.transition_notification_handle
+        self.transition_notification_handle = None
+        self.native.close_change_notification(handle)
 
     def copy_and_freeze(self) -> None:
         source = self.source_root
@@ -791,17 +911,25 @@ class Authority:
         self.directory_handles.append(root_handle)
         self._copy_directory(source, root_handle, "")
 
-        # Arm a synchronous change-notification sentinel before starting the richer
-        # ReadDirectoryChangesW worker. Creator handles suppress their own delayed
-        # access/write-time finalization, so any post-arm signal remains fatal.
-        # Read guards then withhold write/delete sharing after each reopen.
-        self._arm_watcher()
+        # Writer handles deliberately remain retained through the copy. A namespace-only
+        # sentinel covers their close/reopen transition without treating NTFS delayed
+        # last-write/size finalization as an external mutation. Each reopened read guard
+        # then proves object identity and exact bytes before the full subtree watcher arms.
+        self._arm_transition_sentinel()
         self._transition_writers_to_read_guards()
+        self._arm_watcher()
+        self._verify_destination_namespace()
+        self._refresh_transition_notification_violation()
+        self._refresh_change_notification_violation()
+        if self.violated.is_set():
+            fail("snapshot changed before broker readiness: " + self.violation_reason)
+        self._retire_transition_sentinel()
         self._refresh_change_notification_violation()
         if self.violated.is_set():
             fail("snapshot changed before broker readiness: " + self.violation_reason)
 
     def health_record(self) -> dict[str, object]:
+        self._refresh_transition_notification_violation()
         self._refresh_change_notification_violation()
         return {
             "schema_version": 1,
@@ -815,29 +943,37 @@ class Authority:
         }
 
     def close(self) -> None:
+        errors: list[str] = []
         self.stopping.set()
         if self.watcher_handle is not None:
             try:
-                self.native.CancelIoEx(wintypes.HANDLE(self.watcher_handle), None)
-            except Exception:
-                pass
+                self.native.cancel_io(self.watcher_handle)
+            except OSError as error:
+                errors.append(f"watcher cancellation failed: {error}")
             try:
                 self.native.close(self.watcher_handle)
-            except OSError:
-                pass
+            except OSError as error:
+                errors.append(f"watcher handle close failed: {error}")
             self.watcher_handle = None
         if self.watcher_thread is not None:
             self.watcher_thread.join(timeout=5)
+            if self.watcher_thread.is_alive():
+                errors.append("watcher thread did not stop within cleanup timeout")
             self.watcher_thread = None
         if self.change_notification_handle is not None:
             try:
                 self.native.close_change_notification(self.change_notification_handle)
-            except OSError:
-                pass
+            except OSError as error:
+                errors.append(f"change notification close failed: {error}")
             self.change_notification_handle = None
+        if self.transition_notification_handle is not None:
+            try:
+                self.native.close_change_notification(self.transition_notification_handle)
+            except OSError as error:
+                errors.append(f"transition notification close failed: {error}")
+            self.transition_notification_handle = None
 
-        errors: list[str] = []
-        for handle, _, _ in reversed(self.writer_records):
+        for handle, _, _, _ in reversed(self.writer_records):
             try:
                 self.native.close(handle)
             except OSError as error:
