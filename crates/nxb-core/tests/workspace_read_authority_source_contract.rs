@@ -50,7 +50,7 @@ fn workspace_read_document_delegates_to_pinned_authority() {
 }
 
 #[test]
-fn linux_read_authority_is_no_follow_same_handle_and_identity_bound() {
+fn linux_read_authority_is_parent_pinned_no_follow_same_handle_and_identity_bound() {
     let authority = source(READ_AUTHORITY_PATH);
     let production = authority
         .split("#[cfg(all(test, target_os = \"linux\"))]")
@@ -58,17 +58,25 @@ fn linux_read_authority_is_no_follow_same_handle_and_identity_bound() {
         .expect("read-authority production boundary is missing");
 
     for marker in [
+        "let parent_authority = pin_parent_namespace(path, label)?;",
+        "let authority_path = parent_authority.child_path();",
+        "const O_DIRECTORY: i32 = 0o200000;",
         "const O_NOFOLLOW: i32 = 0o400000;",
+        ".custom_flags(O_DIRECTORY | O_NOFOLLOW)",
+        "let stable_parent = PathBuf::from(format!(\"/proc/self/fd/{}\", parent_handle.as_raw_fd()));",
+        "stable_child_path: stable_parent.join(file_name)",
         ".custom_flags(O_NOFOLLOW)",
-        "let mut file = open_document_authority(path, label)?;",
+        "let mut file = open_document_authority(authority_path, label)?;",
         "let initial = file",
         "(&mut file)",
-        ".take(MAX_DOCUMENT_BYTES + 1)",
+        ".take(maximum + 1)",
         "let final_metadata = file",
         "opened.dev() != named.dev() || opened.ino() != named.ino()",
         "initial.mtime() != final_metadata.mtime()",
         "initial.ctime() != final_metadata.ctime()",
-        "validate_platform_authority(path, final_metadata, label)",
+        "validate_platform_authority(authority_path, &initial, label, permission)?;",
+        "validate_platform_stability(authority_path, &initial, &final_metadata, label, permission)?;",
+        "validate_platform_authority(path, final_metadata, label, permission)",
     ] {
         assert!(
             production.contains(marker),
@@ -76,31 +84,43 @@ fn linux_read_authority_is_no_follow_same_handle_and_identity_bound() {
         );
     }
 
+    let parent = index(
+        production,
+        "let parent_authority = pin_parent_namespace(path, label)?;",
+        READ_AUTHORITY_PATH,
+    );
+    let authority_path = index(
+        production,
+        "let authority_path = parent_authority.child_path();",
+        READ_AUTHORITY_PATH,
+    );
     let open = index(
         production,
-        "let mut file = open_document_authority(path, label)?;",
+        "let mut file = open_document_authority(authority_path, label)?;",
         READ_AUTHORITY_PATH,
     );
     let initial = index(production, "let initial = file", READ_AUTHORITY_PATH);
     let validate = index(
         production,
-        "validate_platform_authority(path, &initial, label)?;",
+        "validate_platform_authority(authority_path, &initial, label, permission)?;",
         READ_AUTHORITY_PATH,
     );
     let read = index(production, "(&mut file)", READ_AUTHORITY_PATH);
     let final_metadata = index(production, "let final_metadata = file", READ_AUTHORITY_PATH);
     let stability = index(
         production,
-        "validate_platform_stability(path, &initial, &final_metadata, label)?;",
+        "validate_platform_stability(authority_path, &initial, &final_metadata, label, permission)?;",
         READ_AUTHORITY_PATH,
     );
     assert!(
-        open < initial
+        parent < authority_path
+            && authority_path < open
+            && open < initial
             && initial < validate
             && validate < read
             && read < final_metadata
             && final_metadata < stability,
-        "{READ_AUTHORITY_PATH}: opened-handle validation/read/stability ordering changed"
+        "{READ_AUTHORITY_PATH}: parent/opened-handle validation/read/stability ordering changed"
     );
 
     for forbidden in [
@@ -133,17 +153,20 @@ fn windows_read_authority_pins_reparse_and_share_lifetime() {
             "{WINDOWS_PATH}: missing pinned Windows read authority marker: {marker}"
         );
     }
+    let open_document = windows
+        .split("pub(super) fn open_document_read_authority")
+        .nth(1)
+        .and_then(|tail| tail.split("pub(super) fn set_private_directory_permissions").next())
+        .expect("Windows opened-document authority boundary is missing");
     assert!(
-        !windows.contains("const FILE_SHARE_WRITE"),
-        "{WINDOWS_PATH}: pinned read authority must not admit write sharing"
-    );
-    assert!(
-        !windows.contains("const FILE_SHARE_DELETE"),
-        "{WINDOWS_PATH}: pinned read authority must not admit delete/rename sharing"
+        !open_document.contains("FILE_SHARE_WRITE") && !open_document.contains("FILE_SHARE_DELETE"),
+        "{WINDOWS_PATH}: pinned document authority must not admit write/delete sharing"
     );
 
     let authority = source(READ_AUTHORITY_PATH);
     for marker in [
+        "let parent_authority = pin_parent_namespace(path, label)?;",
+        "let authority_path = parent_authority.child_path();",
         "super::windows::open_document_read_authority(path)",
         "super::windows::is_reparse_point(&named)",
         "super::validate_private_permissions(path, false)",
