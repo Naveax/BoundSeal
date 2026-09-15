@@ -116,8 +116,12 @@ fn target_readiness_and_target_records_resolve_under_retained_authorities() {
 
     let list = section(&target, TARGET_PATH, "fn list_value(", "\nfn show_value(");
     assert!(
-        list.contains("workspace::logical_authority_path(&root).display().to_string()"),
-        "{TARGET_PATH}: public workspace output must not leak Linux /proc/self/fd authority paths"
+        list.contains("workspace::logical_authority_path(&root)"),
+        "{TARGET_PATH}: public workspace output must resolve through the logical authority path"
+    );
+    assert!(
+        !list.contains("workspace: root.display().to_string()"),
+        "{TARGET_PATH}: public workspace output must not serialize the retained authority path directly"
     );
 }
 
