@@ -130,7 +130,7 @@ function Read-NxbH2BrokerLine {
         [Parameter(Mandatory = $true)][int]$TimeoutMilliseconds
     )
     if ($TimeoutMilliseconds -le 0) {
-        Fail-NxbH2CopyEntry "$Label timeout must be positive"
+        & $failCopyEntryProxy -Message "$Label timeout must be positive"
     }
 
     $stream = $Process.StandardOutput.BaseStream
@@ -152,19 +152,19 @@ function Read-NxbH2BrokerLine {
             [Int64]$remaining = [Int64]$TimeoutMilliseconds - $clock.ElapsedMilliseconds
             if ($remaining -le 0) {
                 & $abortBroker
-                Fail-NxbH2CopyEntry "$Label timed out"
+                & $failCopyEntryProxy -Message "$Label timed out"
             }
 
             $readTask = $stream.ReadAsync($buffer, 0, 1)
             if (-not $readTask.Wait([int]$remaining)) {
                 & $abortBroker
-                Fail-NxbH2CopyEntry "$Label timed out"
+                & $failCopyEntryProxy -Message "$Label timed out"
             }
             $read = $readTask.Result
             if ($read -eq 0) {
                 & $abortBroker
                 $exit = if ($Process.HasExited) { $Process.ExitCode } else { 'running' }
-                Fail-NxbH2CopyEntry "$Label control stream closed before newline; broker=$exit"
+                & $failCopyEntryProxy -Message "$Label control stream closed before newline; broker=$exit"
             }
 
             if ($buffer[0] -eq 10) {
@@ -172,7 +172,7 @@ function Read-NxbH2BrokerLine {
             }
             if ($memory.Length -ge 65537) {
                 & $abortBroker
-                Fail-NxbH2CopyEntry "$Label response exceeds 64 KiB"
+                & $failCopyEntryProxy -Message "$Label response exceeds 64 KiB"
             }
             $memory.WriteByte($buffer[0])
         }
@@ -184,7 +184,7 @@ function Read-NxbH2BrokerLine {
         }
         if ($length -gt 65536) {
             & $abortBroker
-            Fail-NxbH2CopyEntry "$Label response exceeds 64 KiB"
+            & $failCopyEntryProxy -Message "$Label response exceeds 64 KiB"
         }
 
         $utf8 = [Text.UTF8Encoding]::new($false, $true)
@@ -193,7 +193,7 @@ function Read-NxbH2BrokerLine {
         }
         catch {
             & $abortBroker
-            Fail-NxbH2CopyEntry "$Label response is not strict UTF-8: $($_.Exception.Message)"
+            & $failCopyEntryProxy -Message "$Label response is not strict UTF-8: $($_.Exception.Message)"
         }
     }
     finally {
@@ -211,7 +211,7 @@ function ConvertFrom-NxbH2BrokerRecord {
         return ($Line | ConvertFrom-Json -ErrorAction Stop)
     }
     catch {
-        Fail-NxbH2CopyEntry "$Label returned invalid JSON: $($_.Exception.Message)"
+        & $failCopyEntryProxy -Message "$Label returned invalid JSON: $($_.Exception.Message)"
     }
 }
 
@@ -221,7 +221,7 @@ function Start-NxbH2DestinationBroker {
         [Parameter(Mandatory = $true)][string]$SnapshotRoot
     )
     if ($null -ne $brokerState.Process) {
-        Fail-NxbH2CopyEntry 'destination broker is already active'
+        & $failCopyEntryProxy -Message 'destination broker is already active'
     }
     $sourceFull = [IO.Path]::GetFullPath($SourceRoot)
     $snapshotFull = [IO.Path]::GetFullPath($SnapshotRoot)
@@ -231,10 +231,10 @@ function Start-NxbH2DestinationBroker {
         $validationFull,
         [StringComparison]::OrdinalIgnoreCase
     )) {
-        Fail-NxbH2CopyEntry 'destination broker snapshot root is not an immediate child of the validation directory'
+        & $failCopyEntryProxy -Message 'destination broker snapshot root is not an immediate child of the validation directory'
     }
-    if (Test-Path -LiteralPath $snapshotFull) {
-        Fail-NxbH2CopyEntry 'destination broker requires an absent snapshot root'
+    if (Microsoft.PowerShell.Management\Test-Path -LiteralPath $snapshotFull) {
+        & $failCopyEntryProxy -Message 'destination broker requires an absent snapshot root'
     }
 
     $start = [Diagnostics.ProcessStartInfo]::new()
@@ -258,14 +258,14 @@ function Start-NxbH2DestinationBroker {
 
     $process = [Diagnostics.Process]::Start($start)
     if ($null -eq $process) {
-        Fail-NxbH2CopyEntry 'could not start Windows H2 destination broker'
+        & $failCopyEntryProxy -Message 'could not start Windows H2 destination broker'
     }
     $brokerState.Process = $process
     $brokerState.SnapshotRoot = $snapshotFull
 
     try {
-        $line = Read-NxbH2BrokerLine -Process $process -Label 'destination broker readiness' -TimeoutMilliseconds 1800000
-        $record = ConvertFrom-NxbH2BrokerRecord -Line $line -Label 'destination broker readiness'
+        $line = & $readBrokerLineProxy -Process $process -Label 'destination broker readiness' -TimeoutMilliseconds 1800000
+        $record = & $convertBrokerRecordProxy -Line $line -Label 'destination broker readiness'
         if (
             [string]$record.phase -cne 'ready' -or
             [string]$record.status -cne 'healthy' -or
@@ -276,7 +276,7 @@ function Start-NxbH2DestinationBroker {
                 [StringComparison]::OrdinalIgnoreCase
             )
         ) {
-            Fail-NxbH2CopyEntry 'destination broker did not establish healthy exact snapshot authority'
+            & $failCopyEntryProxy -Message 'destination broker did not establish healthy exact snapshot authority'
         }
         if (
             [Int64]$record.file_count -lt 1 -or
@@ -286,7 +286,7 @@ function Start-NxbH2DestinationBroker {
             [Int64]$record.total_bytes -lt 0 -or
             [Int64]$record.total_bytes -gt 4294967296
         ) {
-            Fail-NxbH2CopyEntry 'destination broker summary exceeds the admitted H2 envelope'
+            & $failCopyEntryProxy -Message 'destination broker summary exceeds the admitted H2 envelope'
         }
     }
     catch {
@@ -308,7 +308,7 @@ function Assert-NxbH2DestinationBroker {
     param([Parameter(Mandatory = $true)][string]$SnapshotRoot)
     $process = $brokerState.Process
     if ($null -eq $process) {
-        Fail-NxbH2CopyEntry 'destination broker is not active at authority handoff'
+        & $failCopyEntryProxy -Message 'destination broker is not active at authority handoff'
     }
     $snapshotFull = [IO.Path]::GetFullPath($SnapshotRoot)
     if (-not [string]::Equals(
@@ -316,16 +316,16 @@ function Assert-NxbH2DestinationBroker {
         $brokerState.SnapshotRoot,
         [StringComparison]::OrdinalIgnoreCase
     )) {
-        Fail-NxbH2CopyEntry 'destination broker authority was requested for the wrong snapshot root'
+        & $failCopyEntryProxy -Message 'destination broker authority was requested for the wrong snapshot root'
     }
     if ($process.HasExited) {
-        Fail-NxbH2CopyEntry "destination broker exited before authority handoff: $($process.ExitCode)"
+        & $failCopyEntryProxy -Message "destination broker exited before authority handoff: $($process.ExitCode)"
     }
 
     $process.StandardInput.WriteLine('CHECK')
     $process.StandardInput.Flush()
-    $line = Read-NxbH2BrokerLine -Process $process -Label 'destination broker health check' -TimeoutMilliseconds 30000
-    $record = ConvertFrom-NxbH2BrokerRecord -Line $line -Label 'destination broker health check'
+    $line = & $readBrokerLineProxy -Process $process -Label 'destination broker health check' -TimeoutMilliseconds 30000
+    $record = & $convertBrokerRecordProxy -Line $line -Label 'destination broker health check'
     if (
         [string]$record.status -cne 'healthy' -or
         [string]$record.policy -cne 'nxb-153-windows-h2-destination-authority-v1' -or
@@ -335,7 +335,7 @@ function Assert-NxbH2DestinationBroker {
             [StringComparison]::OrdinalIgnoreCase
         )
     ) {
-        Fail-NxbH2CopyEntry ("destination broker observed pre-handoff mutation: " + [string]$record.violation)
+        & $failCopyEntryProxy -Message ("destination broker observed pre-handoff mutation: " + [string]$record.violation)
     }
 }
 
@@ -347,7 +347,7 @@ function Stop-NxbH2DestinationBroker {
     $process = $brokerState.Process
     if ($null -eq $process) {
         if ($AllowMissing) { return }
-        Fail-NxbH2CopyEntry 'destination broker is not active'
+        & $failCopyEntryProxy -Message 'destination broker is not active'
     }
 
     $snapshotFull = [IO.Path]::GetFullPath($SnapshotRoot)
@@ -356,28 +356,28 @@ function Stop-NxbH2DestinationBroker {
         $brokerState.SnapshotRoot,
         [StringComparison]::OrdinalIgnoreCase
     )) {
-        Fail-NxbH2CopyEntry 'destination broker stop requested for the wrong snapshot root'
+        & $failCopyEntryProxy -Message 'destination broker stop requested for the wrong snapshot root'
     }
 
     $failure = $null
     try {
         if ($process.HasExited) {
-            Fail-NxbH2CopyEntry "destination broker exited before controlled handoff: $($process.ExitCode)"
+            & $failCopyEntryProxy -Message "destination broker exited before controlled handoff: $($process.ExitCode)"
         }
         $process.StandardInput.WriteLine('STOP')
         $process.StandardInput.Flush()
-        $line = Read-NxbH2BrokerLine -Process $process -Label 'destination broker stop' -TimeoutMilliseconds 30000
-        $record = ConvertFrom-NxbH2BrokerRecord -Line $line -Label 'destination broker stop'
+        $line = & $readBrokerLineProxy -Process $process -Label 'destination broker stop' -TimeoutMilliseconds 30000
+        $record = & $convertBrokerRecordProxy -Line $line -Label 'destination broker stop'
         if (-not $process.WaitForExit(30000)) {
             try { $process.Kill($true) } catch {}
-            Fail-NxbH2CopyEntry 'destination broker did not exit after STOP'
+            & $failCopyEntryProxy -Message 'destination broker did not exit after STOP'
         }
         if (
             [string]$record.phase -cne 'stopped' -or
             [string]$record.status -cne 'healthy' -or
             $process.ExitCode -ne 0
         ) {
-            Fail-NxbH2CopyEntry ("destination broker closed after detected mutation: " + [string]$record.violation)
+            & $failCopyEntryProxy -Message ("destination broker closed after detected mutation: " + [string]$record.violation)
         }
     }
     catch {
@@ -480,9 +480,13 @@ $brokerState = @{
     SnapshotRoot = $null
 }
 
+$failCopyEntryProxy = (Get-Command Fail-NxbH2CopyEntry -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
+$readBrokerLineProxy = (Get-Command Read-NxbH2BrokerLine -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
+$convertBrokerRecordProxy = (Get-Command ConvertFrom-NxbH2BrokerRecord -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
 $startBrokerProxy = (Get-Command Start-NxbH2DestinationBroker -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
 $assertBrokerProxy = (Get-Command Assert-NxbH2DestinationBroker -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
 $stopBrokerProxy = (Get-Command Stop-NxbH2DestinationBroker -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
+$enumerationProxy = (Get-Command Get-ChildItem -CommandType Function -ErrorAction Stop).ScriptBlock
 Set-Item -Path Function:\Start-NxbH2DestinationBroker -Value $startBrokerProxy -Force
 Set-Item -Path Function:\Assert-NxbH2DestinationBroker -Value $assertBrokerProxy -Force
 Set-Item -Path Function:\Stop-NxbH2DestinationBroker -Value $stopBrokerProxy -Force
@@ -519,43 +523,43 @@ try {
             )
 
             if (-not $Recurse -or -not $Force) {
-                Fail-NxbH2CopyEntry 'bounded Copy-Item shim rejected non-recursive/non-force invocation'
+                & $failCopyEntryProxy -Message 'bounded Copy-Item shim rejected non-recursive/non-force invocation'
             }
 
             $sourceFull = [IO.Path]::GetFullPath($LiteralPath)
             $destinationFull = [IO.Path]::GetFullPath($Destination)
             $sourceRoot = [IO.Path]::GetDirectoryName($sourceFull)
             if ([string]::IsNullOrWhiteSpace($sourceRoot)) {
-                Fail-NxbH2CopyEntry 'bounded Copy-Item shim could not resolve source root'
+                & $failCopyEntryProxy -Message 'bounded Copy-Item shim could not resolve source root'
             }
             $sourceRoot = [IO.Path]::GetFullPath($sourceRoot)
 
             if ($null -eq $copyState.Expected) {
                 $expected = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-                foreach ($item in Get-ChildItem -LiteralPath $sourceRoot -Force -ErrorAction Stop) {
+                foreach ($item in @(& $enumerationProxy -LiteralPath $sourceRoot -Force -ErrorAction Stop)) {
                     [void]$expected.Add([IO.Path]::GetFullPath($item.FullName))
                 }
                 if ($expected.Count -eq 0 -or -not $expected.Contains($sourceFull)) {
-                    Fail-NxbH2CopyEntry 'bounded Copy-Item shim source enumeration disagrees with H2 capture loop'
+                    & $failCopyEntryProxy -Message 'bounded Copy-Item shim source enumeration disagrees with H2 capture loop'
                 }
                 $copyState.Expected = $expected
                 $copyState.SourceRoot = $sourceRoot
                 $copyState.Destination = $destinationFull
 
-                Start-NxbH2DestinationBroker -SourceRoot $sourceRoot -SnapshotRoot $destinationFull
+                & $startBrokerProxy -SourceRoot $sourceRoot -SnapshotRoot $destinationFull
                 $copyState.Invoked = $true
             }
             else {
                 if (-not [string]::Equals($sourceRoot, $copyState.SourceRoot, [StringComparison]::OrdinalIgnoreCase)) {
-                    Fail-NxbH2CopyEntry 'bounded Copy-Item shim observed a second source root'
+                    & $failCopyEntryProxy -Message 'bounded Copy-Item shim observed a second source root'
                 }
                 if (-not [string]::Equals($destinationFull, $copyState.Destination, [StringComparison]::OrdinalIgnoreCase)) {
-                    Fail-NxbH2CopyEntry 'bounded Copy-Item shim observed a second destination root'
+                    & $failCopyEntryProxy -Message 'bounded Copy-Item shim observed a second destination root'
                 }
             }
 
             if (-not $copyState.Expected.Remove($sourceFull)) {
-                Fail-NxbH2CopyEntry "bounded Copy-Item shim observed duplicate/unexpected source entry: $sourceFull"
+                & $failCopyEntryProxy -Message "bounded Copy-Item shim observed duplicate/unexpected source entry: $sourceFull"
             }
         }
         $copyItemProxy = (Get-Command Copy-Item -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
@@ -597,7 +601,7 @@ catch {
 finally {
     if ($null -ne $brokerState.Process) {
         try {
-            Stop-NxbH2DestinationBroker -SnapshotRoot $brokerState.SnapshotRoot -AllowMissing
+            & $stopBrokerProxy -SnapshotRoot $brokerState.SnapshotRoot -AllowMissing
         }
         catch {
             $cleanupErrors.Add("destination broker cleanup failed: $($_.Exception.Message)")
