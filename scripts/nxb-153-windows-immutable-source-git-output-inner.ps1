@@ -327,7 +327,7 @@ try {
     foreach ($entry in $PSBoundParameters.GetEnumerator()) {
         $innerParameters[$entry.Key] = $entry.Value
     }
-    . $innerPath @innerParameters
+    & $innerPath @innerParameters
 
     $finalOid = Get-NxbH2GitGuardBlobOid -Stream $innerStream -Label 'Windows H2 enumeration-guard inner final pinned object'
     $expectedOid = (& $script:NxbH2GitApplication -C $RepoRoot rev-parse "${HeadSha}:$innerRelative" | Out-String).Trim()

@@ -285,7 +285,7 @@ try {
     foreach ($entry in $PSBoundParameters.GetEnumerator()) {
         $innerParameters[$entry.Key] = $entry.Value
     }
-    . $innerPath @innerParameters
+    & $innerPath @innerParameters
 
     $finalOid = Get-NxbH2EnumerationGitBlobOid -Stream $innerStream -Label 'bounded Windows H2 inner wrapper final pinned object'
     $expectedOid = (git -C $RepoRoot rev-parse "${HeadSha}:$innerRelative").Trim()
