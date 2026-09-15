@@ -265,6 +265,13 @@ fn windows_bounded_h2_cross_script_functions_capture_shared_state() {
     for marker in [
         "$copyState = @{",
         "$brokerState = @{",
+        "$failCopyEntryProxy = (Get-Command Fail-NxbH2CopyEntry",
+        "$readBrokerLineProxy = (Get-Command Read-NxbH2BrokerLine",
+        "$convertBrokerRecordProxy = (Get-Command ConvertFrom-NxbH2BrokerRecord",
+        "$startBrokerProxy = (Get-Command Start-NxbH2DestinationBroker",
+        "$assertBrokerProxy = (Get-Command Assert-NxbH2DestinationBroker",
+        "$stopBrokerProxy = (Get-Command Stop-NxbH2DestinationBroker",
+        "$enumerationProxy = (Get-Command Get-ChildItem -CommandType Function",
         ".ScriptBlock.GetNewClosure()",
         r#"Set-Item -Path Function:\Start-NxbH2DestinationBroker -Value $startBrokerProxy -Force"#,
         r#"Set-Item -Path Function:\Assert-NxbH2DestinationBroker -Value $assertBrokerProxy -Force"#,
@@ -272,13 +279,19 @@ fn windows_bounded_h2_cross_script_functions_capture_shared_state() {
         r#"Set-Item -Path Function:\Copy-Item -Value $copyItemProxy -Force"#,
         "$copyState.Expected",
         "$brokerState.Process",
+        "& $startBrokerProxy -SourceRoot $sourceRoot -SnapshotRoot $destinationFull",
+        "@(& $enumerationProxy -LiteralPath $sourceRoot -Force -ErrorAction Stop)",
     ] {
         assert!(
             source.contains(marker),
             "{WINDOWS_BOUNDED_H2_PATH}: missing lexical/shared-state marker: {marker}"
         );
     }
-    for forbidden in ["$script:NxbH2Copy", "$script:NxbH2Broker"] {
+    for forbidden in [
+        "$script:NxbH2Copy",
+        "$script:NxbH2Broker",
+        "                Start-NxbH2DestinationBroker -SourceRoot $sourceRoot -SnapshotRoot $destinationFull",
+    ] {
         assert!(
             !source.contains(forbidden),
             "{WINDOWS_BOUNDED_H2_PATH}: caller-sensitive state remains: {forbidden}"
@@ -291,7 +304,10 @@ fn windows_broker_entry_proxies_capture_handoff_state() {
     let source = read_source(WINDOWS_BROKER_ENTRY_PATH);
     for marker in [
         "$brokerEntryState = @{",
-        "$testSnapshotPathProxy = (Get-Command Test-NxbH2BrokerSnapshotPath",
+        "$failBrokerEntryProxy = (Get-Command Fail-NxbH2BrokerEntry",
+        "$testSnapshotPathEvaluator = (Get-Command Test-NxbH2BrokerSnapshotPath",
+        "$assertDestinationBrokerProxy = (Get-Command Assert-NxbH2DestinationBroker",
+        "$stopDestinationBrokerProxy = (Get-Command Stop-NxbH2DestinationBroker",
         "$newItemProxy = (Get-Command New-Item",
         "$testPathProxy = (Get-Command Test-Path",
         "$removeItemProxy = (Get-Command Remove-Item",
@@ -302,6 +318,9 @@ fn windows_broker_entry_proxies_capture_handoff_state() {
         "$brokerEntryState.DeferredSnapshotRoot",
         "$brokerEntryState.HandoffEstablished",
         "$brokerEntryState.Stopped",
+        "(& $testSnapshotPathEvaluator -Path $Path)",
+        "& $assertDestinationBrokerProxy -SnapshotRoot $brokerEntryState.DeferredSnapshotRoot",
+        "& $stopDestinationBrokerProxy -SnapshotRoot $brokerEntryState.DeferredSnapshotRoot -AllowMissing",
     ] {
         assert!(
             source.contains(marker),
@@ -312,6 +331,7 @@ fn windows_broker_entry_proxies_capture_handoff_state() {
         "$script:NxbH2DeferredSnapshotRoot",
         "$script:NxbH2BrokerHandoffEstablished",
         "$script:NxbH2BrokerStopped",
+        "(Test-NxbH2BrokerSnapshotPath -Path $Path)",
     ] {
         assert!(
             !source.contains(forbidden),
