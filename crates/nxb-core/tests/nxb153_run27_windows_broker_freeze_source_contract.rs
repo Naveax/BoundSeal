@@ -67,8 +67,43 @@ fn transitioned_read_guards_withhold_write_and_delete_sharing() {
 }
 
 #[test]
+fn synchronous_change_sentinel_closes_the_watcher_thread_startup_gap() {
+    let text = source();
+    for marker in [
+        "self.FindFirstChangeNotificationW = self.kernel32.FindFirstChangeNotificationW",
+        "self.FindCloseChangeNotification = self.kernel32.FindCloseChangeNotification",
+        "self.WaitForSingleObject = self.kernel32.WaitForSingleObject",
+        "def begin_change_notification(self, path: str) -> int:",
+        "def change_notification_signaled(self, handle: int) -> bool:",
+        "self.change_notification_handle = self.native.begin_change_notification(",
+        "self._refresh_change_notification_violation()",
+        "snapshot subtree change notification signaled after broker freeze",
+    ] {
+        assert!(
+            text.contains(marker),
+            "{BROKER_PATH}: synchronous watcher sentinel marker is missing: {marker}"
+        );
+    }
+
+    let arm_start = required_offset(&text, "def _arm_watcher(self) -> None:");
+    let arm_end = required_offset(&text[arm_start..], "\n    def _transition_writers_to_read_guards") + arm_start;
+    let arm_body = &text[arm_start..arm_end];
+    let sentinel = required_offset(arm_body, "self.native.begin_change_notification(");
+    let directory_watch = required_offset(arm_body, "self.native.open_directory(str(self.destination), watch=True)");
+    let thread_start = required_offset(arm_body, "self.watcher_thread.start()");
+    assert!(
+        sentinel < directory_watch && directory_watch < thread_start,
+        "{BROKER_PATH}: synchronous change sentinel must arm before the asynchronous ReadDirectoryChangesW watcher starts"
+    );
+}
+
+#[test]
 fn watcher_still_covers_the_close_reopen_transition_and_post_freeze_lifetime() {
     let text = source();
+    assert!(
+        text.contains("FILE_NOTIFY_CHANGE_LAST_WRITE"),
+        "{BROKER_PATH}: watcher must continue detecting content writes"
+    );
     let arm = required_offset(&text, "self._arm_watcher()");
     let transition = required_offset(&text, "self._transition_writers_to_read_guards()");
     assert!(
@@ -83,6 +118,7 @@ fn watcher_still_covers_the_close_reopen_transition_and_post_freeze_lifetime() {
         "self.native.close(writer)",
         "guard = self.native.open_guard_file(str(path))",
         "if actual_identity != expected_identity:",
+        "self._refresh_change_notification_violation()",
         "if self.violated.is_set():",
     ] {
         assert!(
