@@ -131,9 +131,10 @@ fn writer_transition_uses_namespace_sentinel_and_exact_byte_guards_before_full_w
         &text,
         "def _transition_writers_to_read_guards(self) -> None:",
     );
-    let transition_end =
-        required_offset(&text[transition_start..], "\n    def _verify_destination_namespace")
-            + transition_start;
+    let transition_end = required_offset(
+        &text[transition_start..],
+        "\n    def _verify_destination_namespace",
+    ) + transition_start;
     let body = &text[transition_start..transition_end];
     for marker in [
         "self.native.close(writer)",
