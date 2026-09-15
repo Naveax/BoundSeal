@@ -33,7 +33,7 @@ fn required_section<'a>(source: &'a str, path: &str, start: &str, end: &str) -> 
 }
 
 #[test]
-fn windows_h2_snapshot_path_helper_is_defined_before_lexical_capture_and_child_handoff() {
+fn windows_h2_snapshot_path_helper_is_lexically_captured_before_child_proxy_handoff() {
     let source = read_source(WINDOWS_BROKER_ENTRY_PATH);
     let definition = required_offset(
         &source,
@@ -42,23 +42,43 @@ fn windows_h2_snapshot_path_helper_is_defined_before_lexical_capture_and_child_h
     );
     let capture = required_offset(
         &source,
-        "$testSnapshotPathProxy = (Get-Command Test-NxbH2BrokerSnapshotPath -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()",
+        "$testSnapshotPathEvaluator = (Get-Command Test-NxbH2BrokerSnapshotPath -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()",
         WINDOWS_BROKER_ENTRY_PATH,
     );
-    let install = required_offset(
+    let new_item_closure = required_offset(
         &source,
-        r"Set-Item -Path Function:\Test-NxbH2BrokerSnapshotPath -Value $testSnapshotPathProxy -Force",
+        "$newItemProxy = (Get-Command New-Item -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()",
         WINDOWS_BROKER_ENTRY_PATH,
     );
-    let child_pin = required_offset(
+    let new_item_install = required_offset(
         &source,
-        "$h2EntryStream = Open-NxbH2BrokerEntryPinnedFile",
+        r"Set-Item -Path Function:\New-Item -Value $newItemProxy -Force",
+        WINDOWS_BROKER_ENTRY_PATH,
+    );
+    let child_call = required_offset(
+        &source,
+        "    & $h2EntryPath @innerParameters",
         WINDOWS_BROKER_ENTRY_PATH,
     );
 
     assert!(
-        definition < capture && capture < install && install < child_pin,
-        "{WINDOWS_BROKER_ENTRY_PATH}: snapshot-path helper must be defined before lexical closure capture/install and before the H2 child handoff"
+        definition < capture
+            && capture < new_item_closure
+            && new_item_closure < new_item_install
+            && new_item_install < child_call,
+        "{WINDOWS_BROKER_ENTRY_PATH}: snapshot-path authority must be defined and lexically captured before child-visible proxy closure installation and H2 child handoff"
+    );
+    assert!(
+        source.contains("(& $testSnapshotPathEvaluator -Path $Path)"),
+        "{WINDOWS_BROKER_ENTRY_PATH}: New-Item proxy must invoke the captured snapshot-path evaluator"
+    );
+    assert!(
+        !source.contains(r"Set-Item -Path Function:\Test-NxbH2BrokerSnapshotPath"),
+        "{WINDOWS_BROKER_ENTRY_PATH}: snapshot-path authority must not depend on reinstalling a named helper into child scope"
+    );
+    assert!(
+        !source.contains("(Test-NxbH2BrokerSnapshotPath -Path $Path)"),
+        "{WINDOWS_BROKER_ENTRY_PATH}: child proxy must not dynamically resolve the snapshot-path helper"
     );
 }
 
