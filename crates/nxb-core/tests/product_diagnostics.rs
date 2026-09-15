@@ -120,7 +120,13 @@ fn workspace_status_and_migration_status_emit_stable_json_diagnostics() {
         "Pending Migration",
         "--json",
     ]);
-    assert!(initialized.status.success());
+    assert!(
+        initialized.status.success(),
+        "workspace init failed: status={:?} stdout={} stderr={}",
+        initialized.status.code(),
+        String::from_utf8_lossy(&initialized.stdout),
+        String::from_utf8_lossy(&initialized.stderr)
+    );
 
     let active = root.join("state").join("migration-active.json");
     let journal = serde_json::json!({

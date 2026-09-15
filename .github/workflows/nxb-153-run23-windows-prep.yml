@@ -39,6 +39,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "cargo fmt failed with exit $LASTEXITCODE" }
           rustup run 1.97.1 cargo fmt --all -- --check
           if ($LASTEXITCODE -ne 0) { throw "cargo fmt check failed with exit $LASTEXITCODE" }
+          rustup run 1.97.1 cargo test -p nxb-core --bin nxb --locked workspace_impl::tests::initializes_and_reads_canonical_workspace -- --exact --nocapture --test-threads=1
+          if ($LASTEXITCODE -ne 0) { throw "Windows workspace init unit regression failed with exit $LASTEXITCODE" }
           rustup run 1.97.1 cargo test -p nxb-core --test product_diagnostics --locked -- --test-threads=1
           if ($LASTEXITCODE -ne 0) { throw "product diagnostics failed with exit $LASTEXITCODE" }
           rustup run 1.97.1 cargo test -p nxb-core --test nxb153_run23_windows_admission_gate_coverage_source_contract --locked -- --test-threads=1

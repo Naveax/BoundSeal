@@ -12,6 +12,9 @@ def replace_once(path: Path, old: str, new: str) -> None:
 windows_gate = Path("scripts/nxb-153-windows-dependency-source.ps1")
 git_output_guard = Path("scripts/nxb-153-windows-immutable-source-git-output-inner.ps1")
 enumeration_guard = Path("scripts/nxb-153-windows-immutable-source-enumeration-inner.ps1")
+publication = Path("crates/nxb-core/src/workspace_authority_publication.rs")
+workspace = Path("crates/nxb-core/src/workspace/mod.rs")
+prepared = Path("crates/nxb-core/src/prepared_file_authority.rs")
 
 replace_once(
     windows_gate,
@@ -30,6 +33,32 @@ replace_once(
     "    & $innerPath @innerParameters",
 )
 
+replace_once(
+    publication,
+    "use std::{fs, path::Path};",
+    "#[cfg(unix)]\nuse std::fs;\nuse std::path::Path;",
+)
+replace_once(
+    workspace,
+    "pub(crate) mod migration;\nmod read_authority;",
+    "#[cfg(not(windows))]\npub(crate) mod migration;\nmod read_authority;",
+)
+replace_once(
+    workspace,
+    "    fs::{self, File, OpenOptions},\n    io::Write,",
+    "    fs::{self, OpenOptions},\n    io::Write,",
+)
+replace_once(
+    workspace,
+    "use anyhow::{bail, Context, Result};",
+    "#[cfg(unix)]\nuse std::fs::File;\n\nuse anyhow::{bail, Context, Result};",
+)
+replace_once(
+    prepared,
+    "    path: PathBuf,\n    file: fs::File,",
+    "    path: PathBuf,\n    // The Windows handle is intentionally retained for its sharing lifetime.\n    #[cfg_attr(windows, allow(dead_code))]\n    file: fs::File,",
+)
+
 contract = Path("crates/nxb-core/tests/nxb153_run23_windows_admission_gate_coverage_source_contract.rs")
 contract.write_text(
     r'''use std::{
@@ -40,6 +69,9 @@ contract.write_text(
 const WINDOWS_GATE: &str = "scripts/nxb-153-windows-dependency-source.ps1";
 const GIT_OUTPUT_GUARD: &str = "scripts/nxb-153-windows-immutable-source-git-output-inner.ps1";
 const ENUMERATION_GUARD: &str = "scripts/nxb-153-windows-immutable-source-enumeration-inner.ps1";
+const PUBLICATION: &str = "crates/nxb-core/src/workspace_authority_publication.rs";
+const WORKSPACE: &str = "crates/nxb-core/src/workspace/mod.rs";
+const PREPARED: &str = "crates/nxb-core/src/prepared_file_authority.rs";
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -88,6 +120,25 @@ fn windows_h2_nested_wrappers_execute_in_child_scope() {
             "{path}: dot-sourcing can overwrite retained outer authority handles"
         );
     }
+}
+
+#[test]
+fn windows_workspace_composition_avoids_duplicate_and_unix_only_warning_paths() {
+    let publication = source(PUBLICATION);
+    assert!(publication.contains("#[cfg(unix)]\nuse std::fs;"));
+    assert!(!publication.contains("use std::{fs, path::Path};"));
+
+    let workspace = source(WORKSPACE);
+    assert!(workspace.contains("#[cfg(not(windows))]\npub(crate) mod migration;"));
+    assert!(workspace.contains("fs::{self, OpenOptions}"));
+    assert!(workspace.contains("#[cfg(unix)]\nuse std::fs::File;"));
+    assert!(!workspace.contains("fs::{self, File, OpenOptions}"));
+
+    let prepared = source(PREPARED);
+    assert!(prepared.contains(
+        "#[cfg_attr(windows, allow(dead_code))]\n    file: fs::File,"
+    ));
+    assert!(!prepared.contains("#![allow(dead_code)]"));
 }
 ''',
     encoding="utf-8",
