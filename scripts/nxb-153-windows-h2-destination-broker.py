@@ -274,6 +274,15 @@ class Native:
         self.FlushFileBuffers.argtypes = [wintypes.HANDLE]
         self.FlushFileBuffers.restype = wintypes.BOOL
 
+        self.SetFileTime = self.kernel32.SetFileTime
+        self.SetFileTime.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(FILETIME),
+            ctypes.POINTER(FILETIME),
+            ctypes.POINTER(FILETIME),
+        ]
+        self.SetFileTime.restype = wintypes.BOOL
+
         self.CancelIoEx = self.kernel32.CancelIoEx
         self.CancelIoEx.argtypes = [wintypes.HANDLE, wintypes.LPVOID]
         self.CancelIoEx.restype = wintypes.BOOL
@@ -329,6 +338,16 @@ class Native:
             self.winerror("GetFileInformationByHandle")
         return info
 
+    def suppress_automatic_file_times(self, handle: int) -> None:
+        preserve = FILETIME(0xFFFFFFFF, 0xFFFFFFFF)
+        if not self.SetFileTime(
+            wintypes.HANDLE(handle),
+            None,
+            ctypes.byref(preserve),
+            ctypes.byref(preserve),
+        ):
+            self.winerror("SetFileTime suppress automatic file times")
+
     def open_directory(self, path: str, *, watch: bool = False) -> int:
         desired = (
             FILE_LIST_DIRECTORY
@@ -381,7 +400,7 @@ class Native:
         handle = self.CreateFileW(
             path,
             GENERIC_READ | SYNCHRONIZE,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_SHARE_READ,
             None,
             OPEN_EXISTING,
             FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN,
@@ -460,6 +479,8 @@ class Native:
                 error,
             )
         handle = int(result.value)
+        if not directory:
+            self.suppress_automatic_file_times(handle)
         info = self.information(handle)
         if bool(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != directory:
             self.close(handle)
@@ -712,8 +733,9 @@ class Authority:
         self._copy_directory(source, root_handle, "")
 
         # Arm the kernel subtree watcher before any creator write handle is released.
-        # The transition to read-only guard handles is therefore fail-closed even if
-        # a same-user actor races the brief close/reopen interval.
+        # Creator handles suppress their own delayed access/write-time finalization,
+        # so any watched post-arm change still represents an external or unexpected
+        # mutation. Read guards then withhold write/delete sharing after each reopen.
         self._arm_watcher()
         self._transition_writers_to_read_guards()
         if self.violated.is_set():
@@ -837,6 +859,21 @@ def self_test() -> None:
             copied = destination / "bin" / "trusted.txt"
             if copied.read_text(encoding="utf-8") != "trusted":
                 fail("self-test copied bytes mismatch")
+            if authority.violated.is_set():
+                fail(
+                    "self-test broker reported mutation before external probe: "
+                    + authority.violation_reason
+                )
+
+            write_succeeded = False
+            try:
+                with copied.open("r+b") as stream:
+                    stream.flush()
+                write_succeeded = True
+            except OSError:
+                pass
+            if write_succeeded:
+                fail("self-test retained destination read guard allowed write")
 
             delete_succeeded = False
             try:
