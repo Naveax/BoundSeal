@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const BROKER_PATH: &str = "scripts/nxb-153-windows-h2-destination-broker.py";
+const BROKER_PATH: &str = "scripts/nxb-153-windows-h2-destination-broker-core.py";
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
