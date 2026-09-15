@@ -155,6 +155,53 @@ fn assert_setup_rejected(output: &Output) {
     );
 }
 
+fn assert_profile_and_transport_residue(root: &Path) {
+    let targets = root.join("targets");
+    let profile = targets.join("example-app.json");
+    let profile_bytes = fs::read(&profile).expect("active target profile is missing");
+    let mut names = fs::read_dir(&targets)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect::<Vec<_>>();
+    names.sort();
+
+    assert_eq!(names.len(), 2, "unexpected target namespace: {names:?}");
+    assert!(names.iter().any(|name| name == "example-app.json"));
+
+    let residue = names
+        .iter()
+        .find(|name| name.as_str() != "example-app.json")
+        .expect("guided profile transport residue is missing");
+    let nonce = residue
+        .strip_prefix(".example-app.json.")
+        .and_then(|value| value.strip_suffix(".tmp"))
+        .expect("guided profile transport residue is not canonically named");
+    assert_eq!(nonce.len(), 24);
+    assert!(
+        nonce
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+        "guided profile transport residue nonce is not canonical lowercase hex"
+    );
+    assert_eq!(
+        fs::read(targets.join(residue)).unwrap(),
+        profile_bytes,
+        "guided profile transport residue differs from the published profile"
+    );
+
+    let status = run_json(&[
+        "workspace".into(),
+        "status".into(),
+        "--workspace".into(),
+        root.to_string_lossy().into_owned(),
+        "--json".into(),
+    ]);
+    assert_eq!(
+        status.pointer("/records/targets").and_then(Value::as_u64),
+        Some(1)
+    );
+}
+
 #[test]
 fn imported_scope_normalizes_to_the_exact_manual_preview_and_readable_text() {
     let root = temporary_workspace("equivalence");
@@ -278,7 +325,7 @@ fn imported_scope_activates_end_to_end_without_hand_authored_policy_or_profile()
         Some(preview_sha)
     );
 
-    assert_eq!(fs::read_dir(root.join("targets")).unwrap().count(), 1);
+    assert_profile_and_transport_residue(&root);
     assert_eq!(fs::read_dir(root.join("config")).unwrap().count(), 0);
 
     let profile = fs::read_to_string(root.join("targets").join("example-app.json")).unwrap();
