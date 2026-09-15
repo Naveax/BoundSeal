@@ -1,6 +1,6 @@
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Output},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -31,6 +31,24 @@ fn run(arguments: &[&str]) -> Output {
         .output()
         .expect("could not execute nxb")
 }
+
+#[cfg(windows)]
+fn protect_pending_fixture(path: &Path) {
+    let output = Command::new("icacls")
+        .arg(path)
+        .args(["/inheritancelevel:d", "/q"])
+        .output()
+        .expect("could not protect pending migration fixture ACL");
+    assert!(
+        output.status.success(),
+        "could not protect pending migration fixture ACL: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[cfg(not(windows))]
+fn protect_pending_fixture(_path: &Path) {}
 
 fn assert_diagnostic(
     output: &Output,
@@ -147,6 +165,7 @@ fn workspace_status_and_migration_status_emit_stable_json_diagnostics() {
         permissions.set_mode(0o600);
         fs::set_permissions(&active, permissions).unwrap();
     }
+    protect_pending_fixture(&active);
 
     let output = run(&["workspace", "status", "--workspace", root_text, "--json"]);
     assert_diagnostic(
@@ -158,7 +177,8 @@ fn workspace_status_and_migration_status_emit_stable_json_diagnostics() {
     );
     assert!(
         !output.stdout.is_empty(),
-        "status must preserve its redacted state document"
+        "status must preserve its redacted state document; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
     );
 
     let missing = temporary_path("missing-migration");
