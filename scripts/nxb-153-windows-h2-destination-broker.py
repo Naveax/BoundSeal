@@ -76,6 +76,10 @@ WATCH_FILTER = (
     | FILE_NOTIFY_CHANGE_LAST_WRITE
 )
 
+WAIT_OBJECT_0 = 0x00000000
+WAIT_TIMEOUT = 0x00000102
+WAIT_FAILED = 0xFFFFFFFF
+
 INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 
 WINDOWS_RESERVED_STEMS = {
@@ -274,6 +278,15 @@ class Native:
         self.FlushFileBuffers.argtypes = [wintypes.HANDLE]
         self.FlushFileBuffers.restype = wintypes.BOOL
 
+        self.SetFileTime = self.kernel32.SetFileTime
+        self.SetFileTime.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(FILETIME),
+            ctypes.POINTER(FILETIME),
+            ctypes.POINTER(FILETIME),
+        ]
+        self.SetFileTime.restype = wintypes.BOOL
+
         self.CancelIoEx = self.kernel32.CancelIoEx
         self.CancelIoEx.argtypes = [wintypes.HANDLE, wintypes.LPVOID]
         self.CancelIoEx.restype = wintypes.BOOL
@@ -290,6 +303,22 @@ class Native:
             wintypes.LPVOID,
         ]
         self.ReadDirectoryChangesW.restype = wintypes.BOOL
+
+        self.FindFirstChangeNotificationW = self.kernel32.FindFirstChangeNotificationW
+        self.FindFirstChangeNotificationW.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.BOOL,
+            wintypes.DWORD,
+        ]
+        self.FindFirstChangeNotificationW.restype = wintypes.HANDLE
+
+        self.FindCloseChangeNotification = self.kernel32.FindCloseChangeNotification
+        self.FindCloseChangeNotification.argtypes = [wintypes.HANDLE]
+        self.FindCloseChangeNotification.restype = wintypes.BOOL
+
+        self.WaitForSingleObject = self.kernel32.WaitForSingleObject
+        self.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        self.WaitForSingleObject.restype = wintypes.DWORD
 
         self.NtCreateFile = self.ntdll.NtCreateFile
         self.NtCreateFile.argtypes = [
@@ -328,6 +357,42 @@ class Native:
         ):
             self.winerror("GetFileInformationByHandle")
         return info
+
+    def suppress_automatic_file_times(self, handle: int) -> None:
+        preserve = FILETIME(0xFFFFFFFF, 0xFFFFFFFF)
+        if not self.SetFileTime(
+            wintypes.HANDLE(handle),
+            None,
+            ctypes.byref(preserve),
+            ctypes.byref(preserve),
+        ):
+            self.winerror("SetFileTime suppress automatic file times")
+
+    def begin_change_notification(self, path: str) -> int:
+        handle = self.FindFirstChangeNotificationW(
+            path,
+            True,
+            WATCH_FILTER,
+        )
+        if handle == INVALID_HANDLE_VALUE:
+            self.winerror(f"FindFirstChangeNotificationW {path}")
+        return int(handle)
+
+    def change_notification_signaled(self, handle: int) -> bool:
+        result = int(self.WaitForSingleObject(wintypes.HANDLE(handle), 0))
+        if result == WAIT_OBJECT_0:
+            return True
+        if result == WAIT_TIMEOUT:
+            return False
+        if result == WAIT_FAILED:
+            self.winerror("WaitForSingleObject change notification")
+        fail(f"unexpected change-notification wait result: {result}")
+
+    def close_change_notification(self, handle: int | None) -> None:
+        if handle in (None, 0, INVALID_HANDLE_VALUE):
+            return
+        if not self.FindCloseChangeNotification(wintypes.HANDLE(handle)):
+            self.winerror("FindCloseChangeNotification")
 
     def open_directory(self, path: str, *, watch: bool = False) -> int:
         desired = (
@@ -381,7 +446,7 @@ class Native:
         handle = self.CreateFileW(
             path,
             GENERIC_READ | SYNCHRONIZE,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_SHARE_READ,
             None,
             OPEN_EXISTING,
             FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN,
@@ -460,6 +525,8 @@ class Native:
                 error,
             )
         handle = int(result.value)
+        if not directory:
+            self.suppress_automatic_file_times(handle)
         info = self.information(handle)
         if bool(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != directory:
             self.close(handle)
@@ -550,6 +617,7 @@ class Authority:
         self.directory_handles: list[int] = []
         self.writer_records: list[tuple[int, Path, tuple[int, int, int, int]]] = []
         self.file_handles: list[int] = []
+        self.change_notification_handle: int | None = None
         self.watcher_handle: int | None = None
         self.watcher_thread: threading.Thread | None = None
         self.stopping = threading.Event()
@@ -562,6 +630,14 @@ class Authority:
             if not self.violated.is_set():
                 self.violation_reason = reason
                 self.violated.set()
+
+    def _refresh_change_notification_violation(self) -> None:
+        if self.change_notification_handle is None:
+            return
+        if self.native.change_notification_signaled(self.change_notification_handle):
+            self._set_violation(
+                "snapshot subtree change notification signaled after broker freeze"
+            )
 
     def _watcher_main(self) -> None:
         try:
@@ -658,6 +734,9 @@ class Authority:
                 fail(f"special source entry is not admitted: {relative}")
 
     def _arm_watcher(self) -> None:
+        self.change_notification_handle = self.native.begin_change_notification(
+            str(self.destination)
+        )
         self.watcher_handle = self.native.open_directory(str(self.destination), watch=True)
         self.watcher_thread = threading.Thread(
             target=self._watcher_main,
@@ -677,6 +756,7 @@ class Authority:
                 self.native.close(guard)
                 fail(f"destination object changed during write-to-read guard transition: {path}")
             self.file_handles.append(guard)
+            self._refresh_change_notification_violation()
             if self.violated.is_set():
                 fail(
                     "snapshot changed during write-to-read guard transition: "
@@ -711,15 +791,18 @@ class Authority:
         self.directory_handles.append(root_handle)
         self._copy_directory(source, root_handle, "")
 
-        # Arm the kernel subtree watcher before any creator write handle is released.
-        # The transition to read-only guard handles is therefore fail-closed even if
-        # a same-user actor races the brief close/reopen interval.
+        # Arm a synchronous change-notification sentinel before starting the richer
+        # ReadDirectoryChangesW worker. Creator handles suppress their own delayed
+        # access/write-time finalization, so any post-arm signal remains fatal.
+        # Read guards then withhold write/delete sharing after each reopen.
         self._arm_watcher()
         self._transition_writers_to_read_guards()
+        self._refresh_change_notification_violation()
         if self.violated.is_set():
             fail("snapshot changed before broker readiness: " + self.violation_reason)
 
     def health_record(self) -> dict[str, object]:
+        self._refresh_change_notification_violation()
         return {
             "schema_version": 1,
             "policy": POLICY,
@@ -746,6 +829,12 @@ class Authority:
         if self.watcher_thread is not None:
             self.watcher_thread.join(timeout=5)
             self.watcher_thread = None
+        if self.change_notification_handle is not None:
+            try:
+                self.native.close_change_notification(self.change_notification_handle)
+            except OSError:
+                pass
+            self.change_notification_handle = None
 
         errors: list[str] = []
         for handle, _, _ in reversed(self.writer_records):
@@ -837,6 +926,21 @@ def self_test() -> None:
             copied = destination / "bin" / "trusted.txt"
             if copied.read_text(encoding="utf-8") != "trusted":
                 fail("self-test copied bytes mismatch")
+            if authority.violated.is_set():
+                fail(
+                    "self-test broker reported mutation before external probe: "
+                    + authority.violation_reason
+                )
+
+            write_succeeded = False
+            try:
+                with copied.open("r+b") as stream:
+                    stream.flush()
+                write_succeeded = True
+            except OSError:
+                pass
+            if write_succeeded:
+                fail("self-test retained destination read guard allowed write")
 
             delete_succeeded = False
             try:
@@ -851,6 +955,9 @@ def self_test() -> None:
             injected.write_text("x", encoding="utf-8")
             deadline = time.monotonic() + 5.0
             while not authority.violated.is_set() and time.monotonic() < deadline:
+                authority._refresh_change_notification_violation()
+                if authority.violated.is_set():
+                    break
                 time.sleep(0.01)
             if not authority.violated.is_set():
                 fail("self-test subtree watcher did not detect injection")
