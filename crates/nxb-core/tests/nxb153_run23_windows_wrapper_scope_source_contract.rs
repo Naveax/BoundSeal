@@ -3,9 +3,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const GIT_GUARD_PATH: &str = "scripts/nxb-153-windows-immutable-source-git-output-inner.ps1";
-const ENUMERATION_GUARD_PATH: &str =
-    "scripts/nxb-153-windows-immutable-source-enumeration-inner.ps1";
+const WRAPPER_PATHS: [&str; 6] = [
+    "scripts/nxb-153-windows-immutable-source.ps1",
+    "scripts/nxb-153-windows-immutable-source-git-output-inner.ps1",
+    "scripts/nxb-153-windows-immutable-source-enumeration-inner.ps1",
+    "scripts/prepare-and-validate-nxb-153-windows.ps1",
+    "scripts/validate-nxb-153-windows.ps1",
+    "scripts/review-nxb-153-evidence-windows.ps1",
+];
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -18,8 +23,8 @@ fn source(path: &str) -> String {
 }
 
 #[test]
-fn windows_h2_nested_wrappers_execute_in_child_scope() {
-    for path in [GIT_GUARD_PATH, ENUMERATION_GUARD_PATH] {
+fn windows_nested_wrappers_execute_in_child_scope() {
+    for path in WRAPPER_PATHS {
         let script = source(path);
         let child_call = "    & $innerPath @innerParameters";
         let dot_sourced_call = "    . $innerPath @innerParameters";

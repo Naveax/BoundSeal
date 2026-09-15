@@ -604,7 +604,7 @@ try {
         $global:LASTEXITCODE = 0
     }
 
-    . $innerPath @innerParameters
+    & $innerPath @innerParameters
 
     $finalHead = Get-NxbWindowsEntryGitControlValue `
         -GitPath $gitApplication `
