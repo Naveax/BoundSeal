@@ -29,6 +29,31 @@ jobs:
           python3 scripts/nxb-153-run23-windows-prep.py
           if ($LASTEXITCODE -ne 0) { throw "prep patch failed with exit $LASTEXITCODE" }
 
+      - name: Probe Windows ACL serialization
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $probe = Join-Path $env:RUNNER_TEMP ("nxb-acl-probe-" + [Guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $probe | Out-Null
+          try {
+            $who = (& "$env:SystemRoot\System32\whoami.exe" /user /fo csv /nh | Out-String).Trim()
+            $sid = (($who -split ',')[-1]).Trim().Trim('"')
+            Write-Host "CURRENT_SID=$sid"
+            & "$env:SystemRoot\System32\icacls.exe" $probe /grant:r "*$sid`:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" /q
+            if ($LASTEXITCODE -ne 0) { throw "ACL grant failed with exit $LASTEXITCODE" }
+            & "$env:SystemRoot\System32\icacls.exe" $probe /remove:g "*S-1-1-0" "*S-1-5-11" "*S-1-5-32-545" /q
+            if ($LASTEXITCODE -ne 0) { throw "ACL broad-principal removal failed with exit $LASTEXITCODE" }
+            & "$env:SystemRoot\System32\icacls.exe" $probe /inheritancelevel:r /q
+            if ($LASTEXITCODE -ne 0) { throw "ACL inheritance protection failed with exit $LASTEXITCODE" }
+            & "$env:SystemRoot\System32\icacls.exe" $probe
+            if ($LASTEXITCODE -ne 0) { throw "ACL display failed with exit $LASTEXITCODE" }
+            $acl = Get-Acl -LiteralPath $probe
+            Write-Host "ACL_SDDL=$($acl.Sddl)"
+          }
+          finally {
+            Remove-Item -LiteralPath $probe -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Verify formatting and focused regressions
         shell: pwsh
         run: |
@@ -39,7 +64,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "cargo fmt failed with exit $LASTEXITCODE" }
           rustup run 1.97.1 cargo fmt --all -- --check
           if ($LASTEXITCODE -ne 0) { throw "cargo fmt check failed with exit $LASTEXITCODE" }
-          rustup run 1.97.1 cargo test -p nxb-core --bin nxb --locked workspace_impl::tests::initializes_and_reads_canonical_workspace -- --exact --nocapture --test-threads=1
+          rustup run 1.97.1 cargo test -p nxb-core --bin nxb --locked hardens_acl_and_protects_inheritance -- --nocapture --test-threads=1
+          if ($LASTEXITCODE -ne 0) { throw "Windows ACL unit regression failed with exit $LASTEXITCODE" }
+          rustup run 1.97.1 cargo test -p nxb-core --bin nxb --locked initializes_and_reads_canonical_workspace -- --nocapture --test-threads=1
           if ($LASTEXITCODE -ne 0) { throw "Windows workspace init unit regression failed with exit $LASTEXITCODE" }
           rustup run 1.97.1 cargo test -p nxb-core --test product_diagnostics --locked -- --test-threads=1
           if ($LASTEXITCODE -ne 0) { throw "product diagnostics failed with exit $LASTEXITCODE" }
