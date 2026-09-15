@@ -143,8 +143,10 @@ function Test-NxbH2BrokerSnapshotPath {
     return ($leaf -cmatch $pattern)
 }
 
-$testSnapshotPathProxy = (Get-Command Test-NxbH2BrokerSnapshotPath -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
-Set-Item -Path Function:\Test-NxbH2BrokerSnapshotPath -Value $testSnapshotPathProxy -Force
+$failBrokerEntryProxy = (Get-Command Fail-NxbH2BrokerEntry -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
+$testSnapshotPathEvaluator = (Get-Command Test-NxbH2BrokerSnapshotPath -CommandType Function -ErrorAction Stop).ScriptBlock.GetNewClosure()
+$assertDestinationBrokerProxy = (Get-Command Assert-NxbH2DestinationBroker -CommandType Function -ErrorAction Stop).ScriptBlock
+$stopDestinationBrokerProxy = (Get-Command Stop-NxbH2DestinationBroker -CommandType Function -ErrorAction Stop).ScriptBlock
 
 try {
     $h2EntryStream = Open-NxbH2BrokerEntryPinnedFile -Path $h2EntryPath -Label 'Windows H2 entry inner runner'
@@ -162,14 +164,14 @@ try {
             if (
                 $ItemType -ceq 'Directory' -and
                 -not [string]::IsNullOrWhiteSpace($Path) -and
-                (Test-NxbH2BrokerSnapshotPath -Path $Path)
+                (& $testSnapshotPathEvaluator -Path $Path)
             ) {
                 $full = [IO.Path]::GetFullPath($Path)
                 if ($null -ne $brokerEntryState.DeferredSnapshotRoot) {
-                    Fail-NxbH2BrokerEntry 'H2 snapshot root creation was requested more than once'
+                    & $failBrokerEntryProxy -Message 'H2 snapshot root creation was requested more than once'
                 }
                 if (Microsoft.PowerShell.Management\Test-Path -LiteralPath $full) {
-                    Fail-NxbH2BrokerEntry 'deferred H2 snapshot root already exists'
+                    & $failBrokerEntryProxy -Message 'deferred H2 snapshot root already exists'
                 }
                 $brokerEntryState.DeferredSnapshotRoot = $full
                 return
@@ -208,7 +210,7 @@ try {
                     # staged its ACL before reaching the first required-rustc probe.
                     # Prove the creator broker observed no mutation, but deliberately
                     # keep it alive through the complete heavy-gate lifetime.
-                    Assert-NxbH2DestinationBroker -SnapshotRoot $brokerEntryState.DeferredSnapshotRoot
+                    & $assertDestinationBrokerProxy -SnapshotRoot $brokerEntryState.DeferredSnapshotRoot
                     $brokerEntryState.HandoffEstablished = $true
                 }
             }
@@ -253,9 +255,9 @@ try {
                     # boundary, then require one final healthy observation before the
                     # snapshot namespace is allowed to disappear.
                     if ($brokerEntryState.HandoffEstablished) {
-                        Assert-NxbH2DestinationBroker -SnapshotRoot $brokerEntryState.DeferredSnapshotRoot
+                        & $assertDestinationBrokerProxy -SnapshotRoot $brokerEntryState.DeferredSnapshotRoot
                     }
-                    Stop-NxbH2DestinationBroker -SnapshotRoot $brokerEntryState.DeferredSnapshotRoot -AllowMissing
+                    & $stopDestinationBrokerProxy -SnapshotRoot $brokerEntryState.DeferredSnapshotRoot -AllowMissing
                     $brokerEntryState.Stopped = $true
                 }
             }
