@@ -10,12 +10,19 @@ def replace_once(path: Path, old: str, new: str) -> None:
 
 
 activation = Path("crates/nxb-core/tests/target_activation_cli.rs")
+target_import = Path("crates/nxb-core/tests/target_import_cli.rs")
 linux_gate = Path("scripts/nxb-153-linux-immutable-source-inner.sh")
 
 replace_once(
     activation,
     '''    assert_eq!(\n        status\n            .pointer("/records/targets")\n            .and_then(Value::as_u64),\n        Some(1)\n    );''',
     '''    assert_eq!(\n        status.pointer("/records/targets").and_then(Value::as_u64),\n        Some(1)\n    );''',
+)
+
+replace_once(
+    target_import,
+    '''    assert_eq!(fs::read_dir(root.join("targets")).unwrap().count(), 1);\n    assert_eq!(fs::read_dir(root.join("config")).unwrap().count(), 0);''',
+    '''    let target_names = fs::read_dir(root.join("targets"))\n        .unwrap()\n        .map(|entry| entry.unwrap().file_name())\n        .collect::<Vec<_>>();\n    assert_eq!(\n        target_names\n            .iter()\n            .filter(|name| name.to_string_lossy() == "example-app.json")\n            .count(),\n        1\n    );\n    assert_eq!(fs::read_dir(root.join("config")).unwrap().count(), 0);''',
 )
 
 replace_once(
