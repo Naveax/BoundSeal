@@ -41,7 +41,10 @@ fn creator_handles_suppress_their_own_delayed_file_time_notifications() {
     }
 
     let create = required_offset(&text, "def create_relative(");
-    let suppress = required_offset(&text[create..], "self.suppress_automatic_file_times(handle)") + create;
+    let suppress = required_offset(
+        &text[create..],
+        "self.suppress_automatic_file_times(handle)",
+    ) + create;
     let returned = required_offset(&text[suppress..], "return handle") + suppress;
     assert!(
         create < suppress && suppress < returned,
@@ -86,10 +89,16 @@ fn synchronous_change_sentinel_closes_the_watcher_thread_startup_gap() {
     }
 
     let arm_start = required_offset(&text, "def _arm_watcher(self) -> None:");
-    let arm_end = required_offset(&text[arm_start..], "\n    def _transition_writers_to_read_guards") + arm_start;
+    let arm_end = required_offset(
+        &text[arm_start..],
+        "\n    def _transition_writers_to_read_guards",
+    ) + arm_start;
     let arm_body = &text[arm_start..arm_end];
     let sentinel = required_offset(arm_body, "self.native.begin_change_notification(");
-    let directory_watch = required_offset(arm_body, "self.native.open_directory(str(self.destination), watch=True)");
+    let directory_watch = required_offset(
+        arm_body,
+        "self.native.open_directory(str(self.destination), watch=True)",
+    );
     let thread_start = required_offset(arm_body, "self.watcher_thread.start()");
     assert!(
         sentinel < directory_watch && directory_watch < thread_start,
@@ -111,8 +120,12 @@ fn watcher_still_covers_the_close_reopen_transition_and_post_freeze_lifetime() {
         "{BROKER_PATH}: subtree watcher must be armed before creator handles are released"
     );
 
-    let transition_start = required_offset(&text, "def _transition_writers_to_read_guards(self) -> None:");
-    let transition_end = required_offset(&text[transition_start..], "\n    def copy_and_freeze(") + transition_start;
+    let transition_start = required_offset(
+        &text,
+        "def _transition_writers_to_read_guards(self) -> None:",
+    );
+    let transition_end =
+        required_offset(&text[transition_start..], "\n    def copy_and_freeze(") + transition_start;
     let body = &text[transition_start..transition_end];
     for marker in [
         "self.native.close(writer)",
