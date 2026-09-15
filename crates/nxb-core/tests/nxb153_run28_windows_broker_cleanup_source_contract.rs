@@ -29,7 +29,11 @@ fn section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
 #[test]
 fn broker_cleanup_attempts_every_retained_authority_before_failing() {
     let text = source();
-    let close = section(&text, "    def close(self) -> None:", "\n\ndef read_command()");
+    let close = section(
+        &text,
+        "    def close(self) -> None:",
+        "\n\ndef read_command()",
+    );
 
     for marker in [
         "errors: list[str] = []",
@@ -72,7 +76,11 @@ fn broker_cleanup_attempts_every_retained_authority_before_failing() {
 #[test]
 fn broker_cleanup_does_not_swallow_watcher_or_sentinel_close_failures() {
     let text = source();
-    let close = section(&text, "    def close(self) -> None:", "\n\ndef read_command()");
+    let close = section(
+        &text,
+        "    def close(self) -> None:",
+        "\n\ndef read_command()",
+    );
 
     for forbidden in [
         "except OSError:\n                pass",
