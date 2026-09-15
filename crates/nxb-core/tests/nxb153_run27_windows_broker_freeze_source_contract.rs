@@ -76,9 +76,10 @@ fn synchronous_change_sentinel_closes_the_watcher_thread_startup_gap() {
         "self.FindFirstChangeNotificationW = self.kernel32.FindFirstChangeNotificationW",
         "self.FindCloseChangeNotification = self.kernel32.FindCloseChangeNotification",
         "self.WaitForSingleObject = self.kernel32.WaitForSingleObject",
-        "def begin_change_notification(self, path: str) -> int:",
+        "def begin_change_notification(self, path: str, notify_filter: int) -> int:",
         "def change_notification_signaled(self, handle: int) -> bool:",
         "self.change_notification_handle = self.native.begin_change_notification(",
+        "str(self.destination), WATCH_FILTER",
         "self._refresh_change_notification_violation()",
         "snapshot subtree change notification signaled after broker freeze",
     ] {
@@ -102,36 +103,45 @@ fn synchronous_change_sentinel_closes_the_watcher_thread_startup_gap() {
     let thread_start = required_offset(arm_body, "self.watcher_thread.start()");
     assert!(
         sentinel < directory_watch && directory_watch < thread_start,
-        "{BROKER_PATH}: synchronous change sentinel must arm before the asynchronous ReadDirectoryChangesW watcher starts"
+        "{BROKER_PATH}: synchronous full-change sentinel must arm before the asynchronous ReadDirectoryChangesW watcher starts"
     );
 }
 
 #[test]
-fn watcher_still_covers_the_close_reopen_transition_and_post_freeze_lifetime() {
+fn writer_transition_uses_namespace_sentinel_and_exact_byte_guards_before_full_watch() {
     let text = source();
-    assert!(
-        text.contains("FILE_NOTIFY_CHANGE_LAST_WRITE"),
-        "{BROKER_PATH}: watcher must continue detecting content writes"
-    );
-    let arm = required_offset(&text, "self._arm_watcher()");
-    let transition = required_offset(&text, "self._transition_writers_to_read_guards()");
-    assert!(
-        arm < transition,
-        "{BROKER_PATH}: subtree watcher must be armed before creator handles are released"
-    );
+
+    for marker in [
+        "NAMESPACE_FILTER = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME",
+        "self.transition_notification_handle = self.native.begin_change_notification(",
+        "str(self.destination), NAMESPACE_FILTER",
+        "expected_sha256 = self.native.copy_file(",
+        "actual_sha256 = self.native.sha256_file(guard, expected_identity[2])",
+        "if actual_sha256 != expected_sha256:",
+        "self._verify_destination_namespace()",
+        "self._retire_transition_sentinel()",
+    ] {
+        assert!(
+            text.contains(marker),
+            "{BROKER_PATH}: settled writer-transition authority marker is missing: {marker}"
+        );
+    }
 
     let transition_start = required_offset(
         &text,
         "def _transition_writers_to_read_guards(self) -> None:",
     );
     let transition_end =
-        required_offset(&text[transition_start..], "\n    def copy_and_freeze(") + transition_start;
+        required_offset(&text[transition_start..], "\n    def _verify_destination_namespace")
+            + transition_start;
     let body = &text[transition_start..transition_end];
     for marker in [
         "self.native.close(writer)",
         "guard = self.native.open_guard_file(str(path))",
+        "self.file_handles.append(guard)",
         "if actual_identity != expected_identity:",
-        "self._refresh_change_notification_violation()",
+        "actual_sha256 = self.native.sha256_file(guard, expected_identity[2])",
+        "self._refresh_transition_notification_violation()",
         "if self.violated.is_set():",
     ] {
         assert!(
@@ -139,6 +149,21 @@ fn watcher_still_covers_the_close_reopen_transition_and_post_freeze_lifetime() {
             "{BROKER_PATH}: fail-closed writer-to-guard transition marker is missing: {marker}"
         );
     }
+
+    let copy = required_offset(&text, "def copy_and_freeze(self) -> None:");
+    let copy_body = &text[copy..];
+    let namespace_arm = required_offset(copy_body, "self._arm_transition_sentinel()");
+    let transition = required_offset(copy_body, "self._transition_writers_to_read_guards()");
+    let full_watch = required_offset(copy_body, "self._arm_watcher()");
+    let verify_namespace = required_offset(copy_body, "self._verify_destination_namespace()");
+    let retire_transition = required_offset(copy_body, "self._retire_transition_sentinel()");
+    assert!(
+        namespace_arm < transition
+            && transition < full_watch
+            && full_watch < verify_namespace
+            && verify_namespace < retire_transition,
+        "{BROKER_PATH}: namespace-only sentinel must cover writer close/reopen, then full watch must cover final namespace verification before transition sentinel retirement"
+    );
 }
 
 #[test]
