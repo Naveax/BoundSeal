@@ -93,7 +93,7 @@ fn historical_pathname_delete_helpers_are_not_mistaken_for_active_authority() {
     for marker in [
         "fn write_probe(workspace: &Path) -> Result<()>",
         "pub(crate) fn remove_regular(path: &Path) -> Result<()>",
-        "#[cfg(not(unix))]\nfn replace_file(source: &Path, destination: &Path) -> Result<()>",
+        "#[cfg(not(unix))]\n#[allow(dead_code)]\nfn replace_file(source: &Path, destination: &Path) -> Result<()>",
     ] {
         assert!(
             implementation.contains(marker),
