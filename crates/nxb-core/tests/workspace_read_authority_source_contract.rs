@@ -156,7 +156,10 @@ fn windows_read_authority_pins_reparse_and_share_lifetime() {
     let open_document = windows
         .split("pub(super) fn open_document_read_authority")
         .nth(1)
-        .and_then(|tail| tail.split("pub(super) fn set_private_directory_permissions").next())
+        .and_then(|tail| {
+            tail.split("pub(super) fn set_private_directory_permissions")
+                .next()
+        })
         .expect("Windows opened-document authority boundary is missing");
     assert!(
         !open_document.contains("FILE_SHARE_WRITE") && !open_document.contains("FILE_SHARE_DELETE"),

@@ -203,9 +203,7 @@ fn assert_profile_and_transport_residue(root: &Path) {
         "--json".into(),
     ]);
     assert_eq!(
-        status
-            .pointer("/records/targets")
-            .and_then(Value::as_u64),
+        status.pointer("/records/targets").and_then(Value::as_u64),
         Some(1)
     );
 }

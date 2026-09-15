@@ -518,7 +518,8 @@ EOF
 
             cargo_gate check --workspace --all-targets --all-features --locked
             cargo_gate clippy --workspace --all-targets --all-features --locked -- -D warnings
-            cargo_gate test --workspace --all-features --locked -- --test-threads=1
+            RUSTDOCFLAGS='-D warnings' cargo_gate doc --workspace --all-features --no-deps --locked
+            cargo_gate test --workspace --all-targets --all-features --locked -- --test-threads=1
 
             audit_path="/proc/self/fd/$repo_fd/$tools_relative/bin/cargo-audit"
             deny_path="/proc/self/fd/$repo_fd/$tools_relative/bin/cargo-deny"

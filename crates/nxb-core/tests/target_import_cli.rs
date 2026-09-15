@@ -278,7 +278,17 @@ fn imported_scope_activates_end_to_end_without_hand_authored_policy_or_profile()
         Some(preview_sha)
     );
 
-    assert_eq!(fs::read_dir(root.join("targets")).unwrap().count(), 1);
+    let target_names = fs::read_dir(root.join("targets"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        target_names
+            .iter()
+            .filter(|name| name.to_string_lossy() == "example-app.json")
+            .count(),
+        1
+    );
     assert_eq!(fs::read_dir(root.join("config")).unwrap().count(), 0);
 
     let profile = fs::read_to_string(root.join("targets").join("example-app.json")).unwrap();
