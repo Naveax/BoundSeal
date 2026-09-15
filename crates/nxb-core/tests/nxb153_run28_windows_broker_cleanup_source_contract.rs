@@ -34,9 +34,11 @@ fn broker_cleanup_attempts_every_retained_authority_before_failing() {
     for marker in [
         "errors: list[str] = []",
         "self.stopping.set()",
+        "watcher cancellation failed:",
         "watcher handle close failed:",
         "watcher thread did not stop within cleanup timeout",
         "change notification close failed:",
+        "transition notification close failed:",
         "writer handle close failed:",
         "file handle close failed:",
         "directory handle close failed:",
@@ -56,7 +58,7 @@ fn broker_cleanup_attempts_every_retained_authority_before_failing() {
         .find("if self.watcher_handle is not None:")
         .expect("watcher cleanup must exist");
     let writers = close
-        .find("for handle, _, _ in reversed(self.writer_records):")
+        .find("for handle, _, _, _ in reversed(self.writer_records):")
         .expect("writer cleanup must exist");
     let final_arbitration = close
         .rfind("if errors:")
@@ -82,12 +84,38 @@ fn broker_cleanup_does_not_swallow_watcher_or_sentinel_close_failures() {
         );
     }
 
-    assert!(
-        close.contains("self.watcher_thread.join(timeout=5)"),
-        "{BROKER_PATH}: bounded watcher-thread join is missing"
+    for marker in [
+        "self.native.cancel_io(self.watcher_handle)",
+        "self.watcher_thread.join(timeout=5)",
+        "if self.watcher_thread.is_alive():",
+        "self.native.close_change_notification(self.change_notification_handle)",
+        "self.native.close_change_notification(self.transition_notification_handle)",
+    ] {
+        assert!(
+            close.contains(marker),
+            "{BROKER_PATH}: fail-closed watcher cleanup marker is missing: {marker}"
+        );
+    }
+}
+
+#[test]
+fn cancel_io_only_tolerates_the_documented_no_pending_request_case() {
+    let text = source();
+    let cancel = section(
+        &text,
+        "    def cancel_io(self, handle: int) -> None:",
+        "\n    def information(",
     );
-    assert!(
-        close.contains("if self.watcher_thread.is_alive():"),
-        "{BROKER_PATH}: bounded watcher-thread join must fail closed if the worker remains alive"
-    );
+
+    for marker in [
+        "if self.CancelIoEx(wintypes.HANDLE(handle), None):",
+        "error = ctypes.get_last_error()",
+        "if error != ERROR_NOT_FOUND:",
+        "raise OSError(error, \"CancelIoEx failed\", None, error)",
+    ] {
+        assert!(
+            cancel.contains(marker),
+            "{BROKER_PATH}: CancelIoEx cleanup contract marker is missing: {marker}"
+        );
+    }
 }
