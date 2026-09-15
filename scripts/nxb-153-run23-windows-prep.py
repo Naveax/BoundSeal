@@ -15,6 +15,7 @@ enumeration_guard = Path("scripts/nxb-153-windows-immutable-source-enumeration-i
 publication = Path("crates/nxb-core/src/workspace_authority_publication.rs")
 workspace = Path("crates/nxb-core/src/workspace/mod.rs")
 prepared = Path("crates/nxb-core/src/prepared_file_authority.rs")
+windows_acl = Path("crates/nxb-core/src/workspace/windows.rs")
 
 replace_once(
     windows_gate,
@@ -59,6 +60,22 @@ replace_once(
     "    path: PathBuf,\n    // The Windows handle is intentionally retained for its sharing lifetime.\n    #[cfg_attr(windows, allow(dead_code))]\n    file: fs::File,",
 )
 
+replace_once(
+    windows_acl,
+    "    if !sddl_has_full_control(&sddl, current_sid)\n        || !(sddl_has_full_control(&sddl, WINDOWS_SYSTEM_SID) || sddl_has_full_control(&sddl, \"SY\"))",
+    "    if !sddl_has_current_user_full_control(&sddl, current_sid)\n        || !(sddl_has_full_control(&sddl, WINDOWS_SYSTEM_SID) || sddl_has_full_control(&sddl, \"SY\"))",
+)
+replace_once(
+    windows_acl,
+    '''fn sddl_has_full_control(sddl: &str, principal: &str) -> bool {\n    sddl_aces(sddl)\n        .any(|ace| ace.ace_type == "A" && ace.rights.contains("FA") && ace.principal == principal)\n}\n\nfn sddl_has_allow_ace''',
+    '''fn sddl_has_full_control(sddl: &str, principal: &str) -> bool {\n    sddl_aces(sddl)\n        .any(|ace| ace.ace_type == "A" && ace.rights.contains("FA") && ace.principal == principal)\n}\n\nfn sddl_has_current_user_full_control(sddl: &str, current_sid: &str) -> bool {\n    if sddl_has_full_control(sddl, current_sid) {\n        return true;\n    }\n\n    // Windows canonicalizes the built-in local Administrator account (RID 500)\n    // to the SDDL well-known alias LA even when icacls was given its numeric SID.\n    // Accept that alias only for an exact RID-500 current-user SID; do not broaden\n    // ordinary local/domain user identities to the Administrator alias.\n    current_sid\n        .rsplit_once('-')\n        .is_some_and(|(_, rid)| rid == "500")\n        && sddl_has_full_control(sddl, "LA")\n}\n\nfn sddl_has_allow_ace''',
+)
+replace_once(
+    windows_acl,
+    '''    #[test]\n    fn validates_windows_sid_shape() {''',
+    '''    #[test]\n    fn local_administrator_alias_is_accepted_only_for_exact_rid_500_user() {\n        let sddl = "D:P(A;OICI;FA;;;LA)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)";\n        assert!(sddl_has_current_user_full_control(\n            sddl,\n            "S-1-5-21-100-200-300-500"\n        ));\n        assert!(!sddl_has_current_user_full_control(\n            sddl,\n            "S-1-5-21-100-200-300-1001"\n        ));\n\n        let exact = "D:P(A;OICI;FA;;;S-1-5-21-100-200-300-1001)";\n        assert!(sddl_has_current_user_full_control(\n            exact,\n            "S-1-5-21-100-200-300-1001"\n        ));\n    }\n\n    #[test]\n    fn validates_windows_sid_shape() {''',
+)
+
 contract = Path("crates/nxb-core/tests/nxb153_run23_windows_admission_gate_coverage_source_contract.rs")
 contract.write_text(
     r'''use std::{
@@ -72,6 +89,7 @@ const ENUMERATION_GUARD: &str = "scripts/nxb-153-windows-immutable-source-enumer
 const PUBLICATION: &str = "crates/nxb-core/src/workspace_authority_publication.rs";
 const WORKSPACE: &str = "crates/nxb-core/src/workspace/mod.rs";
 const PREPARED: &str = "crates/nxb-core/src/prepared_file_authority.rs";
+const WINDOWS_ACL: &str = "crates/nxb-core/src/workspace/windows.rs";
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -139,6 +157,25 @@ fn windows_workspace_composition_avoids_duplicate_and_unix_only_warning_paths() 
         "#[cfg_attr(windows, allow(dead_code))]\n    file: fs::File,"
     ));
     assert!(!prepared.contains("#![allow(dead_code)]"));
+}
+
+#[test]
+fn windows_acl_accepts_only_the_exact_builtin_administrator_alias_mapping() {
+    let acl = source(WINDOWS_ACL);
+    for marker in [
+        "fn sddl_has_current_user_full_control(sddl: &str, current_sid: &str) -> bool",
+        "if sddl_has_full_control(sddl, current_sid)",
+        ".rsplit_once('-')",
+        ".is_some_and(|(_, rid)| rid == \"500\")",
+        "sddl_has_full_control(sddl, \"LA\")",
+        "!sddl_has_current_user_full_control(&sddl, current_sid)",
+    ] {
+        assert!(
+            acl.contains(marker),
+            "{WINDOWS_ACL}: missing exact current-user ACL authority marker: {marker}"
+        );
+    }
+    assert!(!acl.contains("|| sddl_has_full_control(sddl, \"LA\")"));
 }
 ''',
     encoding="utf-8",
