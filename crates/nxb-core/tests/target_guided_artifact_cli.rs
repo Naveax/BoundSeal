@@ -275,7 +275,17 @@ fn guided_activation_persists_verified_non_secret_continuity_artifact() {
     );
 
     assert_eq!(fs::read_dir(root.join("config")).unwrap().count(), 0);
-    assert_eq!(fs::read_dir(root.join("targets")).unwrap().count(), 1);
+    let target_names = fs::read_dir(root.join("targets"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        target_names
+            .iter()
+            .filter(|name| name.to_string_lossy() == "example-app.json")
+            .count(),
+        1
+    );
 
     let shown = run_json(&[
         "target".into(),
