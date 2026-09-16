@@ -196,7 +196,10 @@ fn scope_import_accepts_exact_64_kib_and_rejects_one_byte_oversize() {
 
     write_scope(&scope, SCOPE_LIMIT);
     let preview = run_json(&setup_import_arguments(&root, &authorization, &scope));
-    assert_eq!(preview.get("status").and_then(Value::as_str), Some("preview"));
+    assert_eq!(
+        preview.get("status").and_then(Value::as_str),
+        Some("preview")
+    );
 
     write_scope(&scope, SCOPE_LIMIT + 1);
     let output = run(&setup_import_arguments(&root, &authorization, &scope));
@@ -217,7 +220,10 @@ fn policy_and_authorization_accept_exact_product_limits() {
     write_authorization(&authorization, AUTHORIZATION_LIMIT);
 
     let created = run_json(&create_arguments(&root, &policy, &authorization));
-    assert_eq!(created.get("status").and_then(Value::as_str), Some("active"));
+    assert_eq!(
+        created.get("status").and_then(Value::as_str),
+        Some("active")
+    );
 
     fs::remove_dir_all(root).unwrap();
 }
