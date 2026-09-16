@@ -192,6 +192,7 @@ fn run_combined_workspace_view(
     };
 
     let migration_result = workspace::migration::status_value(workspace_path);
+    let mut migration_error = None;
     let (migration_value, migration_stable) = match migration_result {
         Ok(value) => {
             let stable = value
@@ -200,8 +201,8 @@ fn run_combined_workspace_view(
                 .is_some_and(|status| status == "stable");
             (value, stable)
         }
-        Err(error) if matches!(kind, ViewKind::Doctor) => (
-            json!({
+        Err(error) => {
+            let unavailable = json!({
                 "status": "unavailable",
                 "schema_version": null,
                 "migration_id": null,
@@ -209,10 +210,12 @@ fn run_combined_workspace_view(
                 "details": {
                     "error": error.to_string()
                 }
-            }),
-            false,
-        ),
-        Err(error) => return Err(error),
+            });
+            if matches!(kind, ViewKind::Status) {
+                migration_error = Some(error);
+            }
+            (unavailable, false)
+        }
     };
 
     let object = product_value
@@ -234,6 +237,9 @@ fn run_combined_workspace_view(
     };
 
     emit_value(&product_value, json_output)?;
+    if let Some(error) = migration_error {
+        return Err(error);
+    }
     if !product_healthy {
         bail!("workspace doctor found one or more failing checks");
     }
