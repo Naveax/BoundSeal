@@ -193,13 +193,27 @@ fn hosted_windows_json_timestamps_remain_strings_for_canonical_validation() {
 }
 
 #[test]
-fn hosted_windows_exact_blob_checkout_pins_powershell_and_python_to_lf() {
+fn hosted_windows_exact_blob_checkout_and_archive_pin_eol_policy() {
     let attributes = read_source(ATTRIBUTES_PATH);
+    let raw_archive = attributes
+        .lines()
+        .position(|line| line == "* -text")
+        .expect(".gitattributes must disable ambient text conversion before exact-head archiving");
 
-    for marker in ["/scripts/*.ps1 text eol=lf", "/scripts/*.py text eol=lf"] {
+    for marker in [
+        "/Cargo.lock text eol=lf",
+        "/scripts/*.ps1 text eol=lf",
+        "/scripts/*.py text eol=lf",
+    ] {
+        let explicit_lf = attributes
+            .lines()
+            .position(|line| line == marker)
+            .unwrap_or_else(|| {
+                panic!("{ATTRIBUTES_PATH}: missing exact-blob checkout authority marker: {marker}")
+            });
         assert!(
-            attributes.lines().any(|line| line == marker),
-            "{ATTRIBUTES_PATH}: missing exact-blob checkout authority marker: {marker}"
+            raw_archive < explicit_lf,
+            "{ATTRIBUTES_PATH}: raw archive byte policy must precede explicit LF overrides: {marker}"
         );
     }
 }
