@@ -53,6 +53,7 @@ fn launcher_pins_and_executes_only_the_verified_immutable_core_bytes() {
 
     for forbidden in [
         "importlib.util.spec_from_file_location",
+        "importlib.util.module_from_spec",
         "spec.loader.exec_module(module)",
     ] {
         assert!(
