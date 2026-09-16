@@ -45,8 +45,8 @@ fn registry_reads_compare_path_and_handle_metadata_with_matching_apis() {
     }
 
     for forbidden in [
-        "before = path.lstat()",
-        "after = os.fstat(handle.fileno())",
+        "\n        before = path.lstat()",
+        "\n            after = os.fstat(handle.fileno())",
         "len(value) != before.st_size",
         "total != before.st_size",
     ] {
