@@ -1,4 +1,5 @@
 use std::{
+    io::{self, Write},
     path::{Path, PathBuf},
     process::ExitCode,
 };
@@ -311,9 +312,12 @@ fn integrate_doctor_migration(
 fn emit_value(value: &Value, json_output: bool) -> Result<()> {
     if json_output {
         println!("{}", serde_json::to_string_pretty(value)?);
-        return Ok(());
+    } else {
+        emit_human_value(None, value, 0)?;
     }
-    emit_human_value(None, value, 0)
+    io::stdout()
+        .flush()
+        .context("could not flush workspace output")
 }
 
 fn emit_human_value(key: Option<&str>, value: &Value, depth: usize) -> Result<()> {
