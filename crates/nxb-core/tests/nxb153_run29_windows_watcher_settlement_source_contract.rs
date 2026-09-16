@@ -34,19 +34,30 @@ fn required_offset(source: &str, marker: &str, path: &str) -> usize {
 }
 
 #[test]
-fn launcher_pins_and_verifies_the_immutable_core_blob_before_import() {
+fn launcher_pins_and_executes_only_the_verified_immutable_core_bytes() {
     let text = source(LAUNCHER_PATH);
     for marker in [
         "CORE_NAME = \"nxb-153-windows-h2-destination-broker-core.py\"",
         "CORE_GIT_BLOB_SHA1 = \"2cd3f9bd6ee36892a0adeb9cb40d940c8e3a73f6\"",
         "git_object = f\"blob {len(raw)}\\0\".encode(\"ascii\") + raw",
         "digest != CORE_GIT_BLOB_SHA1",
-        "importlib.util.spec_from_file_location",
-        "spec.loader.exec_module(module)",
+        "module = types.ModuleType(\"nxb153_h2_destination_broker_core\")",
+        "code = compile(raw, str(core_path), \"exec\")",
+        "exec(code, module.__dict__)",
     ] {
         assert!(
             text.contains(marker),
             "{LAUNCHER_PATH}: immutable core authority marker is missing: {marker}"
+        );
+    }
+
+    for forbidden in [
+        "importlib.util.spec_from_file_location",
+        "spec.loader.exec_module(module)",
+    ] {
+        assert!(
+            !text.contains(forbidden),
+            "{LAUNCHER_PATH}: verified core bytes must not be discarded before a pathname-based reload: {forbidden}"
         );
     }
 }
