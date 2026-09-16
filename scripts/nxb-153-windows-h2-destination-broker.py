@@ -6,9 +6,8 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes
 import hashlib
-import importlib.util
 from pathlib import Path
-import sys
+import types
 
 CORE_NAME = "nxb-153-windows-h2-destination-broker-core.py"
 CORE_GIT_BLOB_SHA1 = "2cd3f9bd6ee36892a0adeb9cb40d940c8e3a73f6"
@@ -34,15 +33,32 @@ def load_verified_core():
             f"expected={CORE_GIT_BLOB_SHA1} actual={digest}"
         )
 
-    spec = importlib.util.spec_from_file_location("nxb153_h2_destination_broker_core", core_path)
-    if spec is None or spec.loader is None:
-        fail("NXB-153 Windows H2 broker core import spec could not be created")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = types.ModuleType("nxb153_h2_destination_broker_core")
+    module.__file__ = str(core_path)
+    code = compile(raw, str(core_path), "exec")
+    exec(code, module.__dict__)
     return module
 
 
 core = load_verified_core()
+
+
+def read_command() -> str | None:
+    raw = core.sys.stdin.buffer.readline(core.MAX_COMMAND_BYTES + 1)
+    if not raw:
+        return None
+    if len(raw) > core.MAX_COMMAND_BYTES or not raw.endswith(b"\n"):
+        core.fail("broker command exceeds the supported envelope")
+    payload = raw[:-1]
+    if payload.endswith(b"\r"):
+        payload = payload[:-1]
+    try:
+        return payload.decode("ascii", errors="strict")
+    except UnicodeDecodeError:
+        core.fail("broker command is not strict ASCII")
+
+
+core.read_command = read_command
 
 
 def change_notification_signaled(self, handle: int, timeout_ms: int = 0) -> bool:

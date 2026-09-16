@@ -6,6 +6,8 @@ This document records the current **source-staged, not admitted** Windows H2 Rus
 
 It does not claim a supported Windows/NTFS/PowerShell runtime PASS. The exact final NXB-153 head still requires real Windows execution, adversarial mutation tests and same-head Linux + Windows evidence closure before any blocker or PR admission.
 
+Run #30 on historical head `c16f370028ffd05d5e84f090f80d1af13d546de3` reached real Windows H2 broker startup after the native/self-test chains passed. It then exposed a control-framing defect: PowerShell wrote `CHECK` with CRLF, while the historical broker stripped only LF and parsed `CHECK\r`. The current source-staged launcher accepts LF or CRLF while preserving the same bounded strict-ASCII command envelope. Run #30 is evidence for the historical failure only, not a PASS for the current source-staged fix.
+
 The purpose of this authority layer is precise: remove the gap in which a copied H2 Rust snapshot existed only by pathname after the copier had closed its creator handles but before the PowerShell validation layer had acquired its own file/directory/ACL authority, without misclassifying NTFS creator-handle close-time metadata settlement as hostile mutation.
 
 ## Threat boundary
@@ -18,6 +20,7 @@ The supported threat model includes a concurrent process running as the same ord
 - inject a transient file or directory after the initial copy and remove it before final tree verification;
 - alter the source-tree DACL after the PowerShell deny rule is staged and use the resulting interval for transient namespace mutation;
 - race the snapshot-root pathname while validation is preparing the copied Rust toolchain;
+- replace the broker-core pathname between identity verification and execution;
 - force the broker-control transport to retain an oversized or unterminated response before the parent can apply its protocol limit.
 
 As elsewhere in NXB-153, this contract does not attempt to survive kernel compromise, a malicious administrator with privileges outside the ordinary validation identity, hostile filesystem drivers or simultaneous replacement of trusted operating-system primitives.
@@ -30,7 +33,7 @@ Destination broker launcher:
 
 Current source-staged launcher Git blob:
 
-`d0b6c7c1076c47f01aeba8961c4832866537ff80`
+`5ca7186d812ce507e146d2c7f8170f55db04ad83`
 
 Immutable broker core:
 
@@ -40,7 +43,7 @@ Pinned core Git blob:
 
 `2cd3f9bd6ee36892a0adeb9cb40d940c8e3a73f6`
 
-The launcher reads the core bytes before import, computes the exact Git blob object identity (`blob <length>\0<bytes>`) and requires the SHA-1 above before executing the core. The run-29 settlement patch is therefore a small source-visible layer over the exact run-28 broker implementation rather than an unreviewed wholesale broker rewrite.
+The launcher reads the core pathname exactly once into a retained byte buffer, computes the exact Git blob object identity (`blob <length>\0<bytes>`) and requires the SHA-1 above. The same verified `raw` buffer is then compiled and executed directly. It is not discarded in favor of a second pathname-based module load, so the identity check and code execution share one byte authority. The run-29 settlement patch remains a small source-visible layer over the exact run-28 broker implementation rather than an unreviewed wholesale broker rewrite.
 
 Policy:
 
@@ -54,7 +57,7 @@ Windows bounded H2 outer entrypoint:
 
 `scripts/nxb-153-windows-immutable-source-bounded-inner.ps1`
 
-The outer entrypoint pins the scripts namespace and exact-Git-object verifies the broker wrapper before use and again before success. The broker launcher independently pins the exact core Git object before import.
+The outer entrypoint pins the scripts namespace and exact-Git-object verifies the broker wrapper before use and again before success. The broker launcher independently pins the exact core Git object and executes only the verified retained byte buffer.
 
 ## Snapshot-root creation
 
@@ -171,7 +174,9 @@ The broker is long-lived. After readiness it continues holding:
 
 The transition-only namespace sentinel is retired before readiness only after a clean full-watch generation, recursive watcher startup and exact-state overlap verification succeed.
 
-A bounded stdin/stdout protocol exposes only `CHECK` and `STOP`. Commands are ASCII and bounded. Broker responses are strict single-line JSON followed by LF; the Python emitter rejects embedded CR/LF and flushes every record.
+A bounded stdin/stdout protocol exposes only `CHECK` and `STOP`. Commands are strict ASCII and are read with the existing `MAX_COMMAND_BYTES + 1` bounded `readline` envelope. LF is required. After the required LF is removed, one optional CR is removed before strict ASCII decode, admitting the PowerShell-native CRLF spelling without admitting an unbounded or differently framed command. Broker responses are strict single-line JSON followed by LF; the Python emitter rejects embedded CR/LF and flushes every record.
+
+Run #30 proved why both command terminators must be part of the supported Windows transport contract: the real parent wrote CRLF and the historical LF-only parser rejected `CHECK\r` as an unsupported command. The current fix is source-staged and still requires exact-head Windows execution.
 
 `Read-NxbH2BrokerLine` reads `StandardOutput.BaseStream` incrementally, retains at most **65,537 raw bytes** so a 64 KiB payload may optionally carry one CR before LF, requires LF termination, strips only that optional terminator CR, and rejects payload length above **65,536 bytes** before strict UTF-8 decode. It then requires the exact policy name, exact snapshot root and bounded file/directory/byte summary.
 
@@ -255,6 +260,8 @@ The broker has a Windows-only self-test that stages the expected native behavior
 
 The bounded Windows H2 entrypoint executes this self-test before real broker use.
 
+The run-30 source contract binds the broker command reader to required LF framing, one optional CR terminator, the unchanged command-byte envelope and strict ASCII decode, and requires that the patched reader be installed before `core.main()` enters broker mode.
+
 The separate exact-head Windows process-lifecycle probe also AST-extracts the production `Read-NxbH2BrokerLine` implementation and executes that exact function against synthetic child output. The staged dynamic controls require:
 
 - strict-UTF-8 JSON terminated by CRLF to round-trip without the terminator;
@@ -291,7 +298,7 @@ Destination lifetime authority is **source-staged**, but #98 and the H2 admissio
 - exact guard-record and destination-namespace verification during transition/full-watch overlap;
 - watcher overflow/failure fail-closed behavior;
 - cancellation, bounded watcher-thread shutdown and broker cleanup arbitration;
-- real broker-control 64 KiB framing boundary, newline/CRLF handling, malformed UTF-8, protocol EOF and stalled-output cleanup;
+- real broker-control 64 KiB framing boundary, LF/CRLF command handling, newline/CRLF response handling, malformed UTF-8, protocol EOF and stalled-output cleanup;
 - PowerShell `New-Item`, `Test-Path`, `Remove-Item` interception/delegation semantics;
 - successful overlap with existing H2 file/directory/ACL authority;
 - ordinary relocated rustc/cargo/rustfmt/Clippy/DLL/sysroot loading while broker guards are held;
@@ -299,7 +306,7 @@ Destination lifetime authority is **source-staged**, but #98 and the H2 admissio
 - final broker health/STOP before snapshot deletion;
 - cleanup/recovery on failures at each handoff phase.
 
-No Windows runtime PASS is claimed until those tests execute.
+No Windows runtime PASS is claimed until those tests execute on the exact source head containing the current loader and control-framing fixes.
 
 ## Admission boundary
 
