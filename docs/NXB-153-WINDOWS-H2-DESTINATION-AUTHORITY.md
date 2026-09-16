@@ -6,7 +6,7 @@ This document records the current **source-staged, not admitted** Windows H2 Rus
 
 It does not claim a supported Windows/NTFS/PowerShell runtime PASS. The exact final NXB-153 head still requires real Windows execution, adversarial mutation tests and same-head Linux + Windows evidence closure before any blocker or PR admission.
 
-The purpose of this authority layer is precise: remove the gap in which a copied H2 Rust snapshot existed only by pathname after the copier had closed its creator handles but before the PowerShell validation layer had acquired its own file/directory/ACL authority.
+The purpose of this authority layer is precise: remove the gap in which a copied H2 Rust snapshot existed only by pathname after the copier had closed its creator handles but before the PowerShell validation layer had acquired its own file/directory/ACL authority, without misclassifying NTFS creator-handle close-time metadata settlement as hostile mutation.
 
 ## Threat boundary
 
@@ -24,13 +24,23 @@ As elsewhere in NXB-153, this contract does not attempt to survive kernel compro
 
 ## Canonical implementation
 
-Destination broker:
+Destination broker launcher:
 
 `scripts/nxb-153-windows-h2-destination-broker.py`
 
-Current source-staged broker Git blob:
+Current source-staged launcher Git blob:
 
-`c8520395f24d3fe3f29149b152892fac6cd7872c`
+`d0b6c7c1076c47f01aeba8961c4832866537ff80`
+
+Immutable broker core:
+
+`scripts/nxb-153-windows-h2-destination-broker-core.py`
+
+Pinned core Git blob:
+
+`2cd3f9bd6ee36892a0adeb9cb40d940c8e3a73f6`
+
+The launcher reads the core bytes before import, computes the exact Git blob object identity (`blob <length>\0<bytes>`) and requires the SHA-1 above before executing the core. The run-29 settlement patch is therefore a small source-visible layer over the exact run-28 broker implementation rather than an unreviewed wholesale broker rewrite.
 
 Policy:
 
@@ -40,31 +50,21 @@ PowerShell lifetime/handoff wrapper:
 
 `scripts/nxb-153-windows-immutable-source-h2-broker-entry.ps1`
 
-Current source-staged wrapper Git blob:
-
-`1afaeb0656201fae952a7d877cbc01d5ce7d1fee`
-
 Windows bounded H2 outer entrypoint:
 
 `scripts/nxb-153-windows-immutable-source-bounded-inner.ps1`
 
-Current source-staged bounded entrypoint Git blob:
-
-`357f074092436140fb5b7ee4960386bed915efb7`
-
-The outer entrypoint pins the scripts namespace and exact-Git-object verifies both the broker wrapper and broker implementation before use and again before success.
+The outer entrypoint pins the scripts namespace and exact-Git-object verifies the broker wrapper before use and again before success. The broker launcher independently pins the exact core Git object before import.
 
 ## Snapshot-root creation
 
-The existing H2 inner source historically created the snapshot root with ordinary `New-Item` and the synchronous Python copy helper later filled it.
-
-The broker-entry wrapper now intercepts only the exact H2 snapshot-root creation shape:
+The broker-entry wrapper intercepts only the exact H2 snapshot-root creation shape:
 
 `.nxb-153-rust-h2-windows-<exact-head>-<pid>-<32-hex-guid>`
 
 The path must be an immediate child of the canonical validation directory. The wrapper verifies the path is absent and deliberately defers filesystem creation.
 
-Every unrelated `New-Item` call is delegated to module-qualified `Microsoft.PowerShell.Management\New-Item`; the nested immutable-source runtime-directory calls therefore retain their original behavior.
+Every unrelated `New-Item` call is delegated to module-qualified `Microsoft.PowerShell.Management\New-Item`; nested immutable-source runtime-directory calls therefore retain their original behavior.
 
 When the existing H2 top-level `Copy-Item` capture loop reaches its first source entry, the bounded outer entrypoint starts the destination broker. The broker, rather than PowerShell, claims the deferred snapshot root.
 
@@ -74,7 +74,9 @@ The broker opens the validation directory and creates the snapshot root and ever
 
 Child directories and files are created with `NtCreateFile` relative to the already-open parent directory handle using create-new semantics. The broker rejects reparse-point results and retains the returned destination handle instead of closing it after pathname publication.
 
-Directory handles are retained without delete sharing. File creator handles are created with read/write access but only `FILE_SHARE_READ`, withholding concurrent destination write/delete sharing while the file is populated.
+Directory handles are retained without delete sharing. File creator handles are created with read/write access but only `FILE_SHARE_READ`, withholding concurrent destination write/delete sharing while each file is populated. Creator file handles call `SetFileTime` with the preserve/suppress sentinel before they escape `create_relative`, preventing ordinary creator-close access/write-time finalization from becoming an avoidable full-watch false positive.
+
+The copy path computes the expected SHA-256 while streaming each bounded source file into its retained destination writer and flushes the destination before the file enters transition authority.
 
 The copy budget remains fail-closed at:
 
@@ -85,11 +87,53 @@ The copy budget remains fail-closed at:
 
 Windows path components continue to use the conservative ASCII/case-insensitive/reserved-device-name model used by the existing H2 source authority.
 
-## Creator-write to read-guard transition
+## Settled writer-to-read-guard transition
 
-After all source bytes are copied and flushed, the broker does **not** simply close the creator handles and return.
+Windows sharing modes cannot be strengthened or relaxed on one already-open file handle. A writer therefore must close before a final read-only guard that withholds write/delete sharing can open. NTFS may settle size/last-write metadata around creator-handle close, so arming the full size/last-write watcher before that close can report the broker's own settlement as hostile mutation.
 
-Before the first creator write handle is released, it opens a separate snapshot-root directory watcher and arms recursive `ReadDirectoryChangesW` notification for:
+The current source separates **transition authority** from **post-freeze mutation authority**.
+
+Before the first creator writer is released, the broker arms a synchronous recursive `FindFirstChangeNotificationW` transition sentinel with only:
+
+- `FILE_NOTIFY_CHANGE_FILE_NAME`;
+- `FILE_NOTIFY_CHANGE_DIR_NAME`.
+
+This namespace-only sentinel makes file/directory replacement, rename, delete and injection during the close/reopen interval fatal while deliberately excluding size/last-write metadata that may be generated by the broker's own NTFS settlement.
+
+Each destination writer is then transitioned to a retained read guard:
+
+1. retain the creator-held expected object identity, attributes and SHA-256;
+2. close the creator writer;
+3. immediately reopen the same pathname read-only with only `FILE_SHARE_READ`;
+4. retain the read guard before validation proceeds;
+5. compare volume serial, file index, file size and last-write identity with the creator record;
+6. require the exact retained file attributes;
+7. hash the complete reopened file through the guard and require the exact expected SHA-256 and expected size;
+8. poll the namespace-only transition sentinel and fail closed on any namespace signal.
+
+The writer handle itself prevents a later external write open before it closes. The reopened read guard prevents write/delete sharing after it opens. Exact object identity, exact attributes and exact byte hashing cover the unavoidable close/reopen interval, while the namespace-only sentinel covers namespace races in that interval.
+
+## Bounded full-watch settlement and namespace overlap
+
+Only after every creator writer has become a validated retained read guard does the broker establish the full post-freeze observation layer. The namespace-only transition sentinel remains active throughout this handoff.
+
+The run-29 authority does not treat the first full change signal after writer close as automatically hostile. Hosted Windows proved that an already-completed NTFS creator-close notification can be delivered after the read guards are valid. Instead, the launcher requires a bounded clean full-watch generation while independently proving exact state.
+
+For at most **8 generations**, each generation:
+
+1. requires that no previous full-change sentinel is retained;
+2. arms a new recursive `FindFirstChangeNotificationW` sentinel with the complete watch filter;
+3. reopens every guarded file read-only and requires exact object identity, attributes, size and SHA-256;
+4. recursively verifies the exact destination namespace;
+5. polls the still-live namespace-only transition sentinel and fails on any namespace mutation;
+6. waits at most **250 ms** on the new full-change sentinel;
+7. repeats exact guard-record verification, exact namespace verification and transition-sentinel polling after the wait;
+8. accepts the generation only if the timed wait did not signal and an immediate zero-time recheck is also clean;
+9. otherwise closes that full-change sentinel, clears it and begins the next bounded generation.
+
+If no clean generation is reached within the bound, readiness fails closed.
+
+A clean generation's `FindFirstChangeNotificationW` handle is retained. The broker then opens the snapshot directory and starts the recursive `ReadDirectoryChangesW` worker for:
 
 - file-name changes;
 - directory-name changes;
@@ -97,36 +141,41 @@ Before the first creator write handle is released, it opens a separate snapshot-
 - size changes;
 - last-write changes.
 
-Security-descriptor changes are deliberately excluded because the trusted H2 parent applies and later restores its own ACL during validation. The watcher is intended to detect source/object/namespace mutation, not reject the validation harness's expected ACL lifecycle.
+Security-descriptor changes remain deliberately excluded because the trusted H2 parent applies and later restores its own ACL during validation.
 
-Each destination writer is then transitioned to a read guard:
+After the worker starts, the broker again verifies every guard record and the exact namespace, then polls both the transition sentinel and the retained full-change sentinel. Only after that overlap verifies clean does the core retire the namespace-only transition sentinel. It immediately rechecks the full watcher before readiness can be emitted.
 
-1. record the creator-held file identity;
-2. close the creator write handle;
-3. immediately reopen the pathname read-only while withholding delete sharing;
-4. compare volume serial, file index, file size and last-write identity with the creator record;
-5. fail if the recursive watcher reports any mutation during the transition.
+This ordering is canonical:
 
-The reopened guard permits ordinary reads and does not itself need to remain the sole write barrier because every mutation after the watcher is armed is a validation-fatal event.
+1. retained creator writers and copied bytes;
+2. namespace-only transition sentinel;
+3. writer close/read-guard reopen with exact identity + attributes + SHA-256 verification;
+4. bounded full-sentinel clean-generation settlement while guard bytes/identity and namespace are revalidated;
+5. retain the clean full sentinel and start the recursive `ReadDirectoryChangesW` worker;
+6. exact guard + namespace verification while transition and full authorities overlap;
+7. clean transition-sentinel retirement;
+8. full sentinel + recursive watcher retained through the remaining H2 lifetime.
 
-This transition exists because Windows sharing modes cannot be strengthened or relaxed on one already-open handle. The recursive kernel watcher converts the unavoidable close/reopen transition into a fail-closed observed interval rather than an unobserved pathname interval.
+The full watcher is therefore never relied upon to distinguish the broker's own writer-close settlement from hostile activity. A bounded settlement phase drains only generations whose exact filesystem state is independently proven unchanged, while the transition sentinel and retained read guards prevent an unobserved authority gap.
 
 ## Broker lifetime and bounded control protocol
 
-The broker is long-lived. It remains alive after the copy completes and continues holding:
+The broker is long-lived. After readiness it continues holding:
 
 - the validation-directory authority handle;
 - every destination directory handle created from the point of creation;
 - read guards for all copied destination files;
-- the recursive snapshot-root change watcher.
+- exact identity/attributes/SHA-256 guard records for settlement revalidation;
+- the settled full recursive snapshot-root change sentinel;
+- the recursive `ReadDirectoryChangesW` worker/handle.
+
+The transition-only namespace sentinel is retired before readiness only after a clean full-watch generation, recursive watcher startup and exact-state overlap verification succeed.
 
 A bounded stdin/stdout protocol exposes only `CHECK` and `STOP`. Commands are ASCII and bounded. Broker responses are strict single-line JSON followed by LF; the Python emitter rejects embedded CR/LF and flushes every record.
 
-The PowerShell parent no longer uses `ReadLineAsync()` followed by a post-hoc size check. `Read-NxbH2BrokerLine` reads `StandardOutput.BaseStream` incrementally, retains at most **65,537 raw bytes** so a 64 KiB payload may optionally carry one CR before LF, requires LF termination, strips only that optional terminator CR, and rejects payload length above **65,536 bytes** before strict UTF-8 decode. It then requires the exact policy name, exact snapshot root and bounded file/directory/byte summary.
+`Read-NxbH2BrokerLine` reads `StandardOutput.BaseStream` incrementally, retains at most **65,537 raw bytes** so a 64 KiB payload may optionally carry one CR before LF, requires LF termination, strips only that optional terminator CR, and rejects payload length above **65,536 bytes** before strict UTF-8 decode. It then requires the exact policy name, exact snapshot root and bounded file/directory/byte summary.
 
 Timeout, EOF before newline, oversized framing and invalid UTF-8 attempt recursive broker-process termination and bounded reap before failing. `ReadLineAsync` and `ReadToEndAsync` are forbidden in this control reader.
-
-This distinction matters because checking the size only after a line-oriented reader has already accumulated the entire response is not a memory bound. The current source stages the ceiling before decode and before arbitrary no-newline growth can occur.
 
 An unexpected broker exit, protocol close, malformed response, mutation notification or watcher failure is fatal.
 
@@ -145,45 +194,61 @@ The existing H2 inner continues and:
 7. proves file/directory injection denial;
 8. re-verifies the snapshot tree identity.
 
-The first required `snapshotRoot\bin\rustc.exe` `Test-Path` occurs only after that PowerShell file/directory/ACL authority has been staged. At that point the broker-entry wrapper performs a `CHECK` and requires the broker to still report a clean snapshot, recording that creator authority and PowerShell authority overlapped successfully.
+The first required `snapshotRoot\bin\rustc.exe` `Test-Path` occurs only after that PowerShell file/directory/ACL authority has been staged. At that point the broker-entry wrapper performs a `CHECK` and requires the broker to still report a clean snapshot, recording that broker authority and PowerShell authority overlapped successfully.
 
-Crucially, the broker is **not stopped at this handoff**.
+The broker is **not stopped at this handoff**.
 
 ## Heavy-gate lifetime monitoring
 
 The broker remains active across the complete relocated Rust heavy-gate lifetime.
 
-This is stronger than stopping at the initial PowerShell handoff. The existing H2 ACL intentionally preserves the ability to restore permissions and therefore is not treated, by itself, as proof against a same-user actor that attempts to alter the DACL and then perform a transient file/DLL injection.
+The existing H2 ACL intentionally preserves the ability to restore permissions and therefore is not treated, by itself, as proof against a same-user actor that attempts to alter the DACL and then perform a transient file/DLL injection.
 
-Because the recursive broker watcher remains armed, any ordinary file/directory name, size, last-write or attribute mutation during heavy gates becomes a final validation failure even if the actor restores the pathname/bytes before the normal post-gate deterministic tree check.
+Because the full recursive broker watcher remains armed, any ordinary file/directory name, size, last-write or attribute mutation during heavy gates becomes a final validation failure even if the actor restores the pathname/bytes before the normal post-gate deterministic tree check.
 
 The existing PowerShell file/directory handles, ACL controls and post-gate deterministic identity checks remain defense-in-depth; none is removed by the broker layer.
 
 ## Cleanup boundary
 
+`Authority.close()` is fail-closed and non-short-circuit. One cleanup error collector is established before retained authority is released. Cleanup attempts:
+
+1. set the watcher stopping signal;
+2. `CancelIoEx` on the watcher handle, tolerating only documented `ERROR_NOT_FOUND` when no pending request exists;
+3. close the watcher handle;
+4. join the watcher thread with a bounded timeout and record a still-live worker as cleanup failure;
+5. close the full change-notification handle;
+6. close the transition notification too if an earlier failure left it active;
+7. close every remaining writer, file guard and directory handle;
+8. close the validation-directory handle;
+9. fail with the aggregated cleanup errors after all release attempts have run.
+
+Watcher/sentinel close failures are not swallowed. A cleanup failure therefore prevents a healthy `stopped` record and zero broker exit status on the controlled STOP path.
+
 The existing H2 parent restores its ACL backups and disposes its own snapshot file/directory handles during `finally`.
 
 Only when the parent reaches the exact snapshot-root recursive `Remove-Item` does the broker-entry wrapper:
 
-1. perform a final broker `CHECK` if the normal PowerShell handoff was established;
+1. perform a final broker `CHECK` if normal PowerShell handoff was established;
 2. require a healthy result;
 3. send `STOP`;
 4. require a healthy `stopped` record and zero broker exit status;
-5. release broker-held creator-derived guards/watcher;
+5. require broker authority cleanup to have succeeded;
 6. delegate the original snapshot deletion to module-qualified `Remove-Item`.
 
 If the nested H2 sequence fails before normal cleanup, the wrapper and bounded outer finally blocks still attempt controlled broker shutdown. Cleanup errors are aggregated and fail closed.
 
-Therefore the broker lifetime covers destination creation, creator-handle transition, PowerShell authority acquisition, heavy Rust execution, post-gate verification, ACL restoration and the beginning of final snapshot cleanup.
+Therefore the broker lifetime covers destination creation, settled writer transition, PowerShell authority acquisition, heavy Rust execution, post-gate verification, ACL restoration and the beginning of final snapshot cleanup.
 
 ## Broker and control-reader primitive probes
 
-The broker has a Windows-only self-test that source-stages the expected native behavior:
+The broker has a Windows-only self-test that stages the expected native behavior:
 
 - create a tiny source tree;
 - broker-copy it into a fresh destination;
+- complete the settled writer-to-read-guard transition;
+- establish a bounded clean full-watch generation;
 - verify trusted copied bytes;
-- prove a retained destination guard denies file deletion;
+- prove retained destination guards deny post-freeze file writes and deletion;
 - inject a new file into the snapshot tree;
 - require the recursive watcher to observe that mutation;
 - release all authority and allow temporary-root cleanup.
@@ -199,11 +264,11 @@ The separate exact-head Windows process-lifecycle probe also AST-extracts the pr
 
 Its source/AST contract separately requires the 64 KiB pre-decode ceiling and forbids `ReadLineAsync`/`ReadToEndAsync` regression.
 
-The current non-Windows development environment cannot execute the native broker or PowerShell probes. Source staging and static diff review are not substitutes for the required NTFS/Win32 behavior proof.
+Source staging and static review are not substitutes for the required NTFS/Win32 behavior proof.
 
 ## PowerShell support boundary
 
-The repository's documented Windows validation entrypoint uses `pwsh`. The current NXB-153 scripts already use modern `ProcessStartInfo.ArgumentList`; the broker transport follows that established PowerShell 7/.NET model rather than introducing a Windows PowerShell 5.1 compatibility promise.
+The repository's documented Windows validation entrypoint uses `pwsh`. The NXB-153 scripts use modern `ProcessStartInfo.ArgumentList`; the broker transport follows that established PowerShell 7/.NET model rather than introducing a Windows PowerShell 5.1 compatibility promise.
 
 The broker-entry `Test-Path` proxy uses the canonical `Microsoft.PowerShell.Commands.TestPathType` enum and delegates unrelated operations to module-qualified management cmdlets.
 
@@ -211,44 +276,33 @@ Real supported PowerShell execution remains mandatory because static source insp
 
 ## Remaining runtime acceptance
 
-Destination lifetime authority is now **source-staged**, but #98 must remain open until the exact final head proves on supported Windows/NTFS at least:
+Destination lifetime authority is **source-staged**, but #98 and the H2 admission boundary remain open until the exact final head proves on supported Windows/NTFS at least:
 
 - Python `ctypes` signatures and native `NtCreateFile` relative creation behavior;
 - create-new collision rejection for root/children;
 - reparse-point rejection;
 - directory no-delete-share behavior;
 - file creator-handle write/delete exclusion;
-- writer-to-read-guard identity continuity;
-- recursive `ReadDirectoryChangesW` mutation detection, including create/delete/rename/content mutation and transient restore attempts;
+- namespace-only transition sentinel behavior during creator close/read-guard reopen;
+- writer-to-read-guard object identity, attribute and exact SHA-256 continuity;
+- no false hostile signal from ordinary NTFS creator-handle metadata settlement;
+- bounded full-sentinel clean-generation settlement after writer transition;
+- full recursive change notification after settled guards, including create/delete/rename/content mutation and transient restore attempts;
+- exact guard-record and destination-namespace verification during transition/full-watch overlap;
 - watcher overflow/failure fail-closed behavior;
-- cancellation and broker-process cleanup;
+- cancellation, bounded watcher-thread shutdown and broker cleanup arbitration;
 - real broker-control 64 KiB framing boundary, newline/CRLF handling, malformed UTF-8, protocol EOF and stalled-output cleanup;
 - PowerShell `New-Item`, `Test-Path`, `Remove-Item` interception/delegation semantics;
 - successful overlap with existing H2 file/directory/ACL authority;
 - ordinary relocated rustc/cargo/rustfmt/Clippy/DLL/sysroot loading while broker guards are held;
-- no false mutation signal from normal H2 reads and expected ACL lifecycle;
 - deliberate mutation during heavy gates causing final validation failure;
 - final broker health/STOP before snapshot deletion;
 - cleanup/recovery on failures at each handoff phase.
 
 No Windows runtime PASS is claimed until those tests execute.
 
-## Process-output capture hardening
-
-The separate direct process-capture source blocker has now been hardened without weakening the destination broker contract.
-
-Current source no longer contains the three previously identified `.NET ReadToEndAsync()` captures:
-
-- isolated registry metadata verification redirects stdin only; stdout/stderr inherit the validation host and the parent retains no child-output string;
-- `git archive` redirects only binary stdout, which is streamed incrementally into the pinned create-new archive under the existing 1 GiB cap; stderr inherits the validation host;
-- tar extraction redirects only stdin from the bounded pinned archive; stdout/stderr inherit the validation host.
-
-The broker control channel is separately bounded before decode, so the destination authority no longer relies on line-oriented post-hoc length checking either.
-
-The parent process uses exit status for the direct child paths rather than retaining arbitrarily large child-output strings. This removes the source-level unbounded output-retention surface. Supported Windows execution must still verify inherited-output, failure, cancellation, broker framing and cleanup behavior, so this is **source-staged hardening**, not an admission PASS.
-
 ## Admission boundary
 
-The exact final NXB-153 head still requires real Rust 1.97.1 Linux and Windows validation, all #90-#98 acceptance conditions, create-only schema-v2 evidence, object-anchored semantic review and guarded same-head dual-platform closure.
+The exact final NXB-153 head still requires real Rust 1.97.1 Linux and Windows validation, all #90-#98 and #103-#112 acceptance conditions, create-only schema-v2 evidence, object-anchored semantic review and guarded same-head dual-platform closure.
 
 PR #89 remains draft/not admitted. NXB-154 must not use the NXB-153 feature branch as an admitted implementation base until that closure completes.
