@@ -60,15 +60,21 @@ fn linux_read_authority_is_no_follow_same_handle_and_identity_bound() {
     for marker in [
         "const O_NOFOLLOW: i32 = 0o400000;",
         ".custom_flags(O_NOFOLLOW)",
-        "let mut file = open_document_authority(path, label)?;",
+        "let parent_authority = pin_parent_namespace(path, label)?;",
+        "let authority_path = parent_authority.child_path();",
+        "let mut file = open_document_authority(authority_path, label)?;",
         "let initial = file",
+        "validate_opened_metadata(&initial, label, maximum)?;",
+        "validate_platform_authority(authority_path, &initial, label, permission)?;",
         "(&mut file)",
-        ".take(MAX_DOCUMENT_BYTES + 1)",
+        ".take(maximum + 1)",
         "let final_metadata = file",
+        "validate_opened_metadata(&final_metadata, label, maximum)?;",
+        "validate_platform_stability(authority_path, &initial, &final_metadata, label, permission)?;",
         "opened.dev() != named.dev() || opened.ino() != named.ino()",
         "initial.mtime() != final_metadata.mtime()",
         "initial.ctime() != final_metadata.ctime()",
-        "validate_platform_authority(path, final_metadata, label)",
+        "validate_platform_authority(path, final_metadata, label, permission)",
     ] {
         assert!(
             production.contains(marker),
@@ -76,31 +82,43 @@ fn linux_read_authority_is_no_follow_same_handle_and_identity_bound() {
         );
     }
 
+    let pin_parent = index(
+        production,
+        "let parent_authority = pin_parent_namespace(path, label)?;",
+        READ_AUTHORITY_PATH,
+    );
+    let stable_path = index(
+        production,
+        "let authority_path = parent_authority.child_path();",
+        READ_AUTHORITY_PATH,
+    );
     let open = index(
         production,
-        "let mut file = open_document_authority(path, label)?;",
+        "let mut file = open_document_authority(authority_path, label)?;",
         READ_AUTHORITY_PATH,
     );
     let initial = index(production, "let initial = file", READ_AUTHORITY_PATH);
     let validate = index(
         production,
-        "validate_platform_authority(path, &initial, label)?;",
+        "validate_platform_authority(authority_path, &initial, label, permission)?;",
         READ_AUTHORITY_PATH,
     );
     let read = index(production, "(&mut file)", READ_AUTHORITY_PATH);
     let final_metadata = index(production, "let final_metadata = file", READ_AUTHORITY_PATH);
     let stability = index(
         production,
-        "validate_platform_stability(path, &initial, &final_metadata, label)?;",
+        "validate_platform_stability(authority_path, &initial, &final_metadata, label, permission)?;",
         READ_AUTHORITY_PATH,
     );
     assert!(
-        open < initial
+        pin_parent < stable_path
+            && stable_path < open
+            && open < initial
             && initial < validate
             && validate < read
             && read < final_metadata
             && final_metadata < stability,
-        "{READ_AUTHORITY_PATH}: opened-handle validation/read/stability ordering changed"
+        "{READ_AUTHORITY_PATH}: pinned-parent/opened-handle validation/read/stability ordering changed"
     );
 
     for forbidden in [
