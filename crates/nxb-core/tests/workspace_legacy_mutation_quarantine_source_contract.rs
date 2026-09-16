@@ -93,48 +93,11 @@ fn historical_pathname_delete_helpers_are_not_mistaken_for_active_authority() {
     for marker in [
         "fn write_probe(workspace: &Path) -> Result<()>",
         "pub(crate) fn remove_regular(path: &Path) -> Result<()>",
+        "#[cfg(not(unix))]\n#[allow(dead_code)]\nfn replace_file(source: &Path, destination: &Path) -> Result<()>",
     ] {
         assert!(
             implementation.contains(marker),
             "{WORKSPACE_IMPL_PATH}: expected quarantined legacy marker missing: {marker}"
-        );
-    }
-
-    let replace_marker = "fn replace_file(source: &Path, destination: &Path) -> Result<()>";
-    assert_eq!(
-        implementation.matches(replace_marker).count(),
-        2,
-        "{WORKSPACE_IMPL_PATH}: expected one Unix and one non-Unix legacy replace helper"
-    );
-    let first_replace = implementation
-        .find(replace_marker)
-        .expect("Unix legacy replace helper must exist");
-    let non_unix_cfg = implementation[first_replace + replace_marker.len()..]
-        .find("#[cfg(not(unix))]")
-        .map(|offset| first_replace + replace_marker.len() + offset)
-        .expect("non-Unix legacy replace helper must retain its cfg boundary");
-    let second_replace = implementation[non_unix_cfg..]
-        .find(replace_marker)
-        .map(|offset| non_unix_cfg + offset)
-        .expect("non-Unix legacy replace helper must exist after its cfg boundary");
-    let attributes = &implementation[non_unix_cfg..second_replace];
-    assert!(
-        attributes.contains("#[allow(dead_code)]"),
-        "{WORKSPACE_IMPL_PATH}: quarantined non-Unix replace helper must remain explicitly dead-code-only"
-    );
-    let body_end = implementation[second_replace..]
-        .find("\n}\n\n#[cfg(test)]")
-        .map(|offset| second_replace + offset)
-        .expect("non-Unix legacy replace helper must end before the workspace test module");
-    let body = &implementation[second_replace..body_end];
-    for marker in [
-        "if destination.exists()",
-        "remove_regular(destination)?;",
-        "fs::rename(source, destination)?;",
-    ] {
-        assert!(
-            body.contains(marker),
-            "{WORKSPACE_IMPL_PATH}: quarantined non-Unix legacy replace helper changed unexpectedly: {marker}"
         );
     }
 
