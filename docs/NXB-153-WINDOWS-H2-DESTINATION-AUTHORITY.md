@@ -24,13 +24,23 @@ As elsewhere in NXB-153, this contract does not attempt to survive kernel compro
 
 ## Canonical implementation
 
-Destination broker:
+Destination broker launcher:
 
 `scripts/nxb-153-windows-h2-destination-broker.py`
 
-Current source-staged broker Git blob on exact-head candidate `33a50ce8e662e189f0053595b1a6ce2891df29df`:
+Current source-staged launcher Git blob:
+
+`d0b6c7c1076c47f01aeba8961c4832866537ff80`
+
+Immutable broker core:
+
+`scripts/nxb-153-windows-h2-destination-broker-core.py`
+
+Pinned core Git blob:
 
 `2cd3f9bd6ee36892a0adeb9cb40d940c8e3a73f6`
+
+The launcher reads the core bytes before import, computes the exact Git blob object identity (`blob <length>\0<bytes>`) and requires the SHA-1 above before executing the core. The run-29 settlement patch is therefore a small source-visible layer over the exact run-28 broker implementation rather than an unreviewed wholesale broker rewrite.
 
 Policy:
 
@@ -44,7 +54,7 @@ Windows bounded H2 outer entrypoint:
 
 `scripts/nxb-153-windows-immutable-source-bounded-inner.ps1`
 
-The outer entrypoint pins the scripts namespace and exact-Git-object verifies both the broker wrapper and broker implementation before use and again before success.
+The outer entrypoint pins the scripts namespace and exact-Git-object verifies the broker wrapper before use and again before success. The broker launcher independently pins the exact core Git object before import.
 
 ## Snapshot-root creation
 
@@ -92,21 +102,38 @@ This namespace-only sentinel makes file/directory replacement, rename, delete an
 
 Each destination writer is then transitioned to a retained read guard:
 
-1. retain the creator-held expected object identity and SHA-256;
+1. retain the creator-held expected object identity, attributes and SHA-256;
 2. close the creator writer;
 3. immediately reopen the same pathname read-only with only `FILE_SHARE_READ`;
 4. retain the read guard before validation proceeds;
 5. compare volume serial, file index, file size and last-write identity with the creator record;
-6. hash the complete reopened file through the guard and require the exact expected SHA-256 and expected size;
-7. poll the namespace-only transition sentinel and fail closed on any namespace signal.
+6. require the exact retained file attributes;
+7. hash the complete reopened file through the guard and require the exact expected SHA-256 and expected size;
+8. poll the namespace-only transition sentinel and fail closed on any namespace signal.
 
-The writer handle itself prevents a later external write open before it closes. The reopened read guard prevents write/delete sharing after it opens. Exact object identity plus exact byte hashing covers the unavoidable close/reopen interval, while the namespace-only sentinel covers namespace races in that interval.
+The writer handle itself prevents a later external write open before it closes. The reopened read guard prevents write/delete sharing after it opens. Exact object identity, exact attributes and exact byte hashing cover the unavoidable close/reopen interval, while the namespace-only sentinel covers namespace races in that interval.
 
-## Full post-freeze watcher and namespace overlap
+## Bounded full-watch settlement and namespace overlap
 
-Only after every creator writer has become a validated retained read guard does the broker arm the full post-freeze observation layer.
+Only after every creator writer has become a validated retained read guard does the broker establish the full post-freeze observation layer. The namespace-only transition sentinel remains active throughout this handoff.
 
-It first arms a recursive `FindFirstChangeNotificationW` sentinel using the full watch filter, then opens the snapshot directory and starts the recursive `ReadDirectoryChangesW` worker for:
+The run-29 authority does not treat the first full change signal after writer close as automatically hostile. Hosted Windows proved that an already-completed NTFS creator-close notification can be delivered after the read guards are valid. Instead, the launcher requires a bounded clean full-watch generation while independently proving exact state.
+
+For at most **8 generations**, each generation:
+
+1. requires that no previous full-change sentinel is retained;
+2. arms a new recursive `FindFirstChangeNotificationW` sentinel with the complete watch filter;
+3. reopens every guarded file read-only and requires exact object identity, attributes, size and SHA-256;
+4. recursively verifies the exact destination namespace;
+5. polls the still-live namespace-only transition sentinel and fails on any namespace mutation;
+6. waits at most **250 ms** on the new full-change sentinel;
+7. repeats exact guard-record verification, exact namespace verification and transition-sentinel polling after the wait;
+8. accepts the generation only if the timed wait did not signal and an immediate zero-time recheck is also clean;
+9. otherwise closes that full-change sentinel, clears it and begins the next bounded generation.
+
+If no clean generation is reached within the bound, readiness fails closed.
+
+A clean generation's `FindFirstChangeNotificationW` handle is retained. The broker then opens the snapshot directory and starts the recursive `ReadDirectoryChangesW` worker for:
 
 - file-name changes;
 - directory-name changes;
@@ -116,21 +143,20 @@ It first arms a recursive `FindFirstChangeNotificationW` sentinel using the full
 
 Security-descriptor changes remain deliberately excluded because the trusted H2 parent applies and later restores its own ACL during validation.
 
-With the full watcher active and the transition sentinel still active, the broker recursively re-enumerates the destination namespace. It rejects reparse points, symlinks, special entries, case-insensitive collisions and entry-count overflow and requires the observed `(type, relative path)` set to equal the exact namespace recorded during broker copy.
-
-The broker then polls both notification authorities. Only after that overlap verifies clean does it retire the namespace-only transition sentinel. It immediately rechecks the full watcher before readiness can be emitted.
+After the worker starts, the broker again verifies every guard record and the exact namespace, then polls both the transition sentinel and the retained full-change sentinel. Only after that overlap verifies clean does the core retire the namespace-only transition sentinel. It immediately rechecks the full watcher before readiness can be emitted.
 
 This ordering is canonical:
 
 1. retained creator writers and copied bytes;
 2. namespace-only transition sentinel;
-3. writer close/read-guard reopen with exact identity + exact SHA-256 verification;
-4. full change sentinel + recursive `ReadDirectoryChangesW` worker;
-5. exact destination-namespace verification while both change authorities overlap;
-6. clean transition-sentinel retirement;
-7. full watcher retained through the remaining H2 lifetime.
+3. writer close/read-guard reopen with exact identity + attributes + SHA-256 verification;
+4. bounded full-sentinel clean-generation settlement while guard bytes/identity and namespace are revalidated;
+5. retain the clean full sentinel and start the recursive `ReadDirectoryChangesW` worker;
+6. exact guard + namespace verification while transition and full authorities overlap;
+7. clean transition-sentinel retirement;
+8. full sentinel + recursive watcher retained through the remaining H2 lifetime.
 
-The full watcher is therefore never relied upon to distinguish the broker's own writer-close settlement from hostile activity. It begins only after settled read guards exist, while the transition interval is covered by stricter object/byte checks plus namespace observation.
+The full watcher is therefore never relied upon to distinguish the broker's own writer-close settlement from hostile activity. A bounded settlement phase drains only generations whose exact filesystem state is independently proven unchanged, while the transition sentinel and retained read guards prevent an unobserved authority gap.
 
 ## Broker lifetime and bounded control protocol
 
@@ -139,10 +165,11 @@ The broker is long-lived. After readiness it continues holding:
 - the validation-directory authority handle;
 - every destination directory handle created from the point of creation;
 - read guards for all copied destination files;
-- the full recursive snapshot-root change sentinel;
+- exact identity/attributes/SHA-256 guard records for settlement revalidation;
+- the settled full recursive snapshot-root change sentinel;
 - the recursive `ReadDirectoryChangesW` worker/handle.
 
-The transition-only namespace sentinel is retired before readiness only after the full watcher overlaps it and exact namespace verification succeeds.
+The transition-only namespace sentinel is retired before readiness only after a clean full-watch generation, recursive watcher startup and exact-state overlap verification succeed.
 
 A bounded stdin/stdout protocol exposes only `CHECK` and `STOP`. Commands are ASCII and bounded. Broker responses are strict single-line JSON followed by LF; the Python emitter rejects embedded CR/LF and flushes every record.
 
@@ -219,6 +246,7 @@ The broker has a Windows-only self-test that stages the expected native behavior
 - create a tiny source tree;
 - broker-copy it into a fresh destination;
 - complete the settled writer-to-read-guard transition;
+- establish a bounded clean full-watch generation;
 - verify trusted copied bytes;
 - prove retained destination guards deny post-freeze file writes and deletion;
 - inject a new file into the snapshot tree;
@@ -256,10 +284,11 @@ Destination lifetime authority is **source-staged**, but #98 and the H2 admissio
 - directory no-delete-share behavior;
 - file creator-handle write/delete exclusion;
 - namespace-only transition sentinel behavior during creator close/read-guard reopen;
-- writer-to-read-guard object identity and exact SHA-256 continuity;
+- writer-to-read-guard object identity, attribute and exact SHA-256 continuity;
 - no false hostile signal from ordinary NTFS creator-handle metadata settlement;
+- bounded full-sentinel clean-generation settlement after writer transition;
 - full recursive change notification after settled guards, including create/delete/rename/content mutation and transient restore attempts;
-- exact destination namespace verification during transition/full-watch overlap;
+- exact guard-record and destination-namespace verification during transition/full-watch overlap;
 - watcher overflow/failure fail-closed behavior;
 - cancellation, bounded watcher-thread shutdown and broker cleanup arbitration;
 - real broker-control 64 KiB framing boundary, newline/CRLF handling, malformed UTF-8, protocol EOF and stalled-output cleanup;
