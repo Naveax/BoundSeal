@@ -230,6 +230,40 @@ jobs:
             throw "hosted Windows PATH did not normalize to one Python 3 application: $($pythonApplications.Count)"
           }
 
+          $systemTarPath = [IO.Path]::GetFullPath((Join-Path ([Environment]::SystemDirectory) 'tar.exe'))
+          $systemTarItem = Get-Item -LiteralPath $systemTarPath -Force -ErrorAction Stop
+          if ($systemTarItem.PSIsContainer -or ($systemTarItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'hosted Windows System32 tar authority is not a regular non-reparse file'
+          }
+          $tarNormalizedPath = [Collections.Generic.List[string]]::new()
+          $systemTarDirectorySeen = $false
+          foreach ($pathEntry in @($env:PATH -split [IO.Path]::PathSeparator)) {
+            if ([string]::IsNullOrWhiteSpace($pathEntry)) { continue }
+            $tarCandidate = Join-Path $pathEntry 'tar.exe'
+            if (Test-Path -LiteralPath $tarCandidate -PathType Leaf) {
+              $candidateFull = [IO.Path]::GetFullPath($tarCandidate)
+              if (-not [string]::Equals($candidateFull, $systemTarPath, [StringComparison]::OrdinalIgnoreCase)) {
+                continue
+              }
+              if ($systemTarDirectorySeen) { continue }
+              $systemTarDirectorySeen = $true
+            }
+            $tarNormalizedPath.Add($pathEntry)
+          }
+          if (-not $systemTarDirectorySeen) { throw 'hosted Windows PATH does not contain the trusted System32 tar application directory' }
+          $env:PATH = $tarNormalizedPath -join [IO.Path]::PathSeparator
+          $tarApplications = @(Get-Command tar -CommandType Application -ErrorAction Stop)
+          if (
+            $tarApplications.Count -ne 1 -or
+            -not [string]::Equals(
+              [IO.Path]::GetFullPath([string]$tarApplications[0].Source),
+              $systemTarPath,
+              [StringComparison]::OrdinalIgnoreCase
+            )
+          ) {
+            throw 'hosted Windows PATH did not normalize to the single trusted System32 tar application'
+          }
+
           $convertFromJsonCommand = Get-Command ConvertFrom-Json -CommandType Cmdlet -ErrorAction Stop
           if (-not $convertFromJsonCommand.Parameters.ContainsKey('DateKind')) {
             throw 'PowerShell 7.5 or newer is required so canonical JSON timestamps remain strings'
