@@ -42,33 +42,47 @@ def is_lower_sha256(value: object) -> bool:
     )
 
 
-def read_regular_bytes(path: Path, maximum: int, label: str) -> bytes:
-    try:
-        before = path.lstat()
-    except OSError as error:
-        fail(f"could not stat {label}: {error}")
-    if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode):
-        fail(f"{label} must be a regular non-symlink file")
-    if before.st_size <= 0 or before.st_size > maximum:
-        fail(f"{label} size is outside the supported envelope")
-
-    try:
-        with path.open("rb") as handle:
-            value = handle.read(maximum + 1)
-            after = os.fstat(handle.fileno())
-    except OSError as error:
-        fail(f"could not read {label}: {error}")
-
-    if len(value) != before.st_size or len(value) > maximum:
-        fail(f"{label} changed size while being read")
-    if (
+def metadata_changed(before: os.stat_result, after: os.stat_result) -> bool:
+    return (
         after.st_dev != before.st_dev
         or after.st_ino != before.st_ino
         or after.st_size != before.st_size
         or getattr(after, "st_mtime_ns", None) != getattr(before, "st_mtime_ns", None)
         or getattr(after, "st_ctime_ns", None) != getattr(before, "st_ctime_ns", None)
-    ):
-        fail(f"{label} metadata changed while being read")
+    )
+
+
+def read_regular_bytes(path: Path, maximum: int, label: str) -> bytes:
+    try:
+        path_before = path.lstat()
+    except OSError as error:
+        fail(f"could not stat {label}: {error}")
+    if not stat.S_ISREG(path_before.st_mode) or stat.S_ISLNK(path_before.st_mode):
+        fail(f"{label} must be a regular non-symlink file")
+    if path_before.st_size <= 0 or path_before.st_size > maximum:
+        fail(f"{label} size is outside the supported envelope")
+
+    try:
+        with path.open("rb") as handle:
+            handle_before = os.fstat(handle.fileno())
+            if not stat.S_ISREG(handle_before.st_mode):
+                fail(f"opened {label} must remain a regular file")
+            if handle_before.st_size <= 0 or handle_before.st_size > maximum:
+                fail(f"opened {label} size is outside the supported envelope")
+            value = handle.read(maximum + 1)
+            handle_after = os.fstat(handle.fileno())
+        path_after = path.lstat()
+    except OSError as error:
+        fail(f"could not read {label}: {error}")
+
+    if not stat.S_ISREG(path_after.st_mode) or stat.S_ISLNK(path_after.st_mode):
+        fail(f"{label} pathname changed type while being read")
+    if len(value) != handle_before.st_size or len(value) > maximum:
+        fail(f"{label} changed size while being read")
+    if metadata_changed(handle_before, handle_after):
+        fail(f"{label} opened-handle metadata changed while being read")
+    if metadata_changed(path_before, path_after):
+        fail(f"{label} pathname metadata changed while being read")
     return value
 
 
@@ -124,34 +138,36 @@ def safe_relative(value: str, label: str) -> PurePosixPath:
 
 def sha256_file(path: Path, label: str) -> str:
     try:
-        before = path.lstat()
+        path_before = path.lstat()
     except OSError as error:
         fail(f"could not stat {label}: {error}")
-    if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode):
+    if not stat.S_ISREG(path_before.st_mode) or stat.S_ISLNK(path_before.st_mode):
         fail(f"{label} must be a regular non-symlink file")
     digest = hashlib.sha256()
     total = 0
     try:
         with path.open("rb") as handle:
+            handle_before = os.fstat(handle.fileno())
+            if not stat.S_ISREG(handle_before.st_mode):
+                fail(f"opened {label} must remain a regular file")
             while True:
                 chunk = handle.read(1024 * 1024)
                 if not chunk:
                     break
                 total += len(chunk)
                 digest.update(chunk)
-            after = os.fstat(handle.fileno())
+            handle_after = os.fstat(handle.fileno())
+        path_after = path.lstat()
     except OSError as error:
         fail(f"could not hash {label}: {error}")
-    if total != before.st_size:
+    if not stat.S_ISREG(path_after.st_mode) or stat.S_ISLNK(path_after.st_mode):
+        fail(f"{label} pathname changed type while being hashed")
+    if total != handle_before.st_size:
         fail(f"{label} changed size while hashing")
-    if (
-        after.st_dev != before.st_dev
-        or after.st_ino != before.st_ino
-        or after.st_size != before.st_size
-        or getattr(after, "st_mtime_ns", None) != getattr(before, "st_mtime_ns", None)
-        or getattr(after, "st_ctime_ns", None) != getattr(before, "st_ctime_ns", None)
-    ):
-        fail(f"{label} metadata changed while hashing")
+    if metadata_changed(handle_before, handle_after):
+        fail(f"{label} opened-handle metadata changed while hashing")
+    if metadata_changed(path_before, path_after):
+        fail(f"{label} pathname metadata changed while hashing")
     return digest.hexdigest()
 
 
