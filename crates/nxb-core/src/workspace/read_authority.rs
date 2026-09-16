@@ -14,6 +14,38 @@ enum ReadPermission {
     OperatorProvided,
 }
 
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReadGateTestPhase {
+    AfterInitialValidation,
+    AfterReadBeforeFinalValidation,
+}
+
+#[cfg(test)]
+type ReadGateTestHook = Box<dyn FnMut(ReadGateTestPhase)>;
+
+#[cfg(test)]
+std::thread_local! {
+    static READ_GATE_TEST_HOOK: std::cell::RefCell<Option<ReadGateTestHook>> =
+        std::cell::RefCell::new(None);
+}
+
+#[cfg(test)]
+fn set_read_gate_test_hook(hook: Option<ReadGateTestHook>) {
+    READ_GATE_TEST_HOOK.with(|slot| {
+        *slot.borrow_mut() = hook;
+    });
+}
+
+#[cfg(test)]
+fn invoke_read_gate_test_hook(phase: ReadGateTestPhase) {
+    READ_GATE_TEST_HOOK.with(|slot| {
+        if let Some(hook) = slot.borrow_mut().as_mut() {
+            hook(phase);
+        }
+    });
+}
+
 struct PinnedParentNamespace {
     stable_child_path: PathBuf,
     #[cfg(target_os = "linux")]
@@ -60,6 +92,9 @@ fn read_bounded(
     validate_opened_metadata(&initial, label, maximum)?;
     validate_platform_authority(authority_path, &initial, label, permission)?;
 
+    #[cfg(test)]
+    invoke_read_gate_test_hook(ReadGateTestPhase::AfterInitialValidation);
+
     let capacity =
         usize::try_from(initial.len()).context("pinned source size does not fit memory")?;
     let mut bytes = Vec::with_capacity(capacity);
@@ -70,6 +105,9 @@ fn read_bounded(
     if bytes.is_empty() || bytes.len() as u64 > maximum {
         bail!("{label} exceeds the supported size limit or is empty");
     }
+
+    #[cfg(test)]
+    invoke_read_gate_test_hook(ReadGateTestPhase::AfterReadBeforeFinalValidation);
 
     let final_metadata = file
         .metadata()
@@ -439,7 +477,10 @@ fn validate_platform_stability(
 mod tests {
     use super::*;
     use std::os::unix::fs::{symlink, PermissionsExt};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        sync::mpsc,
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
 
     fn temporary_root(name: &str) -> std::path::PathBuf {
         let nonce = SystemTime::now()
@@ -459,6 +500,31 @@ mod tests {
 
     fn private_file(path: &Path, bytes: &[u8]) {
         file_with_mode(path, bytes, 0o600);
+    }
+
+    fn spawn_paused_read(
+        path: PathBuf,
+        phase: ReadGateTestPhase,
+        maximum: u64,
+    ) -> (
+        std::thread::JoinHandle<Result<Vec<u8>>>,
+        mpsc::Receiver<()>,
+        mpsc::Sender<()>,
+    ) {
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            set_read_gate_test_hook(Some(Box::new(move |current| {
+                if current == phase {
+                    ready_tx.send(()).unwrap();
+                    resume_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                }
+            })));
+            let result = read_bounded_source(&path, "test operator source", maximum);
+            set_read_gate_test_hook(None);
+            result
+        });
+        (worker, ready_rx, resume_tx)
     }
 
     #[test]
@@ -543,6 +609,81 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("identity changed"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn linux_reader_fails_closed_when_final_path_is_replaced_after_initial_validation() {
+        let root = temporary_root("final-replacement-race");
+        fs::create_dir(&root).unwrap();
+        let path = root.join("source.bin");
+        let replacement = root.join("replacement.bin");
+        let original = root.join("original.bin");
+        file_with_mode(&path, b"original", 0o644);
+        file_with_mode(&replacement, b"attacker", 0o644);
+
+        let (worker, ready_rx, resume_tx) = spawn_paused_read(
+            path.clone(),
+            ReadGateTestPhase::AfterInitialValidation,
+            64,
+        );
+        ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        fs::rename(&path, &original).unwrap();
+        fs::rename(&replacement, &path).unwrap();
+        resume_tx.send(()).unwrap();
+
+        let error = worker.join().unwrap().unwrap_err();
+        assert!(error.to_string().contains("identity changed"));
+        assert_eq!(fs::read(&original).unwrap(), b"original");
+        assert_eq!(fs::read(&path).unwrap(), b"attacker");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn linux_reader_fails_closed_on_in_place_size_drift_at_the_read_gate() {
+        let root = temporary_root("size-drift-race");
+        fs::create_dir(&root).unwrap();
+        let path = root.join("source.bin");
+        file_with_mode(&path, b"original", 0o644);
+
+        let (worker, ready_rx, resume_tx) = spawn_paused_read(
+            path.clone(),
+            ReadGateTestPhase::AfterInitialValidation,
+            64,
+        );
+        ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        fs::write(&path, b"original-expanded").unwrap();
+        resume_tx.send(()).unwrap();
+
+        let error = worker.join().unwrap().unwrap_err();
+        assert!(error.to_string().contains("changed size"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn linux_reader_fails_closed_on_same_size_content_drift_after_read() {
+        let root = temporary_root("content-drift-race");
+        fs::create_dir(&root).unwrap();
+        let path = root.join("source.bin");
+        file_with_mode(&path, b"original", 0o644);
+
+        let (worker, ready_rx, resume_tx) = spawn_paused_read(
+            path.clone(),
+            ReadGateTestPhase::AfterReadBeforeFinalValidation,
+            64,
+        );
+        ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        std::thread::sleep(Duration::from_millis(2));
+        fs::write(&path, b"mutated!").unwrap();
+        resume_tx.send(()).unwrap();
+
+        let error = worker.join().unwrap().unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("file authority changed while being read"));
 
         fs::remove_dir_all(root).unwrap();
     }
