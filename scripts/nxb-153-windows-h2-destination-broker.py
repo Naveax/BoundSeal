@@ -6,9 +6,8 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes
 import hashlib
-import importlib.util
 from pathlib import Path
-import sys
+import types
 
 CORE_NAME = "nxb-153-windows-h2-destination-broker-core.py"
 CORE_GIT_BLOB_SHA1 = "2cd3f9bd6ee36892a0adeb9cb40d940c8e3a73f6"
@@ -34,11 +33,10 @@ def load_verified_core():
             f"expected={CORE_GIT_BLOB_SHA1} actual={digest}"
         )
 
-    spec = importlib.util.spec_from_file_location("nxb153_h2_destination_broker_core", core_path)
-    if spec is None or spec.loader is None:
-        fail("NXB-153 Windows H2 broker core import spec could not be created")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = types.ModuleType("nxb153_h2_destination_broker_core")
+    module.__file__ = str(core_path)
+    code = compile(raw, str(core_path), "exec")
+    exec(code, module.__dict__)
     return module
 
 
