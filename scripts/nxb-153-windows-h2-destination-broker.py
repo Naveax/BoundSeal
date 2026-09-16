@@ -43,6 +43,24 @@ def load_verified_core():
 core = load_verified_core()
 
 
+def read_command() -> str | None:
+    raw = core.sys.stdin.buffer.readline(core.MAX_COMMAND_BYTES + 1)
+    if not raw:
+        return None
+    if len(raw) > core.MAX_COMMAND_BYTES or not raw.endswith(b"\n"):
+        core.fail("broker command exceeds the supported envelope")
+    payload = raw[:-1]
+    if payload.endswith(b"\r"):
+        payload = payload[:-1]
+    try:
+        return payload.decode("ascii", errors="strict")
+    except UnicodeDecodeError:
+        core.fail("broker command is not strict ASCII")
+
+
+core.read_command = read_command
+
+
 def change_notification_signaled(self, handle: int, timeout_ms: int = 0) -> bool:
     result = int(self.WaitForSingleObject(wintypes.HANDLE(handle), timeout_ms))
     if result == core.WAIT_OBJECT_0:
