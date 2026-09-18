@@ -63,6 +63,16 @@ fn target_operator_sources_delegate_to_the_generalized_pinned_reader() {
     );
 
     let authority = source(AUTHORITY_PATH);
+    assert!(
+        authority.contains(
+            "#[cfg(all(test, target_os = \"linux\"))]\nfn set_read_gate_test_hook"
+        ),
+        "{AUTHORITY_PATH}: deterministic read-race hook must stay Linux-test-only"
+    );
+    assert!(
+        !authority.contains("#[cfg(test)]\nfn set_read_gate_test_hook"),
+        "{AUTHORITY_PATH}: generic test builds must not retain the Linux read-race hook"
+    );
     for marker in [
         "enum ReadPermission",
         "WorkspacePrivate",
