@@ -2159,13 +2159,8 @@ expires_at = 2099-01-01T00:00:00Z
         );
         assert_eq!(fs::read(&source_path).unwrap(), replacement_bytes);
 
-        let profile = read_profile(
-            &fixture
-                .root
-                .join("targets")
-                .join("example-app.json"),
-        )
-        .unwrap();
+        let profile =
+            read_profile(&fixture.root.join("targets").join("example-app.json")).unwrap();
         (profile, expected_sha256)
     }
 
@@ -2236,10 +2231,7 @@ expires_at = 2099-01-01T00:00:00Z
         assert_eq!(fs::read(&scope).unwrap(), b"not valid scope json\n");
         assert_eq!(imported.origin, "https://example.org");
         assert_eq!(imported.include_paths, vec!["/api".to_owned()]);
-        assert_eq!(
-            imported.exclude_paths,
-            vec!["/api/logout".to_owned()]
-        );
+        assert_eq!(imported.exclude_paths, vec!["/api/logout".to_owned()]);
         assert!(!imported.allow_subdomains);
     }
 
