@@ -49,6 +49,8 @@ fn linux_security_tools_run_from_receipt_bound_read_only_stable_paths() {
         r#""$deny_path" check"#,
         r#"private cargo-audit snapshot changed during execution"#,
         r#"private cargo-deny snapshot changed during execution"#,
+        r#"[["$(sha256sum "$audit_path" | awk "{print \$1}")" == "$audit_sha256" ]] ||"#,
+        r#"[["$(sha256sum "$deny_path" | awk "{print \$1}")" == "$deny_sha256" ]] ||"#,
     ] {
         assert!(
             source.contains(marker),
@@ -59,5 +61,9 @@ fn linux_security_tools_run_from_receipt_bound_read_only_stable_paths() {
     assert!(
         !source.contains(r#"scripts/nxb-153-sealed-tool.py run"#),
         "{LINUX_INNER_PATH}: path-sensitive cargo-audit must not execute from an anonymous memfd"
+    );
+    assert!(
+        !source.contains("\\\\$1"),
+        "{LINUX_INNER_PATH}: nested Bash awk programs must escape $1 exactly once"
     );
 }
