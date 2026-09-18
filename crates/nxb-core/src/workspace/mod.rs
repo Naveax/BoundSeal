@@ -3,7 +3,7 @@ pub(crate) mod migration;
 mod read_authority;
 
 #[cfg(all(test, target_os = "linux"))]
-pub(crate) use read_authority::{set_read_gate_test_hook, ReadGateTestPhase};
+pub(crate) use read_authority::set_finalized_read_test_hook;
 
 #[cfg(windows)]
 mod windows;
