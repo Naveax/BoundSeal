@@ -64,15 +64,23 @@ fn target_operator_sources_delegate_to_the_generalized_pinned_reader() {
 
     let authority = source(AUTHORITY_PATH);
     assert!(
-        authority.contains(
-            "#[cfg(all(test, target_os = \"linux\"))]\nfn set_read_gate_test_hook"
-        ),
+        authority.contains("#[cfg(all(test, target_os = \"linux\"))]\nfn set_read_gate_test_hook"),
         "{AUTHORITY_PATH}: deterministic read-race hook must stay Linux-test-only"
     );
     assert!(
         !authority.contains("#[cfg(test)]\nfn set_read_gate_test_hook"),
         "{AUTHORITY_PATH}: generic test builds must not retain the Linux read-race hook"
     );
+    for marker in [
+        "type FinalizedReadTestHook = Box<dyn FnMut(&Path, &str)>;",
+        "pub(crate) fn set_finalized_read_test_hook",
+        "invoke_finalized_read_test_hook(path, label);",
+    ] {
+        assert!(
+            authority.contains(marker),
+            "{AUTHORITY_PATH}: finalized pinned-byte consumer hook is missing marker: {marker}"
+        );
+    }
     for marker in [
         "enum ReadPermission",
         "WorkspacePrivate",
