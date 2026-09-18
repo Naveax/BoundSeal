@@ -631,7 +631,12 @@ mod tests {
         resume_tx.send(()).unwrap();
 
         let error = worker.join().unwrap().unwrap_err();
-        assert!(error.to_string().contains("identity changed"));
+        let message = error.to_string();
+        assert!(
+            message.contains("file authority changed while being read")
+                || message.contains("pathname identity changed after the document was opened"),
+            "unexpected final-replacement rejection: {message}"
+        );
         assert_eq!(fs::read(&original).unwrap(), b"original");
         assert_eq!(fs::read(&path).unwrap(), b"attacker");
 
