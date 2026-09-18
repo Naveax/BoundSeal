@@ -16,10 +16,9 @@ enum ReadPermission {
 
 #[cfg(all(test, target_os = "linux"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ReadGateTestPhase {
+enum ReadGateTestPhase {
     AfterInitialValidation,
     AfterReadBeforeFinalValidation,
-    AfterFinalValidationBeforeReturn,
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -32,7 +31,7 @@ std::thread_local! {
 }
 
 #[cfg(all(test, target_os = "linux"))]
-pub(crate) fn set_read_gate_test_hook(hook: Option<ReadGateTestHook>) {
+fn set_read_gate_test_hook(hook: Option<ReadGateTestHook>) {
     READ_GATE_TEST_HOOK.with(|slot| {
         *slot.borrow_mut() = hook;
     });
@@ -43,6 +42,31 @@ fn invoke_read_gate_test_hook(phase: ReadGateTestPhase) {
     READ_GATE_TEST_HOOK.with(|slot| {
         if let Some(hook) = slot.borrow_mut().as_mut() {
             hook(phase);
+        }
+    });
+}
+
+#[cfg(all(test, target_os = "linux"))]
+type FinalizedReadTestHook = Box<dyn FnMut(&Path, &str)>;
+
+#[cfg(all(test, target_os = "linux"))]
+std::thread_local! {
+    static FINALIZED_READ_TEST_HOOK: std::cell::RefCell<Option<FinalizedReadTestHook>> =
+        std::cell::RefCell::new(None);
+}
+
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) fn set_finalized_read_test_hook(hook: Option<FinalizedReadTestHook>) {
+    FINALIZED_READ_TEST_HOOK.with(|slot| {
+        *slot.borrow_mut() = hook;
+    });
+}
+
+#[cfg(all(test, target_os = "linux"))]
+fn invoke_finalized_read_test_hook(path: &Path, label: &str) {
+    FINALIZED_READ_TEST_HOOK.with(|slot| {
+        if let Some(hook) = slot.borrow_mut().as_mut() {
+            hook(path, label);
         }
     });
 }
@@ -120,7 +144,7 @@ fn read_bounded(
     validate_platform_stability(authority_path, &initial, &final_metadata, label, permission)?;
 
     #[cfg(all(test, target_os = "linux"))]
-    invoke_read_gate_test_hook(ReadGateTestPhase::AfterFinalValidationBeforeReturn);
+    invoke_finalized_read_test_hook(path, label);
 
     Ok(bytes)
 }
