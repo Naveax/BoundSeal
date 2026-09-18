@@ -75,6 +75,8 @@ The branch now contains:
 - Linux caller-cap and non-private operator-source coverage;
 - Linux parent-path replacement coverage demonstrating handle-derived resolution is not redirected;
 - Linux opened/named final-file identity replacement rejection;
+- deterministic Linux post-open final replacement, in-place size drift, and same-size content drift races at the generalized read gate;
+- source binding from returned pinned authorization/policy/scope bytes into authorization SHA-256, policy parse/hash, and scope JSON parsing;
 - Windows parent-directory rename blocking while authority handles are held;
 - Windows operator-source non-private ACL/caller-cap coverage;
 - Windows final-file write/delete/rename blocking while the read handle is held;
@@ -85,9 +87,9 @@ The branch now contains:
 Before #109 or NXB-153 can be admitted:
 
 - run the canonical Rust 1.97.1 workspace/security gates on the exact head;
-- execute Linux race-injection coverage for final replacement and in-place drift at product caps;
+- retain exact-head Linux execution of the deterministic final-replacement/in-place-drift/content-drift races; Run #36 executed all three and failed only because the final-replacement test accepted one fail-closed diagnostic spelling, now corrected in staging;
 - execute supported Windows parent/final replacement, rename/delete/reparse substitution coverage;
-- prove scope/policy/authorization outputs remain bound to the exact pinned bytes under race injection;
+- add direct consumer-level race proof for scope/policy/authorization outputs beyond the staged pinned-byte sink source contract;
 - preserve the existing setup/import/validate/recovery matrices;
 - perform guarded same-head Linux + Windows closure under the repository CI execution policy.
 

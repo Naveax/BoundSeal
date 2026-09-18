@@ -1,3 +1,4 @@
+#[cfg(not(windows))]
 pub(crate) mod migration;
 mod read_authority;
 
@@ -6,7 +7,7 @@ mod windows;
 
 use std::{
     collections::BTreeMap,
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io::Write,
     path::{Component, Path, PathBuf},
 };
@@ -943,7 +944,7 @@ pub(crate) fn validate_private_permissions(_path: &Path, _directory: bool) -> Re
 
 #[cfg(unix)]
 fn sync_parent(parent: &Path) -> Result<()> {
-    File::open(parent)?.sync_all()?;
+    fs::File::open(parent)?.sync_all()?;
     Ok(())
 }
 

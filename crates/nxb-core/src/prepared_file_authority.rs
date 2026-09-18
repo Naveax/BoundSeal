@@ -13,7 +13,7 @@ use anyhow::{bail, Context, Result};
 /// authority; it is diagnostic/residue state only.
 pub(crate) struct PreparedFileAuthority {
     path: PathBuf,
-    file: fs::File,
+    _file: fs::File,
     #[cfg(unix)]
     dev: u64,
     #[cfg(unix)]
@@ -146,7 +146,7 @@ impl PreparedFileAuthority {
                 use std::os::unix::fs::MetadataExt;
                 metadata.ino()
             },
-            file,
+            _file: file,
         };
         authority.validate_named_binding()?;
         Ok(authority)
@@ -224,7 +224,7 @@ impl PreparedFileAuthority {
         crate::workspace::reject_path_indirections(destination, "create-only destination")?;
 
         let proc_pid = linux_proc_visible_pid()?;
-        let source = PathBuf::from(format!("/proc/{}/fd/{}", proc_pid, self.file.as_raw_fd()));
+        let source = PathBuf::from(format!("/proc/{}/fd/{}", proc_pid, self._file.as_raw_fd()));
         let destination_for_child = linux_external_process_path(destination)?;
         let output = Command::new(tool)
             .arg("-L")
@@ -355,7 +355,7 @@ mod linux_tests {
         let destination = root.join("published.json");
 
         let authority = PreparedFileAuthority::create_named(&prepared, b"prepared\n").unwrap();
-        let retained = authority.file.metadata().unwrap();
+        let retained = authority._file.metadata().unwrap();
         fs::rename(&prepared, &moved).unwrap();
         fs::write(&replacement, b"attacker\n").unwrap();
         fs::set_permissions(&replacement, fs::Permissions::from_mode(0o600)).unwrap();

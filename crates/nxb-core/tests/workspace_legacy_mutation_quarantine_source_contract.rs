@@ -72,6 +72,16 @@ fn windows_workspace_shadows_historical_replace_and_migration_modules() {
         );
     }
 
+    let implementation = source(WORKSPACE_IMPL_PATH);
+    assert!(
+        implementation.starts_with("#[cfg(not(windows))]\npub(crate) mod migration;\n"),
+        "{WORKSPACE_IMPL_PATH}: base migration module must not be loaded inside the Windows facade"
+    );
+    assert!(
+        !implementation.starts_with("pub(crate) mod migration;\n"),
+        "{WORKSPACE_IMPL_PATH}: unconditional migration loading reintroduces Windows duplicate_mod"
+    );
+
     let entry = source(WINDOWS_ENTRY_PATH);
     for marker in [
         "#[path = \"workspace/mod.rs\"]\nmod base;",

@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 
@@ -77,7 +77,7 @@ pub(crate) fn create_document(path: &Path, bytes: &[u8]) -> Result<()> {
 
 #[cfg(unix)]
 fn sync_parent(parent: &Path) -> Result<()> {
-    fs::File::open(parent)
+    std::fs::File::open(parent)
         .with_context(|| format!("could not open publication parent {}", parent.display()))?
         .sync_all()
         .with_context(|| {
