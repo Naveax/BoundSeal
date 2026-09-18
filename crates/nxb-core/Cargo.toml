@@ -6,6 +6,10 @@ authors.workspace = true
 publish = false
 autobins = false
 
+[lib]
+name = "nxb_core_win32_authority"
+path = "src/win32_fs_authority_lib.rs"
+
 [[bin]]
 name = "nxb"
 path = "src/nxb.rs"

@@ -163,7 +163,30 @@ struct LiveRunOutputDocument {
     findings: Vec<nxb_passive_analyzers::Finding>,
 }
 
+const CLI_STACK_BYTES: usize = 8 * 1024 * 1024;
+
 fn main() -> ExitCode {
+    let worker = std::thread::Builder::new()
+        .name("nxb-cli".to_owned())
+        .stack_size(CLI_STACK_BYTES)
+        .spawn(run_cli);
+
+    match worker {
+        Ok(handle) => match handle.join() {
+            Ok(exit_code) => exit_code,
+            Err(_) => {
+                eprintln!("NXB-CLI-2: CLI worker panicked");
+                ExitCode::FAILURE
+            }
+        },
+        Err(error) => {
+            eprintln!("NXB-CLI-2: could not start CLI worker: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_cli() -> ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
         Command::Workspace(args) => return workspace_facade::run(args),
