@@ -62,9 +62,7 @@ fn target_operator_sources_delegate_to_the_generalized_pinned_reader() {
         "{WORKSPACE_PATH}: bounded source reads must share the workspace read-authority implementation"
     );
     assert!(
-        workspace.contains(
-            "pub(crate) use read_authority::set_finalized_read_test_hook;"
-        ),
+        workspace.contains("pub(crate) use read_authority::set_finalized_read_test_hook;"),
         "{WORKSPACE_PATH}: Linux consumer-race tests must reach the finalized read hook"
     );
 
