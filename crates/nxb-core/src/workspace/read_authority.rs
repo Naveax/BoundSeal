@@ -16,9 +16,10 @@ enum ReadPermission {
 
 #[cfg(all(test, target_os = "linux"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ReadGateTestPhase {
+pub(crate) enum ReadGateTestPhase {
     AfterInitialValidation,
     AfterReadBeforeFinalValidation,
+    AfterFinalValidationBeforeReturn,
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -31,7 +32,7 @@ std::thread_local! {
 }
 
 #[cfg(all(test, target_os = "linux"))]
-fn set_read_gate_test_hook(hook: Option<ReadGateTestHook>) {
+pub(crate) fn set_read_gate_test_hook(hook: Option<ReadGateTestHook>) {
     READ_GATE_TEST_HOOK.with(|slot| {
         *slot.borrow_mut() = hook;
     });
@@ -117,6 +118,10 @@ fn read_bounded(
         bail!("{label} changed size while being read");
     }
     validate_platform_stability(authority_path, &initial, &final_metadata, label, permission)?;
+
+    #[cfg(all(test, target_os = "linux"))]
+    invoke_read_gate_test_hook(ReadGateTestPhase::AfterFinalValidationBeforeReturn);
+
     Ok(bytes)
 }
 
