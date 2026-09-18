@@ -537,9 +537,9 @@ EOF
             cp --reflink=never -- "$anchored_deny_path" "$deny_path" ||
                 die "could not snapshot anchored cargo-deny into the private validation namespace"
             chmod 0500 "$audit_path" "$deny_path"
-            [[ "$(sha256sum "$audit_path" | awk "{print \\$1}")" == "$audit_sha256" ]] ||
+            [[ "$(sha256sum "$audit_path" | awk "{print \$1}")" == "$audit_sha256" ]] ||
                 die "private cargo-audit snapshot differs from the receipt-bound SHA-256"
-            [[ "$(sha256sum "$deny_path" | awk "{print \\$1}")" == "$deny_sha256" ]] ||
+            [[ "$(sha256sum "$deny_path" | awk "{print \$1}")" == "$deny_sha256" ]] ||
                 die "private cargo-deny snapshot differs from the receipt-bound SHA-256"
 
             mount --bind "$stable_tool_root" "$stable_tool_root"
@@ -564,9 +564,9 @@ EOF
             "$deny_path" check ||
                 die "receipt-hash-checked immutable cargo-deny gate failed inside immutable source snapshot"
 
-            [[ "$(sha256sum "$audit_path" | awk "{print \\$1}")" == "$audit_sha256" ]] ||
+            [[ "$(sha256sum "$audit_path" | awk "{print \$1}")" == "$audit_sha256" ]] ||
                 die "private cargo-audit snapshot changed during execution"
-            [[ "$(sha256sum "$deny_path" | awk "{print \\$1}")" == "$deny_sha256" ]] ||
+            [[ "$(sha256sum "$deny_path" | awk "{print \$1}")" == "$deny_sha256" ]] ||
                 die "private cargo-deny snapshot changed during execution"
 
             final_lock_sha256="$(sha256sum Cargo.lock | awk "{print \$1}")"
