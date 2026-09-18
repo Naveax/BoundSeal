@@ -2083,7 +2083,9 @@ expires_at = 2099-01-01T00:00:00Z
     }
 
     #[cfg(target_os = "linux")]
-    fn create_with_post_validation_source_swap(source: CreateSourceSwap) -> (TargetProfile, String) {
+    fn create_with_post_validation_source_swap(
+        source: CreateSourceSwap,
+    ) -> (TargetProfile, String) {
         use std::sync::mpsc;
         use std::time::Duration;
 
@@ -2093,13 +2095,13 @@ expires_at = 2099-01-01T00:00:00Z
                 fixture.policy.clone(),
                 "target policy",
                 "replacement-policy.toml",
-                b"this is not valid policy toml\n".as_slice(),
+                &b"this is not valid policy toml\n"[..],
             ),
             CreateSourceSwap::Authorization => (
                 fixture.authorization.clone(),
                 "authorization document",
                 "replacement-authorization.txt",
-                b"attacker authorization bytes\n".as_slice(),
+                &b"attacker authorization bytes\n"[..],
             ),
         };
         let expected_sha256 = workspace::sha256(&fs::read(&source_path).unwrap());
@@ -2120,7 +2122,7 @@ expires_at = 2099-01-01T00:00:00Z
         let worker = std::thread::spawn(move || {
             workspace::set_finalized_read_test_hook(Some(Box::new(move |path, label| {
                 if label == source_label {
-                    assert_eq!(path, hook_path);
+                    assert_eq!(path, hook_path.as_path());
                     ready_tx.send(()).unwrap();
                     resume_rx.recv_timeout(Duration::from_secs(30)).unwrap();
                 }
@@ -2193,11 +2195,14 @@ expires_at = 2099-01-01T00:00:00Z
         let scope = fixture.root.join("tmp").join("scope.json");
         let replacement = fixture.root.join("tmp").join("scope-replacement.json");
         let moved = fixture.root.join("tmp").join("scope-original.json");
-        fs::write(
-            &scope,
-            br#"{"schema_version":1,"origin":"https://example.org","include_paths":["/api"],"exclude_paths":["/api/logout"],"allow_subdomains":false}"#,
-        )
-        .unwrap();
+        let original_scope = br#"{
+  "schema_version": 1,
+  "origin": "https://example.org",
+  "include_paths": ["/api"],
+  "exclude_paths": ["/api/logout"],
+  "allow_subdomains": false
+}"#;
+        fs::write(&scope, original_scope).unwrap();
         fs::write(&replacement, b"not valid scope json\n").unwrap();
 
         let worker_scope = scope.clone();
@@ -2207,7 +2212,7 @@ expires_at = 2099-01-01T00:00:00Z
         let worker = std::thread::spawn(move || {
             workspace::set_finalized_read_test_hook(Some(Box::new(move |path, label| {
                 if label == "guided scope import" {
-                    assert_eq!(path, hook_scope);
+                    assert_eq!(path, hook_scope.as_path());
                     ready_tx.send(()).unwrap();
                     resume_rx.recv_timeout(Duration::from_secs(30)).unwrap();
                 }
@@ -2230,8 +2235,11 @@ expires_at = 2099-01-01T00:00:00Z
             .expect("scope import rejected a post-validation pathname swap");
         assert_eq!(fs::read(&scope).unwrap(), b"not valid scope json\n");
         assert_eq!(imported.origin, "https://example.org");
-        assert_eq!(imported.include_paths, vec!["/api"]);
-        assert_eq!(imported.exclude_paths, vec!["/api/logout"]);
+        assert_eq!(imported.include_paths, vec!["/api".to_owned()]);
+        assert_eq!(
+            imported.exclude_paths,
+            vec!["/api/logout".to_owned()]
+        );
         assert!(!imported.allow_subdomains);
     }
 
