@@ -60,7 +60,7 @@ fn prepared_authority_and_publication_writer_are_compiled_and_target_entry_overr
 fn prepared_file_handle_stays_live_and_named_replacement_is_detected() {
     let prepared = source(PREPARED_PATH);
     for marker in [
-        "file: fs::File",
+        "_file: fs::File",
         "options.write(true).read(true).create_new(true);",
         "file.write_all(bytes)?;",
         "file.sync_all()?;",
@@ -74,6 +74,11 @@ fn prepared_file_handle_stays_live_and_named_replacement_is_detected() {
             "{PREPARED_PATH}: missing retained prepared authority marker: {marker}"
         );
     }
+
+    assert!(
+        !prepared.contains("#[allow(dead_code)]\n    _file: fs::File"),
+        "{PREPARED_PATH}: retained prepared handle must not rely on a dead-code suppression"
+    );
 
     assert!(
         !prepared.contains("drop(file)"),
@@ -95,7 +100,7 @@ fn linux_create_only_claim_uses_held_fd_not_the_reusable_temporary_pathname() {
         "const TRUSTED_LN: &str = \"/usr/bin/ln\";",
         "tool_metadata.uid() != 0",
         "tool_metadata.permissions().mode() & 0o022 != 0",
-        "self.file.as_raw_fd()",
+        "self._file.as_raw_fd()",
         "\"/proc/{}/fd/{}\"",
         ".arg(\"-L\")",
         ".arg(\"--\")",
