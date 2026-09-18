@@ -5,6 +5,7 @@ use std::{
 
 const WORKSPACE_PATH: &str = "crates/nxb-core/src/workspace/mod.rs";
 const PREPARED_PATH: &str = "crates/nxb-core/src/prepared_file_authority.rs";
+const PUBLICATION_PATH: &str = "crates/nxb-core/src/workspace_authority_publication.rs";
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -70,6 +71,23 @@ fn legacy_cleanup_injection_helper_is_test_only() {
     assert!(workspace.contains("#[cfg(test)]\nfn create_document_with_operations"));
     assert!(workspace
         .contains("#[cfg(test)]\n#[derive(Debug)]\nstruct UnpublishedDocumentCleanupError"));
+}
+
+#[test]
+fn publication_parent_sync_uses_platform_qualified_file_without_windows_unused_import() {
+    let publication = source(PUBLICATION_PATH);
+    assert!(
+        publication.starts_with("use std::path::Path;\n"),
+        "{PUBLICATION_PATH}: publication module must not import std::fs on Windows"
+    );
+    assert!(
+        publication.contains("std::fs::File::open(parent)"),
+        "{PUBLICATION_PATH}: Unix parent sync must retain the qualified file authority"
+    );
+    assert!(
+        !publication.contains("use std::{fs, path::Path};"),
+        "{PUBLICATION_PATH}: unconditional fs import reintroduces Windows -D warnings failure"
+    );
 }
 
 #[test]
