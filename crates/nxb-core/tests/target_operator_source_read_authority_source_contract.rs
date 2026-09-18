@@ -61,6 +61,12 @@ fn target_operator_sources_delegate_to_the_generalized_pinned_reader() {
         wrapper.contains("read_authority::read_bounded_source(path, label, maximum)"),
         "{WORKSPACE_PATH}: bounded source reads must share the workspace read-authority implementation"
     );
+    assert!(
+        workspace.contains(
+            "pub(crate) use read_authority::set_finalized_read_test_hook;"
+        ),
+        "{WORKSPACE_PATH}: Linux consumer-race tests must reach the finalized read hook"
+    );
 
     let authority = source(AUTHORITY_PATH);
     assert!(
@@ -260,6 +266,17 @@ fn operator_consumers_only_hash_compile_and_parse_returned_pinned_bytes() {
         assert!(
             authority.contains(marker),
             "{AUTHORITY_PATH}: deterministic pinned-byte race regression is missing: {marker}"
+        );
+    }
+
+    for marker in [
+        "policy_hash_consumes_pinned_bytes_after_post_validation_path_swap",
+        "authorization_hash_consumes_pinned_bytes_after_post_validation_path_swap",
+        "scope_import_consumes_pinned_bytes_after_post_validation_path_swap",
+    ] {
+        assert!(
+            target.contains(marker),
+            "{TARGET_PATH}: pinned-byte consumer race regression is missing: {marker}"
         );
     }
 }
