@@ -14,30 +14,30 @@ enum ReadPermission {
     OperatorProvided,
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ReadGateTestPhase {
     AfterInitialValidation,
     AfterReadBeforeFinalValidation,
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 type ReadGateTestHook = Box<dyn FnMut(ReadGateTestPhase)>;
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 std::thread_local! {
     static READ_GATE_TEST_HOOK: std::cell::RefCell<Option<ReadGateTestHook>> =
         std::cell::RefCell::new(None);
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 fn set_read_gate_test_hook(hook: Option<ReadGateTestHook>) {
     READ_GATE_TEST_HOOK.with(|slot| {
         *slot.borrow_mut() = hook;
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 fn invoke_read_gate_test_hook(phase: ReadGateTestPhase) {
     READ_GATE_TEST_HOOK.with(|slot| {
         if let Some(hook) = slot.borrow_mut().as_mut() {
@@ -92,7 +92,7 @@ fn read_bounded(
     validate_opened_metadata(&initial, label, maximum)?;
     validate_platform_authority(authority_path, &initial, label, permission)?;
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     invoke_read_gate_test_hook(ReadGateTestPhase::AfterInitialValidation);
 
     let capacity =
@@ -106,7 +106,7 @@ fn read_bounded(
         bail!("{label} exceeds the supported size limit or is empty");
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     invoke_read_gate_test_hook(ReadGateTestPhase::AfterReadBeforeFinalValidation);
 
     let final_metadata = file
