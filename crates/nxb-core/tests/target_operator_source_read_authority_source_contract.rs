@@ -200,3 +200,48 @@ fn operator_inputs_keep_their_exact_existing_size_caps_and_do_not_require_worksp
         "{AUTHORITY_PATH}: Windows exact-cap/non-private operator-source regression test is missing"
     );
 }
+
+#[test]
+fn operator_consumers_only_hash_compile_and_parse_returned_pinned_bytes() {
+    let target = source(TARGET_PATH);
+    for marker in [
+        "let authorization_bytes = read_bounded_source(",
+        "let authorization_document_sha256 = workspace::sha256(&authorization_bytes);",
+        "let policy_bytes = read_bounded_source(policy_path, \"target policy\", MAX_POLICY_BYTES)?;",
+        "&authorization_bytes,\n        &policy_bytes,",
+        "let policy = parse_policy(policy_bytes)?;",
+        "document_sha256: workspace::sha256(authorization_bytes)",
+        "policy_sha256: workspace::sha256(policy_bytes)",
+        "workspace::sha256(&policy_bytes) != profile.policy_sha256",
+        "workspace::sha256(&authorization_bytes) != profile.authorization.document_sha256",
+        "let policy = parse_policy(&policy_bytes)?;",
+    ] {
+        assert!(
+            target.contains(marker),
+            "{TARGET_PATH}: pinned operator bytes no longer feed the expected consumer: {marker}"
+        );
+    }
+
+    let scope = source(SCOPE_IMPORT_PATH);
+    for marker in [
+        "let bytes = read_bounded_source(path, \"guided scope import\", MAX_SCOPE_IMPORT_BYTES)?;",
+        "serde_json::from_slice(&bytes)",
+    ] {
+        assert!(
+            scope.contains(marker),
+            "{SCOPE_IMPORT_PATH}: scope import must parse only the returned pinned bytes: {marker}"
+        );
+    }
+
+    let authority = source(AUTHORITY_PATH);
+    for marker in [
+        "linux_reader_fails_closed_when_final_path_is_replaced_after_initial_validation",
+        "linux_reader_fails_closed_on_in_place_size_drift_at_the_read_gate",
+        "linux_reader_fails_closed_on_same_size_content_drift_after_read",
+    ] {
+        assert!(
+            authority.contains(marker),
+            "{AUTHORITY_PATH}: deterministic pinned-byte race regression is missing: {marker}"
+        );
+    }
+}

@@ -103,7 +103,7 @@ mod windows {
     ) -> io::Result<()> {
         validate_literal_child_name(new_name)?;
         let wide = new_name.encode_wide().collect::<Vec<_>>();
-        if wide.is_empty() || wide.iter().any(|value| *value == 0) {
+        if wide.is_empty() || wide.contains(&0) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "Win32 rename destination name is empty or contains NUL",
