@@ -56,7 +56,9 @@ std::thread_local! {
 }
 
 #[cfg(all(test, target_os = "linux"))]
-pub(crate) fn set_finalized_read_test_hook(hook: Option<FinalizedReadTestHook>) {
+pub(crate) fn set_finalized_read_test_hook(
+    hook: Option<Box<dyn FnMut(&Path, &str)>>,
+) {
     FINALIZED_READ_TEST_HOOK.with(|slot| {
         *slot.borrow_mut() = hook;
     });
