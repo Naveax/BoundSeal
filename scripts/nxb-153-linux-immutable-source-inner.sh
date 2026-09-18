@@ -520,17 +520,54 @@ EOF
             cargo_gate clippy --workspace --all-targets --all-features --locked -- -D warnings
             cargo_gate test --workspace --all-features --locked -- --test-threads=1
 
-            audit_path="/proc/self/fd/$repo_fd/$tools_relative/bin/cargo-audit"
-            deny_path="/proc/self/fd/$repo_fd/$tools_relative/bin/cargo-deny"
-            [[ -f "$audit_path" && ! -L "$audit_path" ]] || die "anchored cargo-audit path is unavailable"
-            [[ -f "$deny_path" && ! -L "$deny_path" ]] || die "anchored cargo-deny path is unavailable"
+            anchored_tool_root="/proc/self/fd/$repo_fd/$tools_relative"
+            anchored_audit_path="$anchored_tool_root/bin/cargo-audit"
+            anchored_deny_path="$anchored_tool_root/bin/cargo-deny"
+            [[ -f "$anchored_audit_path" && ! -L "$anchored_audit_path" ]] ||
+                die "anchored cargo-audit path is unavailable"
+            [[ -f "$anchored_deny_path" && ! -L "$anchored_deny_path" ]] ||
+                die "anchored cargo-deny path is unavailable"
 
-            python3 -I scripts/nxb-153-sealed-tool.py run \
-                "$audit_path" "$cargo_audit_version" "$audit_sha256" -- audit ||
-                die "receipt-hash-checked sealed cargo-audit gate failed inside immutable source snapshot"
-            python3 -I scripts/nxb-153-sealed-tool.py run \
-                "$deny_path" "$cargo_deny_version" "$deny_sha256" -- check ||
-                die "receipt-hash-checked sealed cargo-deny gate failed inside immutable source snapshot"
+            stable_tool_root="$tmp_root/validation-tools"
+            mkdir -m 0700 "$stable_tool_root"
+            audit_path="$stable_tool_root/cargo-audit"
+            deny_path="$stable_tool_root/cargo-deny"
+            cp --reflink=never -- "$anchored_audit_path" "$audit_path" ||
+                die "could not snapshot anchored cargo-audit into the private validation namespace"
+            cp --reflink=never -- "$anchored_deny_path" "$deny_path" ||
+                die "could not snapshot anchored cargo-deny into the private validation namespace"
+            chmod 0500 "$audit_path" "$deny_path"
+            [[ "$(sha256sum "$audit_path" | awk "{print \\$1}")" == "$audit_sha256" ]] ||
+                die "private cargo-audit snapshot differs from the receipt-bound SHA-256"
+            [[ "$(sha256sum "$deny_path" | awk "{print \\$1}")" == "$deny_sha256" ]] ||
+                die "private cargo-deny snapshot differs from the receipt-bound SHA-256"
+
+            mount --bind "$stable_tool_root" "$stable_tool_root"
+            mount -o remount,bind,ro "$stable_tool_root"
+            assert_readonly_mount "$stable_tool_root" "validation tool snapshot"
+            if printf changed > "$audit_path" 2>/dev/null; then
+                die "private cargo-audit snapshot remained writable after read-only bind"
+            fi
+            if printf changed > "$deny_path" 2>/dev/null; then
+                die "private cargo-deny snapshot remained writable after read-only bind"
+            fi
+
+            python3 -I scripts/nxb-153-sealed-tool.py inspect \
+                "$audit_path" "$cargo_audit_version" >/dev/null ||
+                die "private cargo-audit snapshot failed sealed version/hash inspection"
+            python3 -I scripts/nxb-153-sealed-tool.py inspect \
+                "$deny_path" "$cargo_deny_version" >/dev/null ||
+                die "private cargo-deny snapshot failed sealed version/hash inspection"
+
+            "$audit_path" audit ||
+                die "receipt-hash-checked immutable cargo-audit gate failed inside immutable source snapshot"
+            "$deny_path" check ||
+                die "receipt-hash-checked immutable cargo-deny gate failed inside immutable source snapshot"
+
+            [[ "$(sha256sum "$audit_path" | awk "{print \\$1}")" == "$audit_sha256" ]] ||
+                die "private cargo-audit snapshot changed during execution"
+            [[ "$(sha256sum "$deny_path" | awk "{print \\$1}")" == "$deny_sha256" ]] ||
+                die "private cargo-deny snapshot changed during execution"
 
             final_lock_sha256="$(sha256sum Cargo.lock | awk "{print \$1}")"
             [[ "$final_lock_sha256" == "$expected_lock_sha256" ]] ||
