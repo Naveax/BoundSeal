@@ -623,11 +623,8 @@ mod tests {
         file_with_mode(&path, b"original", 0o644);
         file_with_mode(&replacement, b"attacker", 0o644);
 
-        let (worker, ready_rx, resume_tx) = spawn_paused_read(
-            path.clone(),
-            ReadGateTestPhase::AfterInitialValidation,
-            64,
-        );
+        let (worker, ready_rx, resume_tx) =
+            spawn_paused_read(path.clone(), ReadGateTestPhase::AfterInitialValidation, 64);
         ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         fs::rename(&path, &original).unwrap();
         fs::rename(&replacement, &path).unwrap();
@@ -648,11 +645,8 @@ mod tests {
         let path = root.join("source.bin");
         file_with_mode(&path, b"original", 0o644);
 
-        let (worker, ready_rx, resume_tx) = spawn_paused_read(
-            path.clone(),
-            ReadGateTestPhase::AfterInitialValidation,
-            64,
-        );
+        let (worker, ready_rx, resume_tx) =
+            spawn_paused_read(path.clone(), ReadGateTestPhase::AfterInitialValidation, 64);
         ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         fs::write(&path, b"original-expanded").unwrap();
         resume_tx.send(()).unwrap();
