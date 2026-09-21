@@ -408,34 +408,13 @@ mod tests {
     fn recognizes_symbolic_and_hexadecimal_full_control_rights() {
         let sid = "S-1-5-21-100-200-300-1001";
 
-        assert!(sddl_has_full_control(
-            "D:P(A;;FA;;;S-1-5-21-100-200-300-1001)",
-            sid
-        ));
-        assert!(sddl_has_full_control(
-            "D:P(A;;GA;;;S-1-5-21-100-200-300-1001)",
-            sid
-        ));
-        assert!(sddl_has_full_control(
-            "D:P(A;;0x001f01ff;;;S-1-5-21-100-200-300-1001)",
-            sid
-        ));
-        assert!(sddl_has_full_control(
-            "D:P(A;;0x10000000;;;S-1-5-21-100-200-300-1001)",
-            sid
-        ));
-        assert!(sddl_has_full_control(
-            "D:P(A;;0x801f01ff;;;S-1-5-21-100-200-300-1001)",
-            sid
-        ));
-        assert!(!sddl_has_full_control(
-            "D:P(A;;FR;;;S-1-5-21-100-200-300-1001)",
-            sid
-        ));
-        assert!(!sddl_has_full_control(
-            "D:P(A;;0x00120089;;;S-1-5-21-100-200-300-1001)",
-            sid
-        ));
+        assert!(sddl_has_full_control("D:P(A;;FA;;;S-1-5-21-100-200-300-1001)", sid));
+        assert!(sddl_has_full_control("D:P(A;;GA;;;S-1-5-21-100-200-300-1001)", sid));
+        assert!(sddl_has_full_control("D:P(A;;0x001f01ff;;;S-1-5-21-100-200-300-1001)", sid));
+        assert!(sddl_has_full_control("D:P(A;;0x10000000;;;S-1-5-21-100-200-300-1001)", sid));
+        assert!(sddl_has_full_control("D:P(A;;0x801f01ff;;;S-1-5-21-100-200-300-1001)", sid));
+        assert!(!sddl_has_full_control("D:P(A;;FR;;;S-1-5-21-100-200-300-1001)", sid));
+        assert!(!sddl_has_full_control("D:P(A;;0x00120089;;;S-1-5-21-100-200-300-1001)", sid));
     }
 
     #[test]
