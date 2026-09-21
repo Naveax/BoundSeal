@@ -48,8 +48,15 @@ mod windows {
     /// FALSE and the operation is create-only at the destination name.
     #[allow(dead_code)]
     #[repr(C)]
-    struct FileRenameInformation {
+    union FileRenameReplaceOrFlags {
         replace_if_exists: u8,
+        flags: u32,
+    }
+
+    #[allow(dead_code)]
+    #[repr(C)]
+    struct FileRenameInformation {
+        replace_or_flags: FileRenameReplaceOrFlags,
         root_directory: RawHandle,
         file_name_length: u32,
         file_name: [u16; 1],
