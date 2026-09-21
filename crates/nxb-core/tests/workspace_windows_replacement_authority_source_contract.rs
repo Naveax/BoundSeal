@@ -90,6 +90,16 @@ fn windows_unsafe_abi_is_isolated_in_a_separate_core_library_crate_without_lock_
         platform.contains("nt_set_information_file("),
         "{PLATFORM_PATH}: retained-parent rename must call the native FileRenameInformation path"
     );
+    for marker in [
+        "if status != 0 {",
+        "rtl_nt_status_to_dos_error(status)",
+        "io::Error::from_raw_os_error(code as i32)",
+    ] {
+        assert!(
+            platform.contains(marker),
+            "{PLATFORM_PATH}: native rename must fail closed through NTSTATUS translation: {marker}"
+        );
+    }
 
     assert!(
         platform.contains("unsafe {"),
