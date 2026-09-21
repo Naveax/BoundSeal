@@ -752,6 +752,44 @@ mod windows_tests {
     }
 
     #[test]
+    fn windows_operator_source_rejects_reparse_parent_junction() {
+        let root = temporary_root();
+        fs::create_dir(&root).unwrap();
+        let actual_parent = root.join("actual-parent");
+        fs::create_dir(&actual_parent).unwrap();
+        let actual = actual_parent.join("operator-source.bin");
+        fs::write(&actual, b"operator source").unwrap();
+
+        let junction = root.join("junction-parent");
+        let output = std::process::Command::new("cmd.exe")
+            .arg("/D")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(&junction)
+            .arg(&actual_parent)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "could not create Windows junction fixture: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let through_reparse = junction.join("operator-source.bin");
+        let error = read_bounded_source(&through_reparse, "test operator source", 64).unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("reparse") || message.contains("indirection"),
+            "unexpected reparse-parent rejection: {message}"
+        );
+
+        fs::remove_dir(&junction).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn windows_operator_source_does_not_require_workspace_private_acl() {
         let root = temporary_root();
         fs::create_dir(&root).unwrap();
