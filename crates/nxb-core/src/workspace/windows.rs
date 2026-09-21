@@ -331,9 +331,30 @@ fn decode_windows_text(bytes: &[u8]) -> Result<String> {
     String::from_utf8(bytes.to_vec()).context("ACL export is not valid UTF-8")
 }
 
+const WINDOWS_FILE_ALL_ACCESS_MASK: u32 = 0x001F_01FF;
+
+fn sddl_rights_include_full_control(rights: &str) -> bool {
+    if let Some(hex) = rights
+        .strip_prefix("0x")
+        .or_else(|| rights.strip_prefix("0X"))
+    {
+        return u32::from_str_radix(hex, 16)
+            .map(|mask| mask & WINDOWS_FILE_ALL_ACCESS_MASK == WINDOWS_FILE_ALL_ACCESS_MASK)
+            .unwrap_or(false);
+    }
+
+    rights
+        .as_bytes()
+        .chunks_exact(2)
+        .any(|token| token == b"FA" || token == b"GA")
+}
+
 fn sddl_has_full_control(sddl: &str, principal: &str) -> bool {
-    sddl_aces(sddl)
-        .any(|ace| ace.ace_type == "A" && ace.rights.contains("FA") && ace.principal == principal)
+    sddl_aces(sddl).any(|ace| {
+        ace.ace_type == "A"
+            && sddl_rights_include_full_control(ace.rights)
+            && ace.principal == principal
+    })
 }
 
 fn sddl_has_allow_ace(sddl: &str, principal: &str) -> bool {
@@ -380,6 +401,36 @@ mod tests {
 
         assert!(!bytes.starts_with(&[0xff, 0xfe]));
         assert_eq!(decode_windows_text(&bytes).unwrap(), expected);
+    }
+
+    #[test]
+    fn recognizes_symbolic_and_hexadecimal_full_control_rights() {
+        let sid = "S-1-5-21-100-200-300-1001";
+
+        assert!(sddl_has_full_control(
+            "D:P(A;;FA;;;S-1-5-21-100-200-300-1001)",
+            sid
+        ));
+        assert!(sddl_has_full_control(
+            "D:P(A;;GA;;;S-1-5-21-100-200-300-1001)",
+            sid
+        ));
+        assert!(sddl_has_full_control(
+            "D:P(A;;0x001f01ff;;;S-1-5-21-100-200-300-1001)",
+            sid
+        ));
+        assert!(sddl_has_full_control(
+            "D:P(A;;0x801f01ff;;;S-1-5-21-100-200-300-1001)",
+            sid
+        ));
+        assert!(!sddl_has_full_control(
+            "D:P(A;;FR;;;S-1-5-21-100-200-300-1001)",
+            sid
+        ));
+        assert!(!sddl_has_full_control(
+            "D:P(A;;0x00120089;;;S-1-5-21-100-200-300-1001)",
+            sid
+        ));
     }
 
     #[test]
