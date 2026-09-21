@@ -61,6 +61,8 @@ fn windows_unsafe_abi_is_isolated_in_a_separate_core_library_crate_without_lock_
         "struct FileRenameInfo",
         "pub fn file_identity(file: &File)",
         "pub fn rename_handle_relative_no_replace(",
+        "offset_of!(FileRenameInfo, file_name)",
+        "payload_bytes.max(size_of::<FileRenameInfo>())",
         "ReplaceIfExists = FALSE",
     ] {
         assert!(
@@ -108,7 +110,12 @@ fn windows_replacement_retains_parent_current_and_prepared_authorities_through_f
     let replacement = source(REPLACEMENT_PATH);
     for marker in [
         "handles: Vec<File>",
-        ".access_mode(FILE_READ_ATTRIBUTES)",
+        "const FILE_ADD_FILE: u32 = 0x0000_0002;",
+        "const SYNCHRONIZE: u32 = 0x0010_0000;",
+        "let final_index = ancestors.len().saturating_sub(1);",
+        "let access_mode = if index == final_index {",
+        "FILE_READ_ATTRIBUTES | FILE_ADD_FILE | SYNCHRONIZE",
+        ".access_mode(access_mode)",
         ".share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)",
         "FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT",
         ".access_mode(GENERIC_READ | DELETE)",
@@ -164,6 +171,7 @@ fn windows_replacement_regressions_cover_identity_observation_and_namespace_race
         "fn handle_relative_rename_preserves_exact_identity()",
         "fn no_replace_rename_preserves_existing_destination()",
         "fn source_handle_denies_rename_until_retained_authority_is_released()",
+        ".access_mode(FILE_READ_ATTRIBUTES | FILE_ADD_FILE | SYNCHRONIZE)",
     ] {
         assert!(
             platform.contains(marker),
