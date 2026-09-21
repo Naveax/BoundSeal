@@ -110,15 +110,12 @@ mod windows {
             ));
         }
 
-        let name_byte_len = wide
-            .len()
-            .checked_mul(size_of::<u16>())
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "Win32 rename destination name is too large",
-                )
-            })?;
+        let name_byte_len = wide.len().checked_mul(size_of::<u16>()).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Win32 rename destination name is too large",
+            )
+        })?;
         let name_bytes = u32::try_from(name_byte_len).map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
