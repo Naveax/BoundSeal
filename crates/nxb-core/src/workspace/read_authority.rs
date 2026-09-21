@@ -46,6 +46,31 @@ fn invoke_read_gate_test_hook(phase: ReadGateTestPhase) {
     });
 }
 
+#[cfg(all(test, target_os = "linux"))]
+type FinalizedReadTestHook = Box<dyn FnMut(&Path, &str)>;
+
+#[cfg(all(test, target_os = "linux"))]
+std::thread_local! {
+    static FINALIZED_READ_TEST_HOOK: std::cell::RefCell<Option<FinalizedReadTestHook>> =
+        std::cell::RefCell::new(None);
+}
+
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) fn set_finalized_read_test_hook(hook: Option<Box<dyn FnMut(&Path, &str)>>) {
+    FINALIZED_READ_TEST_HOOK.with(|slot| {
+        *slot.borrow_mut() = hook;
+    });
+}
+
+#[cfg(all(test, target_os = "linux"))]
+fn invoke_finalized_read_test_hook(path: &Path, label: &str) {
+    FINALIZED_READ_TEST_HOOK.with(|slot| {
+        if let Some(hook) = slot.borrow_mut().as_mut() {
+            hook(path, label);
+        }
+    });
+}
+
 struct PinnedParentNamespace {
     stable_child_path: PathBuf,
     #[cfg(target_os = "linux")]
@@ -117,6 +142,10 @@ fn read_bounded(
         bail!("{label} changed size while being read");
     }
     validate_platform_stability(authority_path, &initial, &final_metadata, label, permission)?;
+
+    #[cfg(all(test, target_os = "linux"))]
+    invoke_finalized_read_test_hook(path, label);
+
     Ok(bytes)
 }
 

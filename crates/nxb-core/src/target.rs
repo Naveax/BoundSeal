@@ -2075,6 +2075,172 @@ expires_at = 2099-01-01T00:00:00Z
         }
     }
 
+    #[cfg(target_os = "linux")]
+    #[derive(Debug, Clone, Copy)]
+    enum CreateSourceSwap {
+        Policy,
+        Authorization,
+    }
+
+    #[cfg(target_os = "linux")]
+    fn create_with_post_validation_source_swap(
+        source: CreateSourceSwap,
+    ) -> (TargetProfile, String) {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let fixture = Fixture::new();
+        let (source_path, source_label, replacement_name, replacement_bytes) = match source {
+            CreateSourceSwap::Policy => (
+                fixture.policy.clone(),
+                "target policy",
+                "replacement-policy.toml",
+                &b"this is not valid policy toml\n"[..],
+            ),
+            CreateSourceSwap::Authorization => (
+                fixture.authorization.clone(),
+                "authorization document",
+                "replacement-authorization.txt",
+                &b"attacker authorization bytes\n"[..],
+            ),
+        };
+        let expected_sha256 = workspace::sha256(&fs::read(&source_path).unwrap());
+        let replacement = fixture.root.join("tmp").join(replacement_name);
+        let moved = fixture
+            .root
+            .join("tmp")
+            .join(format!("{replacement_name}.original"));
+        fs::write(&replacement, replacement_bytes).unwrap();
+
+        let root = fixture.root.clone();
+        let policy = fixture.policy.clone();
+        let authorization = fixture.authorization.clone();
+        let hook_path = source_path.clone();
+        let (ready_tx, ready_rx) = mpsc::channel::<()>();
+        let (resume_tx, resume_rx) = mpsc::channel::<()>();
+
+        let worker = std::thread::spawn(move || {
+            workspace::set_finalized_read_test_hook(Some(Box::new(move |path, label| {
+                if label == source_label {
+                    assert_eq!(path, hook_path.as_path());
+                    ready_tx.send(()).unwrap();
+                    resume_rx.recv_timeout(Duration::from_secs(30)).unwrap();
+                }
+            })));
+            let result = create_value(
+                &root,
+                "example-app",
+                "Example App",
+                "https://example.org",
+                vec!["/api".into()],
+                vec!["/api/logout".into()],
+                "hackerone/program/example#scope-2026",
+                &authorization,
+                &policy,
+            );
+            workspace::set_finalized_read_test_hook(None);
+            result
+        });
+
+        ready_rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("target source read did not reach finalized authority gate");
+        fs::rename(&source_path, &moved).unwrap();
+        fs::rename(&replacement, &source_path).unwrap();
+        resume_tx.send(()).unwrap();
+
+        let created = worker
+            .join()
+            .expect("target source consumer worker panicked")
+            .expect("target source consumer rejected a post-validation pathname swap");
+        assert_eq!(
+            created.get("status").and_then(Value::as_str),
+            Some("active")
+        );
+        assert_eq!(
+            fs::read(&source_path).unwrap().as_slice(),
+            replacement_bytes
+        );
+
+        let profile =
+            read_profile(&fixture.root.join("targets").join("example-app.json")).unwrap();
+        (profile, expected_sha256)
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn policy_hash_consumes_pinned_bytes_after_post_validation_path_swap() {
+        let (profile, expected_sha256) =
+            create_with_post_validation_source_swap(CreateSourceSwap::Policy);
+        assert_eq!(profile.policy_sha256, expected_sha256);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn authorization_hash_consumes_pinned_bytes_after_post_validation_path_swap() {
+        let (profile, expected_sha256) =
+            create_with_post_validation_source_swap(CreateSourceSwap::Authorization);
+        assert_eq!(profile.authorization.document_sha256, expected_sha256);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn scope_import_consumes_pinned_bytes_after_post_validation_path_swap() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let fixture = Fixture::new();
+        let scope = fixture.root.join("tmp").join("scope.json");
+        let replacement = fixture.root.join("tmp").join("scope-replacement.json");
+        let moved = fixture.root.join("tmp").join("scope-original.json");
+        let original_scope = br#"{
+  "schema_version": 1,
+  "origin": "https://example.org",
+  "include_paths": ["/api"],
+  "exclude_paths": ["/api/logout"],
+  "allow_subdomains": false
+}"#;
+        fs::write(&scope, original_scope).unwrap();
+        fs::write(&replacement, b"not valid scope json\n").unwrap();
+
+        let worker_scope = scope.clone();
+        let hook_scope = scope.clone();
+        let (ready_tx, ready_rx) = mpsc::channel::<()>();
+        let (resume_tx, resume_rx) = mpsc::channel::<()>();
+        let worker = std::thread::spawn(move || {
+            workspace::set_finalized_read_test_hook(Some(Box::new(move |path, label| {
+                if label == "guided scope import" {
+                    assert_eq!(path, hook_scope.as_path());
+                    ready_tx.send(()).unwrap();
+                    resume_rx.recv_timeout(Duration::from_secs(30)).unwrap();
+                }
+            })));
+            let result = load_scope_import(&worker_scope);
+            workspace::set_finalized_read_test_hook(None);
+            result
+        });
+
+        ready_rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("scope import did not reach finalized authority gate");
+        fs::rename(&scope, &moved).unwrap();
+        fs::rename(&replacement, &scope).unwrap();
+        resume_tx.send(()).unwrap();
+
+        let imported = worker
+            .join()
+            .expect("scope import consumer worker panicked")
+            .expect("scope import rejected a post-validation pathname swap");
+        assert_eq!(
+            fs::read(&scope).unwrap().as_slice(),
+            b"not valid scope json\n"
+        );
+        assert_eq!(imported.origin, "https://example.org");
+        assert_eq!(imported.include_paths, vec!["/api".to_owned()]);
+        assert_eq!(imported.exclude_paths, vec!["/api/logout".to_owned()]);
+        assert!(!imported.allow_subdomains);
+    }
+
     #[derive(Debug, Clone, Copy)]
     enum ObservationOperation {
         Create,
