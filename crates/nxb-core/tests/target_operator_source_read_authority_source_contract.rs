@@ -80,8 +80,12 @@ fn target_operator_sources_delegate_to_the_generalized_pinned_reader() {
             .contains("set_finalized_read_test_hook(hook: Option<Box<dyn FnMut(&Path, &str)>>)"),
         "{AUTHORITY_PATH}: finalized read hook must reuse its named alias under -D warnings"
     );
+    assert!(
+        !authority.contains("\ntype FinalizedReadTestHook = Box<dyn FnMut(&Path, &str)>;"),
+        "{AUTHORITY_PATH}: the crate-visible finalized read setter must not expose a more-private alias"
+    );
     for marker in [
-        "type FinalizedReadTestHook = Box<dyn FnMut(&Path, &str)>;",
+        "pub(crate) type FinalizedReadTestHook = Box<dyn FnMut(&Path, &str)>;",
         "pub(crate) fn set_finalized_read_test_hook(hook: Option<FinalizedReadTestHook>)",
         "pub(crate) fn set_finalized_read_test_hook",
         "invoke_finalized_read_test_hook(path, label);",
