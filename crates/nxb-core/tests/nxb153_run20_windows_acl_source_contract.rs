@@ -81,17 +81,20 @@ fn windows_workspace_acl_full_control_decoder_accepts_documented_equivalent_sddl
 
     for marker in [
         "const WINDOWS_FILE_ALL_ACCESS_MASK: u32 = 0x001F_01FF;",
+        "const WINDOWS_GENERIC_ALL_MASK: u32 = 0x1000_0000;",
         "fn sddl_rights_include_full_control(rights: &str) -> bool",
         ".strip_prefix(\"0x\")",
         "rights.strip_prefix(\"0X\")",
         "u32::from_str_radix(hex, 16)",
         "mask & WINDOWS_FILE_ALL_ACCESS_MASK == WINDOWS_FILE_ALL_ACCESS_MASK",
+        "mask & WINDOWS_GENERIC_ALL_MASK == WINDOWS_GENERIC_ALL_MASK",
         "token == b\"FA\" || token == b\"GA\"",
         "sddl_rights_include_full_control(ace.rights)",
         "fn recognizes_symbolic_and_hexadecimal_full_control_rights()",
         "D:P(A;;FA;;;S-1-5-21-100-200-300-1001)",
         "D:P(A;;GA;;;S-1-5-21-100-200-300-1001)",
         "D:P(A;;0x001f01ff;;;S-1-5-21-100-200-300-1001)",
+        "D:P(A;;0x10000000;;;S-1-5-21-100-200-300-1001)",
     ] {
         assert!(
             authority.contains(marker),
