@@ -2162,8 +2162,7 @@ expires_at = 2099-01-01T00:00:00Z
             replacement_bytes
         );
 
-        let profile =
-            read_profile(&fixture.root.join("targets").join("example-app.json")).unwrap();
+        let profile = read_profile(&fixture.root.join("targets").join("example-app.json")).unwrap();
         (profile, expected_sha256)
     }
 
