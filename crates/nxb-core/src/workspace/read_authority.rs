@@ -47,7 +47,7 @@ fn invoke_read_gate_test_hook(phase: ReadGateTestPhase) {
 }
 
 #[cfg(all(test, target_os = "linux"))]
-type FinalizedReadTestHook = Box<dyn FnMut(&Path, &str)>;
+pub(crate) type FinalizedReadTestHook = Box<dyn FnMut(&Path, &str)>;
 
 #[cfg(all(test, target_os = "linux"))]
 std::thread_local! {
