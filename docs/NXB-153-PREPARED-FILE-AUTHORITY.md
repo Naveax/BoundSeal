@@ -61,7 +61,7 @@ The current source contract is:
 7. claim the canonical destination create-only from the retained prepared object and verify the final destination binding;
 8. revalidate retained parent authority before success.
 
-The unsafe Win32 ABI is isolated in the dependency-free `nxb_core_win32_authority` library target inside the existing `nxb-core` package. The `nxb` binary remains a separate crate target with `#![forbid(unsafe_code)]` and consumes only the helper library's safe identity/handle-relative rename API. No new workspace package or Cargo dependency graph entry is required.
+The unsafe Windows ABI is isolated in the dependency-free `nxb_core_win32_authority` library target inside the existing `nxb-core` package. The `nxb` binary remains a separate crate target with `#![forbid(unsafe_code)]` and consumes only the helper library's safe identity/handle-relative rename API. No new workspace package or Cargo dependency graph entry is required.
 
 ## Reachable route boundary
 
