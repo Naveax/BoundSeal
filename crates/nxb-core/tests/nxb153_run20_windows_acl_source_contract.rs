@@ -4,6 +4,7 @@ use std::{
 };
 
 const WINDOWS_IMMUTABLE_SOURCE_PATH: &str = "scripts/nxb-153-windows-immutable-source-inner.ps1";
+const WINDOWS_WORKSPACE_PATH: &str = "crates/nxb-core/src/workspace/windows.rs";
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -70,5 +71,36 @@ fn windows_runtime_directories_are_protected_before_source_denies_are_staged() {
     assert!(
         runtime < snapshot && snapshot < deny,
         "{WINDOWS_IMMUTABLE_SOURCE_PATH}: runtime directories must be protected before source ACL snapshots and deny staging"
+    );
+}
+
+
+#[test]
+fn windows_workspace_acl_full_control_decoder_accepts_documented_equivalent_sddl_forms() {
+    let authority = source(WINDOWS_WORKSPACE_PATH);
+
+    for marker in [
+        "const WINDOWS_FILE_ALL_ACCESS_MASK: u32 = 0x001F_01FF;",
+        "fn sddl_rights_include_full_control(rights: &str) -> bool",
+        ".strip_prefix(\"0x\")",
+        "rights.strip_prefix(\"0X\")",
+        "u32::from_str_radix(hex, 16)",
+        "mask & WINDOWS_FILE_ALL_ACCESS_MASK == WINDOWS_FILE_ALL_ACCESS_MASK",
+        "token == b\"FA\" || token == b\"GA\"",
+        "sddl_rights_include_full_control(ace.rights)",
+        "fn recognizes_symbolic_and_hexadecimal_full_control_rights()",
+        "D:P(A;;FA;;;S-1-5-21-100-200-300-1001)",
+        "D:P(A;;GA;;;S-1-5-21-100-200-300-1001)",
+        "D:P(A;;0x001f01ff;;;S-1-5-21-100-200-300-1001)",
+    ] {
+        assert!(
+            authority.contains(marker),
+            "{WINDOWS_WORKSPACE_PATH}: Windows ACL full-control decoder is missing marker: {marker}"
+        );
+    }
+
+    assert!(
+        !authority.contains("ace.rights.contains(\"FA\")"),
+        "{WINDOWS_WORKSPACE_PATH}: full-control validation must not depend on one SDDL spelling"
     );
 }
