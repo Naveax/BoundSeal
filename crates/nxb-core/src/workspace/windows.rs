@@ -332,6 +332,7 @@ fn decode_windows_text(bytes: &[u8]) -> Result<String> {
 }
 
 const WINDOWS_FILE_ALL_ACCESS_MASK: u32 = 0x001F_01FF;
+const WINDOWS_GENERIC_ALL_MASK: u32 = 0x1000_0000;
 
 fn sddl_rights_include_full_control(rights: &str) -> bool {
     if let Some(hex) = rights
@@ -339,7 +340,10 @@ fn sddl_rights_include_full_control(rights: &str) -> bool {
         .or_else(|| rights.strip_prefix("0X"))
     {
         return u32::from_str_radix(hex, 16)
-            .map(|mask| mask & WINDOWS_FILE_ALL_ACCESS_MASK == WINDOWS_FILE_ALL_ACCESS_MASK)
+            .map(|mask| {
+                mask & WINDOWS_FILE_ALL_ACCESS_MASK == WINDOWS_FILE_ALL_ACCESS_MASK
+                    || mask & WINDOWS_GENERIC_ALL_MASK == WINDOWS_GENERIC_ALL_MASK
+            })
             .unwrap_or(false);
     }
 
@@ -417,6 +421,10 @@ mod tests {
         ));
         assert!(sddl_has_full_control(
             "D:P(A;;0x001f01ff;;;S-1-5-21-100-200-300-1001)",
+            sid
+        ));
+        assert!(sddl_has_full_control(
+            "D:P(A;;0x10000000;;;S-1-5-21-100-200-300-1001)",
             sid
         ));
         assert!(sddl_has_full_control(
