@@ -79,6 +79,7 @@ The branch now contains:
 - source binding from returned pinned authorization/policy/scope bytes into authorization SHA-256, policy parse/hash, and scope JSON parsing;
 - deterministic Linux post-validation pathname-swap tests proving target policy hash, authorization hash, and scope parsing consume the returned pinned bytes rather than reopening the mutable pathname;
 - Windows parent-directory rename blocking while authority handles are held;
+- a staged Windows junction-based reparse-parent runtime regression proving operator-source reads reject a real reparse indirection before consuming bytes;
 - Windows operator-source non-private ACL/caller-cap coverage;
 - Windows final-file write/delete/rename blocking while the read handle is held;
 - a source contract that forbids restoring target-local metadata-then-open I/O and locks the 64 KiB / 1 MiB / 8 MiB product envelopes.
@@ -89,7 +90,7 @@ Before #109 or NXB-153 can be admitted:
 
 - run the canonical Rust 1.97.1 workspace/security gates on the exact head;
 - retain exact-head Linux execution of the deterministic final-replacement/in-place-drift/content-drift races; Run #36 executed all three and failed only because the final-replacement test accepted one fail-closed diagnostic spelling, now corrected in staging;
-- execute supported Windows parent/final replacement, rename/delete/reparse substitution coverage;
+- execute supported Windows parent/final replacement and rename/delete coverage together with the staged real-junction reparse-parent rejection on an exact-head canonical Windows run;
 - execute the staged direct consumer-level policy/authorization/scope post-validation pathname-swap races on an exact-head canonical Linux run;
 - preserve the existing setup/import/validate/recovery matrices;
 - perform guarded same-head Linux + Windows closure under the repository CI execution policy.
