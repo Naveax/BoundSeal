@@ -335,10 +335,7 @@ const WINDOWS_FILE_ALL_ACCESS_MASK: u32 = 0x001F_01FF;
 const WINDOWS_GENERIC_ALL_MASK: u32 = 0x1000_0000;
 
 fn sddl_rights_include_full_control(rights: &str) -> bool {
-    if let Some(hex) = rights
-        .strip_prefix("0x")
-        .or_else(|| rights.strip_prefix("0X"))
-    {
+    if let Some(hex) = rights.strip_prefix("0x").or_else(|| rights.strip_prefix("0X")) {
         return u32::from_str_radix(hex, 16)
             .map(|mask| {
                 mask & WINDOWS_FILE_ALL_ACCESS_MASK == WINDOWS_FILE_ALL_ACCESS_MASK
