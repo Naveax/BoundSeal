@@ -74,7 +74,6 @@ fn windows_runtime_directories_are_protected_before_source_denies_are_staged() {
     );
 }
 
-
 #[test]
 fn windows_workspace_acl_full_control_decoder_accepts_documented_equivalent_sddl_forms() {
     let authority = source(WINDOWS_WORKSPACE_PATH);
