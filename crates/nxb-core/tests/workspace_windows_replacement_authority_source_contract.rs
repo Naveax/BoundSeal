@@ -74,6 +74,8 @@ fn windows_unsafe_abi_is_isolated_in_a_separate_core_library_crate_without_lock_
         "pub fn rename_handle_relative_no_replace(",
         "offset_of!(FileRenameInformation, file_name)",
         "payload_bytes.max(size_of::<FileRenameInformation>())",
+        "let mut storage = vec![0_usize; words];",
+        "(*information).root_directory = parent.as_raw_handle();",
         "ReplaceIfExists remains FALSE",
     ] {
         assert!(
