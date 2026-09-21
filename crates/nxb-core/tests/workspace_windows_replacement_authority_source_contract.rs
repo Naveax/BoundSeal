@@ -55,21 +55,42 @@ fn windows_unsafe_abi_is_isolated_in_a_separate_core_library_crate_without_lock_
     for marker in [
         "unsafe extern \"system\"",
         "#[link_name = \"GetFileInformationByHandle\"]",
-        "#[link_name = \"SetFileInformationByHandle\"]",
-        "const FILE_RENAME_INFO_CLASS: i32 = 3;",
+        "#[link_name = \"NtSetInformationFile\"]",
+        "#[link_name = \"RtlNtStatusToDosError\"]",
+        "const FILE_RENAME_INFORMATION_CLASS: i32 = 10;",
         "struct ByHandleFileInformation",
-        "struct FileRenameInfo",
+        "struct FileRenameInformation",
+        "struct IoStatusBlock",
         "pub fn file_identity(file: &File)",
         "pub fn rename_handle_relative_no_replace(",
-        "offset_of!(FileRenameInfo, file_name)",
-        "payload_bytes.max(size_of::<FileRenameInfo>())",
-        "ReplaceIfExists = FALSE",
+        "offset_of!(FileRenameInformation, file_name)",
+        "payload_bytes.max(size_of::<FileRenameInformation>())",
+        "ReplaceIfExists remains FALSE",
     ] {
         assert!(
             platform.contains(marker),
             "{PLATFORM_PATH}: missing Win32 ABI authority marker: {marker}"
         );
     }
+    assert!(
+        platform.contains("#[link(name = \"ntdll\")]"),
+        "{PLATFORM_PATH}: native handle-relative rename must stay bound to ntdll"
+    );
+    for forbidden in [
+        "#[link_name = \"SetFileInformationByHandle\"]",
+        "FILE_RENAME_INFO_CLASS: i32 = 3;",
+        "set_file_information_by_handle(",
+    ] {
+        assert!(
+            !platform.contains(forbidden),
+            "{PLATFORM_PATH}: Win32 FileRenameInfo fallback must stay removed: {forbidden}"
+        );
+    }
+    assert!(
+        platform.contains("nt_set_information_file("),
+        "{PLATFORM_PATH}: retained-parent rename must call the native FileRenameInformation path"
+    );
+
     assert!(
         platform.contains("unsafe {"),
         "{PLATFORM_PATH}: the audited ABI boundary must remain visible in the isolated library crate"
