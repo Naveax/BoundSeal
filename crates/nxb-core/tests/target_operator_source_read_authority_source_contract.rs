@@ -171,6 +171,10 @@ fn linux_and_windows_source_authority_pin_the_parent_namespace_and_final_file() 
             "{WINDOWS_PATH}: Windows final-file authority is missing marker: {marker}"
         );
     }
+    assert!(
+        authority.contains("fn windows_operator_source_rejects_reparse_parent_junction()"),
+        "{AUTHORITY_PATH}: Windows reparse-parent runtime regression is missing"
+    );
 }
 
 #[test]
