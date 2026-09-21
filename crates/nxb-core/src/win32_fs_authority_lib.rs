@@ -57,10 +57,25 @@ mod windows {
 
     #[allow(dead_code)]
     #[repr(C)]
-    #[derive(Default)]
+    union IoStatusBlockStatus {
+        status: i32,
+        pointer: *mut c_void,
+    }
+
+    #[allow(dead_code)]
+    #[repr(C)]
     struct IoStatusBlock {
-        status_or_pointer: usize,
+        status_or_pointer: IoStatusBlockStatus,
         information: usize,
+    }
+
+    impl Default for IoStatusBlock {
+        fn default() -> Self {
+            Self {
+                status_or_pointer: IoStatusBlockStatus { status: 0 },
+                information: 0,
+            }
+        }
     }
 
     #[link(name = "kernel32")]
