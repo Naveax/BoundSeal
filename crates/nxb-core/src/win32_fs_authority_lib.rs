@@ -6,7 +6,7 @@ mod windows {
         ffi::{c_void, OsStr},
         fs::File,
         io,
-        mem::{size_of, size_of_val},
+        mem::{offset_of, size_of, size_of_val},
         os::windows::{
             ffi::OsStrExt,
             io::{AsRawHandle, RawHandle},
@@ -110,34 +110,30 @@ mod windows {
             ));
         }
 
-        let name_bytes = wide
+        let name_byte_len = wide
             .len()
             .checked_mul(size_of::<u16>())
-            .and_then(|value| u32::try_from(value).ok())
             .ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "Win32 rename destination name is too large",
                 )
             })?;
-        let extra_bytes = wide
-            .len()
-            .saturating_sub(1)
-            .checked_mul(size_of::<u16>())
+        let name_bytes = u32::try_from(name_byte_len).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Win32 rename destination name is too large",
+            )
+        })?;
+        let payload_bytes = offset_of!(FileRenameInfo, file_name)
+            .checked_add(name_byte_len)
             .ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "Win32 rename information size overflow",
                 )
             })?;
-        let buffer_bytes = size_of::<FileRenameInfo>()
-            .checked_add(extra_bytes)
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "Win32 rename information size overflow",
-                )
-            })?;
+        let buffer_bytes = payload_bytes.max(size_of::<FileRenameInfo>());
         let word_bytes = size_of::<usize>();
         let words = buffer_bytes
             .checked_add(word_bytes - 1)
@@ -212,7 +208,9 @@ mod windows {
         };
 
         const DELETE: u32 = 0x0001_0000;
+        const FILE_ADD_FILE: u32 = 0x0000_0002;
         const FILE_READ_ATTRIBUTES: u32 = 0x0000_0080;
+        const SYNCHRONIZE: u32 = 0x0010_0000;
         const GENERIC_READ: u32 = 0x8000_0000;
         const FILE_SHARE_READ: u32 = 0x0000_0001;
         const FILE_SHARE_WRITE: u32 = 0x0000_0002;
@@ -235,7 +233,7 @@ mod windows {
 
         fn parent_handle(path: &Path) -> File {
             fs::OpenOptions::new()
-                .access_mode(FILE_READ_ATTRIBUTES)
+                .access_mode(FILE_READ_ATTRIBUTES | FILE_ADD_FILE | SYNCHRONIZE)
                 .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
                 .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
                 .open(path)

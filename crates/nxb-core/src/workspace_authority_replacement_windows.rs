@@ -10,7 +10,9 @@ use anyhow::{bail, Context, Result};
 use nxb_core_win32_authority::{file_identity, rename_handle_relative_no_replace, FileIdentity};
 
 const DELETE: u32 = 0x0001_0000;
+const FILE_ADD_FILE: u32 = 0x0000_0002;
 const FILE_READ_ATTRIBUTES: u32 = 0x0000_0080;
+const SYNCHRONIZE: u32 = 0x0010_0000;
 const GENERIC_READ: u32 = 0x8000_0000;
 const FILE_SHARE_READ: u32 = 0x0000_0001;
 const FILE_SHARE_WRITE: u32 = 0x0000_0002;
@@ -40,13 +42,19 @@ impl ParentAuthority {
             .map(Path::to_path_buf)
             .collect::<Vec<_>>();
         ancestors.reverse();
+        let final_index = ancestors.len().saturating_sub(1);
         let mut handles = Vec::with_capacity(ancestors.len());
-        for ancestor in ancestors {
+        for (index, ancestor) in ancestors.into_iter().enumerate() {
             if ancestor.as_os_str().is_empty() {
                 continue;
             }
+            let access_mode = if index == final_index {
+                FILE_READ_ATTRIBUTES | FILE_ADD_FILE | SYNCHRONIZE
+            } else {
+                FILE_READ_ATTRIBUTES
+            };
             let handle = fs::OpenOptions::new()
-                .access_mode(FILE_READ_ATTRIBUTES)
+                .access_mode(access_mode)
                 .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
                 .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
                 .open(&ancestor)
