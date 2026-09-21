@@ -56,12 +56,12 @@ The current source contract is:
 2. create/write/sync and retain the candidate through `PreparedFileAuthority`;
 3. retain the current manifest, when present, with `GENERIC_READ | DELETE`, `FILE_SHARE_READ` only and reparse-point-open semantics, including current bytes and Win32 volume/file-index identity;
 4. require retained current bytes/presence to equal the operation's observed state before victim namespace mutation;
-5. rename the exact retained current handle, when present, to a random retired child using `SetFileInformationByHandle(FileRenameInfo)`, `ReplaceIfExists = FALSE`, and the retained parent as `RootDirectory`;
+5. rename the exact retained current handle, when present, to a random retired child using native `NtSetInformationFile(FileRenameInformation)`, `ReplaceIfExists = FALSE`, and the retained parent as `RootDirectory`; translate any nonzero `NTSTATUS` through `RtlNtStatusToDosError` and fail closed;
 6. verify the retired name against the retained Win32 identity while the old handle remains live;
 7. claim the canonical destination create-only from the retained prepared object and verify the final destination binding;
 8. revalidate retained parent authority before success.
 
-The unsafe Win32 ABI is isolated in the dependency-free `nxb_core_win32_authority` library target inside the existing `nxb-core` package. The `nxb` binary remains a separate crate target with `#![forbid(unsafe_code)]` and consumes only the helper library's safe identity/handle-relative rename API. No new workspace package or Cargo dependency graph entry is required.
+The unsafe Windows ABI is isolated in the dependency-free `nxb_core_win32_authority` library target inside the existing `nxb-core` package. The `nxb` binary remains a separate crate target with `#![forbid(unsafe_code)]` and consumes only the helper library's safe identity/handle-relative rename API. No new workspace package or Cargo dependency graph entry is required.
 
 ## Reachable route boundary
 

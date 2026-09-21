@@ -55,21 +55,66 @@ fn windows_unsafe_abi_is_isolated_in_a_separate_core_library_crate_without_lock_
     for marker in [
         "unsafe extern \"system\"",
         "#[link_name = \"GetFileInformationByHandle\"]",
-        "#[link_name = \"SetFileInformationByHandle\"]",
-        "const FILE_RENAME_INFO_CLASS: i32 = 3;",
+        "#[link_name = \"NtSetInformationFile\"]",
+        "#[link_name = \"RtlNtStatusToDosError\"]",
+        "const FILE_RENAME_INFORMATION_CLASS: i32 = 10;",
         "struct ByHandleFileInformation",
-        "struct FileRenameInfo",
+        "union FileRenameReplaceOrFlags",
+        "replace_if_exists: u8,",
+        "flags: u32,",
+        "struct FileRenameInformation",
+        "replace_or_flags: FileRenameReplaceOrFlags,",
+        "root_directory: RawHandle,",
+        "file_name_length: u32,",
+        "file_name: [u16; 1],",
+        "union IoStatusBlockStatus",
+        "status: i32,",
+        "pointer: *mut c_void,",
+        "struct IoStatusBlock",
+        "status_or_pointer: IoStatusBlockStatus,",
+        "information: usize,",
         "pub fn file_identity(file: &File)",
         "pub fn rename_handle_relative_no_replace(",
-        "offset_of!(FileRenameInfo, file_name)",
-        "payload_bytes.max(size_of::<FileRenameInfo>())",
-        "ReplaceIfExists = FALSE",
+        "offset_of!(FileRenameInformation, file_name)",
+        "payload_bytes.max(size_of::<FileRenameInformation>())",
+        "let mut storage = vec![0_usize; words];",
+        "(*information).root_directory = parent.as_raw_handle();",
+        "ReplaceIfExists remains FALSE",
     ] {
         assert!(
             platform.contains(marker),
             "{PLATFORM_PATH}: missing Win32 ABI authority marker: {marker}"
         );
     }
+    assert!(
+        platform.contains("#[link(name = \"ntdll\")]"),
+        "{PLATFORM_PATH}: native handle-relative rename must stay bound to ntdll"
+    );
+    for forbidden in [
+        "#[link_name = \"SetFileInformationByHandle\"]",
+        "FILE_RENAME_INFO_CLASS: i32 = 3;",
+        "set_file_information_by_handle(",
+    ] {
+        assert!(
+            !platform.contains(forbidden),
+            "{PLATFORM_PATH}: Win32 FileRenameInfo fallback must stay removed: {forbidden}"
+        );
+    }
+    assert!(
+        platform.contains("nt_set_information_file("),
+        "{PLATFORM_PATH}: retained-parent rename must call the native FileRenameInformation path"
+    );
+    for marker in [
+        "if status != 0 {",
+        "rtl_nt_status_to_dos_error(status)",
+        "io::Error::from_raw_os_error(code as i32)",
+    ] {
+        assert!(
+            platform.contains(marker),
+            "{PLATFORM_PATH}: native rename must fail closed through NTSTATUS translation: {marker}"
+        );
+    }
+
     assert!(
         platform.contains("unsafe {"),
         "{PLATFORM_PATH}: the audited ABI boundary must remain visible in the isolated library crate"

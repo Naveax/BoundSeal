@@ -15,7 +15,7 @@ mod windows {
         ptr,
     };
 
-    const FILE_RENAME_INFO_CLASS: i32 = 3;
+    const FILE_RENAME_INFORMATION_CLASS: i32 = 10;
 
     #[allow(dead_code)]
     #[repr(C)]
@@ -41,18 +41,48 @@ mod windows {
         file_index_low: u32,
     }
 
-    /// ABI-compatible `FILE_RENAME_INFO` for `FileRenameInfo`.
+    /// ABI-compatible `FILE_RENAME_INFORMATION` for native
+    /// `FileRenameInformation`.
     ///
-    /// The first DWORD occupies the C union containing `BOOLEAN ReplaceIfExists`
-    /// and `DWORD Flags`. The backing buffer is zero-initialized, therefore
-    /// `ReplaceIfExists` is FALSE for this no-replace operation.
+    /// The backing buffer is zero-initialized, so `ReplaceIfExists` remains
+    /// FALSE and the operation is create-only at the destination name.
     #[allow(dead_code)]
     #[repr(C)]
-    struct FileRenameInfo {
-        replace_or_flags: u32,
+    union FileRenameReplaceOrFlags {
+        replace_if_exists: u8,
+        flags: u32,
+    }
+
+    #[allow(dead_code)]
+    #[repr(C)]
+    struct FileRenameInformation {
+        replace_or_flags: FileRenameReplaceOrFlags,
         root_directory: RawHandle,
         file_name_length: u32,
         file_name: [u16; 1],
+    }
+
+    #[allow(dead_code)]
+    #[repr(C)]
+    union IoStatusBlockStatus {
+        status: i32,
+        pointer: *mut c_void,
+    }
+
+    #[allow(dead_code)]
+    #[repr(C)]
+    struct IoStatusBlock {
+        status_or_pointer: IoStatusBlockStatus,
+        information: usize,
+    }
+
+    impl Default for IoStatusBlock {
+        fn default() -> Self {
+            Self {
+                status_or_pointer: IoStatusBlockStatus { status: 0 },
+                information: 0,
+            }
+        }
     }
 
     #[link(name = "kernel32")]
@@ -62,14 +92,21 @@ mod windows {
             file: RawHandle,
             information: *mut ByHandleFileInformation,
         ) -> i32;
+    }
 
-        #[link_name = "SetFileInformationByHandle"]
-        fn set_file_information_by_handle(
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        #[link_name = "NtSetInformationFile"]
+        fn nt_set_information_file(
             file: RawHandle,
-            information_class: i32,
-            information: *mut c_void,
-            buffer_size: u32,
+            io_status_block: *mut IoStatusBlock,
+            file_information: *mut c_void,
+            length: u32,
+            file_information_class: i32,
         ) -> i32;
+
+        #[link_name = "RtlNtStatusToDosError"]
+        fn rtl_nt_status_to_dos_error(status: i32) -> u32;
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,22 +147,19 @@ mod windows {
             ));
         }
 
-        let name_byte_len = wide
-            .len()
-            .checked_mul(size_of::<u16>())
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "Win32 rename destination name is too large",
-                )
-            })?;
+        let name_byte_len = wide.len().checked_mul(size_of::<u16>()).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Win32 rename destination name is too large",
+            )
+        })?;
         let name_bytes = u32::try_from(name_byte_len).map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "Win32 rename destination name is too large",
             )
         })?;
-        let payload_bytes = offset_of!(FileRenameInfo, file_name)
+        let payload_bytes = offset_of!(FileRenameInformation, file_name)
             .checked_add(name_byte_len)
             .ok_or_else(|| {
                 io::Error::new(
@@ -133,7 +167,7 @@ mod windows {
                     "Win32 rename information size overflow",
                 )
             })?;
-        let buffer_bytes = payload_bytes.max(size_of::<FileRenameInfo>());
+        let buffer_bytes = payload_bytes.max(size_of::<FileRenameInformation>());
         let word_bytes = size_of::<usize>();
         let words = buffer_bytes
             .checked_add(word_bytes - 1)
@@ -151,7 +185,7 @@ mod windows {
             ));
         }
 
-        let information = storage.as_mut_ptr().cast::<FileRenameInfo>();
+        let information = storage.as_mut_ptr().cast::<FileRenameInformation>();
         let buffer_size = u32::try_from(buffer_bytes).map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -159,13 +193,16 @@ mod windows {
             )
         })?;
 
+        let mut io_status = IoStatusBlock::default();
+
         // SAFETY: `storage` is zero-initialized and aligned to `usize`, which
-        // satisfies the FILE_RENAME_INFO ABI on supported Windows targets. It
-        // is sized for the fixed header plus the complete UTF-16 name. `file`
-        // and `parent` remain alive across the call. A zero first DWORD means
-        // ReplaceIfExists = FALSE. `new_name` is one literal child component,
-        // so RootDirectory is the retained parent authority for resolution.
-        let succeeded = unsafe {
+        // satisfies the FILE_RENAME_INFORMATION ABI on supported Windows
+        // targets. It is sized for the fixed header plus the complete UTF-16
+        // name. `file` and `parent` remain alive across the native call.
+        // ReplaceIfExists remains FALSE. `new_name` is one literal child
+        // component, so RootDirectory is the retained parent authority for
+        // resolution instead of reopening a pathname.
+        let status = unsafe {
             (*information).root_directory = parent.as_raw_handle();
             (*information).file_name_length = name_bytes;
             ptr::copy_nonoverlapping(
@@ -173,15 +210,19 @@ mod windows {
                 (*information).file_name.as_mut_ptr(),
                 wide.len(),
             );
-            set_file_information_by_handle(
+            nt_set_information_file(
                 file.as_raw_handle(),
-                FILE_RENAME_INFO_CLASS,
+                &raw mut io_status,
                 information.cast::<c_void>(),
                 buffer_size,
+                FILE_RENAME_INFORMATION_CLASS,
             )
         };
-        if succeeded == 0 {
-            return Err(io::Error::last_os_error());
+        if status != 0 {
+            // SAFETY: translating an NTSTATUS value does not retain pointers
+            // and is valid for the complete duration of this call.
+            let code = unsafe { rtl_nt_status_to_dos_error(status) };
+            return Err(io::Error::from_raw_os_error(code as i32));
         }
         Ok(())
     }
