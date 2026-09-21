@@ -76,9 +76,8 @@ fn target_operator_sources_delegate_to_the_generalized_pinned_reader() {
         "{AUTHORITY_PATH}: generic test builds must not retain the Linux read-race hook"
     );
     assert!(
-        !authority.contains(
-            "set_finalized_read_test_hook(hook: Option<Box<dyn FnMut(&Path, &str)>>)"
-        ),
+        !authority
+            .contains("set_finalized_read_test_hook(hook: Option<Box<dyn FnMut(&Path, &str)>>)"),
         "{AUTHORITY_PATH}: finalized read hook must reuse its named alias under -D warnings"
     );
     for marker in [
