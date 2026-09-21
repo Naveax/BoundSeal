@@ -49,8 +49,8 @@ fn linux_security_tools_run_from_receipt_bound_read_only_stable_paths() {
         r#""$deny_path" check"#,
         r#"private cargo-audit snapshot changed during execution"#,
         r#"private cargo-deny snapshot changed during execution"#,
-        r#"[["$(sha256sum "$audit_path" | awk "{print \$1}")" == "$audit_sha256" ]] ||"#,
-        r#"[["$(sha256sum "$deny_path" | awk "{print \$1}")" == "$deny_sha256" ]] ||"#,
+        r#"[[ "$(sha256sum "$audit_path" | awk "{print \$1}")" == "$audit_sha256" ]] ||"#,
+        r#"[[ "$(sha256sum "$deny_path" | awk "{print \$1}")" == "$deny_sha256" ]] ||"#,
     ] {
         assert!(
             source.contains(marker),
