@@ -107,9 +107,14 @@ fn windows_workspace_acl_full_control_decoder_accepts_documented_equivalent_sddl
     );
     for marker in [
         "let current_full_control = sddl_has_full_control(&sddl, current_sid);",
+        "let current_any_ace = sddl_aces(&sddl).any(|ace| ace.principal == current_sid);",
+        "let current_allow_rights = bounded_sddl_allow_rights(&sddl, current_sid);",
+        "fn bounded_sddl_allow_rights(sddl: &str, principal: &str) -> String",
+        ".take(4)",
+        "encoded.truncate(96);",
         "let system_full_control =",
         "let administrators_full_control =",
-        "current={current_full_control} system={system_full_control} administrators={administrators_full_control}",
+        "current={current_full_control} current_any_ace={current_any_ace} current_allow_rights={current_allow_rights} system={system_full_control} administrators={administrators_full_control}",
     ] {
         assert!(
             authority.contains(marker),
@@ -119,5 +124,9 @@ fn windows_workspace_acl_full_control_decoder_accepts_documented_equivalent_sddl
     assert!(
         !authority.contains("required full-control entries are missing: sddl="),
         "{WINDOWS_WORKSPACE_PATH}: ACL diagnostics must not dump the complete security descriptor"
+    );
+    assert!(
+        !authority.contains("current_sid={current_sid}"),
+        "{WINDOWS_WORKSPACE_PATH}: ACL diagnostics must not emit the current user's SID"
     );
 }
