@@ -106,6 +106,24 @@ fn windows_workspace_acl_full_control_decoder_accepts_documented_equivalent_sddl
         "{WINDOWS_WORKSPACE_PATH}: full-control validation must not depend on one SDDL spelling"
     );
     for marker in [
+        "for principal in [",
+        "current_sid.as_str(),",
+        "WINDOWS_SYSTEM_SID,",
+        "WINDOWS_ADMINISTRATORS_SID,",
+        "OsString::from(\"/grant:r\")",
+        "OsString::from(format!(\"*{principal}:{rights}\"))",
+        "run_icacls(path, &grant_arguments)?;",
+    ] {
+        assert!(
+            authority.contains(marker),
+            "{WINDOWS_WORKSPACE_PATH}: trustee-isolated ACL grant is missing marker: {marker}"
+        );
+    }
+    assert!(
+        !authority.contains("format!(\"*{current_sid}:{rights}\")),\n        OsString::from(format!(\"*{WINDOWS_SYSTEM_SID}:{rights}\"))"),
+        "{WINDOWS_WORKSPACE_PATH}: multiple trustees must not share one /grant:r invocation"
+    );
+    for marker in [
         "let current_full_control = sddl_has_full_control(&sddl, current_sid);",
         "let system_full_control =",
         "let administrators_full_control =",
