@@ -542,8 +542,10 @@ EOF
             [[ "$(sha256sum "$deny_path" | awk "{print \$1}")" == "$deny_sha256" ]] ||
                 die "private cargo-deny snapshot differs from the receipt-bound SHA-256"
 
-            mount --bind "$stable_tool_root" "$stable_tool_root"
-            mount -o remount,bind,ro "$stable_tool_root"
+            mount --bind "$stable_tool_root" "$stable_tool_root" ||
+                die "could not self-bind validation tool snapshot"
+            mount -o remount,bind,ro "$stable_tool_root" "$stable_tool_root" ||
+                die "could not remount validation tool snapshot read-only"
             assert_readonly_mount "$stable_tool_root" "validation tool snapshot"
             if printf changed > "$audit_path" 2>/dev/null; then
                 die "private cargo-audit snapshot remained writable after read-only bind"

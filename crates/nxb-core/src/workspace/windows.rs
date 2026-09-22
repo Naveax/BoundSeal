@@ -117,13 +117,15 @@ fn validate_windows_acl_with_sid(path: &Path, directory: bool, current_sid: &str
         );
     }
     let current_full_control = sddl_has_full_control(&sddl, current_sid);
+    let current_any_ace = sddl_aces(&sddl).any(|ace| ace.principal == current_sid);
+    let current_allow_rights = bounded_sddl_allow_rights(&sddl, current_sid);
     let system_full_control =
         sddl_has_full_control(&sddl, WINDOWS_SYSTEM_SID) || sddl_has_full_control(&sddl, "SY");
     let administrators_full_control = sddl_has_full_control(&sddl, WINDOWS_ADMINISTRATORS_SID)
         || sddl_has_full_control(&sddl, "BA");
     if !current_full_control || !system_full_control || !administrators_full_control {
         bail!(
-            "Windows ACL required full-control entries are missing: current={current_full_control} system={system_full_control} administrators={administrators_full_control}: {}",
+            "Windows ACL required full-control entries are missing: current={current_full_control} current_any_ace={current_any_ace} current_allow_rights={current_allow_rights} system={system_full_control} administrators={administrators_full_control}: {}",
             path.display()
         );
     }
@@ -364,6 +366,31 @@ fn sddl_has_full_control(sddl: &str, principal: &str) -> bool {
 
 fn sddl_has_allow_ace(sddl: &str, principal: &str) -> bool {
     sddl_aces(sddl).any(|ace| ace.ace_type == "A" && ace.principal == principal)
+}
+
+fn bounded_sddl_allow_rights(sddl: &str, principal: &str) -> String {
+    let mut encoded = sddl_aces(sddl)
+        .filter(|ace| ace.ace_type == "A" && ace.principal == principal)
+        .map(|ace| {
+            ace.rights
+                .chars()
+                .map(|character| {
+                    if character.is_ascii_alphanumeric() {
+                        character
+                    } else {
+                        '?'
+                    }
+                })
+                .collect::<String>()
+        })
+        .take(4)
+        .collect::<Vec<_>>()
+        .join(",");
+    if encoded.is_empty() {
+        return "none".to_owned();
+    }
+    encoded.truncate(96);
+    encoded
 }
 
 struct SddlAce<'a> {
