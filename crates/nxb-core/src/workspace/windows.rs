@@ -116,13 +116,14 @@ fn validate_windows_acl_with_sid(path: &Path, directory: bool, current_sid: &str
             path.display()
         );
     }
-    if !sddl_has_full_control(&sddl, current_sid)
-        || !(sddl_has_full_control(&sddl, WINDOWS_SYSTEM_SID) || sddl_has_full_control(&sddl, "SY"))
-        || !(sddl_has_full_control(&sddl, WINDOWS_ADMINISTRATORS_SID)
-            || sddl_has_full_control(&sddl, "BA"))
-    {
+    let current_full_control = sddl_has_full_control(&sddl, current_sid);
+    let system_full_control =
+        sddl_has_full_control(&sddl, WINDOWS_SYSTEM_SID) || sddl_has_full_control(&sddl, "SY");
+    let administrators_full_control = sddl_has_full_control(&sddl, WINDOWS_ADMINISTRATORS_SID)
+        || sddl_has_full_control(&sddl, "BA");
+    if !current_full_control || !system_full_control || !administrators_full_control {
         bail!(
-            "Windows ACL required full-control entries are missing: {}",
+            "Windows ACL required full-control entries are missing: current={current_full_control} system={system_full_control} administrators={administrators_full_control}: {}",
             path.display()
         );
     }
