@@ -72,14 +72,18 @@ fn harden_windows_acl(path: &Path, directory: bool) -> Result<()> {
     let current_sid = current_windows_user_sid()?;
     let rights = if directory { "(OI)(CI)F" } else { "F" };
 
-    let grant_arguments = [
-        OsString::from("/grant:r"),
-        OsString::from(format!("*{current_sid}:{rights}")),
-        OsString::from(format!("*{WINDOWS_SYSTEM_SID}:{rights}")),
-        OsString::from(format!("*{WINDOWS_ADMINISTRATORS_SID}:{rights}")),
-        OsString::from("/q"),
-    ];
-    run_icacls(path, &grant_arguments)?;
+    for principal in [
+        current_sid.as_str(),
+        WINDOWS_SYSTEM_SID,
+        WINDOWS_ADMINISTRATORS_SID,
+    ] {
+        let grant_arguments = [
+            OsString::from("/grant:r"),
+            OsString::from(format!("*{principal}:{rights}")),
+            OsString::from("/q"),
+        ];
+        run_icacls(path, &grant_arguments)?;
+    }
 
     let mut remove_arguments = vec![OsString::from("/remove:g")];
     remove_arguments.extend(
