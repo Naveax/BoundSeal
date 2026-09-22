@@ -120,7 +120,9 @@ fn windows_workspace_acl_full_control_decoder_accepts_documented_equivalent_sddl
         );
     }
     assert!(
-        !authority.contains("format!(\"*{current_sid}:{rights}\")),\n        OsString::from(format!(\"*{WINDOWS_SYSTEM_SID}:{rights}\"))"),
+        !authority.contains(
+            "format!(\"*{current_sid}:{rights}\")),\n        OsString::from(format!(\"*{WINDOWS_SYSTEM_SID}:{rights}\"))"
+        ),
         "{WINDOWS_WORKSPACE_PATH}: multiple trustees must not share one /grant:r invocation"
     );
     for marker in [
