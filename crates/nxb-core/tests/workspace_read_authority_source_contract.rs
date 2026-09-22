@@ -53,9 +53,9 @@ fn workspace_read_document_delegates_to_pinned_authority() {
 fn linux_read_authority_is_no_follow_same_handle_and_identity_bound() {
     let authority = source(READ_AUTHORITY_PATH);
     let production = authority
-        .split("#[cfg(all(test, target_os = \"linux\"))]")
+        .split("#[cfg(all(test, target_os = \"linux\"))]\nmod tests {")
         .next()
-        .expect("read-authority production boundary is missing");
+        .expect("read-authority Linux test-module boundary is missing");
 
     for marker in [
         "const O_NOFOLLOW: i32 = 0o400000;",
