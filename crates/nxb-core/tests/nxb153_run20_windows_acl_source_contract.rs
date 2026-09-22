@@ -105,4 +105,19 @@ fn windows_workspace_acl_full_control_decoder_accepts_documented_equivalent_sddl
         !authority.contains("ace.rights.contains(\"FA\")"),
         "{WINDOWS_WORKSPACE_PATH}: full-control validation must not depend on one SDDL spelling"
     );
+    for marker in [
+        "let current_full_control = sddl_has_full_control(&sddl, current_sid);",
+        "let system_full_control =",
+        "let administrators_full_control =",
+        "current={current_full_control} system={system_full_control} administrators={administrators_full_control}",
+    ] {
+        assert!(
+            authority.contains(marker),
+            "{WINDOWS_WORKSPACE_PATH}: bounded ACL trustee-state diagnostic is missing marker: {marker}"
+        );
+    }
+    assert!(
+        !authority.contains("required full-control entries are missing: sddl="),
+        "{WINDOWS_WORKSPACE_PATH}: ACL diagnostics must not dump the complete security descriptor"
+    );
 }
