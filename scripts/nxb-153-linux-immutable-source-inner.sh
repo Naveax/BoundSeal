@@ -530,6 +530,8 @@ EOF
 
             stable_tool_root="$tmp_root/validation-tools"
             mkdir -m 0700 "$stable_tool_root"
+            mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$stable_tool_root" ||
+                die "could not mount private validation tool tmpfs"
             audit_path="$stable_tool_root/cargo-audit"
             deny_path="$stable_tool_root/cargo-deny"
             cp --reflink=never -- "$anchored_audit_path" "$audit_path" ||
@@ -542,10 +544,8 @@ EOF
             [[ "$(sha256sum "$deny_path" | awk "{print \$1}")" == "$deny_sha256" ]] ||
                 die "private cargo-deny snapshot differs from the receipt-bound SHA-256"
 
-            mount --bind "$stable_tool_root" "$stable_tool_root" ||
-                die "could not self-bind validation tool snapshot"
-            mount -o remount,bind,ro "$stable_tool_root" "$stable_tool_root" ||
-                die "could not remount validation tool snapshot read-only"
+            mount -o remount,ro,nosuid,nodev "$stable_tool_root" ||
+                die "could not remount validation tool tmpfs read-only"
             assert_readonly_mount "$stable_tool_root" "validation tool snapshot"
             if printf changed > "$audit_path" 2>/dev/null; then
                 die "private cargo-audit snapshot remained writable after read-only bind"
