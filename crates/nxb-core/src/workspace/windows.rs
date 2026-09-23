@@ -72,6 +72,15 @@ fn harden_windows_acl(path: &Path, directory: bool) -> Result<()> {
     let current_sid = current_windows_user_sid()?;
     let rights = if directory { "(OI)(CI)F" } else { "F" };
 
+    // Remove inherited ACEs before granting the exact required principals.
+    // If an inherited ACE already grants equivalent rights, granting first
+    // can leave the explicit current-user ACE absent once inheritance is
+    // removed on hosted Windows.
+    run_icacls(
+        path,
+        &[OsString::from("/inheritancelevel:r"), OsString::from("/q")],
+    )?;
+
     let grant_arguments = [
         OsString::from("/grant:r"),
         OsString::from(format!("*{current_sid}:{rights}")),
@@ -89,13 +98,6 @@ fn harden_windows_acl(path: &Path, directory: bool) -> Result<()> {
     );
     remove_arguments.push(OsString::from("/q"));
     run_icacls(path, &remove_arguments)?;
-
-    // Make inheritance protection the final ACL mutation. This prevents
-    // later ACL edits from weakening the protected DACL control flag.
-    run_icacls(
-        path,
-        &[OsString::from("/inheritancelevel:r"), OsString::from("/q")],
-    )?;
 
     validate_windows_acl_with_sid(path, directory, &current_sid)
 }
@@ -495,6 +497,35 @@ mod tests {
 
             let file_sddl = export_windows_acl_sddl(&file)?;
             assert!(file_sddl.contains("D:P"));
+
+            Ok(())
+        })();
+
+        let _ = fs::remove_dir_all(&root);
+        result.unwrap();
+    }
+
+    #[test]
+    fn hardens_child_beneath_protected_inheriting_parent() {
+        let root = std::env::temp_dir().join(format!(
+            "nxb-windows-acl-child-{}-{}",
+            std::process::id(),
+            random_hex(8).unwrap()
+        ));
+        fs::create_dir_all(&root).unwrap();
+
+        let result = (|| -> Result<()> {
+            harden_windows_acl(&root, true)?;
+
+            let child = root.join("child");
+            fs::create_dir(&child)?;
+            harden_windows_acl(&child, true)?;
+
+            let current_sid = current_windows_user_sid()?;
+            validate_windows_acl_with_sid(&child, true, &current_sid)?;
+            let child_sddl = export_windows_acl_sddl(&child)?;
+            assert!(child_sddl.contains("D:P"));
+            assert!(sddl_has_full_control(&child_sddl, &current_sid));
 
             Ok(())
         })();

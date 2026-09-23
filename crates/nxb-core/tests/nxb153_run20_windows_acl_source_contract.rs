@@ -129,4 +129,26 @@ fn windows_workspace_acl_full_control_decoder_accepts_documented_equivalent_sddl
         !authority.contains("current_sid={current_sid}"),
         "{WINDOWS_WORKSPACE_PATH}: ACL diagnostics must not emit the current user's SID"
     );
+
+    let harden_start = authority
+        .find("fn harden_windows_acl")
+        .expect("Windows ACL hardening function is missing");
+    let validate_start = authority[harden_start..]
+        .find("fn validate_windows_acl_with_sid")
+        .map(|offset| harden_start + offset)
+        .expect("Windows ACL validator is missing");
+    let harden = &authority[harden_start..validate_start];
+    let inheritance = harden
+        .find("OsString::from(\"/inheritancelevel:r\")")
+        .expect("Windows ACL hardening must remove inherited ACEs");
+    let grant = harden
+        .find("let grant_arguments = [")
+        .expect("Windows ACL required-principal grant block is missing");
+    let remove = harden
+        .find("let mut remove_arguments = vec![OsString::from(\"/remove:g\")]")
+        .expect("Windows ACL broad-grant removal block is missing");
+    assert!(
+        inheritance < grant && grant < remove,
+        "{WINDOWS_WORKSPACE_PATH}: inherited ACEs must be removed before exact required grants and broad-grant removal"
+    );
 }

@@ -41,10 +41,10 @@ fn linux_security_tools_run_from_receipt_bound_read_only_stable_paths() {
         r#"cp --reflink=never -- "$anchored_deny_path" "$deny_path""#,
         r#"private cargo-audit snapshot differs from the receipt-bound SHA-256"#,
         r#"private cargo-deny snapshot differs from the receipt-bound SHA-256"#,
-        r#"mount --bind "$stable_tool_root" "$stable_tool_root""#,
-        r#"die "could not self-bind validation tool snapshot""#,
-        r#"mount -o remount,bind,ro "$stable_tool_root" "$stable_tool_root""#,
-        r#"die "could not remount validation tool snapshot read-only""#,
+        r#"mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs "$stable_tool_root""#,
+        r#"die "could not mount private validation tool tmpfs""#,
+        r#"mount -o remount,ro,nosuid,nodev "$stable_tool_root""#,
+        r#"die "could not remount validation tool tmpfs read-only""#,
         r#"assert_readonly_mount "$stable_tool_root" "validation tool snapshot""#,
         r#"scripts/nxb-153-sealed-tool.py inspect"#,
         r#""$audit_path" audit"#,
@@ -67,5 +67,13 @@ fn linux_security_tools_run_from_receipt_bound_read_only_stable_paths() {
     assert!(
         !source.contains("\\\\$1"),
         "{LINUX_INNER_PATH}: nested Bash awk programs must escape $1 exactly once"
+    );
+    assert!(
+        !source.contains(r#"mount --bind "$stable_tool_root" "$stable_tool_root""#),
+        "{LINUX_INNER_PATH}: stable validation tools must use a dedicated tmpfs rather than self-bind remounting"
+    );
+    assert!(
+        !source.contains(r#"remount,bind,ro "$stable_tool_root""#),
+        "{LINUX_INNER_PATH}: stable validation tools must not return to the failing bind-remount path"
     );
 }
