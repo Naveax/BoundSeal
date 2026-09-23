@@ -72,6 +72,15 @@ fn harden_windows_acl(path: &Path, directory: bool) -> Result<()> {
     let current_sid = current_windows_user_sid()?;
     let rights = if directory { "(OI)(CI)F" } else { "F" };
 
+    // Remove inherited ACEs before granting the exact required principals.
+    // If an inherited ACE already grants equivalent rights, granting first
+    // can leave the explicit current-user ACE absent once inheritance is
+    // removed on hosted Windows.
+    run_icacls(
+        path,
+        &[OsString::from("/inheritancelevel:r"), OsString::from("/q")],
+    )?;
+
     let grant_arguments = [
         OsString::from("/grant:r"),
         OsString::from(format!("*{current_sid}:{rights}")),
@@ -89,13 +98,6 @@ fn harden_windows_acl(path: &Path, directory: bool) -> Result<()> {
     );
     remove_arguments.push(OsString::from("/q"));
     run_icacls(path, &remove_arguments)?;
-
-    // Make inheritance protection the final ACL mutation. This prevents
-    // later ACL edits from weakening the protected DACL control flag.
-    run_icacls(
-        path,
-        &[OsString::from("/inheritancelevel:r"), OsString::from("/q")],
-    )?;
 
     validate_windows_acl_with_sid(path, directory, &current_sid)
 }
