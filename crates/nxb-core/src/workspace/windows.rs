@@ -506,6 +506,35 @@ mod tests {
     }
 
     #[test]
+    fn hardens_child_beneath_protected_inheriting_parent() {
+        let root = std::env::temp_dir().join(format!(
+            "nxb-windows-acl-child-{}-{}",
+            std::process::id(),
+            random_hex(8).unwrap()
+        ));
+        fs::create_dir_all(&root).unwrap();
+
+        let result = (|| -> Result<()> {
+            harden_windows_acl(&root, true)?;
+
+            let child = root.join("child");
+            fs::create_dir(&child)?;
+            harden_windows_acl(&child, true)?;
+
+            let current_sid = current_windows_user_sid()?;
+            validate_windows_acl_with_sid(&child, true, &current_sid)?;
+            let child_sddl = export_windows_acl_sddl(&child)?;
+            assert!(child_sddl.contains("D:P"));
+            assert!(sddl_has_full_control(&child_sddl, &current_sid));
+
+            Ok(())
+        })();
+
+        let _ = fs::remove_dir_all(&root);
+        result.unwrap();
+    }
+
+    #[test]
     fn validates_windows_sid_shape() {
         assert!(valid_windows_sid("S-1-5-21-100-200-300-1001"));
         assert!(!valid_windows_sid("1-5-21-100"));
