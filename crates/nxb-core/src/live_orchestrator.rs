@@ -39,6 +39,7 @@ pub enum PlannedMethod {
 }
 
 impl PlannedMethod {
+    #[allow(dead_code)]
     pub fn code(self) -> &'static str {
         match self {
             Self::Get => "GET",
@@ -170,10 +171,12 @@ impl LiveRunPlan {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn parsed_url(&self) -> Result<Url> {
         validate_target_url(&self.target_url)
     }
 
+    #[allow(dead_code)]
     pub fn request_target(&self) -> Result<String> {
         let url = self.parsed_url()?;
         let path = if url.path().is_empty() {
@@ -306,6 +309,7 @@ impl LiveActivationCertificate {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[allow(dead_code)]
 pub struct LiveOrchestratorReceipt {
     pub version: u32,
     pub run_id: String,
@@ -325,6 +329,7 @@ pub struct LiveOrchestratorReceipt {
 }
 
 impl LiveOrchestratorReceipt {
+    #[allow(dead_code)]
     pub fn verify(&self) -> Result<()> {
         if self.version != 1 {
             bail!("unsupported orchestrator receipt version");

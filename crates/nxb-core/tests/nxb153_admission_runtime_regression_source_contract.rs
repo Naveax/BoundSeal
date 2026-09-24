@@ -1,0 +1,389 @@
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+const LINUX_INNER_PATH: &str = "scripts/nxb-153-linux-immutable-source-inner.sh";
+const LINUX_HOSTED_WRAPPER_PATH: &str = "scripts/nxb-153-linux-immutable-source-h1-inner.sh";
+const REGISTRY_SOURCE_PATH: &str = "scripts/nxb-153-registry-source.py";
+const WINDOWS_STRING_GUARD_PATH: &str = "scripts/nxb-153-windows-immutable-source.ps1";
+const WINDOWS_GIT_GUARD_PATH: &str =
+    "scripts/nxb-153-windows-immutable-source-git-output-inner.ps1";
+const WINDOWS_H2_ENTRY_PATH: &str = "scripts/nxb-153-windows-immutable-source-h2-entry-inner.ps1";
+const WINDOWS_H2_INNER_PATH: &str = "scripts/nxb-153-windows-immutable-source-h2-inner.ps1";
+const WINDOWS_ENUMERATION_GUARD_PATH: &str =
+    "scripts/nxb-153-windows-immutable-source-enumeration-inner.ps1";
+const WINDOWS_BOUNDED_H2_PATH: &str = "scripts/nxb-153-windows-immutable-source-bounded-inner.ps1";
+const WINDOWS_BROKER_ENTRY_PATH: &str =
+    "scripts/nxb-153-windows-immutable-source-h2-broker-entry.ps1";
+
+fn repository_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn read_source(relative_path: &str) -> String {
+    let path = repository_root().join(relative_path);
+    fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("could not read {} as UTF-8: {error}", path.display()))
+}
+
+fn required_offset(source: &str, marker: &str, path: &str) -> usize {
+    source
+        .find(marker)
+        .unwrap_or_else(|| panic!("{path}: missing source marker: {marker}"))
+}
+
+#[test]
+fn linux_nested_bash_labels_remain_inside_the_outer_script_argument() {
+    let source = read_source(LINUX_INNER_PATH);
+
+    for marker in [
+        r#"assert_readonly_mount "$source_root" "immutable source root""#,
+        r#"assert_readonly_mount "$vendor_root" "vendored dependency snapshot""#,
+        r#"assert_readonly_mount "$config_root" "gate Cargo config root""#,
+    ] {
+        assert!(
+            source.contains(marker),
+            "{LINUX_INNER_PATH}: missing double-quoted nested bash label: {marker}"
+        );
+    }
+
+    for forbidden in [
+        r#"assert_readonly_mount "$source_root" 'immutable source root'"#,
+        r#"assert_readonly_mount "$vendor_root" 'vendored dependency snapshot'"#,
+        r#"assert_readonly_mount "$config_root" 'gate Cargo config root'"#,
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "{LINUX_INNER_PATH}: raw single-quoted label would terminate the outer bash -c source argument: {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn linux_hosted_namespace_adapters_stop_exporting_before_deeper_children() {
+    let source = read_source(LINUX_HOSTED_WRAPPER_PATH);
+    let mount_start = required_offset(&source, "        mount() {", LINUX_HOSTED_WRAPPER_PATH);
+    let handoff_marker = "builtin export -n -f unshare mount 2>/dev/null || true";
+    let handoff = mount_start
+        + required_offset(
+            &source[mount_start..],
+            handoff_marker,
+            LINUX_HOSTED_WRAPPER_PATH,
+        );
+    let wrapper_export = required_offset(
+        &source,
+        "        export -f unshare mount",
+        LINUX_HOSTED_WRAPPER_PATH,
+    );
+
+    assert!(
+        mount_start < handoff && handoff < wrapper_export,
+        "{LINUX_HOSTED_WRAPPER_PATH}: adapter de-export must stay inside mount() before the outer wrapper export"
+    );
+}
+
+#[test]
+fn cargo_197_vendor_comment_is_bound_without_weakening_checksum_authority() {
+    let source = read_source(REGISTRY_SOURCE_PATH);
+    for marker in [
+        "CARGO_CHECKSUM_COMMENT = (",
+        r#"set(checksum_payload) != {"$comment", "files", "package"}"#,
+        r#"checksum_payload.get("$comment") != CARGO_CHECKSUM_COMMENT"#,
+        r#""$comment": CARGO_CHECKSUM_COMMENT"#,
+    ] {
+        assert!(
+            source.contains(marker),
+            "{REGISTRY_SOURCE_PATH}: missing Cargo 1.97 checksum-comment contract marker: {marker}"
+        );
+    }
+}
+
+#[test]
+fn windows_out_string_proxy_captures_limits_across_nested_script_scopes() {
+    let source = read_source(WINDOWS_STRING_GUARD_PATH);
+    for marker in [
+        "$script:NxbH2OutStringLimits = @{",
+        "$outStringLimits = $script:NxbH2OutStringLimits",
+        "$outStringProxy = {",
+        "}.GetNewClosure()",
+        r#"Set-Item -Path Function:\Out-String -Value $outStringProxy -Force"#,
+        "$items.Count + 1 -gt $outStringLimits.Objects",
+        "$inputBytes -gt $outStringLimits.Byte",
+        "$outputBytes -gt $outStringLimits.Byte",
+    ] {
+        assert!(
+            source.contains(marker),
+            "{WINDOWS_STRING_GUARD_PATH}: missing closure-bound Out-String marker: {marker}"
+        );
+    }
+    for forbidden in [
+        "$script:NxbH2OutStringByteLimit",
+        "$script:NxbH2OutStringObjectLimit",
+        "function Out-String {",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "{WINDOWS_STRING_GUARD_PATH}: caller-sensitive Out-String authority remains: {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn windows_git_proxy_captures_its_authority_across_nested_script_scopes() {
+    let source = read_source(WINDOWS_GIT_GUARD_PATH);
+
+    for marker in [
+        "$gitProxyApplication = [string]$script:NxbH2GitApplication",
+        "$gitProxyWorkingDirectory = $RepoRoot",
+        "$gitProxyLimits = $script:NxbH2GitProxyLimits",
+        "$gitProxy = {",
+        "}.GetNewClosure()",
+        r#"Set-Item -Path Function:\git -Value $gitProxy -Force"#,
+        "$startInfo.FileName = $gitProxyApplication",
+        "$startInfo.WorkingDirectory = $gitProxyWorkingDirectory",
+        "$readTask.Wait($gitProxyLimits.ReadTimeoutMilliseconds)",
+        "$total -gt $gitProxyLimits.Byte",
+        "$lineCount -gt $gitProxyLimits.Lines",
+    ] {
+        assert!(
+            source.contains(marker),
+            "{WINDOWS_GIT_GUARD_PATH}: missing closure-bound Git authority marker: {marker}"
+        );
+    }
+
+    for forbidden in [
+        "$startInfo.FileName = $script:NxbH2GitApplication",
+        "$readTask.Wait($script:NxbH2GitReadInactivityTimeoutMilliseconds)",
+        "$total -gt $script:NxbH2GitOutputByteLimit",
+        "$lineCount -gt $script:NxbH2GitOutputLineLimit",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "{WINDOWS_GIT_GUARD_PATH}: nested Git proxy still depends on caller-sensitive script scope: {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn windows_h2_acl_rights_use_the_access_control_enum_namespace() {
+    for path in [WINDOWS_H2_ENTRY_PATH, WINDOWS_H2_INNER_PATH] {
+        let source = read_source(path);
+        assert!(
+            !source.contains("[IO.FileSystemRights]"),
+            "{path}: IO.FileSystemRights is not a valid PowerShell/.NET type name"
+        );
+
+        for right in [
+            "WriteData",
+            "AppendData",
+            "CreateFiles",
+            "CreateDirectories",
+            "Delete",
+            "DeleteSubdirectoriesAndFiles",
+            "WriteAttributes",
+            "WriteExtendedAttributes",
+        ] {
+            let marker = format!("[Security.AccessControl.FileSystemRights]::{right}");
+            assert!(
+                source.contains(&marker),
+                "{path}: missing canonical ACL right marker: {marker}"
+            );
+        }
+    }
+}
+
+#[test]
+fn windows_toolchain_tree_uses_path_stat_before_handle_identity_comparison() {
+    let source = read_source("scripts/nxb-153-rust-toolchain-authority.py");
+    let start = required_offset(
+        &source,
+        "def windows_records(root, budget):",
+        "scripts/nxb-153-rust-toolchain-authority.py",
+    );
+    let end = start
+        + required_offset(
+            &source[start..],
+            "\ndef digest_tree(",
+            "scripts/nxb-153-rust-toolchain-authority.py",
+        );
+    let body = &source[start..end];
+
+    assert!(
+        body.contains("entry = os.stat(child, follow_symlinks=False)"),
+        "Windows path authority must use os.stat so st_dev/st_ino are populated before fstat identity comparison"
+    );
+    assert!(
+        !body.contains("entry = item.stat(follow_symlinks=False)"),
+        "DirEntry.stat on Windows does not provide the file identity fields required by the handle comparison"
+    );
+}
+
+#[test]
+fn windows_enumeration_proxy_captures_its_bound_across_nested_script_scopes() {
+    let source = read_source(WINDOWS_ENUMERATION_GUARD_PATH);
+    for marker in [
+        "$script:NxbH2EnumerationLimits = @{",
+        "$enumerationLimits = $script:NxbH2EnumerationLimits",
+        r#"Set-Item -Path Function:\Get-ChildItem -Value $getChildItemProxy -Force"#,
+    ] {
+        assert!(
+            source.contains(marker),
+            "{WINDOWS_ENUMERATION_GUARD_PATH}: missing enumeration-state capture marker: {marker}"
+        );
+    }
+
+    let start = required_offset(
+        &source,
+        "$getChildItemProxy = {",
+        WINDOWS_ENUMERATION_GUARD_PATH,
+    );
+    let end_marker = "}.GetNewClosure()";
+    let end = start
+        + required_offset(&source[start..], end_marker, WINDOWS_ENUMERATION_GUARD_PATH)
+        + end_marker.len();
+    let proxy = &source[start..end];
+    for marker in [
+        "$getChildItemProxy = {",
+        "$enumerationLimits.Count",
+        "}.GetNewClosure()",
+    ] {
+        assert!(
+            proxy.contains(marker),
+            "{WINDOWS_ENUMERATION_GUARD_PATH}: missing closure marker: {marker}"
+        );
+    }
+    assert!(
+        !proxy.contains("$script:"),
+        "{WINDOWS_ENUMERATION_GUARD_PATH}: lexical proxy body still reaches caller-sensitive script scope"
+    );
+}
+
+#[test]
+fn windows_bounded_h2_cross_script_functions_capture_shared_state() {
+    let source = read_source(WINDOWS_BOUNDED_H2_PATH);
+    for marker in [
+        "$copyState = @{",
+        "$brokerState = @{",
+        "$failCopyEntryProxy = (Get-Command Fail-NxbH2CopyEntry",
+        "$readBrokerLineProxy = (Get-Command Read-NxbH2BrokerLine",
+        "$convertBrokerRecordProxy = (Get-Command ConvertFrom-NxbH2BrokerRecord",
+        "$startBrokerProxy = (Get-Command Start-NxbH2DestinationBroker",
+        "$assertBrokerProxy = (Get-Command Assert-NxbH2DestinationBroker",
+        "$stopBrokerProxy = (Get-Command Stop-NxbH2DestinationBroker",
+        "$enumerationProxy = (Get-Command Get-ChildItem -CommandType Function",
+        ".ScriptBlock.GetNewClosure()",
+        r#"Set-Item -Path Function:\Start-NxbH2DestinationBroker -Value $startBrokerProxy -Force"#,
+        r#"Set-Item -Path Function:\Assert-NxbH2DestinationBroker -Value $assertBrokerProxy -Force"#,
+        r#"Set-Item -Path Function:\Stop-NxbH2DestinationBroker -Value $stopBrokerProxy -Force"#,
+        r#"Set-Item -Path Function:\Copy-Item -Value $copyItemProxy -Force"#,
+        "$copyState.Expected",
+        "$brokerState.Process",
+        "& $startBrokerProxy -SourceRoot $sourceRoot -SnapshotRoot $destinationFull",
+        "@(& $enumerationProxy -LiteralPath $sourceRoot -Force -ErrorAction Stop)",
+    ] {
+        assert!(
+            source.contains(marker),
+            "{WINDOWS_BOUNDED_H2_PATH}: missing lexical/shared-state marker: {marker}"
+        );
+    }
+    for forbidden in [
+        "$script:NxbH2Copy",
+        "$script:NxbH2Broker",
+        "                Start-NxbH2DestinationBroker -SourceRoot $sourceRoot -SnapshotRoot $destinationFull",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "{WINDOWS_BOUNDED_H2_PATH}: caller-sensitive state remains: {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn windows_broker_entry_proxies_capture_handoff_state() {
+    let source = read_source(WINDOWS_BROKER_ENTRY_PATH);
+    for marker in [
+        "$brokerEntryState = @{",
+        "$failBrokerEntryProxy = (Get-Command Fail-NxbH2BrokerEntry",
+        "$testSnapshotPathEvaluator = (Get-Command Test-NxbH2BrokerSnapshotPath",
+        "$assertDestinationBrokerProxy = (Get-Command Assert-NxbH2DestinationBroker",
+        "$stopDestinationBrokerProxy = (Get-Command Stop-NxbH2DestinationBroker",
+        "$newItemProxy = (Get-Command New-Item",
+        "$testPathProxy = (Get-Command Test-Path",
+        "$removeItemProxy = (Get-Command Remove-Item",
+        ".ScriptBlock.GetNewClosure()",
+        r#"Set-Item -Path Function:\New-Item -Value $newItemProxy -Force"#,
+        r#"Set-Item -Path Function:\Test-Path -Value $testPathProxy -Force"#,
+        r#"Set-Item -Path Function:\Remove-Item -Value $removeItemProxy -Force"#,
+        "$brokerEntryState.DeferredSnapshotRoot",
+        "$brokerEntryState.HandoffEstablished",
+        "$brokerEntryState.Stopped",
+        "(& $testSnapshotPathEvaluator -Path $Path)",
+        "& $assertDestinationBrokerProxy -SnapshotRoot $brokerEntryState.DeferredSnapshotRoot",
+        "& $stopDestinationBrokerProxy -SnapshotRoot $brokerEntryState.DeferredSnapshotRoot -AllowMissing",
+    ] {
+        assert!(
+            source.contains(marker),
+            "{WINDOWS_BROKER_ENTRY_PATH}: missing lexical/shared-state marker: {marker}"
+        );
+    }
+    for forbidden in [
+        "$script:NxbH2DeferredSnapshotRoot",
+        "$script:NxbH2BrokerHandoffEstablished",
+        "$script:NxbH2BrokerStopped",
+        "(Test-NxbH2BrokerSnapshotPath -Path $Path)",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "{WINDOWS_BROKER_ENTRY_PATH}: caller-sensitive handoff state remains: {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn rust_toolchain_authority_self_test_uses_native_platform_model() {
+    let source = read_source("scripts/nxb-153-rust-toolchain-authority.py");
+    let start = required_offset(
+        &source,
+        "def self_test():",
+        "scripts/nxb-153-rust-toolchain-authority.py",
+    );
+    let end = start
+        + required_offset(
+            &source[start..],
+            "\ndef main():",
+            "scripts/nxb-153-rust-toolchain-authority.py",
+        );
+    let body = &source[start..end];
+
+    for marker in [
+        r#"native_model = "windows" if os.name == "nt" else "linux""#,
+        "first_native = digest_tree(first, native_model)",
+        "second_native = digest_tree(second, native_model)",
+        "digest_tree(bounded, native_model, max_files=1)",
+        "digest_tree(bounded, native_model, max_total_bytes=1)",
+        "digest_tree(directory_bound, native_model, max_directories=1)",
+        "digest_tree(symlink_root, native_model)",
+        r#"_, first_key = windows_relative_bytes("Tool.exe")"#,
+        r#"_, second_key = windows_relative_bytes("tool.exe")"#,
+        r#"if os.name != "nt":"#,
+    ] {
+        assert!(
+            body.contains(marker),
+            "host Rust authority self-test missing platform-safe marker: {marker}"
+        );
+    }
+
+    for forbidden in [
+        r#"digest_tree(first, "linux")"#,
+        r#"digest_tree(second, "linux")"#,
+        r#"digest_tree(bounded, "linux""#,
+        r#"digest_tree(directory_bound, "linux""#,
+        r#"digest_tree(symlink_root, "linux")"#,
+    ] {
+        assert!(
+            !body.contains(forbidden),
+            "host Rust authority self-test retained Windows-hostile Linux traversal: {forbidden}"
+        );
+    }
+}

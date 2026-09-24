@@ -10,6 +10,8 @@ use anyhow::{bail, Context, Result};
 use super::{random_hex, reject_path_indirections};
 
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+const FILE_SHARE_READ: u32 = 0x0000_0001;
 const WINDOWS_SYSTEM_SID: &str = "S-1-5-18";
 const WINDOWS_ADMINISTRATORS_SID: &str = "S-1-5-32-544";
 const WINDOWS_FORBIDDEN_ALLOW_SIDS: &[&str] = &["S-1-1-0", "S-1-5-11", "S-1-5-32-545"];
@@ -20,6 +22,30 @@ pub(super) fn is_reparse_point(metadata: &fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
 
     metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+pub(super) fn open_document_read_authority(path: &Path) -> Result<fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .with_context(|| format!("could not pin workspace document {}", path.display()))?;
+    let metadata = file.metadata().with_context(|| {
+        format!(
+            "could not inspect pinned workspace document {}",
+            path.display()
+        )
+    })?;
+    if is_reparse_point(&metadata) || !metadata.is_file() {
+        bail!(
+            "pinned workspace document is a reparse point or non-file: {}",
+            path.display()
+        );
+    }
+    Ok(file)
 }
 
 pub(super) fn set_private_directory_permissions(path: &Path) -> Result<()> {
@@ -46,6 +72,15 @@ fn harden_windows_acl(path: &Path, directory: bool) -> Result<()> {
     let current_sid = current_windows_user_sid()?;
     let rights = if directory { "(OI)(CI)F" } else { "F" };
 
+    // Remove inherited ACEs before granting the exact required principals.
+    // If an inherited ACE already grants equivalent rights, granting first
+    // can leave the explicit current-user ACE absent once inheritance is
+    // removed on hosted Windows.
+    run_icacls(
+        path,
+        &[OsString::from("/inheritancelevel:r"), OsString::from("/q")],
+    )?;
+
     let grant_arguments = [
         OsString::from("/grant:r"),
         OsString::from(format!("*{current_sid}:{rights}")),
@@ -63,13 +98,6 @@ fn harden_windows_acl(path: &Path, directory: bool) -> Result<()> {
     );
     remove_arguments.push(OsString::from("/q"));
     run_icacls(path, &remove_arguments)?;
-
-    // Make inheritance protection the final ACL mutation. This prevents
-    // later ACL edits from weakening the protected DACL control flag.
-    run_icacls(
-        path,
-        &[OsString::from("/inheritancelevel:r"), OsString::from("/q")],
-    )?;
 
     validate_windows_acl_with_sid(path, directory, &current_sid)
 }
@@ -90,13 +118,17 @@ fn validate_windows_acl_with_sid(path: &Path, directory: bool, current_sid: &str
             path.display()
         );
     }
-    if !sddl_has_full_control(&sddl, current_sid)
-        || !(sddl_has_full_control(&sddl, WINDOWS_SYSTEM_SID) || sddl_has_full_control(&sddl, "SY"))
-        || !(sddl_has_full_control(&sddl, WINDOWS_ADMINISTRATORS_SID)
-            || sddl_has_full_control(&sddl, "BA"))
-    {
+    let current_full_control = sddl_has_full_control(&sddl, current_sid);
+    let current_any_ace =
+        sddl_aces(&sddl).any(|ace| sddl_principal_matches(ace.principal, current_sid));
+    let current_allow_rights = bounded_sddl_allow_rights(&sddl, current_sid);
+    let system_full_control =
+        sddl_has_full_control(&sddl, WINDOWS_SYSTEM_SID) || sddl_has_full_control(&sddl, "SY");
+    let administrators_full_control = sddl_has_full_control(&sddl, WINDOWS_ADMINISTRATORS_SID)
+        || sddl_has_full_control(&sddl, "BA");
+    if !current_full_control || !system_full_control || !administrators_full_control {
         bail!(
-            "Windows ACL required full-control entries are missing: {}",
+            "Windows ACL required full-control entries are missing: current={current_full_control} current_any_ace={current_any_ace} current_allow_rights={current_allow_rights} system={system_full_control} administrators={administrators_full_control}: {}",
             path.display()
         );
     }
@@ -305,13 +337,88 @@ fn decode_windows_text(bytes: &[u8]) -> Result<String> {
     String::from_utf8(bytes.to_vec()).context("ACL export is not valid UTF-8")
 }
 
+const WINDOWS_FILE_ALL_ACCESS_MASK: u32 = 0x001F_01FF;
+const WINDOWS_GENERIC_ALL_MASK: u32 = 0x1000_0000;
+
+fn sddl_rights_include_full_control(rights: &str) -> bool {
+    if let Some(hex) = rights
+        .strip_prefix("0x")
+        .or_else(|| rights.strip_prefix("0X"))
+    {
+        return u32::from_str_radix(hex, 16)
+            .map(|mask| {
+                mask & WINDOWS_FILE_ALL_ACCESS_MASK == WINDOWS_FILE_ALL_ACCESS_MASK
+                    || mask & WINDOWS_GENERIC_ALL_MASK == WINDOWS_GENERIC_ALL_MASK
+            })
+            .unwrap_or(false);
+    }
+
+    rights
+        .as_bytes()
+        .chunks_exact(2)
+        .any(|token| token == b"FA" || token == b"GA")
+}
+
+fn sddl_principal_matches(actual: &str, expected: &str) -> bool {
+    if actual == expected {
+        return true;
+    }
+
+    matches!(
+        (actual, expected),
+        ("SY", "S-1-5-18")
+            | ("S-1-5-18", "SY")
+            | ("LS", "S-1-5-19")
+            | ("S-1-5-19", "LS")
+            | ("NS", "S-1-5-20")
+            | ("S-1-5-20", "NS")
+            | ("BA", "S-1-5-32-544")
+            | ("S-1-5-32-544", "BA")
+            | ("BU", "S-1-5-32-545")
+            | ("S-1-5-32-545", "BU")
+            | ("WD", "S-1-1-0")
+            | ("S-1-1-0", "WD")
+            | ("AU", "S-1-5-11")
+            | ("S-1-5-11", "AU")
+    )
+}
+
 fn sddl_has_full_control(sddl: &str, principal: &str) -> bool {
-    sddl_aces(sddl)
-        .any(|ace| ace.ace_type == "A" && ace.rights.contains("FA") && ace.principal == principal)
+    sddl_aces(sddl).any(|ace| {
+        ace.ace_type == "A"
+            && sddl_rights_include_full_control(ace.rights)
+            && sddl_principal_matches(ace.principal, principal)
+    })
 }
 
 fn sddl_has_allow_ace(sddl: &str, principal: &str) -> bool {
-    sddl_aces(sddl).any(|ace| ace.ace_type == "A" && ace.principal == principal)
+    sddl_aces(sddl)
+        .any(|ace| ace.ace_type == "A" && sddl_principal_matches(ace.principal, principal))
+}
+
+fn bounded_sddl_allow_rights(sddl: &str, principal: &str) -> String {
+    let mut encoded = sddl_aces(sddl)
+        .filter(|ace| ace.ace_type == "A" && sddl_principal_matches(ace.principal, principal))
+        .map(|ace| {
+            ace.rights
+                .chars()
+                .map(|character| {
+                    if character.is_ascii_alphanumeric() {
+                        character
+                    } else {
+                        '?'
+                    }
+                })
+                .collect::<String>()
+        })
+        .take(4)
+        .collect::<Vec<_>>()
+        .join(",");
+    if encoded.is_empty() {
+        return "none".to_owned();
+    }
+    encoded.truncate(96);
+    encoded
 }
 
 struct SddlAce<'a> {
@@ -357,6 +464,63 @@ mod tests {
     }
 
     #[test]
+    fn recognizes_symbolic_and_hexadecimal_full_control_rights() {
+        let sid = "S-1-5-21-100-200-300-1001";
+
+        assert!(sddl_has_full_control(
+            "D:P(A;;FA;;;S-1-5-21-100-200-300-1001)",
+            sid
+        ));
+        assert!(sddl_has_full_control(
+            "D:P(A;;GA;;;S-1-5-21-100-200-300-1001)",
+            sid
+        ));
+        assert!(sddl_has_full_control(
+            "D:P(A;;0x001f01ff;;;S-1-5-21-100-200-300-1001)",
+            sid
+        ));
+        assert!(sddl_has_full_control(
+            "D:P(A;;0x10000000;;;S-1-5-21-100-200-300-1001)",
+            sid
+        ));
+        assert!(sddl_has_full_control(
+            "D:P(A;;0x801f01ff;;;S-1-5-21-100-200-300-1001)",
+            sid
+        ));
+        assert!(!sddl_has_full_control(
+            "D:P(A;;FR;;;S-1-5-21-100-200-300-1001)",
+            sid
+        ));
+        assert!(!sddl_has_full_control(
+            "D:P(A;;0x00120089;;;S-1-5-21-100-200-300-1001)",
+            sid
+        ));
+    }
+
+    #[test]
+    fn matches_well_known_sddl_aliases_to_sid_forms() {
+        for (alias, sid) in [
+            ("SY", "S-1-5-18"),
+            ("LS", "S-1-5-19"),
+            ("NS", "S-1-5-20"),
+            ("BA", "S-1-5-32-544"),
+            ("BU", "S-1-5-32-545"),
+            ("WD", "S-1-1-0"),
+            ("AU", "S-1-5-11"),
+        ] {
+            assert!(sddl_principal_matches(alias, sid));
+            assert!(sddl_principal_matches(sid, alias));
+        }
+
+        assert!(sddl_has_full_control("D:P(A;;FA;;;SY)", WINDOWS_SYSTEM_SID));
+        assert!(sddl_has_allow_ace("D:P(A;;FR;;;AU)", "S-1-5-11"));
+        assert_eq!(
+            bounded_sddl_allow_rights("D:P(A;;FA;;;SY)", WINDOWS_SYSTEM_SID),
+            "FA"
+        );
+    }
+
+    #[test]
     fn hardens_acl_and_protects_inheritance() {
         let root = std::env::temp_dir().join(format!(
             "nxb-windows-acl-{}-{}",
@@ -382,6 +546,35 @@ mod tests {
 
             let file_sddl = export_windows_acl_sddl(&file)?;
             assert!(file_sddl.contains("D:P"));
+
+            Ok(())
+        })();
+
+        let _ = fs::remove_dir_all(&root);
+        result.unwrap();
+    }
+
+    #[test]
+    fn hardens_child_beneath_protected_inheriting_parent() {
+        let root = std::env::temp_dir().join(format!(
+            "nxb-windows-acl-child-{}-{}",
+            std::process::id(),
+            random_hex(8).unwrap()
+        ));
+        fs::create_dir_all(&root).unwrap();
+
+        let result = (|| -> Result<()> {
+            harden_windows_acl(&root, true)?;
+
+            let child = root.join("child");
+            fs::create_dir(&child)?;
+            harden_windows_acl(&child, true)?;
+
+            let current_sid = current_windows_user_sid()?;
+            validate_windows_acl_with_sid(&child, true, &current_sid)?;
+            let child_sddl = export_windows_acl_sddl(&child)?;
+            assert!(child_sddl.contains("D:P"));
+            assert!(sddl_has_full_control(&child_sddl, &current_sid));
 
             Ok(())
         })();
