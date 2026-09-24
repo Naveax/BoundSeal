@@ -112,6 +112,9 @@ fn windows_authority_holds_reparse_safe_ancestor_and_child_handles_without_delet
     );
     for marker in [
         "FILE_READ_ATTRIBUTES",
+        "const DELETE: u32 = 0x0001_0000;",
+        "ancestor == canonical",
+        "FILE_READ_ATTRIBUTES | DELETE",
         "FILE_SHARE_READ",
         "FILE_SHARE_WRITE",
         "FILE_FLAG_BACKUP_SEMANTICS",
@@ -138,6 +141,7 @@ fn windows_authority_holds_reparse_safe_ancestor_and_child_handles_without_delet
     );
     for marker in [
         "let candidate = parent.stable_path.join(name);",
+        ".access_mode(FILE_READ_ATTRIBUTES)",
         ".share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)",
         "FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT",
         ".try_clone()",
@@ -157,6 +161,18 @@ fn windows_authority_holds_reparse_safe_ancestor_and_child_handles_without_delet
         authority.contains("pinned_windows_root_denies_rename_until_authority_is_released"),
         "{AUTHORITY_PATH}: Windows root lifetime regression is missing"
     );
+    for marker in [
+        "WINDOWS_ROOT_NAMESPACE_LEASES",
+        "Weak::upgrade",
+        "_namespace_lease: Arc<fs::File>",
+        "Arc::clone(&parent._namespace_lease)",
+        "concurrent_windows_root_authorities_share_namespace_lease",
+    ] {
+        assert!(
+            authority.contains(marker),
+            "{AUTHORITY_PATH}: shared Windows root lease contract is missing marker: {marker}"
+        );
+    }
     assert!(
         authority.contains("pinned_windows_child_denies_rename_until_child_authority_is_released"),
         "{AUTHORITY_PATH}: Windows child lifetime regression is missing"

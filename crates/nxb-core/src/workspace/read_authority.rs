@@ -249,6 +249,7 @@ fn pin_parent_namespace(path: &Path, label: &str) -> Result<PinnedParentNamespac
     use std::os::windows::fs::OpenOptionsExt;
 
     const FILE_READ_ATTRIBUTES: u32 = 0x0000_0080;
+    const DELETE: u32 = 0x0001_0000;
     const FILE_SHARE_READ: u32 = 0x0000_0001;
     const FILE_SHARE_WRITE: u32 = 0x0000_0002;
     const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
@@ -282,8 +283,13 @@ fn pin_parent_namespace(path: &Path, label: &str) -> Result<PinnedParentNamespac
         if ancestor.as_os_str().is_empty() {
             continue;
         }
+        let access_mode = if ancestor == canonical_parent {
+            FILE_READ_ATTRIBUTES | DELETE
+        } else {
+            FILE_READ_ATTRIBUTES
+        };
         let handle = fs::OpenOptions::new()
-            .access_mode(FILE_READ_ATTRIBUTES)
+            .access_mode(access_mode)
             .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
             .open(&ancestor)

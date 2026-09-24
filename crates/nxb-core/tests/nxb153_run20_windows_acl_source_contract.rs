@@ -107,7 +107,8 @@ fn windows_workspace_acl_full_control_decoder_accepts_documented_equivalent_sddl
     );
     for marker in [
         "let current_full_control = sddl_has_full_control(&sddl, current_sid);",
-        "let current_any_ace = sddl_aces(&sddl).any(|ace| ace.principal == current_sid);",
+        "fn sddl_principal_matches(actual: &str, expected: &str) -> bool",
+        "sddl_principal_matches(ace.principal, current_sid)",
         "let current_allow_rights = bounded_sddl_allow_rights(&sddl, current_sid);",
         "fn bounded_sddl_allow_rights(sddl: &str, principal: &str) -> String",
         ".take(4)",

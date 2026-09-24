@@ -5,6 +5,7 @@ use std::{
 
 const TARGET_PATH: &str = "crates/nxb-core/src/target.rs";
 const WORKSPACE_PATH: &str = "crates/nxb-core/src/workspace/mod.rs";
+const WORKSPACE_AUTHORITY_PATH: &str = "crates/nxb-core/src/workspace_authority.rs";
 const AUTHORITY_PATH: &str = "crates/nxb-core/src/workspace/read_authority.rs";
 const WINDOWS_PATH: &str = "crates/nxb-core/src/workspace/windows.rs";
 const SCOPE_IMPORT_PATH: &str = "crates/nxb-core/src/target/scope_import.rs";
@@ -65,6 +66,23 @@ fn target_operator_sources_delegate_to_the_generalized_pinned_reader() {
         workspace.contains("pub(crate) use read_authority::set_finalized_read_test_hook;"),
         "{WORKSPACE_PATH}: Linux consumer-race tests must reach the finalized read hook"
     );
+
+    let facade = source(WORKSPACE_AUTHORITY_PATH);
+    assert!(
+        facade.contains("pub(crate) fn read_bounded_source(path: &Path, label: &str, maximum: u64)"),
+        "{WORKSPACE_AUTHORITY_PATH}: active target authority must shadow bounded operator-source reads"
+    );
+    for marker in [
+        "stable_authority_path(path)",
+        "authority_exact_directory(parent)",
+        "read_authority_bounded_source(&stable_path, label, maximum)",
+        "crate::workspace_impl::read_bounded_source(path, label, maximum)",
+    ] {
+        assert!(
+            facade.contains(marker),
+            "{WORKSPACE_AUTHORITY_PATH}: authority-aware bounded source read is missing marker: {marker}"
+        );
+    }
 
     let authority = source(AUTHORITY_PATH);
     assert!(
@@ -146,6 +164,9 @@ fn linux_and_windows_source_authority_pin_the_parent_namespace_and_final_file() 
     );
     for marker in [
         "FILE_READ_ATTRIBUTES",
+        "const DELETE: u32 = 0x0001_0000;",
+        "ancestor == canonical_parent",
+        "FILE_READ_ATTRIBUTES | DELETE",
         "FILE_SHARE_READ",
         "FILE_SHARE_WRITE",
         "FILE_FLAG_BACKUP_SEMANTICS",

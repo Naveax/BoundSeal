@@ -308,10 +308,24 @@ public static class Nxb153DependencyWindowsNative
         uint cchFilePath,
         uint dwFlags);
 
+    private static string CreateFilePath(string path)
+    {
+        if (!System.IO.Path.IsPathFullyQualified(path))
+            throw new ArgumentException("CreateFileW directory path must be fully qualified.", nameof(path));
+        char slash = (char)92;
+        string extendedPrefix = new string(slash, 2) + "?" + slash;
+        if (path.StartsWith(extendedPrefix, StringComparison.Ordinal))
+            return path;
+        string uncPrefix = new string(slash, 2);
+        if (path.StartsWith(uncPrefix, StringComparison.Ordinal))
+            return extendedPrefix + "UNC" + slash + path.Substring(2);
+        return extendedPrefix + path;
+    }
+
     public static SafeFileHandle OpenDirectory(string path)
     {
         SafeFileHandle handle = CreateFileW(
-            path,
+            CreateFilePath(path),
             GENERIC_READ,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             IntPtr.Zero,
@@ -491,6 +505,15 @@ Invoke-NxbRegistryVerifier `
 $fetchHome = Join-Path $RuntimeCargoHome 'fetch'
 $vendorRoot = Join-Path $RuntimeCargoHome 'vendor'
 $gateHome = Join-Path $RuntimeCargoHome 'gate'
+$auditDb = Join-Path $RuntimeCargoHome 'advisory-db'
+$validationRoot = [IO.Path]::GetFullPath((Split-Path -Parent $SnapshotRoot))
+$denyHome = Join-Path $validationRoot ('.nxb-153-cargo-deny-' + [Guid]::NewGuid().ToString('N'))
+if ($denyHome.Length -gt 128) {
+    Fail-NxbDependency "cargo-deny runtime CARGO_HOME exceeds the bounded short-path envelope: $denyHome"
+}
+if (Test-Path -LiteralPath $auditDb) {
+    Fail-NxbDependency "advisory database runtime path unexpectedly already exists: $auditDb"
+}
 foreach ($path in @($fetchHome, $vendorRoot, $gateHome)) {
     if (Test-Path -LiteralPath $path) {
         Fail-NxbDependency "dependency runtime path unexpectedly already exists: $path"
@@ -504,7 +527,9 @@ $runtimeCargoHomeHandle = $null
 $fetchHomeHandle = $null
 $vendorRootHandle = $null
 $gateHomeHandle = $null
+$denyHomeHandle = $null
 $configStream = $null
+$denyConfigStream = $null
 $vendorDirectoryAcls = [Collections.Generic.List[object]]::new()
 $primaryFailure = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
@@ -516,10 +541,20 @@ $oldTemp = $env:TEMP
 $oldOffline = $env:CARGO_NET_OFFLINE
 
 try {
+    if (Test-Path -LiteralPath $denyHome) {
+        Fail-NxbDependency "cargo-deny runtime CARGO_HOME unexpectedly already exists: $denyHome"
+    }
+    New-Item -ItemType Directory -Path $denyHome | Out-Null
+    $denyHomeItem = Get-Item -LiteralPath $denyHome -Force
+    if (($denyHomeItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        Fail-NxbDependency 'cargo-deny runtime CARGO_HOME became a reparse point'
+    }
+
     $runtimeCargoHomeHandle = Open-NxbDependencyDirectory -Path $RuntimeCargoHome -Label 'dependency runtime root'
     $fetchHomeHandle = Open-NxbDependencyDirectory -Path $fetchHome -Label 'fetch CARGO_HOME'
     $vendorRootHandle = Open-NxbDependencyDirectory -Path $vendorRoot -Label 'vendor root'
     $gateHomeHandle = Open-NxbDependencyDirectory -Path $gateHome -Label 'gate CARGO_HOME'
+    $denyHomeHandle = Open-NxbDependencyDirectory -Path $denyHome -Label 'cargo-deny short CARGO_HOME'
 
     $env:CARGO_TARGET_DIR = $RuntimeTarget
     $env:TMP = $RuntimeTmp
@@ -610,6 +645,40 @@ directory = "$vendorForToml"
         $configStream = Open-NxbDependencyFile -Path $configPath -Label 'gate Cargo config'
         $configSha256 = Get-NxbDependencyStreamSha256 -Stream $configStream -Label 'gate Cargo config'
 
+        $denyConfigPath = Join-Path $denyHome 'config.toml'
+        $denyConfigWrite = [IO.File]::Open(
+            $denyConfigPath,
+            [IO.FileMode]::CreateNew,
+            [IO.FileAccess]::ReadWrite,
+            [IO.FileShare]::None
+        )
+        try {
+            $denyConfigWrite.Write($configBytes, 0, $configBytes.Length)
+            $denyConfigWrite.Flush($true)
+        }
+        finally {
+            $denyConfigWrite.Dispose()
+        }
+        $denyConfigStream = Open-NxbDependencyFile -Path $denyConfigPath -Label 'cargo-deny short-home Cargo config'
+        $denyConfigSha256 = Get-NxbDependencyStreamSha256 -Stream $denyConfigStream -Label 'cargo-deny short-home Cargo config'
+
+        $denyHomeProbe = Join-Path $denyHome '.nxb-153-deny-home-probe'
+        [IO.File]::WriteAllText($denyHomeProbe, 'writable', [Text.UTF8Encoding]::new($false))
+        Remove-Item -LiteralPath $denyHomeProbe -Force -ErrorAction Stop
+        $denyConfigWriteBlocked = $false
+        try {
+            [IO.File]::WriteAllText($denyConfigPath, 'changed', [Text.UTF8Encoding]::new($false))
+        }
+        catch [IO.IOException] {
+            $denyConfigWriteBlocked = $true
+        }
+        catch [UnauthorizedAccessException] {
+            $denyConfigWriteBlocked = $true
+        }
+        if (-not $denyConfigWriteBlocked) {
+            Fail-NxbDependency 'cargo-deny short-home Cargo config remained writable while pinned'
+        }
+
         $gateProbe = Join-Path $gateHome '.nxb-153-gate-home-probe'
         [IO.File]::WriteAllText($gateProbe, 'writable', [Text.UTF8Encoding]::new($false))
         Remove-Item -LiteralPath $gateProbe -Force -ErrorAction Stop
@@ -663,8 +732,28 @@ directory = "$vendorForToml"
         Invoke-NxbDependencyCargo -Arguments @('test', '--workspace', '--all-features', '--locked', '--', '--test-threads=1') -Label 'workspace cargo test'
 
         Remove-Item Env:CARGO_NET_OFFLINE -ErrorAction SilentlyContinue
-        Invoke-NxbDependencyTool -Path $AuditPath -Arguments @('audit') -Label 'RustSec cargo audit'
-        Invoke-NxbDependencyTool -Path $DenyPath -Arguments @('check') -Label 'cargo-deny checks'
+        Invoke-NxbDependencyTool -Path $AuditPath -Arguments @('audit', '--db', $auditDb) -Label 'RustSec cargo audit'
+        if (-not (Test-Path -LiteralPath $auditDb -PathType Container)) {
+            Fail-NxbDependency 'RustSec advisory database path was not materialized under the controlled runtime Cargo home'
+        }
+        $auditDbItem = Get-Item -LiteralPath $auditDb -Force
+        if (($auditDbItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            Fail-NxbDependency 'RustSec advisory database path became a reparse point'
+        }
+        $env:CARGO_HOME = $denyHome
+        Invoke-NxbDependencyTool -Path $DenyPath -Arguments @('--locked', 'check') -Label 'cargo-deny checks'
+        $denyAdvisoryRoot = Join-Path $denyHome 'advisory-dbs'
+        if (-not (Test-Path -LiteralPath $denyAdvisoryRoot -PathType Container)) {
+            Fail-NxbDependency 'cargo-deny advisory database root was not materialized under the controlled short CARGO_HOME'
+        }
+        $denyAdvisoryRootItem = Get-Item -LiteralPath $denyAdvisoryRoot -Force
+        if (($denyAdvisoryRootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            Fail-NxbDependency 'cargo-deny advisory database root became a reparse point'
+        }
+        if ((Get-NxbDependencyStreamSha256 -Stream $denyConfigStream -Label 'final cargo-deny short-home Cargo config') -cne $denyConfigSha256) {
+            Fail-NxbDependency 'cargo-deny short-home Cargo source-replacement config changed during validation'
+        }
+        $env:CARGO_HOME = $gateHome
         $env:CARGO_NET_OFFLINE = 'true'
 
         if ((Get-NxbDependencyStreamSha256 -Stream $configStream -Label 'final gate Cargo config') -cne $configSha256) {
@@ -694,6 +783,9 @@ finally {
         $env:CARGO_NET_OFFLINE = $oldOffline
     }
 
+    if ($null -ne $denyConfigStream) {
+        try { $denyConfigStream.Dispose() } catch { $cleanupErrors.Add("cargo-deny config stream dispose: $($_.Exception.Message)") }
+    }
     if ($null -ne $configStream) {
         try { $configStream.Dispose() } catch { $cleanupErrors.Add("config stream dispose: $($_.Exception.Message)") }
     }
@@ -710,6 +802,7 @@ finally {
         }
     }
     foreach ($handleInfo in @(
+        [pscustomobject]@{ Handle = $denyHomeHandle; Label = 'cargo-deny-home' },
         [pscustomobject]@{ Handle = $gateHomeHandle; Label = 'gate-home' },
         [pscustomobject]@{ Handle = $vendorRootHandle; Label = 'vendor-root' },
         [pscustomobject]@{ Handle = $fetchHomeHandle; Label = 'fetch-home' },
@@ -719,7 +812,7 @@ finally {
             try { $handleInfo.Handle.Dispose() } catch { $cleanupErrors.Add("$($handleInfo.Label) handle dispose: $($_.Exception.Message)") }
         }
     }
-    foreach ($path in @($gateHome, $vendorRoot, $fetchHome)) {
+    foreach ($path in @($gateHome, $vendorRoot, $fetchHome, $denyHome)) {
         if (Test-Path -LiteralPath $path) {
             try { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop } catch { $cleanupErrors.Add("dependency runtime removal $path`: $($_.Exception.Message)") }
         }

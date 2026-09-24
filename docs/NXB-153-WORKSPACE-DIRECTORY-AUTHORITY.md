@@ -41,13 +41,14 @@ The primitive calls the unscoped workspace implementation for admission checks. 
 
 Windows retains directory handles for the canonical ancestor chain and child authority using:
 
-- `FILE_READ_ATTRIBUTES`;
+- `FILE_READ_ATTRIBUTES` for canonical ancestor and child identity/reparse handles;
+- `FILE_READ_ATTRIBUTES | DELETE` for the final admitted workspace-root handle;
 - `FILE_FLAG_BACKUP_SEMANTICS`;
 - `FILE_FLAG_OPEN_REPARSE_POINT`;
 - `FILE_SHARE_READ | FILE_SHARE_WRITE`;
-- deliberately no `FILE_SHARE_DELETE`.
+- deliberately no `FILE_SHARE_DELETE` on the workspace-root namespace lease.
 
-The omitted delete share is the namespace-lifetime boundary: rename/delete replacement of the retained root/child authority should be denied while the target operation is alive. Private ACL validation remains required for workspace-owned directories.
+The workspace-root handle requests `DELETE` access and withholds delete sharing. Supported Windows treats rename as delete authority; retaining that root lease blocks rename/delete of the root and descendant namespace while still permitting bounded file creation and hard-link publication beneath admitted child directories. Concurrent target operations reuse one process-local root lease through weak-reference registration rather than reopening mutually incompatible DELETE handles. Child handles remain read-attribute identity/reparse authorities and do not duplicate the root DELETE lease. Private ACL validation remains required for workspace-owned directories.
 
 Supported NTFS runtime proof is still required before admission.
 
@@ -74,6 +75,8 @@ Within an active target authority scope:
 - public output converts stable Linux `/proc/self/fd/...` authority paths back to the admitted logical workspace path.
 
 If an active target operation accidentally attempts workspace-internal I/O through the logical workspace pathname instead of the retained stable authority, the facade fails closed rather than silently delegating to the pathname implementation.
+
+Authority-derived bounded operator-source reads also require the final file parent to be the exact retained root or child authority. Nested workspace-internal parents that were not retained are rejected rather than traversed by pathname after root/child admission.
 
 ## Preserved readiness semantics
 
@@ -108,7 +111,8 @@ The staged source includes:
 - source regression binding `targets` and guided activation `state` to retained child authorities;
 - source regression forbidding guided artifact publication through `root.join(...)`;
 - source regression preserving workspace record/migration receipt readiness checks;
-- source regression rejecting logical-path fallback while authority scope is active.
+- source regression rejecting logical-path fallback while authority scope is active;
+- runtime regression proving a logical path beneath a retained child resolves through that child authority before the broader root authority, so Linux cannot re-resolve targets/ or state/ through the root /proc/self/fd namespace.
 
 ## Remaining admission work
 

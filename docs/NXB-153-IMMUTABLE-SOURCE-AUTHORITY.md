@@ -31,7 +31,7 @@ Both platform paths derive validation source from the exact 40-hex Git head capt
 
 Canonical expected Cargo.lock SHA-256 for the current NXB-153 line remains:
 
-`f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff`
+`1ca9d346ff18263e93a235ca1d4a0ea8a154088435ac4ae8a199f6797c1a3946`
 
 The final platform evidence records the exact head and lockfile digest, and the outer validators require final repository HEAD/worktree continuity before evidence publication.
 

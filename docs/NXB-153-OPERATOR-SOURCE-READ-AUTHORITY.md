@@ -31,6 +31,8 @@ The common primitive:
 
 No write, delete, repair, normalization, or replacement operation is performed on operator input paths.
 
+When a target authority scope is active and an operator source is inside the admitted workspace, the source file must be directly beneath the retained workspace root or one retained child authority. Deeper workspace-internal parents fail closed instead of re-resolving an unpinned intermediate directory. Operator sources outside the admitted workspace continue through the generalized parent-pinning reader and may use ordinary nested directories.
+
 ## Permission modes
 
 The reader has two permission modes:
@@ -54,12 +56,13 @@ If the required handle-derived `/proc/self/fd` authority cannot be resolved, the
 
 Windows arbitrary operator paths pin the canonical parent namespace from the filesystem root through the final parent directory. Each ancestor directory handle is opened with:
 
-- `FILE_READ_ATTRIBUTES`;
+- `FILE_READ_ATTRIBUTES` for canonical ancestor identity/reparse handles;
+- `FILE_READ_ATTRIBUTES | DELETE` for the final canonical parent handle;
 - `FILE_FLAG_BACKUP_SEMANTICS`;
 - `FILE_FLAG_OPEN_REPARSE_POINT`;
 - read/write sharing, but no delete sharing.
 
-Omitting delete sharing prevents rename/delete of each pinned ancestor while the final pathname is resolved. The canonical parent is revalidated after the handle chain is acquired.
+The final canonical parent requests `DELETE` access and withholds delete sharing. This retained namespace authority blocks rename/delete of the parent and containing path while the final pathname is resolved, without requiring incompatible DELETE authority on shared system ancestors. The canonical parent is revalidated after the handle chain is acquired.
 
 The final file still uses the existing BoundSeal read-authority handle: `FILE_FLAG_OPEN_REPARSE_POINT` with read sharing only. That share mode denies new write/delete/rename access while the file is consumed. Final type/reparse state and creation/last-write/file-size metadata are revalidated before return.
 

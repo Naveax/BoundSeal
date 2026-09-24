@@ -7,7 +7,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$expectedLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
+$expectedLockSha256 = '1ca9d346ff18263e93a235ca1d4a0ea8a154088435ac4ae8a199f6797c1a3946'
 $expectedAuditVersion = '0.22.2'
 $expectedDenyVersion = '0.20.2'
 $expectedEnvironmentPolicy = 'nxb-153-compiler-cargo-python-authority-v2'
@@ -92,7 +92,7 @@ function Read-StrictJsonRecord {
 
     Assert-NoReparseComponents -Path $Path -Label $Label
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        throw "Missing $Label: $Path"
+        throw "Missing ${Label}: $Path"
     }
     $item = Get-Item -LiteralPath $Path -Force
     if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {

@@ -16,7 +16,7 @@ $maximumImplementationBytes = 1048576
 $fixedOutputByteLimit = 4096
 $fixedOutputReadTimeoutMilliseconds = 30000
 $fixedOutputExitTimeoutMilliseconds = 30000
-$expectedCargoLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
+$expectedCargoLockSha256 = '1ca9d346ff18263e93a235ca1d4a0ea8a154088435ac4ae8a199f6797c1a3946'
 
 function Invoke-NxbBoundedFixedOutput {
     param(

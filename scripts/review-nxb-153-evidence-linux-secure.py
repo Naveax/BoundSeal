@@ -10,7 +10,7 @@ import tempfile
 import types
 from typing import Any
 
-EXPECTED_LOCK_SHA256 = "f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff"
+EXPECTED_LOCK_SHA256 = "1ca9d346ff18263e93a235ca1d4a0ea8a154088435ac4ae8a199f6797c1a3946"
 MAXIMUM_BYTES = 65536
 
 

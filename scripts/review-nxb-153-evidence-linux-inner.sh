@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 evidence_directory="${2:-$repo_root/target/nxb-validation}"
-expected_lock_sha256="f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff"
+expected_lock_sha256="1ca9d346ff18263e93a235ca1d4a0ea8a154088435ac4ae8a199f6797c1a3946"
 secure_launcher="$repo_root/scripts/review-nxb-153-evidence-linux-secure.py"
 
 fail() {

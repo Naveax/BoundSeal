@@ -166,7 +166,7 @@ The source-staged Windows dependency path:
 8. validates the complete vendor package/file/directory/checksum authority;
 9. stores the original vendor ACL and applies an inherited current-identity write/delete deny ACL;
 10. requires file and subdirectory creation to fail in the vendor root and every vendored package subdirectory;
-11. pins every vendor directory with native handles omitting delete sharing;
+11. pins every vendor directory with native handles omitting delete sharing; native CreateFileW directory opens use a fully-qualified extended-length path so head-specific vendor roots remain valid at and beyond the classic 260-character Win32 boundary;
 12. pins every vendored file with read-only `FileStream` / `FileShare.Read`, withholding write/delete sharing;
 13. re-runs complete vendor verification after the ACL/handle transition;
 14. creates the gate CARGO_HOME `config.toml` create-new, flushes it, then reopens it read-only with write/delete sharing withheld;
@@ -178,6 +178,10 @@ With the parent exact-head source handles still live and the dependency handles/
 
 RustSec/cargo-deny then run under the same pinned source/tool context. Advisory/network behavior for those security tools remains distinct from Cargo dependency-source resolution.
 
+On Windows, cargo-audit is given an explicit fresh advisory database path at .nxb-153-cargo-home/advisory-db through --db. The helper rejects a pre-existing path, requires the fetched database to materialize as a non-reparse directory under the controlled runtime Cargo home, and therefore does not allow LocalSystem/user-profile HOME resolution to select an ambient ~/.cargo/advisory-db. The database remains runtime-only and is removed with the parent immutable snapshot during cleanup.
+
+Cargo-deny retains the same pinned vendor source-replacement configuration but does not use the long gate CARGO_HOME for its own Git-backed advisory database. Windows Git rejects the resulting deeply nested advisory repository with a GIT_DIR-too-big failure. The helper therefore creates a fresh bounded short cargo-deny CARGO_HOME as a sibling beneath the managed validation directory, rejects pre-existence/reparse substitution, writes the exact same vendor config create-new, pins that config read-only, runs cargo-deny --locked check there, verifies the advisory database root and config hash, restores the gate CARGO_HOME, and removes the short runtime home during fail-closed cleanup. The long checksum-verified vendor tree remains the only Cargo dependency source.
+
 ### Windows finalization
 
 Before success, the helper requires:
@@ -185,9 +189,9 @@ Before success, the helper requires:
 - gate Cargo config SHA-256 unchanged on the same pinned stream;
 - complete vendor package/file/directory/checksum authority still valid;
 - environment variables restored to their prior values;
-- pinned config/vendor file/vendor directory/runtime directory handles released;
+- pinned gate/deny config, vendor file/vendor directory and runtime directory handles released;
 - original vendor ACL restored;
-- fetch/vendor/gate runtime trees removed.
+- fetch/vendor/gate runtime trees plus the bounded short cargo-deny runtime home removed.
 
 Any cleanup failure blocks success. The parent then rechecks exact-head workspace Cargo.lock, every pinned tracked Git blob, source pathname/reparse metadata, exact source namespace and canonical security-tool hashes before its own cleanup/success boundary.
 
@@ -216,10 +220,10 @@ Supported Windows/NTFS execution must prove:
 - locked fetch/vendor behavior with the final Cargo.lock;
 - the actual repository metadata passes local/path and Cargo-config admission;
 - vendor ACL deny semantics prevent file/directory injection and in-place write/delete;
-- vendor file/directory handles coexist with Cargo/rustc reads while preventing rename/delete/replacement;
+- vendor file/directory handles coexist with Cargo/rustc reads while preventing rename/delete/replacement, including vendored directory paths at or beyond the classic 260-character Win32 boundary;
 - pinned gate `config.toml` is readable by Cargo while write/delete is denied and gate CARGO_HOME remains otherwise writable;
 - heavy Cargo gates operate offline through the vendored source;
-- security tools remain functional under the staged configuration;
+- security tools remain functional under the staged configuration, with RustSec using the explicit fresh runtime advisory database and cargo-deny using a bounded short runtime CARGO_HOME while retaining the same pinned vendor source replacement;
 - final vendor/config/workspace checks and cleanup succeed.
 
 No Linux or Windows dependency-source runtime PASS is claimed merely because the source implementation exists.

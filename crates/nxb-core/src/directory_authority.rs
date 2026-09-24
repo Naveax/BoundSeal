@@ -5,12 +5,22 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 
+#[cfg(windows)]
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex, OnceLock, Weak},
+};
+
+#[cfg(windows)]
+static WINDOWS_ROOT_NAMESPACE_LEASES: OnceLock<Mutex<BTreeMap<PathBuf, Weak<fs::File>>>> =
+    OnceLock::new();
+
 /// Live authority over one admitted private workspace directory.
 ///
 /// Filesystem I/O after admission must use `path()`, not `display_path()`.
 /// Linux derives the stable path from the held directory descriptor through
-/// `/proc/self/fd`; Windows retains a no-delete-share handle chain so the
-/// canonical pathname cannot be replaced for the authority lifetime.
+/// `/proc/self/fd`; Windows retains identity handles plus one shared root
+/// namespace lease so the admitted tree cannot be renamed for the authority lifetime.
 pub(crate) struct DirectoryAuthority {
     logical_path: PathBuf,
     stable_path: PathBuf,
@@ -18,6 +28,8 @@ pub(crate) struct DirectoryAuthority {
     _handle: fs::File,
     #[cfg(windows)]
     _handles: Vec<fs::File>,
+    #[cfg(windows)]
+    _namespace_lease: Arc<fs::File>,
 }
 
 impl DirectoryAuthority {
@@ -243,6 +255,7 @@ fn pin_private_directory(path: &Path, label: &str) -> Result<DirectoryAuthority>
     use std::os::windows::fs::OpenOptionsExt;
 
     const FILE_READ_ATTRIBUTES: u32 = 0x0000_0080;
+    const DELETE: u32 = 0x0001_0000;
     const FILE_SHARE_READ: u32 = 0x0000_0001;
     const FILE_SHARE_WRITE: u32 = 0x0000_0002;
     const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
@@ -259,9 +272,9 @@ fn pin_private_directory(path: &Path, label: &str) -> Result<DirectoryAuthority>
         .collect::<Vec<_>>();
     ancestors.reverse();
 
-    let mut handles = Vec::with_capacity(ancestors.len());
+    let mut handles = Vec::with_capacity(ancestors.len().saturating_sub(1));
     for ancestor in ancestors {
-        if ancestor.as_os_str().is_empty() {
+        if ancestor.as_os_str().is_empty() || ancestor == canonical {
             continue;
         }
         let handle = fs::OpenOptions::new()
@@ -290,6 +303,41 @@ fn pin_private_directory(path: &Path, label: &str) -> Result<DirectoryAuthority>
         handles.push(handle);
     }
 
+    let namespace_lease = {
+        let registry = WINDOWS_ROOT_NAMESPACE_LEASES.get_or_init(|| Mutex::new(BTreeMap::new()));
+        let mut leases = registry
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Windows root namespace lease registry is poisoned"))?;
+        if let Some(existing) = leases.get(&canonical).and_then(Weak::upgrade) {
+            existing
+        } else {
+            leases.remove(&canonical);
+            let lease = fs::OpenOptions::new()
+                .access_mode(FILE_READ_ATTRIBUTES | DELETE)
+                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+                .open(&canonical)
+                .with_context(|| {
+                    format!(
+                        "could not acquire {label} root namespace lease {}",
+                        canonical.display()
+                    )
+                })?;
+            let metadata = lease.metadata().with_context(|| {
+                format!(
+                    "could not inspect {label} root namespace lease {}",
+                    canonical.display()
+                )
+            })?;
+            if !metadata.is_dir() || metadata_is_reparse_point(&metadata) {
+                bail!("{label} root namespace lease is a reparse point or non-directory");
+            }
+            let lease = Arc::new(lease);
+            leases.insert(canonical.clone(), Arc::downgrade(&lease));
+            lease
+        }
+    };
+
     let current = fs::canonicalize(path).with_context(|| {
         format!(
             "could not re-canonicalize pinned {label} {}",
@@ -314,6 +362,7 @@ fn pin_private_directory(path: &Path, label: &str) -> Result<DirectoryAuthority>
         logical_path: canonical.clone(),
         stable_path: canonical,
         _handles: handles,
+        _namespace_lease: namespace_lease,
     })
 }
 
@@ -378,6 +427,7 @@ fn pin_private_child(
         logical_path: parent.logical_path.join(name),
         stable_path: candidate,
         _handles: handles,
+        _namespace_lease: Arc::clone(&parent._namespace_lease),
     })
 }
 
@@ -546,8 +596,43 @@ mod windows_tests {
         assert!(fs::rename(&targets, &moved).is_err());
 
         drop(targets_authority);
+        assert!(fs::rename(&targets, &moved).is_err());
+
         drop(root_authority);
         fs::rename(&targets, &moved).unwrap();
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn concurrent_windows_root_authorities_share_namespace_lease() {
+        use std::sync::mpsc;
+
+        let root = temporary_root("concurrent-root-lease");
+        fs::create_dir(&root).unwrap();
+        crate::workspace_impl::set_private_directory_permissions(&root).unwrap();
+        let moved = root.with_extension("moved");
+
+        let worker_root = root.clone();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let authority =
+                DirectoryAuthority::pin_private(&worker_root, "worker root", true).unwrap();
+            ready_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            drop(authority);
+        });
+
+        ready_rx.recv().unwrap();
+        let authority = DirectoryAuthority::pin_private(&root, "main root", true).unwrap();
+        assert!(fs::rename(&root, &moved).is_err());
+
+        release_tx.send(()).unwrap();
+        worker.join().unwrap();
+        assert!(fs::rename(&root, &moved).is_err());
+
+        drop(authority);
+        fs::rename(&root, &moved).unwrap();
+        fs::remove_dir_all(moved).unwrap();
     }
 }

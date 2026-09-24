@@ -187,6 +187,13 @@ fn logical_authority_contains(path: &Path) -> bool {
     TARGET_AUTHORITY.with(|state| {
         let state = state.borrow();
         if state
+            .requested_root
+            .as_ref()
+            .is_some_and(|root| path.strip_prefix(root).is_ok())
+        {
+            return true;
+        }
+        if state
             .children
             .values()
             .any(|child| path.strip_prefix(child.display_path()).is_ok())
@@ -197,6 +204,42 @@ fn logical_authority_contains(path: &Path) -> bool {
             .root
             .as_ref()
             .is_some_and(|root| path.strip_prefix(root.display_path()).is_ok())
+    })
+}
+
+fn stable_authority_path(path: &Path) -> Option<PathBuf> {
+    if !target_authority_active() {
+        return None;
+    }
+
+    TARGET_AUTHORITY.with(|state| {
+        let state = state.borrow();
+        // Resolve through the narrowest retained namespace first. On Linux,
+        // mapping a logical child path through the root /proc/self/fd handle
+        // would re-resolve the child name and discard the pinned child FD.
+        for child in state.children.values() {
+            if let Ok(relative) = path.strip_prefix(child.path()) {
+                return Some(child.path().join(relative));
+            }
+            if let Ok(relative) = path.strip_prefix(child.display_path()) {
+                return Some(child.path().join(relative));
+            }
+        }
+        if let (Some(requested), Some(root)) = (state.requested_root.as_ref(), state.root.as_ref())
+        {
+            if let Ok(relative) = path.strip_prefix(requested) {
+                return Some(root.path().join(relative));
+            }
+        }
+        state.root.as_ref().and_then(|root| {
+            path.strip_prefix(root.path())
+                .map(|relative| root.path().join(relative))
+                .or_else(|_| {
+                    path.strip_prefix(root.display_path())
+                        .map(|relative| root.path().join(relative))
+                })
+                .ok()
+        })
     })
 }
 
@@ -366,6 +409,57 @@ pub(crate) fn read_document(path: &Path, label: &str) -> Result<Vec<u8>> {
         return crate::workspace_impl::read_document(path, label);
     }
     read_authority_document(path, label)
+}
+
+#[allow(hidden_glob_reexports)]
+pub(crate) fn read_bounded_source(path: &Path, label: &str, maximum: u64) -> Result<Vec<u8>> {
+    if maximum == 0 || maximum == u64::MAX {
+        bail!("{label} read limit is invalid");
+    }
+
+    let Some(stable_path) = stable_authority_path(path) else {
+        reject_logical_authority_fallback(path, label)?;
+        return crate::workspace_impl::read_bounded_source(path, label, maximum);
+    };
+    read_authority_bounded_source(&stable_path, label, maximum)
+}
+
+fn read_authority_bounded_source(path: &Path, label: &str, maximum: u64) -> Result<Vec<u8>> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("{label} path has no parent"))?;
+    if !authority_exact_directory(parent) {
+        bail!("{label} must be directly beneath an exact retained workspace directory authority");
+    }
+    reject_path_indirections(path, label)?;
+    let mut file = open_authority_file(path, label)?;
+    let initial = file
+        .metadata()
+        .with_context(|| format!("could not inspect pinned {label}: {}", path.display()))?;
+    if !initial.is_file() || initial.len() == 0 || initial.len() > maximum {
+        bail!("{label} exceeds the supported size limit or is empty");
+    }
+    validate_named_document_identity(path, &initial, label)?;
+
+    let capacity =
+        usize::try_from(initial.len()).context("pinned source size does not fit memory")?;
+    let mut bytes = Vec::with_capacity(capacity);
+    (&mut file)
+        .take(maximum + 1)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("could not read pinned {label}: {}", path.display()))?;
+    if bytes.is_empty() || bytes.len() as u64 > maximum {
+        bail!("{label} exceeds the supported size limit or is empty");
+    }
+
+    let final_metadata = file
+        .metadata()
+        .with_context(|| format!("could not re-inspect pinned {label}: {}", path.display()))?;
+    if bytes.len() as u64 != initial.len() || final_metadata.len() != initial.len() {
+        bail!("{label} changed size while being read");
+    }
+    validate_document_stability(path, &initial, &final_metadata, label)?;
+    Ok(bytes)
 }
 
 fn read_authority_document(path: &Path, label: &str) -> Result<Vec<u8>> {
@@ -736,5 +830,76 @@ mod tests {
     #[test]
     fn inactive_facade_preserves_pathname_workspace_behavior() {
         assert!(!target_authority_active());
+    }
+
+    #[test]
+    fn logical_child_sources_resolve_through_the_retained_child_authority() {
+        let root = std::env::temp_dir().join(format!(
+            "nxb-workspace-authority-child-first-{}",
+            crate::workspace_impl::random_hex(12).expect("random test suffix")
+        ));
+        fs::create_dir(&root).expect("create test workspace root");
+        crate::workspace_impl::set_private_directory_permissions(&root)
+            .expect("harden test workspace root");
+
+        let targets = root.join("targets");
+        fs::create_dir(&targets).expect("create test target directory");
+        crate::workspace_impl::set_private_directory_permissions(&targets)
+            .expect("harden test target directory");
+
+        let scope = target_authority_scope();
+        let stable_root =
+            validate_workspace_root(&root, true).expect("admit test workspace root authority");
+        let stable_targets =
+            pin_private_child_path(&stable_root, "targets", "test target directory")
+                .expect("pin test target directory authority");
+
+        let logical_source = root.join("targets").join("authorization.json");
+        assert_eq!(
+            stable_authority_path(&logical_source),
+            Some(stable_targets.join("authorization.json")),
+            "logical paths beneath a retained child must not be re-resolved through the root namespace",
+        );
+
+        drop(scope);
+        fs::remove_dir_all(&root).expect("remove test workspace root");
+    }
+    #[test]
+    fn nested_workspace_operator_sources_fail_closed_without_exact_parent_authority() {
+        let root = std::env::temp_dir().join(format!(
+            "nxb-workspace-authority-nested-source-{}",
+            crate::workspace_impl::random_hex(12).expect("random test suffix")
+        ));
+        fs::create_dir(&root).expect("create test workspace root");
+        crate::workspace_impl::set_private_directory_permissions(&root)
+            .expect("harden test workspace root");
+
+        let targets = root.join("targets");
+        fs::create_dir(&targets).expect("create test target directory");
+        crate::workspace_impl::set_private_directory_permissions(&targets)
+            .expect("harden test target directory");
+        let nested = targets.join("nested");
+        fs::create_dir(&nested).expect("create nested operator-source directory");
+        let source = nested.join("authorization.json");
+        fs::write(&source, b"{}").expect("write nested operator source");
+
+        let scope = target_authority_scope();
+        let stable_root =
+            validate_workspace_root(&root, true).expect("admit test workspace root authority");
+        let _stable_targets =
+            pin_private_child_path(&stable_root, "targets", "test target directory")
+                .expect("pin test target directory authority");
+
+        let error = read_bounded_source(&source, "test operator source", 64)
+            .expect_err("nested workspace source must fail closed without a retained parent");
+        assert!(
+            error
+                .to_string()
+                .contains("directly beneath an exact retained workspace directory authority"),
+            "unexpected nested-source rejection: {error:#}",
+        );
+
+        drop(scope);
+        fs::remove_dir_all(&root).expect("remove test workspace root");
     }
 }

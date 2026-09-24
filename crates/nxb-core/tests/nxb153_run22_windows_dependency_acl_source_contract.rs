@@ -21,6 +21,10 @@ fn windows_vendored_dependency_directories_receive_explicit_deny_acls() {
         "foreach ($directory in @($vendorRoot) + $vendorDirectories)",
         "Acl = Get-Acl -LiteralPath $directory",
         "Set-NxbDependencyWriteDeny -Path $directory",
+        "private static string CreateFilePath(string path)",
+        "System.IO.Path.IsPathFullyQualified(path)",
+        "string extendedPrefix = new string(slash, 2) + \"?\" + slash;",
+        "CreateFilePath(path)",
         "for ($index = $vendorDirectoryAcls.Count - 1; $index -ge 0; $index--)",
         "Set-Acl -LiteralPath $snapshot.Path -AclObject $snapshot.Acl -ErrorAction Stop",
     ] {

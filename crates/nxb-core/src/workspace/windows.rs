@@ -119,7 +119,8 @@ fn validate_windows_acl_with_sid(path: &Path, directory: bool, current_sid: &str
         );
     }
     let current_full_control = sddl_has_full_control(&sddl, current_sid);
-    let current_any_ace = sddl_aces(&sddl).any(|ace| ace.principal == current_sid);
+    let current_any_ace =
+        sddl_aces(&sddl).any(|ace| sddl_principal_matches(ace.principal, current_sid));
     let current_allow_rights = bounded_sddl_allow_rights(&sddl, current_sid);
     let system_full_control =
         sddl_has_full_control(&sddl, WINDOWS_SYSTEM_SID) || sddl_has_full_control(&sddl, "SY");
@@ -358,21 +359,46 @@ fn sddl_rights_include_full_control(rights: &str) -> bool {
         .any(|token| token == b"FA" || token == b"GA")
 }
 
+fn sddl_principal_matches(actual: &str, expected: &str) -> bool {
+    if actual == expected {
+        return true;
+    }
+
+    matches!(
+        (actual, expected),
+        ("SY", "S-1-5-18")
+            | ("S-1-5-18", "SY")
+            | ("LS", "S-1-5-19")
+            | ("S-1-5-19", "LS")
+            | ("NS", "S-1-5-20")
+            | ("S-1-5-20", "NS")
+            | ("BA", "S-1-5-32-544")
+            | ("S-1-5-32-544", "BA")
+            | ("BU", "S-1-5-32-545")
+            | ("S-1-5-32-545", "BU")
+            | ("WD", "S-1-1-0")
+            | ("S-1-1-0", "WD")
+            | ("AU", "S-1-5-11")
+            | ("S-1-5-11", "AU")
+    )
+}
+
 fn sddl_has_full_control(sddl: &str, principal: &str) -> bool {
     sddl_aces(sddl).any(|ace| {
         ace.ace_type == "A"
             && sddl_rights_include_full_control(ace.rights)
-            && ace.principal == principal
+            && sddl_principal_matches(ace.principal, principal)
     })
 }
 
 fn sddl_has_allow_ace(sddl: &str, principal: &str) -> bool {
-    sddl_aces(sddl).any(|ace| ace.ace_type == "A" && ace.principal == principal)
+    sddl_aces(sddl)
+        .any(|ace| ace.ace_type == "A" && sddl_principal_matches(ace.principal, principal))
 }
 
 fn bounded_sddl_allow_rights(sddl: &str, principal: &str) -> String {
     let mut encoded = sddl_aces(sddl)
-        .filter(|ace| ace.ace_type == "A" && ace.principal == principal)
+        .filter(|ace| ace.ace_type == "A" && sddl_principal_matches(ace.principal, principal))
         .map(|ace| {
             ace.rights
                 .chars()
@@ -469,6 +495,29 @@ mod tests {
             "D:P(A;;0x00120089;;;S-1-5-21-100-200-300-1001)",
             sid
         ));
+    }
+
+    #[test]
+    fn matches_well_known_sddl_aliases_to_sid_forms() {
+        for (alias, sid) in [
+            ("SY", "S-1-5-18"),
+            ("LS", "S-1-5-19"),
+            ("NS", "S-1-5-20"),
+            ("BA", "S-1-5-32-544"),
+            ("BU", "S-1-5-32-545"),
+            ("WD", "S-1-1-0"),
+            ("AU", "S-1-5-11"),
+        ] {
+            assert!(sddl_principal_matches(alias, sid));
+            assert!(sddl_principal_matches(sid, alias));
+        }
+
+        assert!(sddl_has_full_control("D:P(A;;FA;;;SY)", WINDOWS_SYSTEM_SID));
+        assert!(sddl_has_allow_ace("D:P(A;;FR;;;AU)", "S-1-5-11"));
+        assert_eq!(
+            bounded_sddl_allow_rights("D:P(A;;FA;;;SY)", WINDOWS_SYSTEM_SID),
+            "FA"
+        );
     }
 
     #[test]

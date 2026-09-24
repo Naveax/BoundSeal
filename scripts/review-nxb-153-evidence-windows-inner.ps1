@@ -7,7 +7,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$expectedLockSha256 = 'f65a915dadc5ab8e29171ec64dc7bfdee33ccfd4204a3bc83a83a9baadee5dff'
+$expectedLockSha256 = '1ca9d346ff18263e93a235ca1d4a0ea8a154088435ac4ae8a199f6797c1a3946'
 $maximumBufferedReviewBytes = 65536
 $maximumBufferedReviewRecords = 4096
 
